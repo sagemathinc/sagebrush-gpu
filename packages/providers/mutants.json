@@ -742,21 +742,6 @@
  },
  {
   "file": "src/reconcile.ts",
-  "old": "return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));",
-  "new": "return opts.toleranceMicros;"
- },
- {
-  "file": "src/reconcile.ts",
-  "old": "return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));",
-  "new": "return Math.min(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));"
- },
- {
-  "file": "src/reconcile.ts",
-  "old": "return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));",
-  "new": "return Math.max(opts.toleranceMicros, Math.ceil((ledger * opts.toleranceBps) / 10_000));"
- },
- {
-  "file": "src/reconcile.ts",
   "old": "else if (Math.abs(difference) <= tolerance(c.ledger, opts)) status = \"ok\";",
   "new": "else if (Math.abs(difference) < tolerance(c.ledger, opts)) status = \"ok\";"
  },
@@ -837,18 +822,8 @@
  },
  {
   "file": "src/reconcile.ts",
-  "old": "opts.toleranceBps < 0 || opts.toleranceBps > 10_000",
-  "new": "opts.toleranceBps < 0"
- },
- {
-  "file": "src/reconcile.ts",
   "old": "if (!Object.hasOwn(BUCKET_MS, opts.bucket)) throw",
   "new": "if (false) throw"
- },
- {
-  "file": "src/reconcile.ts",
-  "old": "if (!/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d(:\\d\\d(\\.\\d+)?)?Z$/.test(t) || !Number.isFinite(ms)) {",
-  "new": "if (!Number.isFinite(ms)) {"
  },
  {
   "file": "src/reconcile.ts",
@@ -959,5 +934,96 @@
   "file": "src/runpod/adapter.ts",
   "old": "const qs = new URLSearchParams({ startTime: norm.start, endTime: norm.end, bucketSize: norm.bucket });",
   "new": "const qs = new URLSearchParams({ startTime: norm.start, endTime: norm.end });"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "return Math.max(opts.toleranceMicros, Number((BigInt(ledger) * BigInt(opts.toleranceBps)) / 10_000n));",
+  "new": "return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));",
+  "note": "LIMITS H1: float product is off near MAX"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "return Math.max(opts.toleranceMicros, Number((BigInt(ledger) * BigInt(opts.toleranceBps)) / 10_000n));",
+  "new": "return opts.toleranceMicros;"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "return Math.max(opts.toleranceMicros, Number((BigInt(ledger) * BigInt(opts.toleranceBps)) / 10_000n));",
+  "new": "return Math.min(opts.toleranceMicros, Number((BigInt(ledger) * BigInt(opts.toleranceBps)) / 10_000n));"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "return Math.max(opts.toleranceMicros, Number((BigInt(ledger) * BigInt(opts.toleranceBps)) / 10_000n));",
+  "new": "return Math.max(opts.toleranceMicros, Number((BigInt(ledger) * BigInt(opts.toleranceBps) + 5_000n) / 10_000n));",
+  "note": "floor, not half-up"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "  checkMicros(\"ledger\", ledger);\n",
+  "new": ""
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "bps < 0 || bps > 10_000",
+  "new": "bps < 0"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (!Number.isSafeInteger(bps) || bps < 0",
+  "new": "if (bps < 0"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "    back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d ||",
+  "new": "    back.getUTCFullYear() !== y ||",
+  "note": "TESTS T2: no rollover"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "back.getUTCHours() !== h || back.getUTCMinutes() !== mi || back.getUTCSeconds() !== s || back.getUTCMilliseconds() !== ms",
+  "new": "back.getUTCMilliseconds() !== ms"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "const ISO_UTC = /^(\\d{4})-(\\d\\d)-(\\d\\d)T(\\d\\d):(\\d\\d)(?::(\\d\\d)(?:\\.(\\d{1,3}))?)?Z$/;",
+  "new": "const ISO_UTC = /^(\\d{4})-(\\d\\d)-(\\d\\d)T(\\d\\d):(\\d\\d)(?::(\\d\\d)(?:\\.(\\d{1,3}))?)?Z/;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (seen.has(key)) throw bad(\"has two records for one pod and bucket\");\n",
+  "new": "",
+  "note": "TESTS T3"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const key = `${r[\"podId\"]}\\u0000${s}`;",
+  "new": "const key = `${r[\"podId\"]}\\u0000${Math.random()}`;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  if (meta[\"uniquePodCount\"] !== pods.size) throw bad(\"has a pod count that doesn't match\");\n",
+  "new": "",
+  "note": "TESTS T3"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (!Number.isSafeInteger(sum)) throw bad(\"adds up to more than a safe integer of micros\");\n",
+  "new": "",
+  "note": "LIMITS H2"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const s = parseIsoUtc(r[\"startTime\"]) ?? Number.NaN;",
+  "new": "const s = typeof r[\"startTime\"] === \"string\" ? Date.parse(r[\"startTime\"]) : Number.NaN;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const start = parseIsoUtc(query.start) ?? Number.NaN;",
+  "new": "const start = Date.parse(query.start);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  const x = parseIsoUtc(a);\n  return x !== null && x === parseIsoUtc(b);",
+  "new": "  return typeof a === \"string\" && Date.parse(a) === Date.parse(b);"
  }
 ]

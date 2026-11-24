@@ -82,11 +82,33 @@ export interface ReconcileRow {
 
 const BUCKET_MS: Record<BillingBucket, number> = { hour: 3_600_000, day: 86_400_000 };
 
-function parseTime(name: string, t: string): number {
-  const ms = Date.parse(t);
-  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?Z$/.test(t) || !Number.isFinite(ms)) {
-    throw new RangeError(`${name} is not an ISO-8601 UTC time: ${t}`);
+const ISO_UTC = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d)(?:\.(\d{1,3}))?)?Z$/;
+
+/**
+ * Milliseconds for an ISO-8601 UTC time ("Z" only, up to milliseconds), or null. Every field
+ * must be in range: a date that doesn't exist (2026-02-30) is refused, never rolled over.
+ */
+export function parseIsoUtc(t: unknown): number | null {
+  if (typeof t !== "string") return null;
+  const m = ISO_UTC.exec(t);
+  if (m === null) return null;
+  const [y, mo, d, h, mi, s, ms] = [m[1], m[2], m[3], m[4], m[5], m[6] ?? "0", (m[7] ?? "0").padEnd(3, "0")].map(Number) as [
+    number, number, number, number, number, number, number,
+  ];
+  const v = Date.UTC(y, mo - 1, d, h, mi, s, ms);
+  const back = new Date(v);
+  if (
+    back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d ||
+    back.getUTCHours() !== h || back.getUTCMinutes() !== mi || back.getUTCSeconds() !== s || back.getUTCMilliseconds() !== ms
+  ) {
+    return null;
   }
+  return v;
+}
+
+function parseTime(name: string, t: string): number {
+  const ms = parseIsoUtc(t);
+  if (ms === null) throw new RangeError(`${name} is not a valid ISO-8601 UTC time: ${t}`);
   return ms;
 }
 
@@ -99,9 +121,21 @@ function checkMicros(name: string, x: number): void {
   if (!Number.isSafeInteger(x) || x < 0) throw new RangeError(`${name} is not a non-negative safe integer: ${x}`);
 }
 
-/** The allowed difference for a ledger amount: the larger of the absolute and relative tolerances. */
+function checkBps(bps: number): void {
+  if (!Number.isSafeInteger(bps) || bps < 0 || bps > 10_000) {
+    throw new RangeError(`toleranceBps must be an integer in [0, 10000], got ${bps}`);
+  }
+}
+
+/**
+ * The allowed difference for a ledger amount: the larger of the absolute tolerance and
+ * floor(ledger * bps / 10000), computed exactly (BigInt) for every safe ledger amount.
+ */
 export function tolerance(ledger: Micros, opts: Pick<ReconcileOptions, "toleranceMicros" | "toleranceBps">): Micros {
-  return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));
+  checkMicros("ledger", ledger);
+  checkMicros("toleranceMicros", opts.toleranceMicros);
+  checkBps(opts.toleranceBps);
+  return Math.max(opts.toleranceMicros, Number((BigInt(ledger) * BigInt(opts.toleranceBps)) / 10_000n));
 }
 
 /**
@@ -118,9 +152,7 @@ export function reconcile(
   opts: ReconcileOptions,
 ): ReconcileRow[] {
   checkMicros("toleranceMicros", opts.toleranceMicros);
-  if (!Number.isSafeInteger(opts.toleranceBps) || opts.toleranceBps < 0 || opts.toleranceBps > 10_000) {
-    throw new RangeError(`toleranceBps must be an integer in [0, 10000], got ${opts.toleranceBps}`);
-  }
+  checkBps(opts.toleranceBps);
   if (!Object.hasOwn(BUCKET_MS, opts.bucket)) throw new RangeError(`unknown bucket: ${String(opts.bucket)}`);
   const closedBefore = parseTime("closedBefore", opts.closedBefore);
   const size = BUCKET_MS[opts.bucket];

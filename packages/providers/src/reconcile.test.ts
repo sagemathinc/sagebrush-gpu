@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LedgerEntry } from "@sbgpu/api";
-import { bucketStartMs, reconcile, tolerance, type MachineBinding, type ProviderBillingRecord, type ReconcileOptions } from "./reconcile.ts";
+import { bucketStartMs, parseIsoUtc, reconcile, tolerance, type MachineBinding, type ProviderBillingRecord, type ReconcileOptions } from "./reconcile.ts";
 
 const M1 = "mch_0000000000000000000a";
 const M2 = "mch_0000000000000000000b";
@@ -160,4 +160,73 @@ test("the ledger side is the provider cost, not the price with margin", () => {
   const [row] = reconcile([bill("podA", H0, 600_000)], hour(M1, H0, 10_000), bindings, opts);
   assert.equal(row!.ledger, 600_000);
   assert.equal(row!.status, "ok");
+});
+
+// ---------------------------------------------------------------- exact tolerance (LIMITS H1, TESTS T1)
+
+const exactTol = (ledger: number, bps: number, abs: number) => {
+  const rel = (BigInt(ledger) * BigInt(bps)) / 10_000n;
+  return Number(rel > BigInt(abs) ? rel : BigInt(abs));
+};
+
+test("tolerance is exact near the top of the safe range", () => {
+  const cases: Array<[number, number]> = [
+    [9007199254740909, 33], [2 ** 52, 9999], [Number.MAX_SAFE_INTEGER, 10_000], [Number.MAX_SAFE_INTEGER, 1],
+    [Number.MAX_SAFE_INTEGER, 9999], [Number.MAX_SAFE_INTEGER - 7, 3333], [2 ** 52 + 1, 7], [1e15 + 3, 1234],
+  ];
+  for (const [ledger, bps] of cases) {
+    assert.equal(tolerance(ledger, { toleranceMicros: 0, toleranceBps: bps }), exactTol(ledger, bps, 0), `${ledger} ${bps}`);
+  }
+  assert.equal(tolerance(9007199254740909, { toleranceMicros: 0, toleranceBps: 33 }), 29723757540644);
+  assert.equal(tolerance(2 ** 52, { toleranceMicros: 0, toleranceBps: 9999 }), 4503149267407758);
+});
+
+test("statuses at exactly the tolerance and one past it, high in the safe range", () => {
+  const ledgerAmount = 2 ** 52;
+  const bps = 9999;
+  const tol = exactTol(ledgerAmount, bps, 0);
+  const big: LedgerEntry = { ...entry(M1, H0, 1), amount: { providerCost: ledgerAmount, margin: 0, total: ledgerAmount } };
+  const at = (billed: number) => reconcile([bill("podA", H0, billed)], [big], bindings, { ...opts, toleranceMicros: 0, toleranceBps: bps })[0]!.status;
+  assert.equal(at(ledgerAmount - tol), "ok");
+  assert.equal(at(ledgerAmount - tol - 1), "under");
+  assert.equal(at(ledgerAmount + tol), "ok");
+  assert.equal(at(ledgerAmount + tol + 1), "over");
+  const l2 = 9007199254740909;
+  const t2 = exactTol(l2, 33, 0);
+  const big2: LedgerEntry = { ...entry(M1, H0, 1), amount: { providerCost: l2, margin: 0, total: l2 } };
+  const at2 = (billed: number) => reconcile([bill("podA", H0, billed)], [big2], bindings, { ...opts, toleranceMicros: 0, toleranceBps: 33 })[0]!.status;
+  assert.equal(at2(l2 - t2), "ok");
+  assert.equal(at2(l2 - t2 - 1), "under");
+});
+
+test("tolerance validates its own inputs", () => {
+  for (const [ledger, abs, bps] of [[-1, 0, 0], [1.5, 0, 0], [2 ** 53, 0, 0], [1, -1, 0], [1, 0.5, 0], [1, 0, -1], [1, 0, 10_001], [1, 0, 0.5], [1, 0, Number.NaN]]) {
+    assert.throws(() => tolerance(ledger!, { toleranceMicros: abs!, toleranceBps: bps! }), RangeError, `${ledger} ${abs} ${bps}`);
+  }
+  assert.equal(tolerance(0, { toleranceMicros: 0, toleranceBps: 10_000 }), 0);
+  assert.equal(tolerance(Number.MAX_SAFE_INTEGER, { toleranceMicros: Number.MAX_SAFE_INTEGER, toleranceBps: 0 }), Number.MAX_SAFE_INTEGER);
+});
+
+// ---------------------------------------------------------------- calendar (TESTS T2)
+
+test("parseIsoUtc accepts real UTC times only", () => {
+  assert.equal(parseIsoUtc("2026-11-24T10:00Z"), Date.parse(H0));
+  assert.equal(parseIsoUtc("2026-11-24T10:00:00Z"), Date.parse(H0));
+  assert.equal(parseIsoUtc("2026-11-24T10:00:00.000Z"), Date.parse(H0));
+  assert.equal(parseIsoUtc("2026-11-24T10:00:00.5Z"), Date.parse(H0) + 500);
+  assert.equal(parseIsoUtc("2024-02-29T00:00:00Z"), Date.parse("2024-02-29T00:00:00Z"));
+  for (const bad of [
+    "2026-02-30T10:00Z", "2026-02-29T00:00:00Z", "2026-13-01T00:00:00Z", "2026-00-10T00:00:00Z", "2026-11-31T00:00:00Z",
+    "2026-11-24T24:00:00Z", "2026-11-24T23:60:00Z", "2026-11-24T23:59:60Z", "2026-11-24T10:60:00Z", "2026-11-24T10:00:60Z",
+    "2026-11-24T10:00:00Zjunk", "x2026-11-24T10:00:00Z", "2026-11-24T10:00:00+00:00", "2026-11-24T10:00:00z",
+    "2026-11-24T10:00:00.0000Z", "2026-11-24 10:00:00Z", "2026-11-24", "", 7, null,
+  ]) {
+    assert.equal(parseIsoUtc(bad), null, String(bad));
+  }
+});
+
+test("reconcile refuses nonexistent dates instead of rolling them over", () => {
+  assert.throws(() => reconcile([], [entry(M1, "2026-02-30T10:00Z", 1)], bindings, opts), RangeError);
+  assert.throws(() => reconcile([bill("podA", "2026-02-30T10:00:00Z", 1, "2026-02-30T11:00:00Z")], [], bindings, opts), RangeError);
+  assert.throws(() => reconcile([], [], bindings, { ...opts, closedBefore: "2026-02-30T00:00:00Z" }), RangeError);
 });

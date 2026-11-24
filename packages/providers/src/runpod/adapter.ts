@@ -9,7 +9,7 @@ import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { retryAfterSeconds, type Fetch } from "../http.ts";
 import { machineName, parseMachineName } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
-import type { BillingQuery, BillingSource, ProviderBillingRecord } from "../reconcile.ts";
+import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
 import type {
   AdapterInfo,
   LaunchResult,
@@ -237,18 +237,26 @@ export function parsePodBilling(json: unknown, query: BillingQuery): ProviderBil
   const totals = meta["totals"];
   if (!isObject(totals)) throw bad("has no totals");
   if (meta["recordCount"] !== json["records"].length) throw bad("has a record count that doesn't match");
-  const start = Date.parse(query.start);
-  const end = Date.parse(query.end);
+  const start = parseIsoUtc(query.start);
+  const end = parseIsoUtc(query.end);
+  if (start === null || end === null) throw new RangeError("billing query times must be valid ISO-8601 UTC");
   const size = BILLING_BUCKET_MS[query.bucket];
   const out: ProviderBillingRecord[] = [];
   let sum = 0;
+  // RunPod emits one record per pod per bucket; a repeat would be counted twice.
+  const seen = new Set<string>();
+  const pods = new Set<string>();
   for (const r of json["records"]) {
     if (!isObject(r) || typeof r["podId"] !== "string" || r["podId"] === "") throw bad("has a record without a pod");
-    const s = typeof r["startTime"] === "string" ? Date.parse(r["startTime"]) : Number.NaN;
-    const e = typeof r["endTime"] === "string" ? Date.parse(r["endTime"]) : Number.NaN;
+    const s = parseIsoUtc(r["startTime"]) ?? Number.NaN;
+    const e = parseIsoUtc(r["endTime"]) ?? Number.NaN;
     if (!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || e > end || s % size !== 0) {
       throw bad("has a record outside its buckets");
     }
+    const key = `${r["podId"]}\u0000${s}`;
+    if (seen.has(key)) throw bad("has two records for one pod and bucket");
+    seen.add(key);
+    pods.add(r["podId"]);
     const total = usdField(r, "totalAmount");
     out.push({
       provider: "runpod",
@@ -261,13 +269,16 @@ export function parsePodBilling(json: unknown, query: BillingQuery): ProviderBil
       disk: usdField(r, "diskAmount"),
     });
     sum += total;
+    if (!Number.isSafeInteger(sum)) throw bad("adds up to more than a safe integer of micros");
   }
+  if (meta["uniquePodCount"] !== pods.size) throw bad("has a pod count that doesn't match");
   if (Math.abs(sum - usdField(totals, "totalAmount")) > out.length) throw bad("doesn't add up to its totals");
   return out;
 }
 
 function sameInstant(a: unknown, b: string): boolean {
-  return typeof a === "string" && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
+  const x = parseIsoUtc(a);
+  return x !== null && x === parseIsoUtc(b);
 }
 
 export class RunPodAdapter implements ProviderAdapter, BillingSource {
@@ -464,8 +475,8 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
    */
   async billing(query: BillingQuery): Promise<ProviderBillingRecord[]> {
     const size = Object.hasOwn(BILLING_BUCKET_MS, query.bucket) ? BILLING_BUCKET_MS[query.bucket] : Number.NaN;
-    const start = Date.parse(query.start);
-    const end = Date.parse(query.end);
+    const start = parseIsoUtc(query.start) ?? Number.NaN;
+    const end = parseIsoUtc(query.end) ?? Number.NaN;
     if (!Number.isFinite(size) || !Number.isFinite(start) || !Number.isFinite(end)) {
       throw new RangeError("billing query needs ISO start and end and a bucket of hour or day");
     }

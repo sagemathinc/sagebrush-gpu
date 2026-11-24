@@ -75,6 +75,28 @@ const incomplete: Array<[string, unknown]> = [
   ["a missing diskAmount", response([{ ...R1, diskAmount: undefined }])],
 ];
 
+// TESTS T3 and LIMITS H2
+const half = 4503599627.370496; // 2^52 micros
+incomplete.push(
+  ["two records for one pod and bucket", response([R1, { ...R1 }])],
+  ["a pod count that doesn't match", response([R1, R2], { uniquePodCount: 1 })],
+  ["a pod count of two for one pod", response([R1, record("podA", "2026-11-24T11:00:00Z", "2026-11-24T12:00:00Z", 0.69)], { uniquePodCount: 2 })],
+  ["no pod count", response([R1], { uniquePodCount: undefined })],
+  ["records adding up past a safe integer", response(
+    [record("p1", "2026-11-24T10:00:00Z", "2026-11-24T11:00:00Z", half), record("p2", "2026-11-24T10:00:00Z", "2026-11-24T11:00:00Z", half)],
+    {}, 9007199254.74099)],
+  ["a record on a nonexistent date", response([record("p", "2026-02-30T10:00:00Z", "2026-02-30T11:00:00Z", 1)])],
+  ["an echoed start with an offset", response([], { query: { ...response([]).metadata.query, startTime: "2026-11-24T10:00:00+00:00" } })],
+  ["an echoed end on a nonexistent date", response([], { query: { ...response([]).metadata.query, endTime: "2026-11-31T12:00:00Z" } })],
+  ["a record time with an offset", response([record("p", "2026-11-24T10:00:00+00:00", "2026-11-24T11:00:00Z", 1)])],
+);
+
+test("one pod in several buckets is fine", () => {
+  const two = response([R1, record("podA", "2026-11-24T11:00:00Z", "2026-11-24T12:00:00Z", 0.5)]);
+  assert.equal(two.metadata.uniquePodCount, 1);
+  assert.equal(parsePodBilling(two, Q).length, 2);
+});
+
 for (const [what, json] of incomplete) {
   test(`parsePodBilling rejects ${what}`, () => {
     assert.throws(() => parsePodBilling(json, Q), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
@@ -109,6 +131,9 @@ test("billing refuses windows that aren't whole buckets, before any request", as
     { ...Q, start: "today" },
     { ...Q, bucket: "week" as "hour" },
     { ...Q, bucket: "day" },
+    { ...Q, start: "2026-02-30T10:00:00Z" },
+    { start: "2026-02-30T10:00:00Z", end: "2026-03-02T12:00:00Z", bucket: "hour" },
+    { ...Q, end: "2026-11-24T12:00:00+00:00" },
     { start: "2026-01-01T00:00:00Z", end: new Date(Date.parse("2026-01-01T00:00:00Z") + (MAX_BILLING_BUCKETS + 1) * 3_600_000).toISOString(), bucket: "hour" },
   ];
   for (const q of bad) {
