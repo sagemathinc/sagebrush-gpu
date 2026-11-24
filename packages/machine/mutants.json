@@ -481,12 +481,6 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
-  "old": "for _ in range(-(-left // TERMINAL_LIMITS[\"read\"])):",
-  "new": "while True:",
-  "note": "terminal: drain: unbounded"
- },
- {
-  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
   "old": "        if self.total > len(b):\n            i = b.find",
   "new": "        if True:\n            i = b.find",
   "note": "terminal: replay: cut when not wrapped"

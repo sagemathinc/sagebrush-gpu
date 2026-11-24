@@ -464,6 +464,42 @@ def test_final_drain_during_a_replay_stays_behind_it():
     assert [m["t"] for m in page.msgs] == ["replay", "live", "exit"], page.msgs
 
 
+def test_exit_ends_the_output():
+    """After the exit message, nothing more goes to the page: no fed bytes, no final drain, no credit."""
+    tm = FakeTimers()
+    tm.t = 1000
+    sess = FakeSession(tm)
+    sess.exit = {"code": 0, "signal": None}
+    page = FakePage()
+    a = O.Attachment(sess, page, lambda b: len(b))
+    a.feed(b"before")
+    a.flush_now()
+    a.send_exit()
+    assert a.credit() == 0 and a.room() == 0
+    a.feed(b"after")
+    assert a.push_final(b"later") == 0
+    tm.advance(1000)
+    a.flush_now()
+    assert b"".join(base64.b64decode(f["b"]) for f in page.frames) == b"before"
+    assert [m["t"] for m in page.msgs] == ["exit"], page.msgs
+
+
+def test_no_pty_reads_during_a_replay():
+    """While a replay is being sent, room() is 0 (the PTY isn't read, so live output can't overtake the replay), even
+    with credit to spare; once the replay is done, reads resume."""
+    tm = FakeTimers()
+    tm.t = 1000
+    page = FakePage()
+    a = O.Attachment(FakeSession(tm), page, lambda b: len(b))
+    a.start_replay(b"r" * 1000)
+    assert a.replaying and a.credit() > 0 and a.room() == 0
+    for _ in range(10):
+        tm.advance(100)
+        a.ack(a.sent)
+    assert not a.replaying and a.room() > 0
+    assert [m["t"] for m in page.msgs] == ["replay", "live"], page.msgs
+
+
 def test_final_drain_stays_under_credit():
     """with a page that never acks, the final drain adds only what the credit allows; the rest stays in
     the ring only."""

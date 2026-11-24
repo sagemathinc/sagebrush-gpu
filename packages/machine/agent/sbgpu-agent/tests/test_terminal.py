@@ -13,6 +13,7 @@ termharness.py.  The relay authenticates pages there, so the proof tests are rep
   nothing; a page-close detaches (the shell goes on); a lost leg ends every grant, and a new leg reattaches.
 """
 import asyncio
+import base64
 import os
 import sys
 import time
@@ -444,6 +445,66 @@ def test_drain_is_bounded_whatever_writes():
         T.os.read = real
     cap, rd = T.TERMINAL_LIMITS["ring"], T.TERMINAL_LIMITS["read"]
     assert len(calls) <= -(-cap // rd) and sum(calls) <= cap and len(s.ring.buf) == sum(calls) == cap, (len(calls), sum(calls))
+
+
+def test_rate_ceiling_holds_the_reads():
+    """At most TERMINAL_LIMITS["rate"] bytes are read from a PTY in one second (no page attached, a PTY that always
+    has more): then the reads pause until the second is over."""
+    import types
+
+    class Timers:
+        def __init__(self):
+            self.t, self.q = 10_000, []
+
+        def now(self):
+            return self.t
+
+        def set_timeout(self, f, ms):
+            self.q.append((self.t + ms, f))
+            return len(self.q)
+
+        def clear_timeout(self, h):
+            pass
+
+    class Loop:
+        def add_reader(self, fd, f):
+            pass
+
+        def remove_reader(self, fd):
+            pass
+
+    host = types.SimpleNamespace(stats={"outBytes": 0, "ratePauses": 0}, timers=Timers(), loop=Loop())
+    s = T.Session(host, "s" * 22, 24, 80)
+    s.master = 12345  # (never a real fd: the read is replaced)
+    real = T.os.read
+    T.os.read = lambda fd, n: b"z" * n if fd == 12345 else real(fd, n)
+    try:
+        for _ in range(200):
+            s._readable()
+    finally:
+        T.os.read = real
+    assert host.stats["outBytes"] == T.TERMINAL_LIMITS["rate"], host.stats
+    assert host.stats["ratePauses"] >= 1 and s.rate_timer is not None
+
+
+@aio
+async def test_input_after_the_exit_goes_nowhere():
+    """Input to a session whose shell has exited is dropped, whatever its size: the page isn't closed for it (no
+    input credit is used)."""
+    t = await Run().start(sh=EXIT7)
+    try:
+        leg = await t.relay.leg()
+        p = await tpaired(t, leg, 1)
+        sid = (await p.open())["session"]
+        g, m = await recv(leg)
+        assert m["t"] == "exit", m
+        chunk = base64.b64encode(b"z" * 16_384).decode()
+        for _ in range(8):  # (128 KiB: twice the input credit)
+            p.send({"t": "in", "b": chunk})
+        await asyncio.sleep(0.3)
+        assert not t.runner.pages[1].closed and sid not in t.terms.running
+    finally:
+        await t.end()
 
 
 def test_ring_and_replay():
