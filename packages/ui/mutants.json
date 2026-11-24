@@ -1,0 +1,412 @@
+[
+ {
+  "file": "src/mock/backend.ts",
+  "old": "export const CHECK_INTERVAL_SECONDS = 60;",
+  "new": "export const CHECK_INTERVAL_SECONDS = 120;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "export const SAFETY_SECONDS = 60;",
+  "new": "export const SAFETY_SECONDS = 0;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "export const BOOT_SECONDS = 90;",
+  "new": "export const BOOT_SECONDS = 91;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "export const PROVIDER_STOP_SECONDS = 15;",
+  "new": "export const PROVIDER_STOP_SECONDS = 16;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (m.state === \"starting\" && rec.timerEnd != null && t >= rec.timerEnd)",
+  "new": "if (m.state === \"starting\" && rec.timerEnd != null && t > rec.timerEnd)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "} else if (m.state === \"stopping\" && rec.timerEnd != null && t >= rec.timerEnd) {",
+  "new": "} else if (m.state === \"stopping\" && rec.timerEnd != null && t > rec.timerEnd) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (!projectRoleAtLeast(role, access.minRole)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (!orgRoleAtLeast(role, access.minRole)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (rec.m.memberId !== this.#callerMember(projectId, user.id)?.id) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (this.#orgRole(project.orgId, userId) === \"owner\") return \"owner\";",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (access.auth === \"agent\" || access.auth === \"system\") throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (user == null) throw new ApiFail(\"unauthenticated\", \"sign in first\");",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const underCap = allowed.filter((o) => o.pricePerHour.total <= project.policy.maxPricePerHour);",
+  "new": "const underCap = allowed.filter((o) => o.pricePerHour.total < project.policy.maxPricePerHour);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const withStock = underCap.filter((o) => o.stock !== \"none\");",
+  "new": "const withStock = underCap;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "else if (required == null || unspent < required)",
+  "new": "else if (required == null || unspent <= required)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "accruing.length >= project.policy.maxConcurrentMachines ||",
+  "new": "accruing.length > project.policy.maxConcurrentMachines ||"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": ".length >= project.policy.maxMachinesPerMember",
+  "new": ".length > project.policy.maxMachinesPerMember"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (this.#now < Date.parse(project.startsAt)) reason = \"projectNotStarted\";",
+  "new": "if (this.#now <= Date.parse(project.startsAt)) reason = \"projectNotStarted\";"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "else if (this.#now >= Date.parse(project.endsAt)) reason = \"projectEnded\";",
+  "new": "else if (this.#now > Date.parse(project.endsAt)) reason = \"projectEnded\";"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "o.gpuCount === gpuCount &&",
+  "new": "true &&"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "policy.allowedProviders.includes(o.provider) &&",
+  "new": "true &&"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(countries == null || countries.includes(o.country)) &&",
+  "new": "true &&"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(policy.allowedCountries == null || policy.allowedCountries.includes(o.country)),",
+  "new": "true,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "a.pricePerHour.total - b.pricePerHour.total ||",
+  "new": "b.pricePerHour.total - a.pricePerHour.total ||"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "} else if (m.state === \"running\" && save) {",
+  "new": "} else if (m.state === \"running\") {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      m.finalSaveIncomplete = true;\n",
+  "new": "      m.finalSaveIncomplete = false;\n"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (bytesDone < progress.bytesTotal) {",
+  "new": "if (bytesDone <= progress.bytesTotal) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (t < Date.parse(project.endsAt)) continue;",
+  "new": "if (t <= Date.parse(project.endsAt)) continue;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (stop) for (const rec of accruing) this.#beginStop(rec, \"budget\", true);",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (m.maxSessionEndsAt != null && t >= Date.parse(m.maxSessionEndsAt))",
+  "new": "if (m.maxSessionEndsAt != null && t > Date.parse(m.maxSessionEndsAt))"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (m.save.state === \"saving\") this.#advanceSave(rec);",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": ".filter((m) => m.projectId === params.projectId && m.state !== \"deleted\" && (all || m.memberId === me?.id));",
+  "new": ".filter((m) => m.projectId === params.projectId && m.state !== \"deleted\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "allocations = allocations.filter((a) => a.id === me?.allocationId || a.id === team?.allocationId);",
+  "new": "allocations = allocations.filter((a) => a.id === me?.allocationId);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "return { teams: teams.filter((t) => t.id === own) };",
+  "new": "return { teams };"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (user == null || this.#callerMember(rec.m.projectId, user.id)?.id !== rec.m.memberId) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (!save) this.#requireRole(params.projectId, user, \"manager\", \"stopping without a save\");\n      const stopping",
+  "new": "const stopping"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (!save) this.#requireRole(rec.m.projectId, user, \"manager\", \"stopping without a save\");\n      const own",
+  "new": "const own"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "this.#beginStop(rec, own ? \"user\" : \"manager\", save);",
+  "new": "this.#beginStop(rec, \"user\", save);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        if (existing) {\n          out.push(existing);\n          continue;\n        }\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        if (m.email === email && m.status === \"invited\") {",
+  "new": "        if (false) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        if (old) old.memberIds = old.memberIds.filter((x) => x !== id);\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (rec.m.memberId === member.id) this.#beginStop(rec, \"manager\", true);",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (rec.m.state !== \"stopped\") throw new ApiFail(\"invalidState\", `machine is ${rec.m.state}`);",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (!quote.canStart || offer == null) throw new ApiFail",
+  "new": "if (offer == null) throw new ApiFail"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    rec.accruedUntil = null;\n    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");",
+  "new": "    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (inv.allocation !== undefined && !isNonNegativeMicros(inv.allocation))",
+  "new": "if (false)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "for (const a of this.allocations.values()) if (a.projectId === project.id) allocated += a.amount;",
+  "new": "for (const a of this.allocations.values()) allocated += a.amount;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (this.#accruingOn(team.allocationId).length > 0) throw new ApiFail(\"invalidState\", \"the team has running machines\");",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (body.endsAt !== undefined && !isIsoTime(body.endsAt)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (all) this.#requireRole(params.projectId, user, \"assistant\", \"listing all machines\");",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const usd = (micros: Micros): number => Number((micros / 1_000_000).toFixed(6));",
+  "new": "const usd = (micros: Micros): number => Number((micros / 1_000_000).toFixed(2));"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "rows.push([m.email, m.name, team,",
+  "new": "rows.push([m.email, m.name, null,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (rec.m.save.state !== \"saving\") {\n        rec.m.save",
+  "new": "if (false) {\n        rec.m.save"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (rec.m.state !== \"running\") throw new ApiFail(\"invalidState\", `machine is ${rec.m.state}`);\n      if (rec.m.save",
+  "new": "if (false) throw new ApiFail(\"invalidState\", \"\");\n      if (rec.m.save"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "if (route.method !== \"GET\" && route.method !== \"DELETE\") {",
+  "new": "if (route.method !== \"GET\") {"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "credentials: \"same-origin\"",
+  "new": "credentials: \"include\""
+ },
+ {
+  "file": "src/client.ts",
+  "old": "if (value !== undefined) search.set(key, value);",
+  "new": "search.set(key, String(value));"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "if (TEXT_RESPONSES.has(name)) return",
+  "new": "if (false) return"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "throw new ApiError(\"network\", 0,",
+  "new": "throw new ApiError(\"badResponse\", 0,"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message);",
+  "new": ""
+ },
+ {
+  "file": "src/mock/fetch.ts",
+  "old": "return new Response(String(res.body), { status: res.status, headers: { \"content-type\": \"text/csv; charset=utf-8\" } });",
+  "new": "return Response.json(res.body, { status: res.status });"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (total > budget) throw new ApiFail(\"conflict\"",
+  "new": "if (total >= budget + 1 && false) throw new ApiFail(\"conflict\""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (total > budget) throw new ApiFail(\"conflict\"",
+  "new": "if (total >= budget) throw new ApiFail(\"conflict\""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (a.projectId === projectId && a.id !== replacing) total += a.amount;",
+  "new": "if (a.projectId === projectId) total += a.amount;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (a.projectId === projectId && a.id !== replacing) total += a.amount;",
+  "new": "if (a.id !== replacing) total += a.amount;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "this.#checkAllocatable(params.projectId, body.members.reduce((sum, inv) => sum + (inv.allocation ?? 0), 0));",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.#checkAllocatable(params.projectId, body.allocation ?? 0);\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "for (const m of this.members.values()) if (m.projectId === projectId && m.status !== \"removed\" && m.role === \"owner\") n++;",
+  "new": "for (const m of this.members.values()) if (m.projectId === projectId && m.role === \"owner\") n++;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (decision.reason === \"lastOwner\") throw new ApiFail(\"conflict\"",
+  "new": "if (decision.reason === \"lastOwner\") throw new ApiFail(\"forbidden\""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (decision.reason === \"badInput\") throw new ApiFail(\"badRequest\"",
+  "new": "if (decision.reason === \"badInput\") throw new ApiFail(\"forbidden\""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "enforce(canInvite(this.#actor(params.projectId, user), inv.role ?? \"member\"), \"invite\");",
+  "new": "enforce(canInvite(this.#actor(params.projectId, user), \"member\"), \"invite\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "enforce(canUpdateMember(this.#actor(params.projectId, user), member.role, body.role, this.#ownerCount(params.projectId)), \"update member\");",
+  "new": "enforce(canUpdateMember(this.#actor(params.projectId, user), \"member\", body.role, this.#ownerCount(params.projectId)), \"update member\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "enforce(canRemoveMember(this.#actor(params.projectId, user), member.role, this.#ownerCount(params.projectId)), \"remove member\");",
+  "new": "enforce(canRemoveMember(this.#actor(params.projectId, user), \"member\", this.#ownerCount(params.projectId)), \"remove member\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (member.status === \"removed\") throw new ApiFail(\"notFound\", \"no such member\");\n      enforce(canUpdateMember",
+  "new": "      enforce(canUpdateMember"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (member.status === \"removed\") throw new ApiFail(\"notFound\", \"no such member\");\n      enforce(canRemoveMember",
+  "new": "      enforce(canRemoveMember"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "incarnation: rec.m.incarnation + 1,",
+  "new": "incarnation: rec.m.incarnation,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "europe: [...EU, \"IS\", \"LI\", \"NO\", \"GB\"],",
+  "new": "europe: [...EU, \"GB\"],"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const reserved = reserveCharge(accruing.map(metered), this.#reserveSeconds(project));",
+  "new": "const reserved = 0;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "return { providerCostPerHour: rec.m.pricePerHour.providerCost, marginBps: rec.marginBps };",
+  "new": "return { providerCostPerHour: rec.m.pricePerHour.providerCost, marginBps: 0 };"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "running: this.#accruingOn(allocation.id).map(metered),",
+  "new": "running: [],"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "return Math.ceil((this.#now - minuteStart(this.#now)) / 1000);",
+  "new": "return 0;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (body.allocation !== undefined && !isNonNegativeMicros(body.allocation)) throw new ApiFail(\"badRequest\", \"allocation must be non-negative micros\");\n      this.#checkAllocatable",
+  "new": "this.#checkAllocatable"
+ }
+]
