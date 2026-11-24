@@ -335,7 +335,10 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     try {
       return { status: res.status, json: JSON.parse(text) };
     } catch {
-      throw new ProviderError("runpod", "unknown", `RunPod ${method} ${path.split("?")[0]}: response is not JSON`, res.status);
+      // A request that changes something (POST, DELETE) succeeded but its reply is unreadable:
+      // the change may have happened. Only a read can be called a plain failure.
+      const kind: ProviderErrorKind = method === "GET" ? "unknown" : "outcome_unknown";
+      throw new ProviderError("runpod", kind, `RunPod ${method} ${path.split("?")[0]}: response is not JSON`, res.status);
     }
   }
 

@@ -21,7 +21,7 @@ const spec: LaunchSpec = {
 // must stay within min(600 s lifetime, 500000 micro), so calls stop after 113 s.
 const plan: ProbePlan = { approval: "William, msg 123", agent, spec, maxSpendMicros: 500_000, maxMinutes: 10, stageMinutes: 1, pollSeconds: 10 };
 
-type Reply = { status: number; body?: unknown } | "network-error";
+type Reply = { status: number; body?: unknown; raw?: string } | "network-error";
 
 /** A RunPod behind a fake network: every request takes `latencyMs` of fake time. */
 function world(reply: (method: string, url: string, n: number) => Reply, latencyMs = 29_000) {
@@ -32,7 +32,7 @@ function world(reply: (method: string, url: string, n: number) => Reply, latency
     t += latencyMs;
     const r = reply(init.method, url, calls.length);
     if (r === "network-error") throw new TypeError("fetch failed");
-    const text = r.body === undefined ? "" : JSON.stringify(r.body);
+    const text = r.raw ?? (r.body === undefined ? "" : JSON.stringify(r.body));
     return { status: r.status, headers: { get: () => null }, text: async () => text };
   };
   const adapter = new RunPodAdapter({ apiKey: "test-key", fetch, now: () => new Date(t) });
@@ -162,4 +162,31 @@ test("a unique recovery whose termination can't be confirmed is exposure with it
   const r = await runEradicationProbe(plan, w.adapter, w.api, w.clock);
   assert.equal(r.terminatedConfirmed, false);
   assert.deepEqual(r.exposure, { providerMachineId: "p1", machineName: machineName(MID), ratePerHour: 3_600_000 });
+});
+
+test("a successful create with an unreadable reply is reconciled, then reported as exposure", async () => {
+  const raw = world((method) => (method === "POST" ? { status: 201, raw: "not-json" } : { status: 200, body: page([], null) }));
+  const r = await runEradicationProbe(plan, raw.adapter, raw.api, raw.clock);
+  assertUnknownExposure(r);
+  assert.deepEqual(raw.calls, ["POST /v2/pods", "GET /v2/pods"]);
+});
+
+test("a successful create with an unreadable reply, then a unique pod by name, is cleaned up", async () => {
+  const w = world((method, url) => {
+    const path = new URL(url).pathname;
+    if (method === "POST") return { status: 201, raw: "<html>" };
+    if (method === "GET" && path === "/v2/pods") return { status: 200, body: page([pod("p1")], null) };
+    if (method === "DELETE") return { status: 204 };
+    return { status: 404, body: { title: "Not Found", status: 404, detail: "gone" } };
+  }, 1000);
+  const r = await runEradicationProbe(plan, w.adapter, w.api, w.clock);
+  assert.equal(r.providerMachineId, "p1");
+  assert.equal(r.terminatedConfirmed, true);
+  assert.equal(r.exposure, null);
+});
+
+test("RunPodAdapter: an unreadable reply is outcome_unknown for POST and DELETE, unknown for GET", async () => {
+  const w = world(() => ({ status: 200, raw: "not-json" }), 0);
+  await assert.rejects(w.adapter.status("p1"), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
+  await assert.rejects(w.adapter.terminate("p1"), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
 });

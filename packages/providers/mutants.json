@@ -1356,5 +1356,16 @@
   "file": "src/runpod/adapter.ts",
   "old": "    if (shouldStop?.() === true) {\n      throw new ProviderError(\"runpod\", \"outcome_unknown\",",
   "new": "    if (shouldStop?.() === true) {\n      throw new ProviderError(\"runpod\", \"unknown\","
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "      const kind: ProviderErrorKind = \"unknown\";",
+  "note": "TESTS T3: an unreadable create reply may have created a pod"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "      const kind: ProviderErrorKind = \"outcome_unknown\";"
  }
 ]
