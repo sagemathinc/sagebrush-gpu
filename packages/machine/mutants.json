@@ -316,5 +316,227 @@
   "old": "return [c for c in commands if isinstance(c, dict) and isinstance(c.get(\"id\"), str) and isinstance(c.get(\"op\"), str)]",
   "new": "return [c for c in commands if isinstance(c, dict)]",
   "note": "agent: heartbeat: malformed commands kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "        if held >= CREDIT_HIGH:\n            self.paused = True",
+  "new": "        if held > CREDIT_HIGH:\n            self.paused = True",
+  "note": "terminal: credit: pause past the mark, not at it"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if self.paused and self.outstanding() <= CREDIT_LOW:",
+  "new": "if self.paused and self.outstanding() < CREDIT_LOW:",
+  "note": "terminal: credit: resume below the low mark, not at it"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if type(upto) is not int or upto < self.acked or upto > self.sent",
+  "new": "if type(upto) is not int or upto < self.acked - 1 or upto > self.sent",
+  "note": "terminal: ack: going back one byte allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "or upto < self.acked or upto > self.sent or",
+  "new": "or upto < self.acked or upto > self.sent + 1 or",
+  "note": "terminal: ack: one byte past what was sent allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if type(upto) is not int or",
+  "new": "if not isinstance(upto, int) or",
+  "note": "terminal: ack: a bool accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if self.in_recv - self.in_written + len(b) > IN_PENDING",
+  "new": "if self.in_recv - self.in_written + len(b) > IN_PENDING + 1",
+  "note": "terminal: input: one byte past its credit"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "n = self.write_pty(bytes(self.inq[:IN_CHUNK]))",
+  "new": "n = self.write_pty(bytes(self.inq[:2 * IN_CHUNK]))",
+  "note": "terminal: input: 2 KiB pieces"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if not self.inq or self.in_written - self.in_acked >= INACK_EVERY:",
+  "new": "if not self.inq or self.in_written - self.in_acked > INACK_EVERY:",
+  "note": "terminal: inack: past the step, not at it"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if len(b) > limit or base64.b64encode(b).decode(\"ascii\") != s:",
+  "new": "if len(b) > limit:",
+  "note": "terminal: base64: not canonical accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if len(b) > limit or base64",
+  "new": "if len(b) > limit + 1 or base64",
+  "note": "terminal: base64: one byte over accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "self.replay = bytearray(b\"\\x1bc\" + ring_bytes)",
+  "new": "self.replay = bytearray(ring_bytes)",
+  "note": "terminal: replay: no reset first"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "        if self.replaying:\n            self.replay += b\n            return len(b)",
+  "new": "        if False:\n            self.replay += b\n            return len(b)",
+  "note": "terminal: final drain: not behind the replay"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "n = min(len(b), self.credit())",
+  "new": "n = len(b)",
+  "note": "terminal: final drain: past the credit"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "        e = self.session.exit\n        self.exited = True",
+  "new": "        e = self.session.exit",
+  "note": "terminal: exit: output may follow it"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "out_message(data[i:i + OUT_MAX])",
+  "new": "out_message(data[i:i + 2 * OUT_MAX])",
+  "note": "terminal: frames: past the cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "elif emitted <= self.cool_bytes:",
+  "new": "elif emitted < self.cool_bytes:",
+  "note": "terminal: throttle: cool at the bound"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "if until > 0:",
+  "new": "if until >= 0:",
+  "note": "terminal: throttle: waits at exactly zero"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal_output.py",
+  "old": "        if self.replaying:\n            return 0\n        return min(OUT_MAX, self.credit())",
+  "new": "        return min(OUT_MAX, self.credit())",
+  "note": "terminal: replay: PTY read during it"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "if len(self.running) >= TERMINAL_LIMITS[\"sessions\"]:",
+  "new": "if len(self.running) > TERMINAL_LIMITS[\"sessions\"]:",
+  "note": "terminal: sessions: a 5th allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "return type(v) is int and lo <= v <= hi",
+  "new": "return type(v) is int and lo < v <= hi",
+  "note": "terminal: size: 1 refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "return type(v) is int and lo <= v <= hi",
+  "new": "return type(v) is int and lo <= v < hi",
+  "note": "terminal: size: 1000 refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "return type(v) is int and lo <= v <= hi",
+  "new": "return isinstance(v, int) and lo <= v <= hi",
+  "note": "terminal: size: a bool accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "isinstance(sid, str) and len(sid) == 22 and",
+  "new": "isinstance(sid, str) and len(sid) >= 22 and",
+  "note": "terminal: session id: longer accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "and len(sid) == 22 and set(sid) <= _SID_CHARS",
+  "new": "and len(sid) == 22",
+  "note": "terminal: session id: any characters"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "        return (self.live and self.page is page and self.incarnation == incarnation and self.leg is leg\n                and page.leg is leg and not page.closed)",
+  "new": "        return (self.live and self.page is page and self.incarnation == incarnation and not page.closed)",
+  "note": "terminal: grant: any leg"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "self.page is page and self.incarnation == incarnation",
+  "new": "self.page is page",
+  "note": "terminal: grant: any incarnation"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "                old.close(4009, \"the session was opened elsewhere\")\n",
+  "new": "",
+  "note": "terminal: takeover: the old page not closed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "for _ in range(-(-left // TERMINAL_LIMITS[\"read\"])):",
+  "new": "while True:",
+  "note": "terminal: drain: unbounded"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "        if self.total > len(b):\n            i = b.find",
+  "new": "        if True:\n            i = b.find",
+  "note": "terminal: replay: cut when not wrapped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "[-TERMINAL_LIMITS[\"ended\"]:]",
+  "new": "",
+  "note": "terminal: ended: no count cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "if s.grant is None and not s.stopping and now",
+  "new": "if not s.stopping and now",
+  "note": "terminal: idle: attached sessions stopped too"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "                return p.close(1008, \"a bad ack\")",
+  "new": "                return None",
+  "note": "terminal: ack: a bad one kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "        if p.grant is not None:\n            return p.close(1008, \"this page already has a terminal\")\n",
+  "new": "",
+  "note": "terminal: open: twice on one page"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "            if g is None:\n                return self._error(p, \"not_open\")\n",
+  "new": "",
+  "note": "terminal: not_open: silent"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "room = TERMINAL_LIMITS[\"rate\"] - self.rate_bytes",
+  "new": "room = TERMINAL_LIMITS[\"rate\"]",
+  "note": "terminal: rate: no ceiling"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "            if s.exit is not None:\n                return None  # (the shell has ended",
+  "new": "            if False:\n                return None  # (the shell has ended",
+  "note": "terminal: input after exit: written"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/proctree.py",
+  "old": "        return None, (signal.Signals(sig).name if sig in signal.valid_signals() else str(sig))",
+  "new": "        return 128 + sig, None",
+  "note": "terminal: exit status: a signal as a code"
  }
 ]
