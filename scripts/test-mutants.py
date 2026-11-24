@@ -113,6 +113,43 @@ for name, body, want in [("always-failing node", "exit 1", 2), ("silent passing 
     check(name, [killed], want, "BASELINE FAILED", env=env)
     shutil.rmtree(shim)
 
+# A cancelled run (SIGTERM, SIGHUP) must restore the mutated file before exiting.
+import signal
+import time
+
+
+def interrupted(name, sig):
+    pkg, files = make_pkg()
+    try:
+        with open(os.path.join(pkg, "src/other.test.ts"), "w") as f:
+            f.write('import { test } from "node:test";\ntest("slow", async () => { await new Promise((r) => setTimeout(r, 4000)); });\n')
+        files["src/other.test.ts"] = open(os.path.join(pkg, "src/other.test.ts")).read()
+        with open(os.path.join(pkg, "mutants.json"), "w") as f:
+            json.dump([killed], f)
+        p = subprocess.Popen([sys.executable, "-I", RUNNER, pkg], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        path = os.path.join(pkg, M)
+        deadline = time.time() + 60
+        while time.time() < deadline and open(path).read() == MODULE:
+            time.sleep(0.05)
+        applied = open(path).read() != MODULE
+        p.send_signal(sig)
+        out, _ = p.communicate(timeout=60)
+        ok = applied and p.returncode == 128 + sig and "INTERRUPTED" in out
+        for rel, text in files.items():
+            with open(os.path.join(pkg, rel)) as f:
+                if f.read() != text:
+                    ok = False
+                    failures.append(f"{name}: {rel} not restored")
+        if not ok:
+            failures.append(f"{name}: applied {applied}, exit {p.returncode}, output:\n{out}")
+        print(f"{'ok' if ok else 'FAIL':4} {name}")
+    finally:
+        shutil.rmtree(pkg)
+
+
+interrupted("SIGTERM mid-mutant restores the file", signal.SIGTERM)
+interrupted("SIGHUP mid-mutant restores the file", signal.SIGHUP)
+
 if failures:
     print("\n\n".join(failures))
     sys.exit(1)

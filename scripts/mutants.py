@@ -18,7 +18,9 @@ It fails closed. Exit status:
      error proves nothing about the tests); or a file did not restore byte for byte;
   2  the baseline fails, finds no tests, or the input is unusable.
 
-Each mutant is restored in a finally block and checked byte for byte. One line of
+Each mutant is restored in a finally block and checked byte for byte. SIGTERM and SIGHUP
+(a cancelled job, a closed terminal) are turned into an exit through that block, so the
+mutant is restored before the runner exits (with 128 + the signal number). One line of
 evidence is printed per mutant: the verdict, then the failing tests or the error.
 """
 
@@ -27,6 +29,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 
@@ -93,7 +96,27 @@ def classify(result, baseline_tests, test_files, pkg):
     return "KILLED", f"{fails} failing: {shown}"
 
 
+class Interrupted(BaseException):
+    def __init__(self, signum):
+        super().__init__(signum)
+        self.signum = signum
+
+
+def _raise_interrupted(signum, _frame):
+    raise Interrupted(signum)
+
+
 def main(argv):
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _raise_interrupted)
+    try:
+        return run(argv)
+    except Interrupted as e:
+        print(f"INTERRUPTED by signal {e.signum}: the file being mutated was restored")
+        return 128 + e.signum
+
+
+def run(argv):
     if len(argv) not in (2, 3):
         print(__doc__)
         return 2
