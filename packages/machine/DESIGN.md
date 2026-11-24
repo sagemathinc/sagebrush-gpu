@@ -136,6 +136,9 @@ launcher (PID 1) -> exec agent (clean env) -> eradication checks -> enroll -> re
 - **Setup script:** runs once per machine (marker file), after the restore, as the member's user, with output into `~/.sbgpu/setup.log`, visible in the terminal. It has a time limit (default 20 min). A failure is reported, but it doesn't stop the machine.
 - **The member's user:** the agent runs as root (needed for the PTY users and for stopping processes). Terminals run as root on container images that only have root; otherwise as a `member` user. The member has root anyway on the providers we use.
 
+- **The relay leg** (`sbgpu_agent/relayclient.py`, ported from Sagebrush's runner client): one outbound WebSocket to `relayUrl` (wss only, ws only to a loopback host for tests). The first message is the hello with the current agent token; nothing else is accepted from the relay before its `ready`. Controls are parsed strictly; receipts are acked at once; a ping goes every 15 s, and two unanswered drop the leg. Terminal pages go to the terminals (each page message a strict JSON object, at most 65,536 bytes; the leg itself refuses anything over that plus the prefix, before decoding). A drop is dialled again with a fresh token, backing off 1, 2, 4 … 60 s (60 s after a 429 or 4429). The relay's `revoked` or a 4403 is fatal.
+- **The machine's stop** (`main.serve`): heartbeats run in a thread and the relay leg on the event loop. Whichever ends first, by a stop command, a revoke command, a refused heartbeat, the relay revoking or refusing, SIGTERM or an error, ends the other. The terminals are stopped (the tree rule over their sessions). Then, in container mode, `proctree.stop_everything` ends every other process in the container (4.1). The exit code is 0 for a stop and 3 for a revoke, a refusal or an error.
+
 ### 3.2 Idle detection
 
 A machine is idle when, for `idle.minutes` (project policy, default 30):

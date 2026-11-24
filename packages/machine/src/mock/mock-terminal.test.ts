@@ -13,11 +13,19 @@ class Client {
   ws: WebSocket;
   msgs: Array<Record<string, unknown>> = [];
   closed: { code: number } | null = null;
+  autoAck = true;
+  relay: Array<Record<string, unknown>> = [];
   out = "";
   constructor(port: number) {
     this.ws = new WebSocket(`ws://127.0.0.1:${port}/api/relay/v1/page?machine=mch_dev&chan=terminal`);
     this.ws.onmessage = (e) => {
       const m = JSON.parse(String(e.data));
+      if (typeof m.relay === "string") {
+        // (the relay's own messages, apart from the terminal's)
+        this.relay.push(m);
+        if (m.relay === "receipt" && this.autoAck) this.send({ relay: "ack", r: m.r });
+        return;
+      }
       this.msgs.push(m);
       if (m.t === "out") {
         const b = Buffer.from(m.b, "base64");
@@ -84,6 +92,49 @@ test("hello, open, type, output, ack, resize, reattach with replay, exit", TIMEO
   await b.until(() => b.msgs.some((m) => m.t === "exit"));
   assert.equal(b.msgs.find((m) => m.t === "exit")!.code, 7);
   b.ws.close();
+});
+
+test("the relay's page side: ready after the hello, receipts acked, ping answered, unknown receipts and a page that doesn't ack closed", TIMEOUT, async () => {
+  const a = new Client(server.port);
+  await a.opened();
+  a.send({ t: "hello", token: "dev" });
+  await a.until(() => a.relay.some((m) => m.relay === "ready"));
+  assert.ok(Number.isInteger(a.relay.find((m) => m.relay === "ready")!.gen));
+  a.send({ relay: "ping" });
+  await a.until(() => a.relay.some((m) => m.relay === "pong"));
+  a.send({ t: "open", rows: 24, cols: 80 });
+  await a.until(() => a.msgs.some((m) => m.t === "live"));
+  const termAck = setInterval(() => a.closed === null && a.send({ t: "ack", upto: Buffer.byteLength(a.out, "latin1") }), 20);
+  try {
+    // (a receipt comes after 256 KiB of serialized messages, before the terminal's own 256 KiB credit stalls)
+    a.type("head -c 700000 /dev/zero | tr '\\0' x\n");
+    await a.until(() => a.relay.some((m) => m.relay === "receipt"), 20_000);
+  } finally {
+    clearInterval(termAck);
+  }
+  assert.equal(a.closed, null);
+  a.send({ relay: "ack", r: "A".repeat(22) });
+  await a.until(() => a.closed !== null);
+  assert.equal(a.closed!.code, 1008);
+  // (a page that doesn't ack: closed 1013 past its window)
+  const b = new Client(server.port);
+  b.autoAck = false;
+  await b.opened();
+  b.send({ t: "hello", token: "dev" });
+  b.send({ t: "open", rows: 24, cols: 80 });
+  await b.until(() => b.msgs.some((m) => m.t === "live"));
+  b.type("head -c 3000000 /dev/zero | tr '\\0' y\n");
+  // (the page's own ack keeps the terminal credit going; only relay receipts go unacked)
+  const acker = setInterval(() => {
+    const sent = b.msgs.filter((m) => m.t === "out").reduce((n, m) => n + Buffer.from(m.b as string, "base64").length, 0);
+    if (b.closed === null) b.send({ t: "ack", upto: sent });
+  }, 20);
+  try {
+    await b.until(() => b.closed !== null, 20_000);
+  } finally {
+    clearInterval(acker);
+  }
+  assert.equal(b.closed!.code, 1013);
 });
 
 test("a bad hello closes 4403; errors and closes as the agent's protocol has them", TIMEOUT, async () => {

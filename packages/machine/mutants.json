@@ -1150,5 +1150,125 @@
   "old": "          if (this.machineTake(bytes(REVOKED) + RELAY_LIMITS.overhead)) this.send(w, REVOKED);",
   "new": "          this.send(w, REVOKED);",
   "note": "relay: revoke: the notice outside the bucket"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "        if self.ready is not None and not self.ready.done():\n            return self.violation(\"a page's message before ready\")\n",
+  "new": "",
+  "note": "agent relay: relay client: page messages before ready"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "        if self.ready is not None and not self.ready.done():\n            return self.violation(\"a control before ready\")\n",
+  "new": "",
+  "note": "agent relay: relay client: controls before ready"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            if self.ready is None or self.ready.done():\n                return self.violation(\"ready twice\")\n",
+  "new": "            if self.ready is None:\n                return self.violation(\"ready twice\")\n",
+  "note": "agent relay: relay client: ready twice"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            self.leg.send_text(ack_text(c[\"r\"]), \"control\")",
+  "new": "            pass",
+  "note": "agent relay: relay client: receipts not acked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            if c[\"gen\"] <= self.last_gen:",
+  "new": "            if c[\"gen\"] < self.last_gen:",
+  "note": "agent relay: relay client: a generation reused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            if p is None or p.conn != c[\"conn\"]:",
+  "new": "            if p is None:",
+  "note": "agent relay: relay client: page-close for another conn"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            self.fatal = Fatal(\"the machine was revoked\")",
+  "new": "            pass",
+  "note": "agent relay: relay client: revoked not fatal"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "        if code == 4403 and self.fatal is None:",
+  "new": "        if False:",
+  "note": "agent relay: relay client: 4403 not fatal"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "        if len(payload.encode(\"utf-8\", \"surrogatepass\")) > TERMINAL_FRAME:",
+  "new": "        if False:",
+  "note": "agent relay: relay client: no page cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            if not control and self.parts_len + n > RELAY_LIMITS[\"inbound\"]:",
+  "new": "            if False:",
+  "note": "agent relay: relay client: no leg cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "    if json.dumps(d, separators=(\",\", \":\"), ensure_ascii=False) != text:\n        raise ControlError(\"not the one serialization\")",
+  "new": "    pass",
+  "note": "agent relay: relay client: controls not canonical"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            if self.pings_unanswered >= RELAY_LIMITS[\"missedPongs\"]:\n                return leg.abort(\"no pong\")",
+  "new": "            pass",
+  "note": "agent relay: relay client: dead leg kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "                raise Retry(\"the relay is limiting this machine (429)\", RELAY_LIMITS[\"rateBackoffMs\"])",
+  "new": "                raise Retry(\"the relay is limiting this machine (429)\")",
+  "note": "agent relay: relay client: 429 backs off as usual"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "    if not tls and u.hostname not in (\"127.0.0.1\", \"localhost\", \"::1\"):",
+  "new": "    if False:",
+  "note": "agent relay: relay client: ws:// anywhere"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "    if u.path != \"/api/relay/v1/peer\":",
+  "new": "    if False:",
+  "note": "agent relay: relay client: any path"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "        if container:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
+  "new": "        if True:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
+  "note": "agent relay: serve: stop_everything in VM mode too"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "        if container:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
+  "new": "        if False:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
+  "note": "agent relay: serve: stop_everything never"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "        client.terms.stop_all()\n",
+  "new": "",
+  "note": "agent relay: serve: terminals not stopped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "            code = EXIT_REFUSED  # (revoked, or refused by the relay: the machine is stopping)",
+  "new": "            code = EXIT_STOPPED",
+  "note": "agent relay: serve: a revoke exits as a stop"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "            code = beats.result() if beats.exception() is None else EXIT_REFUSED",
+  "new": "            code = beats.result() if beats.exception() is None else EXIT_STOPPED",
+  "note": "agent relay: serve: an error exits as a stop"
  }
 ]

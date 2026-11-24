@@ -1,6 +1,7 @@
 """The agent's unit tests: python3 -m unittest discover -s tests (from packages/machine/agent/sbgpu-agent;
 src/agent.test.ts runs them inside the package's node tests)."""
 
+import asyncio
 import json
 import os
 import shutil
@@ -142,7 +143,7 @@ class FakeControl:
 
 
 ENROLLED = {"machineId": "mch_1", "agentToken": "agent-tok-1", "agentTokenExpiresAt": "2026-11-25T00:00:00Z",
-            "incarnation": 1, "relayUrl": "wss://relay.example.com", "heartbeatSeconds": 30,
+            "incarnation": 1, "relayUrl": "ws://127.0.0.1:9/api/relay/v1/peer?machine=mch_1", "heartbeatSeconds": 30,
             "idle": {"minutes": 30, "gpuUtilThresholdPct": 5}, "maxSessionEndsAt": "2026-11-25T08:00:00Z",
             "setupScript": None, "workspace": {"restore": True}}
 
@@ -155,13 +156,17 @@ class StartTest(unittest.TestCase):
     def setUp(self):
         self.fs = Fs()
         self.sleeps = []
+        self.stops = []
 
     def tearDown(self):
         self.fs.close()
 
     def start(self, control, **kw):
+        async def no_sleep(s):
+            await asyncio.sleep(0.01)
+        kw.setdefault("stop_everything", lambda: self.stops.append(1) or [])
         return main.start(self.fs.root, transport=control, proc=self.fs.proc, pid=1, run_gpu=no_gpu,
-                          sleep=self.sleeps.append, **kw)
+                          sleep=self.sleeps.append, cwd=self.fs.root, relay_sleep=no_sleep, **kw)
 
     def test_enroll_then_heartbeats(self):
         self.fs.boot()
