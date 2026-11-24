@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { webcrypto } from "node:crypto";
 import { type Key, KID_PATTERN, TOKEN_MAX_CHARS, b64urlDecode, b64urlEncode, signToken, verifyToken } from "./jws.ts";
 import { newId } from "./ids.ts";
 import { TOKEN_KINDS, TOKEN_TTL_SECONDS, type ClaimsOf, type TokenKind } from "./tokens.ts";
@@ -25,7 +24,7 @@ const CLAIMS: { [K in TokenKind]: ClaimsOf<K> } = {
   } as ClaimsOf<"workspace">,
 };
 
-type KeyPair = webcrypto.CryptoKeyPair;
+type KeyPair = { publicKey: Key; privateKey: Key };
 const pair = () => crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as unknown as Promise<KeyPair>;
 const K1 = await pair();
 const K2 = await pair();
@@ -110,7 +109,12 @@ test("encoding: padding, standard base64, set trailing bits, bad lengths, empty 
   assert.equal(await reason(`${h}=.${p}.${s}`), "header encoding");
   assert.equal(await reason(`${h}.${p}=.${s}`), "payload encoding");
   assert.equal(await reason(`${h}.${p}.${s}==`), "signature encoding");
-  assert.equal(await reason(`${h}.${p.replace(/-/g, "+").replace(/_/g, "/")}.${s}`), p.includes("-") || p.includes("_") ? "payload encoding" : "ok");
+  // (standard base64's + and /: a payload whose base64url is known to hold - or _)
+  const tildes = parts(await forge(HEADER, '{"x":"~~~~~~"}'))[1];
+  assert.ok(/[-_]/.test(tildes), tildes);
+  const signed = await forge(HEADER, '{"x":"~~~~~~"}');
+  const [sh, sp, ss] = parts(signed);
+  assert.equal(await reason(`${sh}.${sp.replace(/-/g, "+").replace(/_/g, "/")}.${ss}`), "payload encoding");
   // (set trailing bits: the last character of an 86-character, 64-byte signature carries 4 unused bits)
   const last = s[s.length - 1]!;
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -149,6 +153,17 @@ test("the payload: JSON, its one serialization, then validateClaims (no claim re
   const input = `${text(HEADER)}.${b64urlEncode(new Uint8Array([0xff, 0xfe]))}`;
   const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", K1.privateKey, enc.encode(input)));
   assert.equal(await reason(`${input}.${b64urlEncode(sig)}`), "payload json");
+});
+
+test("signToken signs the one snapshot it validated (claims behind accessors can't change in between)", async () => {
+  let reads = 0;
+  const c = { ...CLAIMS.agent } as Record<string, unknown>;
+  const good = CLAIMS.agent.exp;
+  // (valid on the first read, expired on every later one)
+  Object.defineProperty(c, "exp", { enumerable: true, get: () => (reads++ === 0 ? good : CLAIMS.agent.iat) });
+  const t = await signToken(c as unknown as ClaimsOf<"agent">, K1.privateKey, "k1");
+  assert.equal(await reason(t), "ok");
+  assert.equal(reads, 1);
 });
 
 test("signToken refuses what no verifier would accept", async () => {

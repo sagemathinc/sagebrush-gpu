@@ -9,8 +9,6 @@
 // verifyToken checks, in this order, and reads no claim before the signature holds: the token's size and shape; each
 // part's canonical base64url; the header's exact bytes; its kid among the given keys; the signature; the payload's JSON
 // and its one serialization; then validateClaims for the expected kind at `now`.
-// (types only: the WebCrypto key type, the same object in Node and Workers)
-import type { webcrypto } from "node:crypto";
 import { type ClaimsCheck, type ClaimsOf, type TokenKind, validateClaims } from "./tokens.ts";
 
 /** A token's most characters: well above any claims this contract can hold, checked before anything is decoded. */
@@ -18,8 +16,8 @@ export const TOKEN_MAX_CHARS = 4096;
 /** A key id: what control publishes with each public key (current and next, for rotation). */
 export const KID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** A WebCrypto key (Ed25519 here). */
-export type Key = webcrypto.CryptoKey;
+/** A WebCrypto key (Ed25519 here): the global CryptoKey, the same in Node, Workers and browsers. */
+export type Key = InstanceType<typeof CryptoKey>;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder("utf-8", { fatal: true });
@@ -65,9 +63,13 @@ function isEd25519(key: unknown, type: "public" | "private"): key is Key {
 export async function signToken(claims: ClaimsOf<TokenKind>, privateKey: Key, kid: string): Promise<string> {
   if (!KID_PATTERN.test(kid)) throw new Error("bad kid");
   if (!isEd25519(privateKey, "private")) throw new Error("not an Ed25519 private key");
-  const check = validateClaims(claims, claims.kind, claims.iat);
+  // (one snapshot: serialized once, then that exact text parsed, validated and signed, so nothing about the live
+  // object (an accessor, say) can change between the check and the signature)
+  const payload = JSON.stringify(claims);
+  const snapshot = JSON.parse(payload) as { kind: TokenKind; iat: number };
+  const check = validateClaims(snapshot, snapshot.kind, snapshot.iat);
   if (!check.ok) throw new Error(`invalid claims: ${check.reason}`);
-  const signingInput = `${b64urlEncode(enc.encode(headerText(kid)))}.${b64urlEncode(enc.encode(JSON.stringify(claims)))}`;
+  const signingInput = `${b64urlEncode(enc.encode(headerText(kid)))}.${b64urlEncode(enc.encode(payload))}`;
   const sig = new Uint8Array(await crypto.subtle.sign("Ed25519", privateKey, enc.encode(signingInput)));
   const token = `${signingInput}.${b64urlEncode(sig)}`;
   if (token.length > TOKEN_MAX_CHARS) throw new Error("token over TOKEN_MAX_CHARS");

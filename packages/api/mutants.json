@@ -611,5 +611,17 @@
   "old": "  if (!isEd25519(privateKey, \"private\")) throw new Error(\"not an Ed25519 private key\");\n",
   "new": "",
   "note": "jws: sign: any key"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "const check = validateClaims(snapshot, snapshot.kind, snapshot.iat);",
+  "new": "const check = validateClaims(claims, claims.kind, claims.iat);",
+  "note": "jws: sign validates the live object"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "${b64urlEncode(enc.encode(payload))}",
+  "new": "${b64urlEncode(enc.encode(JSON.stringify(claims)))}",
+  "note": "jws: sign re-serializes after the check"
  }
 ]
