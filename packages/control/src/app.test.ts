@@ -12,7 +12,9 @@ import {
   createApp,
   effectiveProjectRole,
   normalizeEmail,
+  readCapped,
   sha256Hex,
+  withSecurityHeaders,
   type AppDeps,
   type Handlers,
 } from "./app.ts";
@@ -24,6 +26,8 @@ const T0 = Date.UTC(2027, 1, 1, 9, 0, 0);
 
 interface World {
   db: TestDb;
+  /** Work handed to waitUntil, not yet awaited. */
+  pending: Promise<unknown>[];
   deps: AppDeps;
   mail: Array<{ email: string; url: string }>;
   clock: { t: number };
@@ -32,9 +36,10 @@ interface World {
   projectId: string;
 }
 
-async function world(handlers?: Handlers, o: { mailerFails?: boolean } = {}): Promise<World> {
+async function world(handlers?: Handlers, o: { mailerFails?: boolean; mailer?: AppDeps["mailer"] } = {}): Promise<World> {
   const db = sqliteDb();
   const mail: Array<{ email: string; url: string }> = [];
+  const pending: Promise<unknown>[] = [];
   const clock = { t: T0 };
   let counter = 0;
   const deps: AppDeps = {
@@ -46,11 +51,14 @@ async function world(handlers?: Handlers, o: { mailerFails?: boolean } = {}): Pr
       for (let i = 0; i < n; i++) b[i] = (counter * 31 + i * 7) & 255;
       return b;
     },
-    mailer: {
+    mailer: o.mailer ?? {
       async sendSignInLink(email, url) {
         if (o.mailerFails) throw new Error("mail down");
         mail.push({ email, url });
       },
+    },
+    waitUntil: (p) => {
+      pending.push(p);
     },
     config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test" },
   };
@@ -60,7 +68,7 @@ async function world(handlers?: Handlers, o: { mailerFails?: boolean } = {}): Pr
     stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'Org', 3000, ?)`, orgId, T0),
     stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj', ?, ?, 0, ?)`, projectId, orgId, T0, T0 + 86_400_000, T0),
   ]);
-  return { db, deps, mail, clock, app: createApp(deps, handlers ? { ...HANDLERS, ...handlers } : undefined), orgId, projectId };
+  return { db, pending, deps, mail, clock, app: createApp(deps, handlers ? { ...HANDLERS, ...handlers } : undefined), orgId, projectId };
 }
 
 interface Req {
@@ -69,6 +77,8 @@ interface Req {
   cookie?: string;
   origin?: string | null;
   contentType?: string | null;
+  /** Don't run the deferred work (mail) after the response. */
+  noFlush?: boolean;
 }
 
 async function call(w: World, method: string, path: string, r: Req = {}) {
@@ -83,6 +93,7 @@ async function call(w: World, method: string, path: string, r: Req = {}) {
     body = r.raw ?? JSON.stringify(r.body ?? {});
   }
   const res = await w.app.fetch(new Request(`${ORIGIN}${path}`, { method, headers, ...(body !== undefined ? { body } : {}) }));
+  if (!r.noFlush) await Promise.all(w.pending.splice(0));
   const text = await res.text();
   let json: unknown = null;
   try {
@@ -185,6 +196,101 @@ test("bodies: JSON objects only, at most 64 KiB", async () => {
   assert.equal(code(await call(w, "POST", p, { body: { email: "a@example.com" }, contentType: "application/jsonp" })), "badRequest");
 });
 
+/** A streamed body: the chunks, pulled one at a time (highWaterMark 0), counting pulls. */
+function streamed(chunks: Uint8Array[], contentLength?: string) {
+  const stats = { pulls: 0, cancelled: false };
+  let i = 0;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(c) {
+        stats.pulls++;
+        if (i < chunks.length) c.enqueue(chunks[i++]!);
+        else c.close();
+      },
+      cancel() {
+        stats.cancelled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const headers: Record<string, string> = { origin: ORIGIN, "content-type": "application/json" };
+  if (contentLength !== undefined) headers["content-length"] = contentLength;
+  const req = new Request(`${ORIGIN}/v1/auth/email-link`, { method: "POST", body, headers, duplex: "half" } as RequestInit);
+  return { req, stats };
+}
+
+/** A JSON body {"email":"a@example.com","pad":"<fill>"} of exactly `bytes` UTF-8 bytes. */
+function jsonOfBytes(bytes: number, fillChar = "x"): Uint8Array {
+  const head = '{"email":"a@example.com","pad":"';
+  const tail = '"}';
+  const unit = new TextEncoder().encode(fillChar).length;
+  const room = bytes - head.length - tail.length;
+  const n = Math.floor(room / unit);
+  const s = head + fillChar.repeat(n) + "x".repeat(room - n * unit) + tail;
+  const b = new TextEncoder().encode(s);
+  assert.equal(b.length, bytes);
+  return b;
+}
+
+const split = (b: Uint8Array, size: number) => {
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < b.length; i += size) out.push(b.slice(i, i + size));
+  return out;
+};
+
+test("the body cap bounds what is read: streamed bytes are counted, the stream cancelled early", async () => {
+  const w = await world();
+  const status = async (x: ReturnType<typeof streamed>) => {
+    const res = await w.app.fetch(x.req);
+    const j = (await res.json()) as { error?: { code: string } };
+    return res.status === 200 ? "ok" : j.error?.code;
+  };
+  // no length: 100 chunks of 16 KiB; refused after the 5th, which would pass the cap
+  const big = streamed(Array.from({ length: 100 }, () => new Uint8Array(16384)));
+  assert.equal(await status(big), "badRequest");
+  assert.equal(big.stats.pulls, 5);
+  assert.equal(big.stats.cancelled, true);
+  // a dishonest small length changes nothing
+  const liar = streamed(Array.from({ length: 100 }, () => new Uint8Array(16384)), "10");
+  assert.equal(await status(liar), "badRequest");
+  assert.equal(liar.stats.pulls, 5);
+  assert.equal(liar.stats.cancelled, true);
+  // a declared length over the cap: refused before a single chunk is read
+  const declared = streamed([new TextEncoder().encode('{"email":"a@example.com"}')], String(MAX_BODY_BYTES + 1));
+  assert.equal(await status(declared), "badRequest");
+  assert.equal(declared.stats.pulls, 0);
+  // one huge chunk: refused at its first (only) pull, never kept
+  const huge = streamed([new Uint8Array(1 << 20), new Uint8Array(1)]);
+  assert.equal(await status(huge), "badRequest");
+  assert.equal(huge.stats.pulls, 1);
+  assert.equal(huge.stats.cancelled, true);
+  // exactly 64 KiB, streamed in pieces, is accepted (and read to its end); one byte more is not
+  const exact = streamed(split(jsonOfBytes(MAX_BODY_BYTES), 10_000));
+  assert.equal(await status(exact), "ok");
+  assert.equal(exact.stats.cancelled, false);
+  const over = streamed(split(jsonOfBytes(MAX_BODY_BYTES + 1), 10_000));
+  assert.equal(await status(over), "badRequest");
+  assert.equal(over.stats.cancelled, true);
+  // multibyte: the cap counts bytes, not characters
+  const mbExact = streamed(split(jsonOfBytes(MAX_BODY_BYTES, "é"), 7_777));
+  assert.equal(await status(mbExact), "ok");
+  const mbOver = streamed(split(jsonOfBytes(MAX_BODY_BYTES + 1, "é"), 7_777));
+  assert.equal(await status(mbOver), "badRequest");
+  // an honest exact length is fine
+  assert.equal(await status(streamed([jsonOfBytes(MAX_BODY_BYTES)], String(MAX_BODY_BYTES))), "ok");
+});
+
+test("readCapped", async () => {
+  assert.deepEqual(await readCapped(null, 10), new Uint8Array(0));
+  const s = (parts: number[]) => streamed(parts.map((n) => new Uint8Array(n).fill(1))).req.body;
+  assert.equal((await readCapped(s([4, 6]), 10))!.length, 10);
+  assert.equal(await readCapped(s([4, 7]), 10), null);
+  assert.equal(await readCapped(s([11]), 10), null);
+  assert.equal((await readCapped(s([]), 0))!.length, 0);
+  assert.equal(await readCapped(s([1]), 0), null);
+  assert.deepEqual(await readCapped(streamed([new Uint8Array([1, 2]), new Uint8Array([3])]).req.body, 3), new Uint8Array([1, 2, 3]));
+});
+
 test("a body that isn't an object is refused even where the handler reads nothing", async () => {
   const w = await world();
   await invite(w, "a@example.com");
@@ -244,10 +350,92 @@ test("sign-in links: at most N per email per hour, silently", async () => {
   assert.equal(w.mail.length, DEFAULT_CONFIG.maxLinksPerEmailPerHour + 1);
 });
 
-test("a mail failure doesn't change the answer", async () => {
+test("sign-in links: the hourly limit holds under simultaneous requests", async () => {
+  const w = await world();
+  await invite(w, "a@example.com");
+  const emails = Array.from({ length: 20 }, (_, i) => (i % 3 === 0 ? "A@Example.com" : i % 3 === 1 ? "a@example.com" : " a@EXAMPLE.com "));
+  const results = await Promise.all(emails.map((email) => call(w, "POST", "/v1/auth/email-link", { body: { email } })));
+  for (const r of results) assert.deepEqual([r.res.status, r.json], [200, { ok: true }]);
+  assert.equal(w.mail.length, DEFAULT_CONFIG.maxLinksPerEmailPerHour);
+  assert.equal((await w.db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM sign_in_links`))[0]!.n, DEFAULT_CONFIG.maxLinksPerEmailPerHour);
+  // at the boundary: 4 used, then 3 at once -> exactly one more
+  const v = await world();
+  await invite(v, "b@example.com");
+  for (let i = 0; i < DEFAULT_CONFIG.maxLinksPerEmailPerHour - 1; i++) await call(v, "POST", "/v1/auth/email-link", { body: { email: "b@example.com" } });
+  assert.equal(v.mail.length, DEFAULT_CONFIG.maxLinksPerEmailPerHour - 1);
+  await Promise.all([0, 1, 2].map(() => call(v, "POST", "/v1/auth/email-link", { body: { email: "B@example.com" } })));
+  assert.equal(v.mail.length, DEFAULT_CONFIG.maxLinksPerEmailPerHour);
+  // the mailed links are exactly the stored ones
+  const stored = new Set((await v.db.all<{ h: string }>(`SELECT token_sha256 AS h FROM sign_in_links`)).map((r) => r.h));
+  for (const m of v.mail) assert.ok(stored.has(await sha256Hex(new URL(m.url).searchParams.get("token")!)));
+});
+
+test("a mail failure doesn't change the answer, and its rejection is handled", async () => {
   const w = await world(undefined, { mailerFails: true });
   await invite(w, "a@example.com");
-  assert.deepEqual((await call(w, "POST", "/v1/auth/email-link", { body: { email: "a@example.com" } })).json, { ok: true });
+  const r = await call(w, "POST", "/v1/auth/email-link", { body: { email: "a@example.com" }, noFlush: true });
+  assert.deepEqual(r.json, { ok: true });
+  assert.equal(w.pending.length, 1);
+  const settled = await Promise.allSettled(w.pending.splice(0));
+  assert.deepEqual(settled.map((x) => x.status), ["fulfilled"]); // caught inside: no unhandled rejection
+  // a mailer that throws synchronously is caught too
+  const v = await world(undefined, { mailer: { sendSignInLink: (() => { throw new Error("sync"); }) as never } });
+  await invite(v, "a@example.com");
+  const r2 = await call(v, "POST", "/v1/auth/email-link", { body: { email: "a@example.com" }, noFlush: true });
+  assert.deepEqual(r2.json, { ok: true });
+  assert.deepEqual((await Promise.allSettled(v.pending.splice(0))).map((x) => x.status), ["fulfilled"]);
+});
+
+test("mail is sent after the response: a held mail can't tell known from unknown", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  const sent: string[] = [];
+  const w = await world(undefined, {
+    mailer: {
+      async sendSignInLink(email) {
+        await held;
+        sent.push(email);
+      },
+    },
+  });
+  await invite(w, "known@example.com");
+  for (const email of ["known@example.com", "unknown@example.com"]) {
+    // the response must come while the mail is held (a response that waited would never come)
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const r = await Promise.race([
+      call(w, "POST", "/v1/auth/email-link", { body: { email }, noFlush: true }),
+      new Promise<"waited">((resolve) => (timer = setTimeout(() => resolve("waited"), 1000))),
+    ]);
+    clearTimeout(timer);
+    assert.notEqual(r, "waited", `${email}: the response waited for the mail`);
+    if (r !== "waited") assert.deepEqual([r.res.status, r.json], [200, { ok: true }], email);
+  }
+  assert.deepEqual(sent, []); // both answered while the known address's mail is still held
+  assert.equal(w.pending.length, 1); // only the known address scheduled mail
+  release();
+  await Promise.all(w.pending.splice(0));
+  assert.deepEqual(sent, ["known@example.com"]);
+  // past the hourly limit, nothing is scheduled at all
+  const v = await world();
+  await invite(v, "a@example.com");
+  for (let i = 0; i < DEFAULT_CONFIG.maxLinksPerEmailPerHour; i++) await call(v, "POST", "/v1/auth/email-link", { body: { email: "a@example.com" } });
+  await call(v, "POST", "/v1/auth/email-link", { body: { email: "a@example.com" }, noFlush: true });
+  assert.equal(v.pending.length, 0);
+});
+
+test("withSecurityHeaders puts the headers on the app's HTML, the landing page included", async () => {
+  const page = new Response("<!doctype html><p>hi", {
+    status: 200,
+    headers: { "content-type": "text/html", "referrer-policy": "unsafe-url", "cache-control": "max-age=60" },
+  });
+  const res = withSecurityHeaders(page);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), "<!doctype html><p>hi");
+  assert.equal(res.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(res.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(res.headers.get("x-frame-options"), "DENY");
+  assert.equal(res.headers.get("content-type"), "text/html");
+  assert.equal(res.headers.get("cache-control"), "max-age=60"); // left to the asset
 });
 
 test("verify: a link works once, before it expires; it sets a strict session cookie", async () => {
@@ -403,6 +591,58 @@ test("schema: an active member has a user", async () => {
   const w = await world();
   await assert.rejects(w.db.batch([stmt(`INSERT INTO members (id, project_id, email, role, status, created_ms) VALUES (?, ?, 'c@example.com', 'member', 'active', ?)`, newId("member"), w.projectId, T0)]));
   await assert.rejects(w.db.batch([stmt(`INSERT INTO members (id, project_id, email, role, status, created_ms) VALUES (?, ?, 'C@example.com', 'member', 'invited', ?)`, newId("member"), w.projectId, T0)]));
+});
+
+test("role checks are scoped to the project: another real project, its machines, another org's owner", async () => {
+  const ok = async () => new Response('{"ok":true}', { status: 200 });
+  const w = await world({ getProject: ok, getMachine: ok, updateProject: ok, getOrg: ok });
+  // a second, real organization with its own project and machine
+  const orgB = newId("org");
+  const prjB = newId("project");
+  const allocB = newId("allocation");
+  const mchB = newId("machine");
+  await w.db.batch([
+    stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'Org B', 0, ?)`, orgB, T0),
+    stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj B', ?, ?, 0, ?)`, prjB, orgB, T0, T0 + 1, T0),
+    stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, allocB, prjB, T0),
+    stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mchB, prjB, allocB, T0),
+  ]);
+  // an owner of the first project only
+  await invite(w, "o@example.com", "owner");
+  const owner = await signIn(w, "o@example.com");
+  const s = async (cookie: string, m: string, p: string) => {
+    const r = await call(w, m, p, { cookie, body: {} });
+    return r.res.status === 200 ? "ok" : code(r);
+  };
+  assert.equal(await s(owner, "GET", `/v1/projects/${w.projectId}`), "ok");
+  assert.equal(await s(owner, "GET", `/v1/projects/${prjB}`), "notFound");
+  assert.equal(await s(owner, "PATCH", `/v1/projects/${prjB}`), "notFound");
+  assert.equal(await s(owner, "GET", `/v1/machines/${mchB}`), "notFound");
+  // an owner of ANOTHER organization doesn't own this one's projects
+  const me = (await call(w, "GET", "/v1/me", { cookie: owner })).json as unknown as Me;
+  await w.db.batch([stmt(`INSERT INTO org_members (org_id, user_id, role) VALUES (?, ?, 'owner')`, orgB, me.user.id)]);
+  assert.equal(await s(owner, "GET", `/v1/projects/${prjB}`), "ok"); // now it does: it owns org B
+  await invite(w, "p@example.com", "member");
+  const plain = await signIn(w, "p@example.com");
+  const me2 = (await call(w, "GET", "/v1/me", { cookie: plain })).json as unknown as Me;
+  await w.db.batch([stmt(`INSERT INTO org_members (org_id, user_id, role) VALUES (?, ?, 'owner')`, orgB, me2.user.id)]);
+  assert.equal(await s(plain, "PATCH", `/v1/projects/${w.projectId}`), "forbidden"); // still only a member here
+  assert.equal(await s(plain, "PATCH", `/v1/projects/${prjB}`), "ok");
+  // org routes are scoped to the named org
+  assert.equal(await s(plain, "GET", `/v1/orgs/${w.orgId}`), "notFound");
+  assert.equal(await s(plain, "GET", `/v1/orgs/${orgB}`), "ok");
+  // an owner of its OWN organization gets nothing of another organization's project
+  await invite(w, "q@example.com", "member");
+  const ownOrg = await signIn(w, "q@example.com");
+  const me3 = (await call(w, "GET", "/v1/me", { cookie: ownOrg })).json as unknown as Me;
+  await w.db.batch([
+    stmt(`UPDATE members SET status = 'removed' WHERE email = 'q@example.com'`),
+    stmt(`INSERT INTO org_members (org_id, user_id, role) VALUES (?, ?, 'owner')`, w.orgId, me3.user.id),
+  ]);
+  assert.equal(await s(ownOrg, "GET", `/v1/projects/${w.projectId}`), "ok"); // its own org's project
+  assert.equal(await s(ownOrg, "GET", `/v1/projects/${prjB}`), "notFound");
+  assert.equal(await s(ownOrg, "GET", `/v1/machines/${mchB}`), "notFound");
+  assert.equal(await s(ownOrg, "GET", `/v1/orgs/${orgB}`), "notFound");
 });
 
 test("effectiveProjectRole", async () => {

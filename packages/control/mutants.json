@@ -381,16 +381,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "if (buf.byteLength > MAX_BODY_BYTES) throw",
-  "new": "if (buf.byteLength > MAX_BODY_BYTES + 1) throw"
- },
- {
-  "file": "src/app.ts",
-  "old": "if (buf.byteLength > MAX_BODY_BYTES) throw",
-  "new": "if (buf.byteLength >= MAX_BODY_BYTES) throw"
- },
- {
-  "file": "src/app.ts",
   "old": "if (typeof v !== \"object\" || v === null || Array.isArray(v)) throw",
   "new": "if (typeof v !== \"object\" || v === null) throw"
  },
@@ -463,16 +453,6 @@
   "file": "src/app.ts",
   "old": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ? AND status <> 'removed') AS n`",
   "new": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ?) AS n`"
- },
- {
-  "file": "src/app.ts",
-  "old": "if ((recent[0]?.n ?? 0) < deps.config.maxLinksPerEmailPerHour) {",
-  "new": "if ((recent[0]?.n ?? 0) <= deps.config.maxLinksPerEmailPerHour) {"
- },
- {
-  "file": "src/app.ts",
-  "old": "[email, now - 3_600_000]",
-  "new": "[email, now - 60_000]"
  },
  {
   "file": "src/app.ts",
@@ -583,5 +563,85 @@
   "file": "migrations/0002_auth.sql",
   "old": "  CHECK (status <> 'active' OR user_id IS NOT NULL)\n",
   "new": "  CHECK (1)\n"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "WHERE m.project_id = p.id AND m.user_id = ? AND m.status = 'active') AS role,",
+  "new": "WHERE m.user_id = ? AND m.status = 'active') AS role,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "(SELECT o.role FROM org_members o WHERE o.org_id = p.org_id AND o.user_id = ?) AS org_role",
+  "new": "(SELECT o.role FROM org_members o WHERE o.user_id = ? LIMIT 1) AS org_role"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "`SELECT role FROM org_members WHERE org_id = ? AND user_id = ?`, [ctx.params.orgId ?? \"\", s.userId]",
+  "new": "`SELECT role FROM org_members WHERE user_id = ? OR org_id = ?`, [s.userId, ctx.params.orgId ?? \"\"]"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "    if (value.byteLength > cap - total) {",
+  "new": "    if (total > cap) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "    if (value.byteLength > cap - total) {",
+  "new": "    if (value.byteLength >= cap - total) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "      await reader.cancel().catch(() => {});\n      return null;",
+  "new": "      return null;"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
+  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= MAX_BODY_BYTES) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) < ?`,",
+  "new": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) <= ?`,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "      if (inserted.changes === 1) {",
+  "new": "      if (inserted.changes >= 0) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "now - 3_600_000, deps.config.maxLinksPerEmailPerHour]",
+  "new": "now - 60_000, deps.config.maxLinksPerEmailPerHour]"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "now + deps.config.signInLinkTtlMs, email,",
+  "new": "now + deps.config.signInLinkTtlMs + 1, email,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "          Promise.resolve()\n            .then(() => deps.mailer.sendSignInLink(email, url))\n            .catch(() => {}),",
+  "new": "          deps.mailer.sendSignInLink(email, url),"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "        deps.waitUntil(\n",
+  "new": "        await ((work: Promise<unknown>) => work)(\n"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== \"cache-control\") headers.set(k, v);",
+  "new": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== \"cache-control\" && !headers.has(k)) headers.set(k, v);"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== \"cache-control\") headers.set(k, v);",
+  "new": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);"
  }
 ]

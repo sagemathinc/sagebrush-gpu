@@ -71,6 +71,12 @@ export interface AppDeps {
   randomBytes(n: number): Uint8Array;
   mailer: Mailer;
   config: AppConfig;
+  /**
+   * Runs work after the response (the Worker's ctx.waitUntil). Mail goes through it, so
+   * no response waits on delivery: a slow mail can't tell a known address from an
+   * unknown one.
+   */
+  waitUntil(work: Promise<unknown>): void;
 }
 
 // ---------------------------------------------------------------- http helpers
@@ -81,6 +87,17 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze(
   "x-frame-options": "DENY",
   "cache-control": "no-store",
 });
+
+/**
+ * The security headers on a response the Worker serves that isn't the API's JSON (the
+ * app's HTML, including the sign-in landing page whose URL carries a one-time token).
+ * Cache-Control is left to the asset.
+ */
+export function withSecurityHeaders(res: Response): Response {
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== "cache-control") headers.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
 
 export const SESSION_COOKIE = "__Host-sbgpu_session";
 export const MAX_BODY_BYTES = 64 * 1024;
@@ -150,13 +167,48 @@ export function normalizeEmail(x: unknown): string | null {
   return e.length <= 254 && EMAIL.test(e) ? e : null;
 }
 
+/**
+ * The stream's bytes if they total at most `cap`, else null. Each chunk's size is checked
+ * before it is kept, and the stream is cancelled at the first chunk that would pass the
+ * cap, so nothing past it is read, kept, decoded or parsed.
+ */
+export async function readCapped(body: ReadableStream<Uint8Array> | null, cap: number): Promise<Uint8Array | null> {
+  if (body === null) return new Uint8Array(0);
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value.byteLength > cap - total) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    total += value.byteLength;
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
+
 async function readJsonObject(req: Request): Promise<Record<string, unknown>> {
   const type = req.headers.get("content-type") ?? "";
   if (!/^application\/json(\s*;|$)/i.test(type)) throw new HttpError("badRequest", "the body must be application/json");
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) throw new HttpError("badRequest", "the body is too large");
-  const buf = new Uint8Array(await req.arrayBuffer());
-  if (buf.byteLength > MAX_BODY_BYTES) throw new HttpError("badRequest", "the body is too large");
+  const tooLarge = () => new HttpError("badRequest", "the body is too large");
+  // A declared length over the cap is refused before anything is read. A smaller (or no)
+  // declared length proves nothing: the bytes are counted as they arrive.
+  const declared = req.headers.get("content-length");
+  if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {
+    await req.body?.cancel().catch(() => {});
+    throw tooLarge();
+  }
+  const buf = await readCapped(req.body, MAX_BODY_BYTES);
+  if (buf === null) throw tooLarge();
   let v: unknown;
   try {
     v = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(buf));
@@ -290,20 +342,23 @@ export const HANDLERS: Handlers = {
     const now = deps.now();
     // Always the same answer, so the endpoint doesn't reveal who is known.
     if (await knownEmail(deps.db, email)) {
-      const recent = await deps.db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM sign_in_links WHERE email = ? AND created_ms > ?`, [email, now - 3_600_000]);
-      if ((recent[0]?.n ?? 0) < deps.config.maxLinksPerEmailPerHour) {
-        const token = base64url(deps.randomBytes(32));
-        await deps.db.run(`INSERT INTO sign_in_links (token_sha256, email, created_ms, expires_ms) VALUES (?, ?, ?, ?)`, [
-          await sha256Hex(token),
-          email,
-          now,
-          now + deps.config.signInLinkTtlMs,
-        ]);
-        try {
-          await deps.mailer.sendSignInLink(email, `${deps.config.appOrigin}/?token=${token}`);
-        } catch {
-          // The link stays unusable without the email; the answer stays the same.
-        }
+      const token = base64url(deps.randomBytes(32));
+      // One statement reserves the hour's slot and stores the link, so concurrent
+      // requests can't all pass a count taken before any of them inserted.
+      const inserted = await deps.db.run(
+        `INSERT INTO sign_in_links (token_sha256, email, created_ms, expires_ms)
+         SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) < ?`,
+        [await sha256Hex(token), email, now, now + deps.config.signInLinkTtlMs, email, now - 3_600_000, deps.config.maxLinksPerEmailPerHour],
+      );
+      if (inserted.changes === 1) {
+        // Only the request that won the reservation sends mail, after the response; a
+        // failure (rejected or thrown) leaves the link unused and the answer unchanged.
+        const url = `${deps.config.appOrigin}/?token=${token}`;
+        deps.waitUntil(
+          Promise.resolve()
+            .then(() => deps.mailer.sendSignInLink(email, url))
+            .catch(() => {}),
+        );
       }
     }
     return json(200, { ok: true });
