@@ -401,8 +401,8 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "`/v2/pods/${encodeURIComponent(providerMachineId)}`);\n      return podStatus",
-  "new": "`/v2/pods/${providerMachineId}`);\n      return podStatus"
+  "old": "`/v2/pods/${encodeURIComponent(providerMachineId)}`);\n      const s = podStatus",
+  "new": "`/v2/pods/${providerMachineId}`);\n      const s = podStatus"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -461,13 +461,13 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "checkBound(\"confirmPolls\", confirmPolls, 1);",
+  "old": "checkBound(\"confirmPolls\", polls, 1);",
   "new": ""
  },
  {
   "file": "src/placement.ts",
-  "old": "confirmIntervalMs < 0 || confirmIntervalMs > 60_000",
-  "new": "confirmIntervalMs < 0"
+  "old": "intervalMs < 0 || intervalMs > 60_000",
+  "new": "intervalMs < 0"
  },
  {
   "file": "src/placement.ts",
@@ -501,7 +501,7 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "if ((await adapter.status(providerMachineId)).state === \"terminated\") return true;",
+  "old": "if (s.state === \"terminated\") return true;",
   "new": "return true;"
  },
  {
@@ -638,5 +638,83 @@
   "file": "src/runpod/adapter.ts",
   "old": "if (!isObject(json) || !Array.isArray(json[\"gpus\"])) {",
   "new": "if (false) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "): Promise<boolean> {\n  checkConfirmBounds(polls, intervalMs);",
+  "new": "): Promise<boolean> {",
+  "note": "daybreak2 H2b: the exported helper validates its own bounds"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  checkConfirmBounds(confirmPolls, confirmIntervalMs);\n",
+  "new": "",
+  "note": "launchWithFallback checks confirm bounds before any effect"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (s.provider !== adapter.info.provider || s.providerMachineId !== providerMachineId) return false;",
+  "new": "",
+  "note": "SEC H3/T4: confirmation bound to the machine"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (s.provider !== adapter.info.provider || s.providerMachineId !== providerMachineId) return false;",
+  "new": "if (s.providerMachineId !== providerMachineId) return false;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (s.provider !== adapter.info.provider || s.providerMachineId !== providerMachineId) return false;",
+  "new": "if (s.provider !== adapter.info.provider) return false;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      if (s.providerMachineId !== providerMachineId) {\n        throw",
+  "new": "      if (false) {\n        throw"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  check(\"unexpectedSettings\", [], observed.unexpectedSettings);\n",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    unexpectedSettings: unexpectedSettings(pod),\n",
+  "new": "    unexpectedSettings: [],\n"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (pod[\"cloud\"] !== \"SECURE\") out.push",
+  "new": "if (pod[\"cloud\"] === \"COMMUNITY\") out.push"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(ssh)) out.push(`ssh:${UNREADABLE}`);",
+  "new": "if (!isObject(ssh)) {}"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of Object.keys(ssh)) if (ssh[k] !== null) out.push(`ssh:${k}`);",
+  "new": "for (const k of [\"proxy\"]) if (ssh[k]) out.push(`ssh:${k}`);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (pod[\"template\"] !== null) out.push",
+  "new": "if (typeof pod[\"template\"] === \"string\") out.push"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(gn) || gn[\"enabled\"] !== false) out.push",
+  "new": "if (isObject(gn) && gn[\"enabled\"] === true) out.push"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "gb += size > 0 ? size : Number.NaN;",
+  "new": "gb += size;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  const cmd = stringArray(pod[\"cmd\"]);",
+  "new": "  const cmd = pod[\"cmd\"] === undefined || pod[\"cmd\"] === null ? [] : stringArray(pod[\"cmd\"]);"
  }
 ]

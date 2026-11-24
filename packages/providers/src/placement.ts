@@ -171,8 +171,16 @@ export function backoffMs(retry: number, retryAfterSeconds: number | null): numb
   return Math.min(ms, MAX_BACKOFF_MS);
 }
 
+function checkConfirmBounds(polls: number, intervalMs: number): void {
+  checkBound("confirmPolls", polls, 1);
+  if (!Number.isSafeInteger(intervalMs) || intervalMs < 0 || intervalMs > 60_000) {
+    throw new RangeError(`confirmIntervalMs must be an integer in [0, 60000], got ${intervalMs}`);
+  }
+}
+
 /**
- * Terminate a machine and poll until the provider reports it terminated. Any error, or no
+ * Terminate a machine and poll until the provider reports it terminated. `polls` must be an
+ * integer in [1, 20] and `intervalMs` in [0, 60000] (RangeError before any effect otherwise). Any error, or no
  * confirmation within `polls` status reads, gives false: the machine may still be running.
  */
 export async function terminateAndConfirm(
@@ -182,11 +190,15 @@ export async function terminateAndConfirm(
   polls: number,
   intervalMs: number,
 ): Promise<boolean> {
+  checkConfirmBounds(polls, intervalMs);
   try {
     await adapter.terminate(providerMachineId);
     for (let i = 0; i < polls; i++) {
       if (i > 0) await sleep(intervalMs);
-      if ((await adapter.status(providerMachineId)).state === "terminated") return true;
+      const s = await adapter.status(providerMachineId);
+      // Only a status for exactly this machine at this provider confirms anything.
+      if (s.provider !== adapter.info.provider || s.providerMachineId !== providerMachineId) return false;
+      if (s.state === "terminated") return true;
     }
   } catch {
     // fall through: unconfirmed
@@ -209,10 +221,7 @@ export async function launchWithFallback(opts: FallbackOptions): Promise<Placed>
   checkBound("maxRetriesPerOffer", maxRetries, 0);
   const confirmPolls = opts.confirmPolls ?? 10;
   const confirmIntervalMs = opts.confirmIntervalMs ?? 3000;
-  checkBound("confirmPolls", confirmPolls, 1);
-  if (!Number.isSafeInteger(confirmIntervalMs) || confirmIntervalMs < 0 || confirmIntervalMs > 60_000) {
-    throw new RangeError(`confirmIntervalMs must be an integer in [0, 60000], got ${confirmIntervalMs}`);
-  }
+  checkConfirmBounds(confirmPolls, confirmIntervalMs);
   const attempts: LaunchAttempt[] = [];
   if (opts.offers.length === 0) throw new PlacementError("no_offers", "no offer matches", attempts);
   let calls = 0;

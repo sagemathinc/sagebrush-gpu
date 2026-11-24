@@ -63,6 +63,7 @@ export function specDrift(expected: ExpectedSpec, observed: ProviderMachineStatu
   check("volumeGb", 0, observed.volumeGb);
   check("envNames", [...expected.envNames].sort(), [...observed.envNames].sort());
   check("exposedPorts", [], observed.exposedPorts);
+  check("unexpectedSettings", [], observed.unexpectedSettings);
   check("command", expected.command, observed.command);
   const rate = observed.providerCostPerHour;
   if (rate === null || rate > expected.maxProviderCostPerHour) {

@@ -50,7 +50,12 @@ anything else. Placement then cleans it up (below).
 malformed or not at all is kept as an unreadable value (`<unreadable>`, `NaN`) that never equals
 an expected one, so the drift check reports it: missing or non-string `ports`, `env`, `entrypoint`
 or `cmd` entries, missing or malformed `mounts` (an unknown mount kind, a non-array network or
-global list, a non-integer size), a non-integer disk or GPU count, a missing image. A list or
+global list, a non-integer or zero size: any persistent mount is a volume), a missing `cmd`, a
+non-integer disk or GPU count, a missing image. Provider settings outside our launch shape are
+listed in `unexpectedSettings` (expected empty): on RunPod, a cloud other than `SECURE`, any
+non-null SSH endpoint (`ssh.proxy`, `ssh.direct`, or an unknown kind), a non-null `template`,
+and global networking not explicitly disabled; a missing or malformed value is listed as
+unreadable. A list or
 catalog response that doesn't match RunPod's schema (`pods` array, `pagination.hasNextPage`
 boolean, a cursor whenever there is a next page) is an error: it proves neither that a machine is
 absent nor that the list is complete.
@@ -100,9 +105,11 @@ code, so a 400 whose detail says capacity is `no_capacity`, any other 400 is `un
 - Every launch call gets its own spec, so its own boot token. **After every failed call, its boot
   token is revoked first** (`revokeBootToken`, supplied by the control plane). If the call left a
   machine behind, placement then terminates it and polls until the provider reports it gone
-  (`confirmPolls`, default 10, `confirmIntervalMs`, default 3 s). If the revocation, the
-  termination or the confirmation fails, the search stops with `outcome_unknown`: no next offer,
-  no second launch.
+  (`confirmPolls`, default 10, `confirmIntervalMs`, default 3 s). Only a status for exactly that
+  machine id at that adapter's provider counts (the RunPod adapter also refuses an answer about
+  another pod). If the revocation, the termination or the confirmation fails, the search stops
+  with `outcome_unknown`: no next offer, no second launch. `terminateAndConfirm` is exported for
+  the watchdog and validates its own bounds.
 
 **Locality** (`locality.ts`): presets are country sets. `europe` is the EU, the rest of the EEA
 (Iceland, Liechtenstein, Norway) and the UK; `eu` the 27 EU states; `uk`, `us`, `ca` one country
@@ -129,7 +136,8 @@ above is built for that path. Until the probe passes, the adapter is for develop
 
 To confirm in the probe (all fail closed today, through the drift check at launch): that
 `mounts: {}` gives a pod with no volume; that `ports: []` is accepted; that the pod's `env` as
-returned lists only what we set; and how RunPod reports `entrypoint`/`cmd` back.
+returned lists only what we set; how RunPod reports `entrypoint`/`cmd` back; and that a pod
+launched with `startSsh: false` reports `ssh: {proxy: null, direct: null}`.
 
 ## Not yet
 

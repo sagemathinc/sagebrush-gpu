@@ -132,7 +132,9 @@ function volumeGb(mounts: unknown): number {
   const persistent = mounts["persistent"];
   if (persistent !== undefined && persistent !== null) {
     if (!isObject(persistent)) return Number.NaN;
-    gb += count(persistent["size"]);
+    // A persistent mount is a volume whatever its reported size: never "no volume".
+    const size = count(persistent["size"]);
+    gb += size > 0 ? size : Number.NaN;
   }
   for (const k of ["network", "global"]) {
     const v = mounts[k];
@@ -141,6 +143,24 @@ function volumeGb(mounts: unknown): number {
     if (v.length > 0) gb = Number.POSITIVE_INFINITY;
   }
   return gb;
+}
+
+/**
+ * RunPod settings that differ from our launch shape: Secure Cloud, no SSH endpoint, no template,
+ * no global networking. Missing or malformed values are reported too.
+ */
+function unexpectedSettings(pod: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  if (pod["cloud"] !== "SECURE") out.push(`cloud:${typeof pod["cloud"] === "string" ? pod["cloud"] : UNREADABLE}`);
+  const ssh = pod["ssh"];
+  if (!isObject(ssh)) out.push(`ssh:${UNREADABLE}`);
+  else {
+    for (const k of Object.keys(ssh)) if (ssh[k] !== null) out.push(`ssh:${k}`);
+  }
+  if (pod["template"] !== null) out.push(`template:${typeof pod["template"] === "string" ? pod["template"] : UNREADABLE}`);
+  const gn = pod["globalNetworking"];
+  if (!isObject(gn) || gn["enabled"] !== false) out.push(`globalNetworking:${isObject(gn) && gn["enabled"] === true ? "enabled" : UNREADABLE}`);
+  return out;
 }
 
 /**
@@ -159,7 +179,7 @@ export function podStatus(pod: unknown, observedAt: string): ProviderMachineStat
   const rawStatus = typeof pod["status"] === "string" ? pod["status"] : "";
   // RunPod returns both forms (args, and entrypoint + cmd); we read entrypoint + cmd.
   const entrypoint = stringArray(pod["entrypoint"]);
-  const cmd = pod["cmd"] === undefined || pod["cmd"] === null ? [] : stringArray(pod["cmd"]);
+  const cmd = stringArray(pod["cmd"]);
   const command = entrypoint !== null && cmd !== null ? [...entrypoint, ...cmd] : [UNREADABLE];
   const cost = pod["cost"];
   return {
@@ -176,6 +196,7 @@ export function podStatus(pod: unknown, observedAt: string): ProviderMachineStat
     volumeGb: volumeGb(pod["mounts"]),
     envNames,
     exposedPorts: stringArray(pod["ports"]) ?? [UNREADABLE],
+    unexpectedSettings: unexpectedSettings(pod),
     command,
     providerCostPerHour: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? usdToMicros(cost) : null,
     observedAt,
@@ -350,7 +371,11 @@ export class RunPodAdapter implements ProviderAdapter {
   async status(providerMachineId: string): Promise<ProviderMachineStatus> {
     try {
       const { json } = await this.#call("GET", `/v2/pods/${encodeURIComponent(providerMachineId)}`);
-      return podStatus(json, this.#observedAt());
+      const s = podStatus(json, this.#observedAt());
+      if (s.providerMachineId !== providerMachineId) {
+        throw new ProviderError("runpod", "unknown", "RunPod answered a pod query with another pod");
+      }
+      return s;
     } catch (e) {
       if (e instanceof ProviderError && e.kind === "not_found") return goneStatus(providerMachineId, this.#observedAt());
       throw e;
@@ -416,6 +441,7 @@ function goneStatus(providerMachineId: string, observedAt: string): ProviderMach
     volumeGb: 0,
     envNames: [],
     exposedPorts: [],
+    unexpectedSettings: [],
     command: [],
     providerCostPerHour: null,
     observedAt,

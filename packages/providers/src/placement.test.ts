@@ -135,7 +135,7 @@ function fakeStatus(id: string, state: ProviderMachineStatus["state"] = "provisi
   return {
     provider: "runpod", providerMachineId: id, machineId: "mch_a", state, rawStatus: state.toUpperCase(),
     gpuType: "L4", gpuCount: 1, dataCenter: null, image: "img", diskGb: 40, volumeGb: 0, envNames: [],
-    exposedPorts: [], command: [], providerCostPerHour: 690_000, observedAt: "",
+    exposedPorts: [], unexpectedSettings: [], command: [], providerCostPerHour: 690_000, observedAt: "",
   };
 }
 
@@ -148,6 +148,8 @@ interface Script {
   terminate?: Record<string, Error>;
   /** Status replies per machine id, in order (default: terminated). */
   status?: Record<string, Array<ProviderMachineStatus["state"] | Error>>;
+  /** Fields that override every status reply for a machine id. */
+  statusAs?: Record<string, Partial<ProviderMachineStatus>>;
 }
 
 /** A scripted adapter; every call is appended to `log`. */
@@ -165,7 +167,7 @@ function scripted(provider: ProviderId, script: Script, log: string[]): Provider
       log.push(`status:${id}`);
       const next = script.status?.[id]?.shift() ?? "terminated";
       if (next instanceof Error) throw next;
-      return fakeStatus(id, next);
+      return { ...fakeStatus(id, next), ...script.statusAs?.[id] };
     },
     launch: async (spec: LaunchSpec) => {
       log.push(`launch:${spec.dataCenter}:${spec.bootToken}`);
@@ -254,6 +256,20 @@ for (const [what, terminate, status] of cleanupFailures) {
     await assert.rejects(promise, placementError("outcome_unknown", 1));
     assert.equal(log.filter((l) => l.startsWith("launch:")).length, 1);
     assert.deepEqual(log.slice(0, 3), ["launch:A:t1", "revoke:t1", "terminate:podA"]);
+  });
+}
+
+for (const [what, as] of [
+  ["another machine id", { providerMachineId: "unrelated-pod" }],
+  ["another provider", { provider: "hyperstack" }],
+] as const) {
+  test(`a termination confirmed for ${what} confirms nothing: the search stops`, async () => {
+    const { promise, log } = run(["A", "B"], {
+      launch: { A: [err("price_above_cap", null, "podA")], B: ["ok"] },
+      statusAs: { podA: as },
+    });
+    await assert.rejects(promise, placementError("outcome_unknown", 1));
+    assert.equal(log.filter((l) => l.startsWith("launch:")).length, 1);
   });
 }
 
@@ -371,7 +387,24 @@ test("terminateAndConfirm", async () => {
   assert.equal(await terminateAndConfirm(b, "p", async () => {}, 2, 1), false);
   const c = scripted("runpod", { launch: {}, terminate: { p: new Error("x") } }, []);
   assert.equal(await terminateAndConfirm(c, "p", async () => {}, 3, 1), false);
+  const edges = scripted("runpod", { launch: {} }, []);
+  assert.equal(await terminateAndConfirm(edges, "p", async () => {}, 1, 0), true);
+  assert.equal(await terminateAndConfirm(edges, "p", async () => {}, 20, 60_000), true);
 });
+
+for (const [polls, interval] of [
+  [0, 1], [-1, 1], [1.5, 1], [Number.NaN, 1], [Number.POSITIVE_INFINITY, 1], [21, 1],
+  [1, -1], [1, 1.5], [1, Number.NaN], [1, Number.POSITIVE_INFINITY], [1, 60_001],
+] as const) {
+  test(`terminateAndConfirm rejects polls=${polls} intervalMs=${interval} before any effect`, async () => {
+    const log: string[] = [];
+    const sleeps: number[] = [];
+    const a = scripted("runpod", { launch: {} }, log);
+    await assert.rejects(terminateAndConfirm(a, "p", async (ms) => { sleeps.push(ms); }, polls, interval), RangeError);
+    assert.deepEqual(log, []);
+    assert.deepEqual(sleeps, []);
+  });
+}
 
 test("backoffMs", () => {
   assert.equal(backoffMs(0, null), 1000);

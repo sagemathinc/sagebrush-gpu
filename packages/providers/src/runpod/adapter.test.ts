@@ -233,6 +233,20 @@ const malformed: Array<[string, Record<string, unknown>]> = [
   ["disk as a string", { disk: "40" }],
   ["missing gpu", { gpu: undefined }],
   ["a GPU count as a string", { gpu: { id: "NVIDIA L4", count: "1" } }],
+  ["cmd omitted", { cmd: undefined }],
+  ["cmd null", { cmd: null }],
+  ["a persistent mount of size 0", { mounts: { persistent: { size: 0, path: "/workspace" } } }],
+  ["Community Cloud", { cloud: "COMMUNITY" }],
+  ["no cloud", { cloud: undefined }],
+  ["an SSH proxy", { ssh: { proxy: { host: "ssh.runpod.io", port: 22 }, direct: null } }],
+  ["direct SSH", { ssh: { proxy: null, direct: { host: "1.2.3.4", port: 22 } } }],
+  ["an unknown SSH endpoint kind", { ssh: { proxy: null, direct: null, web: {} } }],
+  ["no ssh block", { ssh: undefined }],
+  ["a template", { template: "9x4m2p7v" }],
+  ["no template field", { template: undefined }],
+  ["global networking", { globalNetworking: { enabled: true } }],
+  ["no global networking block", { globalNetworking: undefined }],
+  ["global networking unreadable", { globalNetworking: { enabled: "no" } }],
 ];
 
 for (const [what, change, kind] of badPods) {
@@ -393,8 +407,22 @@ test("status of a pod RunPod doesn't know is terminated", async () => {
   assert.equal(s.providerMachineId, "gone");
 });
 
+test("status refuses an answer about another pod", async () => {
+  const { a } = adapter([{ status: 200, body: { ...POD, id: "unrelated-pod" } }]);
+  await assert.rejects(a.status("7h9k2m4n6p"), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
+});
+
+test("unexpected settings are named", () => {
+  const s = podStatus({ ...POD, cloud: "COMMUNITY", ssh: { proxy: {}, direct: null }, template: "t1", globalNetworking: { enabled: true } }, "t");
+  assert.deepEqual(s.unexpectedSettings, ["cloud:COMMUNITY", "ssh:proxy", "template:t1", "globalNetworking:enabled"]);
+  assert.deepEqual(podStatus({ id: "p" }, "t").unexpectedSettings, [
+    `cloud:${UNREADABLE}`, `ssh:${UNREADABLE}`, `template:${UNREADABLE}`, `globalNetworking:${UNREADABLE}`,
+  ]);
+  assert.deepEqual(podStatus(POD, "t").unexpectedSettings, []);
+});
+
 test("status escapes the pod id", async () => {
-  const { a, calls } = adapter([{ status: 200, body: POD }]);
+  const { a, calls } = adapter([{ status: 200, body: { ...POD, id: "a/../b?c" } }]);
   await a.status("a/../b?c");
   assert.equal(calls[0]!.url, "https://api.runpod.io/v2/pods/a%2F..%2Fb%3Fc");
 });
@@ -457,6 +485,7 @@ test("podStatus reads the fixture pod", () => {
     volumeGb: 0,
     envNames: ["SBGPU_BOOT_TOKEN"],
     exposedPorts: [],
+    unexpectedSettings: [],
     command: ["/bin/sh", "-c", "launcher-script"],
     providerCostPerHour: 690_000,
     observedAt: "t",
@@ -479,8 +508,10 @@ test("podStatus keeps unknowns visible", () => {
   assert.ok(Number.isNaN(podStatus({ id: "p", mounts: { persistent: { size: -1 } } }, "t").volumeGb));
   assert.equal(podStatus({ id: "p", mounts: { persistent: { size: 10 }, network: [] } }, "t").volumeGb, 10);
   assert.equal(podStatus({ id: "p", mounts: { persistent: null, network: null, global: null } }, "t").volumeGb, 0);
-  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: null }, "t").command, ["a"]);
-  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"] }, "t").command, ["a"]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: null }, "t").command, [UNREADABLE]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"] }, "t").command, [UNREADABLE]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: [] }, "t").command, ["a"]);
+  assert.ok(Number.isNaN(podStatus({ id: "p", mounts: { persistent: { size: 0 } } }, "t").volumeGb));
   assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: ["b"] }, "t").command, ["a", "b"]);
   assert.throws(() => podStatus({ name: "x" }, "t"), ProviderError);
   assert.throws(() => podStatus(null, "t"), ProviderError);
