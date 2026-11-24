@@ -643,5 +643,41 @@
   "file": "src/app.ts",
   "old": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== \"cache-control\") headers.set(k, v);",
   "new": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "  const raw = new DatabaseSync(\":memory:\", { limits: { variableNumber: D1_MAX_VARIABLES } });",
+  "new": "  const raw = new DatabaseSync(\":memory:\");",
+  "note": "test db: no variable limit"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "export const D1_MAX_VARIABLES = 100;",
+  "new": "export const D1_MAX_VARIABLES = 101;",
+  "note": "test db: one variable over D1's limit"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "export const D1_MAX_VARIABLES = 100;",
+  "new": "export const D1_MAX_VARIABLES = 99;",
+  "note": "test db: one variable under D1's limit"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "  const raw = new DatabaseSync(\":memory:\", { limits: { variableNumber: D1_MAX_VARIABLES } });",
+  "new": "  const raw = new DatabaseSync(\":memory:\");",
+  "note": "test db: no variable limit"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "export const D1_MAX_VARIABLES = 100;",
+  "new": "export const D1_MAX_VARIABLES = 101;",
+  "note": "test db: one variable over D1's limit"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "export const D1_MAX_VARIABLES = 100;",
+  "new": "export const D1_MAX_VARIABLES = 99;",
+  "note": "test db: one variable under D1's limit"
  }
 ]
