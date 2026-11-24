@@ -5,7 +5,7 @@
 import type { VNode } from "preact";
 import { useState } from "preact/hooks";
 import { SPEND_CSV_GROUPINGS, canRemoveMember, type Machine, type SpendCsvGrouping } from "@sbgpu/api";
-import { plural } from "../labels.ts";
+import { capitalize, plural } from "../labels.ts";
 import { bulkPlan, csvFilename, filterRows, invitePreview, memberRows, sortRows, type MemberRow, type SortKey } from "../manage.ts";
 import { formatPriceSplit, formatUsd, parseUsd } from "../money.ts";
 import { formatBytes, machineStateLabel } from "../view.ts";
@@ -255,7 +255,9 @@ export function ManagePage({ store, projectId, timers, nav }: { store: Store; pr
   return html`<main>
     <header class="page">
       <h1>${project.name}: manage</h1>
-      ${store.canManage.value ? null : html`<span class="badge">read-only for ${plural(labels.assistant)}</span>`}
+      ${store.canManage.value
+        ? null
+        : html`<span class="badge">${`${capitalize(plural(labels.assistant))} can stop machines (saving first); only ${plural(labels.manager)} change allocations and invites.`}</span>`}
       <${Link} nav=${nav} to=${{ name: "project", projectId }}>Your own view<//>
     </header>
     <${Summary} store=${store} />

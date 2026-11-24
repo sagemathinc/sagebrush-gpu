@@ -1136,11 +1136,6 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        await this.refresh().catch(() => undefined);\n",
-  "new": "\n"
- },
- {
-  "file": "src/app/store.ts",
   "old": "body: { members: emails.map((email) => ({ email, allocation })) },",
   "new": "body: { members: emails.map((email) => ({ email })) },"
  },
@@ -1248,5 +1243,35 @@
   "file": "src/app/store.ts",
   "old": "      if (generation !== this.#generation) return null;\n      this.error.value = null;",
   "new": "      this.error.value = null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (generation !== this.#generation) return applied;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        if (generation === this.#generation) await this.refresh().catch(() => undefined);",
+  "new": "        await this.refresh().catch(() => undefined);"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          applied++;\n        }\n        return applied;",
+  "new": "        }\n        return applied;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    return generation === this.#generation ? applied : null;",
+  "new": "    return applied;"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.memberId);",
+  "new": "void store.removeMember(row.memberId);"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.memberId);",
+  "new": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.email);"
  }
 ]

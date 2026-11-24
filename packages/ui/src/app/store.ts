@@ -349,15 +349,20 @@ export class Store {
 
   /**
    * Apply several allocation changes, one at a time; stops at the first refusal and says how
-   * far it got. Returns how many were applied.
+   * far it got. Returns how many were applied, or null when the page moved on meanwhile
+   * (the rest isn't sent).
    */
-  async setAllocations(changes: ReadonlyArray<{ memberId: string; to: Micros }>): Promise<number> {
+  async setAllocations(changes: ReadonlyArray<{ memberId: string; to: Micros }>): Promise<number | null> {
     const projectId = this.projectId.value;
     if (projectId == null) return 0;
+    const generation = this.#generation;
     let applied = 0;
     await this.#act("allocations", async () => {
       try {
         for (const c of changes) {
+          // Navigated away or the session changed: stop quietly. What was already sent stays
+          // done (the server is the record); nothing more goes to the old project.
+          if (generation !== this.#generation) return applied;
           try {
             await this.client.call("setMemberAllocation", { params: { projectId, memberId: c.memberId }, body: { amount: c.to } });
           } catch (err) {
@@ -368,11 +373,13 @@ export class Store {
           }
           applied++;
         }
+        return applied;
       } finally {
-        await this.refresh().catch(() => undefined);
+        if (generation === this.#generation) await this.refresh().catch(() => undefined);
       }
     });
-    return applied;
+    // A refusal stops the loop (the banner says how far it got); a stale context returns nothing.
+    return generation === this.#generation ? applied : null;
   }
 
   /** Invite these addresses, each with `allocation`. Returns how many members came back. */

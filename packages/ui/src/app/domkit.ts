@@ -21,12 +21,26 @@ export async function settle(): Promise<void> {
   for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
 }
 
+/** Pages mounted and not yet unmounted: a test file's afterEach unmounts them (unmountAll). */
+const mounted = new Set<() => void>();
+
+/** Unmount whatever a test left mounted (also when it failed half-way). */
+export function unmountAll(): void {
+  for (const unmount of [...mounted]) unmount();
+}
+
 export function mountApp(win: Window, store: Store, path: string, timers: FakeTimers) {
   const root = win.document.createElement("div");
   win.document.body.appendChild(root);
   const nav = (p: string): Nav => ({ path: p, search: "", go: () => {} });
   const show = (p: string) => render(html`<${App} store=${store} nav=${nav(p)} timers=${timers} />`, root as unknown as Element);
   show(path);
+  function unmount() {
+    if (!mounted.delete(unmount)) return;
+    render(null, root as unknown as Element);
+    root.remove();
+  }
+  mounted.add(unmount);
   const q = <T = HTMLElement>(sel: string) => root.querySelector(sel) as unknown as T | null;
   const qa = <T = HTMLElement>(sel: string) => [...root.querySelectorAll(sel)] as unknown as T[];
   return {
@@ -43,7 +57,7 @@ export function mountApp(win: Window, store: Store, path: string, timers: FakeTi
       return walk(root as unknown as N).replace(/\s+/g, " ").trim();
     },
     show,
-    unmount: () => render(null, root as unknown as Element),
+    unmount,
     button: (label: string | RegExp) =>
       qa<HTMLButtonElement>("button").find((b) => (typeof label === "string" ? b.textContent?.trim() === label : label.test(b.textContent ?? ""))) ?? null,
     /** Type into an input or textarea as a person would (value, then an input event). */

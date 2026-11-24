@@ -533,3 +533,51 @@ test("manager actions need a project", async () => {
   assert.equal(await t.store.spendCsv("day"), null);
   assert.equal(t.log.filter((x) => !x.includes("/auth/")).length, 0);
 });
+
+/** A manager of both projects, with a bulk change whose first PUT answers late. */
+async function heldBulk() {
+  const t = await controllable(seedDemo().emails.manager);
+  const manager = [...t.demo.backend.users.values()].find((u) => u.email === t.demo.emails.manager)!;
+  t.demo.backend.addMember(t.otherId, { email: manager.email, role: "manager", userId: manager.id });
+  await t.store.openProject(t.demo.projectId);
+  const id = (email: string) => t.store.members.value.find((m) => m.email === email)!.id;
+  t.hold(/^PUT .*\/allocation$/, true);
+  const bulk = t.store.setAllocations([
+    { memberId: id("ada@example.org"), to: 1_000_000 },
+    { memberId: id("alan@example.org"), to: 2_000_000 },
+  ]);
+  await new Promise((r) => setTimeout(r, 0));
+  const amount = (email: string) => {
+    const m = [...t.demo.backend.members.values()].find((x) => x.email === email && x.projectId === t.demo.projectId)!;
+    return t.demo.backend.allocations.get(m.allocationId)?.amount;
+  };
+  const puts = () => t.log.filter((x) => x.startsWith("PUT ")).length;
+  return { t, bulk, amount, puts };
+}
+
+test("a bulk change stops quietly after a sign-out and sign-in; nothing more is sent", async () => {
+  const { t, bulk, amount, puts } = await heldBulk();
+  await t.store.signOut();
+  await t.store.verifySignIn(`mock:${t.demo.emails.manager}`);
+  t.release();
+  assert.equal(await bulk, null);
+  assert.equal(puts(), 1);
+  assert.equal(amount("ada@example.org"), 1_000_000); // sent before: done on the server
+  assert.equal(amount("alan@example.org"), 25_000_000); // never sent
+  assert.equal(t.store.error.value, null);
+});
+
+test("a bulk change stops quietly when the page moves on; what was sent stays sent", async () => {
+  const { t, bulk, amount, puts } = await heldBulk();
+  await t.store.openProject(t.otherId);
+  t.store.error.value = "B's own message";
+  const sentBefore = t.log.length;
+  t.release();
+  assert.equal(await bulk, null);
+  assert.equal(t.log.length, sentBefore); // not even a refresh: the stale run sends nothing more
+  assert.equal(puts(), 1); // nothing more went to the old project
+  assert.equal(t.store.error.value, "B's own message");
+  assert.equal(t.store.project.value?.id, t.otherId);
+  assert.equal(amount("ada@example.org"), 1_000_000); // the first change did happen
+  assert.equal(amount("alan@example.org"), 25_000_000);
+});

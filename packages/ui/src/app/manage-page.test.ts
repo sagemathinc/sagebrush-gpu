@@ -1,17 +1,18 @@
 // The manager's page mounted in a DOM (happy-dom): what each role sees, and every control
 // driven as a person would, against the mock backend.
 
-import { after, before, test } from "node:test";
+import { after, afterEach, before, test } from "node:test";
 import assert from "node:assert/strict";
 import type { Window } from "happy-dom";
 import { seedDemo } from "../mock/seed.ts";
-import { installDom, mountApp, settle } from "./domkit.ts";
+import { installDom, mountApp, settle, unmountAll } from "./domkit.ts";
 import { controllable, FakeTimers } from "./testkit.ts";
 
 let win: Window;
 before(() => {
   win = installDom();
 });
+afterEach(() => unmountAll());
 after(async () => {
   await win.happyDOM.close();
 });
@@ -52,15 +53,16 @@ test("a manager sees the budget, everyone, invites and machines; Remove only whe
   page.unmount();
 });
 
-test("an assistant's view is read-only", async () => {
+test("an assistant sees everything and can change nothing but Stop", async () => {
   const { page } = await open(EMAILS.assistant);
   const text = page.text();
-  assert.match(text, /read-only for TAs/);
+  // The project's own role words (this demo project calls them TAs and instructors).
+  assert.match(text, /TAs can stop machines \(saving first\); only instructors change allocations and invites\./);
   assert.doesNotMatch(text, /Invite students/);
   assert.equal(page.qa("table.members input").length, 0); // no checkboxes, no allocation inputs
-  assert.equal(page.button("Remove"), null);
+  assert.equal(page.button("Remove") === null, true); // (never hand a DOM node to assert: inspecting it is huge)
   assert.match(text, /ada@example\.org Ada Team Qwen \$25\.00/);
-  assert.ok(page.button("Spend by member (CSV)"));
+  assert.equal(page.button("Spend by member (CSV)") !== null, true);
   page.unmount();
 });
 
@@ -240,5 +242,75 @@ test("bulk: when the server refuses part of it, the selection stays for another 
   await settle();
   assert.match(page.text(), /0 of 2 allocations changed, then: someone else changed the budget/);
   assert.match(page.text(), /2 selected:/);
+  page.unmount();
+});
+
+test("an assistant with machines running can Stop them (saving first), and change nothing else", async () => {
+  const t = await controllable(EMAILS.assistant);
+  // Ada (a member) has a machine running.
+  const backend = t.demo.backend;
+  const ada = [...backend.users.values()].find((u) => u.email === EMAILS.member)!;
+  const assistantId = backend.currentUserId;
+  backend.currentUserId = ada.id;
+  backend.request("POST", `/v1/projects/${t.demo.projectId}/machines`, {}, { gpuType: "L4" });
+  backend.currentUserId = assistantId;
+  backend.advance(90_000);
+  const page = mountApp(win, t.store, `/p/${t.demo.projectId}/manage`, new FakeTimers());
+  await settle();
+  assert.match(page.text(), /Running now 1/);
+  assert.equal(page.button("Stop all machines")?.disabled, false);
+  assert.equal(page.qa("table.machines button").length, 1);
+  // Nothing that edits: no allocation inputs, no selection, no invite, no Remove.
+  assert.equal(page.qa("table.members input").length, 0);
+  assert.equal(page.q("#invite-emails") === null, true);
+  assert.equal(page.button("Remove") === null, true);
+  // Stop asks the server to save first: no save=false from an assistant.
+  page.qa<HTMLButtonElement>("table.machines button")[0]!.click();
+  await settle();
+  assert.ok(t.log.some((x) => /^POST \/v1\/machines\/mch_\w+\/stop$/.test(x)));
+  assert.match(page.text(), /Saving before stop/);
+  page.unmount();
+});
+
+test("Stop and Stop all send save-first bodies", async () => {
+  const t = await controllable(EMAILS.assistant);
+  const bodies: string[] = [];
+  const original = t.store.client.call.bind(t.store.client);
+  (t.store.client as { call: typeof original }).call = (async (name: string, args: { body?: unknown }) => {
+    if (name === "stopMachine" || name === "stopAllMachines") bodies.push(JSON.stringify(args.body ?? null));
+    return original(name as never, args as never);
+  }) as typeof original;
+  await t.store.openProject(t.demo.projectId);
+  await t.store.stopAll();
+  await t.store.stop("mch_00000000000000000001");
+  assert.deepEqual(bodies, ["{}", "{}"]); // no save:false: the server saves first
+});
+
+test("Remove asks first: declining sends nothing; accepting removes that person only", async () => {
+  const { t, page } = await open(EMAILS.manager);
+  const asked: string[] = [];
+  let answer = false;
+  (win as unknown as { confirm: (m: string) => boolean }).confirm = (m: string) => (asked.push(m), answer);
+  const removeButton = (email: string) =>
+    page
+      .qa<HTMLTableRowElement>("table.members tbody tr")
+      .find((tr) => tr.textContent?.includes(email))!
+      .querySelector("button")! as unknown as HTMLButtonElement;
+  removeButton("grace@example.org").click();
+  await settle();
+  assert.deepEqual(asked, ["Remove grace@example.org? Their running machines are stopped (saving first)."]);
+  assert.equal(t.log.filter((x) => x.startsWith("DELETE ")).length, 0);
+  assert.match(page.text(), /People \(8\)/);
+  answer = true;
+  removeButton("grace@example.org").click();
+  await settle();
+  const grace = t.store.members.value.find((m) => m.email === "grace@example.org")!;
+  assert.deepEqual(
+    t.log.filter((x) => x.startsWith("DELETE ")),
+    [`DELETE /v1/projects/${t.demo.projectId}/members/${grace.id}`],
+  );
+  assert.equal(grace.status, "removed");
+  assert.match(page.text(), /People \(7\)/);
+  assert.doesNotMatch(page.text(), /grace@example\.org/);
   page.unmount();
 });
