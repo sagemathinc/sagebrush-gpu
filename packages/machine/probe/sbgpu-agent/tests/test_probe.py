@@ -403,8 +403,14 @@ class HistoryTest(Base):
 
 class RunTest(Base):
     def run_once(self, t, boots, **kw):
+        # (a real capture, made by the probe-only prologue, as on a probe pod)
+        from test_capture import random_key, run_prologue
+        cap = t.dir + "/opt/sbgpu/probe-capture"
+        if not os.path.exists(cap):
+            r, _ = run_prologue(t.dir + "/opt/sbgpu", random_key("rpa"))
+            self.assertEqual(r.returncode, 0, r.stderr)
         out = io.StringIO()
-        boot = main.run(out=out, root=t.dir, proc=t.proc, pid=1, boots_file=boots, get=lambda *a: None, **kw)
+        boot = main.run(out=out, root=t.dir, proc=t.proc, pid=1, boots_file=boots, get=lambda *a: None, capture_file=cap, **kw)
         return boot, out.getvalue().splitlines()
 
     def test_lines_in_order_with_the_boot_count(self):

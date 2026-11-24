@@ -15,12 +15,13 @@ import signal
 import sys
 import time
 
-from sbgpu_probe import checks
+from sbgpu_probe import capture, checks
 
 PREFIX = "SBGPU-PROBE "
 CHECK_ORDER = ("pid1", "environ", "files", "metadata", "history", "done")
 FILES_LIMIT_S = 600
 BOOTS_FILE = "/opt/sbgpu/probe-boots"
+CAPTURE_FILE = "/opt/sbgpu/probe-capture"
 
 
 def line(boot, check, ok, paths, detail):
@@ -47,12 +48,28 @@ def next_boot(path):
     return n
 
 
+def pid1_with_capture(proc, pid, capture_file):
+    """The pid1 check, and the capture: its shape in `detail` (v<bytes>-<prefix>-<classes>) and its salted digest in
+    `paths` when pid1 passes; a capture that is missing or malformed fails the check ('no-capture'/'bad-capture'),
+    and the value search then runs without it."""
+    ok, paths, detail = checks.check_pid1(proc=proc, pid=pid)
+    try:
+        rec = capture.load(capture_file)
+    except capture.CaptureError as e:
+        checks.MATCHER = None
+        return False, paths, "no-capture" if str(e) == "missing" else "bad-capture"
+    checks.MATCHER = capture.Matcher(rec)
+    if not ok:
+        return ok, paths, detail
+    return True, ["digest:" + rec["sha256"]], capture.shape(rec)
+
+
 def run(out=sys.stdout, root="/", proc="/proc", pid=None, boots_file=BOOTS_FILE, get=checks.http_get,
-        clock=time.monotonic):
+        clock=time.monotonic, capture_file=CAPTURE_FILE):
     """Every check, in order; a check that raises fails with 'error'.  Returns the boot number."""
     boot = next_boot(boots_file)
     plan = (
-        ("pid1", lambda: checks.check_pid1(proc=proc, pid=pid)),
+        ("pid1", lambda: pid1_with_capture(proc, pid, capture_file)),
         ("environ", lambda: checks.check_environ(proc=proc)),
         ("files", lambda: checks.check_files(root=root, proc=proc, deadline=clock() + FILES_LIMIT_S, clock=clock)),
         ("metadata", lambda: checks.check_metadata(get=get)),
@@ -67,6 +84,7 @@ def run(out=sys.stdout, root="/", proc="/proc", pid=None, boots_file=BOOTS_FILE,
         out.flush()
     out.write(line(boot, "done", True, [], "ok") + "\n")
     out.flush()
+    checks.MATCHER = None  # (the salt and digest let go)
     return boot
 
 

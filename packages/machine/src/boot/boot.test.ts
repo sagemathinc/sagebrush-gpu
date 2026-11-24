@@ -10,7 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 
-import { BOOT_TOKEN_ENV, ENV_COPY_ALLOWLIST, ENV_FIXED, renderBootCommand, renderBootScript } from "./boot.ts";
+import { BOOT_TOKEN_ENV, ENV_COPY_ALLOWLIST, ENV_FIXED, renderBootCommand, renderBootScript, renderProbePrologue } from "./boot.ts";
+import { PROBE_PROLOGUE_SH } from "./bootstrap-script.ts";
 
 const TOKEN = "A".repeat(20) + "b-_" + "9".repeat(20); // 43 base64url characters
 const KEY = "rpa_TESTKEY0123456789"; // stands in for RunPod's injected key
@@ -121,6 +122,8 @@ async function launch(opts: {
   env?: Record<string, string>;
   binPath?: string;
   edit?: (script: string) => string;
+  /** PROBE ONLY: run the probe prologue with this salt first, its capture under the prefix. */
+  prologueSalt?: string;
 }): Promise<Run> {
   const prefix = join(root, `p${++runs}`);
   mkdirSync(prefix);
@@ -132,6 +135,7 @@ async function launch(opts: {
     mode: "container",
   }, { prefix, body: SH });
   if (opts.edit) script = opts.edit(script);
+  if (opts.prologueSalt) script = renderProbePrologue(opts.prologueSalt, { dir: join(prefix, "opt/sbgpu") }) + script;
   const env: Record<string, string> = {
     PATH: opts.binPath ?? (defaultBin ??= binWithout()),
     CURL_CA_BUNDLE: ca,
@@ -327,4 +331,40 @@ test("bootstrap.sh and boot.ts list the same environment", () => {
 
 test("bootstrap.sh passes shellcheck", { skip: !existsSync("/usr/bin/shellcheck") && "no shellcheck" }, () => {
   execFileSync("shellcheck", ["-s", "sh", new URL("bootstrap.sh", import.meta.url).pathname]);
+});
+
+test("probe prologue: validated values, the launcher's bytes as the unchanged suffix, generated from its .sh", () => {
+  const salt = "ab".repeat(32);
+  const v = { agentUrl: "https://cdn.example.com/a.tgz", agentSha256: "a".repeat(64), controlUrl: "https://api.example.com", mode: "container" as const };
+  const p = renderProbePrologue(salt);
+  assert.equal(p, `SBGPU_PROBE_SALT='${salt}'\nSBGPU_PROBE_DIR='/opt/sbgpu'\n` + PROBE_PROLOGUE_SH);
+  assert.equal(PROBE_PROLOGUE_SH, readFileSync(new URL("probe-prologue.sh", import.meta.url), "utf8"));
+  const full = p + renderBootScript(v);
+  assert.equal(full.slice(p.length), renderBootScript(v));
+  for (const bad of ["AB".repeat(32), "ab".repeat(31), "ab".repeat(33), "zz".repeat(32), "", "ab".repeat(32) + "'"]) {
+    assert.throws(() => renderProbePrologue(bad), /salt/, bad);
+  }
+  assert.throws(() => renderProbePrologue(salt, { dir: "relative" }));
+  assert.throws(() => renderProbePrologue(salt, { dir: "/a/../b" }));
+  assert.throws(() => renderProbePrologue(salt, { dir: "/a'b" }));
+});
+
+test("probe prologue then the real launcher: the capture made, the key out of the agent's environment and output", async () => {
+  const salt = createHash("sha256").update("salt for this test").digest("hex");
+  const r = await launch({ path: "/good.tgz", prologueSalt: salt, env: { RUNPOD_API_KEY: KEY, RUNPOD_POD_ID: "pod-1" } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(r.out);
+  assert.ok(!Object.keys(r.out.env).some((k) => k.startsWith("RUNPOD") || k.startsWith("SBGPU_PROBE")), JSON.stringify(Object.keys(r.out.env)));
+  const capPath = join(r.prefix, "opt/sbgpu/probe-capture");
+  const cap = JSON.parse(readFileSync(capPath, "utf8"));
+  const want = createHash("sha256").update(Buffer.concat([Buffer.from("sbgpu-probe-capture-v1\0"), Buffer.from(salt, "hex"), Buffer.from("\0"), Buffer.from(KEY)])).digest("hex");
+  assert.deepEqual(cap, { bytes: KEY.length, classes: "dlsu", prefix: "rpa", salt, sha256: want, v: 1 });
+  for (const f of filesUnder(r.prefix)) assert.ok(!readFileSync(f).includes(KEY), f);
+  assert.ok(!r.stderr.includes(KEY));
+  // (no injected key: the prologue stops before the launcher, nothing fetched or run)
+  const none = await launch({ path: "/good.tgz", prologueSalt: salt });
+  assert.equal(none.code, 2);
+  assert.match(none.stderr, /no injected key/);
+  assert.equal(none.out, null);
+  assert.equal(existsSync(join(none.prefix, "opt/sbgpu/agent")), false);
 });

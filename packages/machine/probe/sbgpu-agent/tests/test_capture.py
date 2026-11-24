@@ -1,0 +1,345 @@
+"""The probe-only prologue (src/boot/probe-prologue.sh, run for real with sh) and the probe's value search
+(sbgpu_probe/capture.py): the capture's content and file, its fail-closed cases, restarts, and finding the exact key
+(embedded, overlapping, across chunks, in every check) without ever printing it.
+"""
+
+import hashlib
+import io
+import json
+import os
+import secrets
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from sbgpu_probe import capture, checks, main  # noqa: E402
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROLOGUE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "src", "boot", "probe-prologue.sh")
+# (keys made at run time: joined, never a constant in this file or its bytecode)
+ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def random_key(prefix="", n=40, chars=ALNUM):
+    body = "".join(secrets.choice(chars) for _ in range(n))
+    return "_".join((prefix, body)) if prefix else body
+
+
+def run_prologue(d, key, salt=None, extra_env=None):
+    salt = salt or secrets.token_hex(32)
+    with open(PROLOGUE) as f:
+        script = "SBGPU_PROBE_SALT='%s'\nSBGPU_PROBE_DIR='%s'\n" % (salt, d) + f.read()
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    if key is not None:
+        env["RUNPOD" + "_API_KEY"] = key
+    env.update(extra_env or {})
+    r = subprocess.run(["/bin/sh", "-c", script], env=env, capture_output=True)
+    return r, salt
+
+
+def expected_digest(salt, key):
+    return hashlib.sha256(capture.LABEL + b"\0" + bytes.fromhex(salt) + b"\0" + key.encode()).hexdigest()
+
+
+class Base(unittest.TestCase):
+    def tmp(self):
+        d = tempfile.mkdtemp(prefix="sbgpu-capture-")
+        self.addCleanup(shutil.rmtree, d)
+        return d
+
+
+class PrologueTest(Base):
+    def test_the_capture(self):
+        d = self.tmp()
+        key = random_key("rpa", 40)
+        r, salt = run_prologue(d, key)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        path = d + "/probe-capture"
+        st = os.lstat(path)
+        self.assertTrue(stat.S_ISREG(st.st_mode))
+        self.assertEqual(stat.S_IMODE(st.st_mode), 0o600)
+        rec = capture.load(path)
+        self.assertEqual(rec, {"v": 1, "salt": salt, "sha256": expected_digest(salt, key), "bytes": 44,
+                               "prefix": "rpa", "classes": "dlsu"})
+        self.assertEqual(capture.shape(rec), "v44-rpa-dlsu")
+        with open(path, "rb") as f:
+            self.assertNotIn(key.encode(), f.read())
+        self.assertNotIn(key.encode(), r.stdout + r.stderr)
+        self.assertFalse(os.path.exists(path + ".tmp"))
+
+    def test_the_prefix_rule(self):
+        for key, want in [
+            (random_key("rpa", 16), "rpa"),                      # (exactly 16 after the underscore)
+            (random_key("rpa", 15), None),                       # (fewer)
+            (random_key("abcdefgh", 20), "abcdefgh"),            # (8 characters)
+            (random_key("abcdefghi", 20), None),                 # (9: not a short prefix)
+            (random_key("", 40), None),                          # (no underscore)
+            ("_" + random_key("", 30), None),                    # (empty prefix)
+            (random_key("a-b", 20), None),                       # (not alphanumeric)
+        ]:
+            d = self.tmp()
+            r, _ = run_prologue(d, key)
+            self.assertEqual(r.returncode, 0, (key[:3], r.stderr))
+            self.assertEqual(capture.load(d + "/probe-capture")["prefix"], want, len(key))
+
+    def test_classes_and_byte_length(self):
+        d = self.tmp()
+        key = "ab-CD_12.x" + random_key("", 20, "xyz") + "é"  # (a 2-byte character: bytes, not characters)
+        r, salt = run_prologue(d, key)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rec = capture.load(d + "/probe-capture")
+        self.assertEqual(rec["bytes"], len(key.encode()))
+        self.assertEqual(rec["classes"], "dhlosu")
+        self.assertEqual(rec["sha256"], expected_digest(salt, key))
+
+    def test_fails_closed(self):
+        d = self.tmp()
+        for key, code in [(None, 2), ("", 2), ("short", 3), ("x" * 5000, 3)]:
+            r, _ = run_prologue(d, key)
+            self.assertEqual(r.returncode, code, key and len(key))
+            self.assertFalse(os.path.exists(d + "/probe-capture"))
+            if key:
+                self.assertNotIn(key.encode(), r.stdout + r.stderr)
+        r, _ = run_prologue(d, random_key("rpa"), salt="0" * 63 + "g")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_a_restart_must_find_the_same_capture(self):
+        d = self.tmp()
+        key = random_key("rpa")
+        r, salt = run_prologue(d, key)
+        self.assertEqual(r.returncode, 0)
+        with open(d + "/probe-capture", "rb") as f:
+            first = f.read()
+        r2, _ = run_prologue(d, key, salt=salt)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        with open(d + "/probe-capture", "rb") as f:
+            self.assertEqual(f.read(), first)
+        other = random_key("rpa")
+        r3, _ = run_prologue(d, other, salt=salt)
+        self.assertEqual(r3.returncode, 3)
+        self.assertIn(b"changed since the last boot", r3.stderr)
+        self.assertNotIn(other.encode(), r3.stdout + r3.stderr)
+        with open(d + "/probe-capture", "rb") as f:
+            self.assertEqual(f.read(), first)  # (never replaced)
+
+    def test_a_link_or_a_loose_file_at_the_capture_path_fails(self):
+        d = self.tmp()
+        target = d + "/elsewhere"
+        open(target, "w").close()
+        os.symlink(target, d + "/probe-capture")
+        r, _ = run_prologue(d, random_key("rpa"))
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(os.path.getsize(target), 0)
+        d2 = self.tmp()
+        with open(d2 + "/probe-capture", "w") as f:
+            f.write("{}")
+        os.chmod(d2 + "/probe-capture", 0o644)
+        r, _ = run_prologue(d2, random_key("rpa"))
+        self.assertEqual(r.returncode, 3)
+
+    def test_the_launcher_follows_and_sees_the_key_unchanged(self):
+        # (the prologue unsets only its own variables: the launcher still has the injected key for its own check)
+        d = self.tmp()
+        key = random_key("rpa")
+        with open(PROLOGUE) as f:
+            script = "SBGPU_PROBE_SALT='%s'\nSBGPU_PROBE_DIR='%s'\n" % (secrets.token_hex(32), d) + f.read()
+        script += 'test "${' + "RUNPOD" + '_API_KEY-}" = "$EXPECT" && test -z "${SBGPU_PROBE_SALT-}${SBGPU_PROBE_DIR-}" && echo fell-through\n'
+        r = subprocess.run(["/bin/sh", "-c", script], env={"PATH": os.environ["PATH"], "RUNPOD" + "_API_KEY": key, "EXPECT": key},
+                           capture_output=True)
+        self.assertEqual(r.stdout, b"fell-through\n", r.stderr)
+
+
+class LoadTest(Base):
+    def capture_file(self, rec=None, mode=0o600, raw=None):
+        d = self.tmp()
+        p = d + "/probe-capture"
+        rec = rec or {"bytes": 44, "classes": "dlsu", "prefix": "rpa", "salt": "a" * 64, "sha256": "b" * 64, "v": 1}
+        with open(p, "wb") as f:
+            f.write(raw if raw is not None else json.dumps(rec, separators=(",", ":"), sort_keys=True).encode())
+        os.chmod(p, mode)
+        return p
+
+    def test_valid_and_invalid(self):
+        self.assertEqual(capture.load(self.capture_file())["bytes"], 44)
+        good = {"bytes": 44, "classes": "dlsu", "prefix": "rpa", "salt": "a" * 64, "sha256": "b" * 64, "v": 1}
+        for why, kw in [
+            ("mode", {"mode": 0o644}),
+            ("an extra key", {"rec": dict(good, x=1)}),
+            ("not canonical", {"raw": json.dumps(good).encode()}),
+            ("big", {"raw": b" " * 2000}),
+            ("salt", {"rec": dict(good, salt="A" * 64)}),
+            ("bytes", {"rec": dict(good, bytes=15)}),
+            ("classes", {"rec": dict(good, classes="ld")}),
+            ("prefix without underscore class", {"rec": dict(good, classes="dlu")}),
+            ("prefix too long", {"rec": dict(good, prefix="abcdefghi")}),
+        ]:
+            with self.assertRaises(capture.CaptureError, msg=why):
+                capture.load(self.capture_file(**kw))
+        d = self.tmp()
+        os.symlink(self.capture_file(), d + "/probe-capture")
+        with self.assertRaises(capture.CaptureError):
+            capture.load(d + "/probe-capture")
+        with self.assertRaisesRegex(capture.CaptureError, "missing"):
+            capture.load(d + "/nothing")
+
+
+def matcher_for(key, salt=None, prefix="auto"):
+    salt = salt or secrets.token_hex(32)
+    kb = key.encode()
+    import re
+    m = re.match(rb"([A-Za-z0-9]{1,8})_", kb)
+    p = m.group(1).decode() if m and len(kb) - m.end() >= 16 else None
+    classes = ""
+    for name, test in (("d", bytes.isdigit), ("h", lambda c: c == b"-"), ("l", bytes.islower), ("o", lambda c: not c.isalnum() and c not in (b"-", b"_")),
+                       ("s", lambda c: c == b"_"), ("u", bytes.isupper)):
+        if any(test(bytes([c])) for c in kb):
+            classes += name
+    rec = {"v": 1, "salt": salt, "sha256": expected_digest(salt, key), "bytes": len(kb), "prefix": p, "classes": classes}
+    return capture.Matcher(rec), rec
+
+
+class MatcherTest(Base):
+    def test_embedded_overlapping_and_near_misses(self):
+        key = random_key("rpa", 40)
+        m, _ = matcher_for(key)
+        kb = key.encode()
+        self.assertTrue(m.found(kb))
+        self.assertTrue(m.found(b"export X=" + kb + b"\n"))
+        self.assertTrue(m.found(b"abc" + kb + b"xyz123"))               # (embedded in a longer run)
+        self.assertTrue(m.found(b"rpa_rpa_" + kb))                       # (the prefix occurring before, overlapping)
+        self.assertEqual(m.spans(b"zz" + kb + kb), [(2, 2 + len(kb)), (2 + len(kb), 2 + 2 * len(kb))])
+        flipped = kb[:-1] + (b"A" if kb[-1:] != b"A" else b"B")
+        self.assertFalse(m.found(flipped))
+        self.assertFalse(m.found(kb[:-1]))
+        self.assertFalse(m.found(b""))
+
+    def test_no_prefix_windows_everywhere_in_a_run(self):
+        key = random_key("", 32)
+        m, rec = matcher_for(key)
+        self.assertIsNone(rec["prefix"])
+        self.assertTrue(m.found(b"AAAA" + key.encode() + b"BBBB"))
+        self.assertTrue(m.found(b"\x00\xff" + key.encode()))
+        self.assertGreaterEqual(m.hashed, 9)
+
+    def test_redaction_and_sanitize_order(self):
+        key = random_key("rpa", 40)
+        m, _ = matcher_for(key)
+        self.assertEqual(m.redact(b"/a/" + key.encode() + b"/b"), b"/a/<value>/b")
+        checks.MATCHER = m
+        try:
+            out = checks.show("/etc/" + key + "/x")
+            self.assertEqual(out, "/etc/<value>/x")
+            self.assertIsNone(checks.found(out.encode()))
+        finally:
+            checks.MATCHER = None
+
+
+class RunTest(Base):
+    """The probe's run with a real capture (made by the prologue) and the value planted around a fake tree."""
+
+    def setUp(self):
+        self.root = self.tmp()
+        self.proc = self.root + "/proc"
+        os.makedirs(self.proc + "/1")
+        with open(self.proc + "/mounts", "w") as f:
+            f.write("none / overlay rw 0 0\nproc /proc proc rw 0 0\n")
+        with open(self.proc + "/1/environ", "wb") as f:
+            f.write(b"PATH=/usr/bin\0")
+        with open(self.proc + "/1/cmdline", "wb") as f:
+            f.write(b"/usr/bin/python3\0-I\0-S\0/opt/sbgpu/agent/x/sbgpu-agent\0")
+        self.key = random_key("rpa", 40)
+        r, self.salt = run_prologue(self.root + "/opt/sbgpu", self.key)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def run_probe(self):
+        out = io.StringIO()
+        main.run(out=out, root=self.root, proc=self.proc, pid=1, boots_file=self.root + "/opt/sbgpu/probe-boots",
+                 get=lambda *a: None, capture_file=self.root + "/opt/sbgpu/probe-capture")
+        lines = out.getvalue().splitlines()
+        for line in lines:
+            self.assertNotIn(self.key, line)
+            self.assertNotIn(self.salt, line)
+        return {json.loads(x[12:])["check"]: json.loads(x[12:]) for x in lines}
+
+    def test_clean_the_capture_scanned_too(self):
+        got = self.run_probe()
+        self.assertEqual({k: v["pass"] for k, v in got.items()}, {k: True for k in main.CHECK_ORDER})
+        self.assertEqual(got["pid1"]["detail"], "v44-rpa-dlsu")
+        self.assertEqual(got["pid1"]["paths"], ["digest:" + expected_digest(self.salt, self.key)])
+        self.assertIsNone(checks.MATCHER)  # (let go at the end)
+
+    def test_the_value_found_anywhere_and_never_printed(self):
+        os.makedirs(self.root + "/etc/app")
+        with open(self.root + "/etc/app/conf", "w") as f:
+            f.write("token = " + self.key + "\n")                     # (contents, no name, no rpa_ shape needed)
+        with open(self.root + "/etc/" + self.key, "w") as f:            # (a file named by the value)
+            f.write("x")
+        os.symlink("/x/" + self.key, self.root + "/etc/link")           # (a link's target)
+        os.makedirs(self.root + "/root")
+        with open(self.root + "/root/.bash_history", "w") as f:
+            f.write("curl -H " + self.key + "\n")
+        os.makedirs(self.proc + "/77")
+        with open(self.proc + "/77/environ", "wb") as f:
+            f.write(b"X=" + self.key.encode() + b"\0")
+        got = self.run_probe()
+        self.assertEqual((got["environ"]["pass"], got["environ"]["detail"]), (False, "found-value"))
+        self.assertEqual((got["files"]["pass"], got["files"]["detail"]), (False, "found-value"))
+        self.assertIn("/etc/<value>", got["files"]["paths"])
+        self.assertIn("/etc/link", got["files"]["paths"])
+        self.assertIn("/etc/app/conf", got["files"]["paths"])
+        self.assertEqual((got["history"]["pass"], got["history"]["detail"]), (False, "found-value"))
+
+    def test_across_a_chunk_boundary(self):
+        saved = checks.CHUNK
+        checks.CHUNK = 1000
+        try:
+            os.makedirs(self.root + "/data")
+            with open(self.root + "/data/blob", "wb") as f:
+                f.write(b"#" * 990 + self.key.encode() + b"#" * 2000)
+            got = self.run_probe()
+            self.assertEqual(got["files"]["detail"], "found-value")
+        finally:
+            checks.CHUNK = saved
+
+    def test_a_long_key_across_a_chunk_boundary(self):
+        # (a key longer than the default overlap: the overlap grows to the key's length)
+        os.unlink(self.root + "/opt/sbgpu/probe-capture")
+        self.key = random_key("", 300)
+        r, self.salt = run_prologue(self.root + "/opt/sbgpu", self.key)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        saved = checks.CHUNK
+        checks.CHUNK = 1000
+        try:
+            os.makedirs(self.root + "/data")
+            with open(self.root + "/data/blob", "wb") as f:
+                f.write(b"#" * 850 + self.key.encode() + b"#" * 2000)
+            got = self.run_probe()
+            self.assertEqual(got["files"]["detail"], "found-value")
+        finally:
+            checks.CHUNK = saved
+
+    def test_metadata_bodies(self):
+        key = self.key
+        out = io.StringIO()
+        main.run(out=out, root=self.root, proc=self.proc, pid=1, boots_file=self.root + "/opt/sbgpu/probe-boots",
+                 get=lambda url, h, t: (200, b'{"k":"' + key.encode() + b'"}') if "170.2" in url else None,
+                 capture_file=self.root + "/opt/sbgpu/probe-capture")
+        got = {json.loads(x[12:])["check"]: json.loads(x[12:]) for x in out.getvalue().splitlines()}
+        self.assertEqual(got["metadata"]["detail"], "found-value")
+        self.assertNotIn(key, out.getvalue())
+
+    def test_no_or_bad_capture_fails_pid1(self):
+        os.unlink(self.root + "/opt/sbgpu/probe-capture")
+        self.assertEqual(self.run_probe()["pid1"]["detail"], "no-capture")
+        with open(self.root + "/opt/sbgpu/probe-capture", "w") as f:
+            f.write("{}")
+        os.chmod(self.root + "/opt/sbgpu/probe-capture", 0o600)
+        self.assertEqual(self.run_probe()["pid1"]["detail"], "bad-capture")
+
+
+if __name__ == "__main__":
+    unittest.main()

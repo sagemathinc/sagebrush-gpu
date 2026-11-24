@@ -1,6 +1,6 @@
 // The launcher a provider runs first on a new machine (DESIGN.md section 1).  The control plane calls
 // renderBootCommand(); provider adapters put its result in place and never build a start command by hand.
-import { BOOTSTRAP_SH } from "./bootstrap-script.ts";
+import { BOOTSTRAP_SH, PROBE_PROLOGUE_SH } from "./bootstrap-script.ts";
 
 export type BootMode = "container" | "vm";
 
@@ -71,4 +71,20 @@ export function renderBootScript(v: BootValues, opts: { prefix?: string; body?: 
 export function renderBootCommand(v: BootValues): { argv: string[] } | { userData: string } {
   const script = renderBootScript(v);
   return v.mode === "container" ? { argv: ["/bin/sh", "-c", script] } : { userData: script };
+}
+
+const SALT_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * PROBE ONLY (DESIGN.md section 1.5): the prologue the key-eradication probe's driver runs before the unchanged
+ * launcher, as `["/bin/sh", "-c", renderProbePrologue(salt) + renderBootScript(values)]`.  It captures, from the
+ * provider's injected RUNPOD_API_KEY, only a salted digest, the byte length, a coarse class set and a short prefix (or
+ * none), into a 0600 file the probe agent reads; then it falls through into the launcher.  Never used in production.
+ * `saltHex`: 32 random bytes as 64 lowercase hex, fresh per run.  `dir` is for tests only (default /opt/sbgpu).
+ */
+export function renderProbePrologue(saltHex: string, opts: { dir?: string } = {}): string {
+  if (!SALT_RE.test(saltHex)) throw new Error("the salt must be 64 lowercase hex");
+  const dir = opts.dir ?? "/opt/sbgpu";
+  if (!PREFIX_RE.test(dir) || dir.split("/").includes("..")) throw new Error("dir must be an absolute plain path");
+  return `SBGPU_PROBE_SALT='${saltHex}'\nSBGPU_PROBE_DIR='${dir}'\n` + PROBE_PROLOGUE_SH;
 }
