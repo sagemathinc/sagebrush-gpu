@@ -5,5 +5,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 pnpm exec tsc -b
+node packages/machine/scripts/gen-bootstrap.ts --check
 node --test --test-reporter=dot "packages/*/src/**/*.test.ts"
 python3 -I scripts/test-mutants.py
