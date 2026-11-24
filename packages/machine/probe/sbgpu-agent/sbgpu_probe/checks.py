@@ -4,8 +4,9 @@ Each check returns (pass, paths, detail): paths are where something was found (a
 PATH_BYTES, non-printable bytes escaped), and detail is a fixed word.  The probe never reads, keeps, hashes or reports
 a key's value: it looks for the variable's name and for strings shaped like a key, and reports where.
 
-The name and the shapes are built at run time from pieces, so the probe's own files (its source, its bytecode) never
-contain them and can't match its own file scan.
+The name and the shapes are built at run time by joining pieces with str.join/bytes.join (a method call, which the
+compiler never folds into a constant, as it does "a" + "b"), so neither the probe's source nor its bytecode contains
+them, and the probe can't match its own file scan.
 """
 
 import os
@@ -14,10 +15,10 @@ import time
 
 # ---- what is looked for: the variable's name, and key shapes (to be confirmed against the provider's documented
 # key formats before a paid run; the driver uses the same shapes on the logs)
-KEY_NAME = ("RUNPOD" + "_API" + "_KEY").encode()
+KEY_NAME = b"_".join((b"RUNPOD", b"API", b"KEY"))
 KEY_SHAPES = (
-    re.compile(b"rpa" + b"_[A-Za-z0-9_-]{16,}"),
-    re.compile(b"RUNPOD" + b"_API" + rb"_KEY\s*[=:]\s*\S"),
+    re.compile(b"_".join((b"rpa", rb"[A-Za-z0-9_-]{16,}"))),
+    re.compile(KEY_NAME + rb"\s*[=:]\s*\S"),
 )
 
 PATHS_MAX = 20
@@ -41,12 +42,23 @@ def found(data):
     return None
 
 
+ASSIGNMENT = re.compile(re.escape(KEY_NAME) + rb"\s*[=:]\s*[^/]*")
+
+
+def sanitize(b):
+    """Bytes with anything secret-like taken out, in this order: an assignment to the name with its whole value (up
+    to the next path separator), then every key shape, then the bare name."""
+    b = ASSIGNMENT.sub(b"<name>=<redacted>", b)
+    for r in KEY_SHAPES:
+        b = r.sub(b"<redacted>", b)
+    return b.replace(KEY_NAME, b"<name>")
+
+
 def show(path):
-    """A path as reported: escaped, at most PATH_BYTES bytes, and never containing the variable's name."""
+    """A path as reported: sanitized (sanitize), escaped, at most PATH_BYTES bytes."""
     b = path.encode("utf-8", "surrogateescape") if isinstance(path, str) else path
+    b = sanitize(b)
     out = "".join(chr(c) if 32 <= c < 127 and c != 92 else "\\x%02x" % c for c in b)
-    if KEY_NAME.decode() in out:
-        out = out.replace(KEY_NAME.decode(), "<name>")
     return out[:PATH_BYTES]
 
 
@@ -140,8 +152,10 @@ def scan_file(path):
 
 
 def check_files(root="/", proc="/proc", deadline=None, clock=time.monotonic):
-    """Every regular file on every storage filesystem (not /proc, /sys, /dev or a virtual mount), symlinks not
-    followed: the name or a key shape is a finding.  Past the deadline: fails with 'timeout'."""
+    """Every storage filesystem (not /proc, /sys, /dev or a virtual mount), symlinks not followed: the name or a key
+    shape in any directory's or file's name, in any symlink's target text, or in any regular file's contents is a
+    finding.  A directory or file that can't be read fails the check ('unreadable'): root reads everything on a
+    container's storage, so anything unread is doubt.  Past the deadline: fails with 'timeout'."""
     f = Found()
     try:
         skip = {mp for mp, fs in mounts(proc) if fs in VIRTUAL_FS}
@@ -149,10 +163,26 @@ def check_files(root="/", proc="/proc", deadline=None, clock=time.monotonic):
         return False, [], "unreadable"
     skip |= set(SKIP_TOPS)
     unreadable = 0
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+    walk_errors = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False, onerror=walk_errors.append):
         rel = "/" + os.path.relpath(dirpath, root) if dirpath != root else "/"
         rel = os.path.normpath(rel)
         dirnames[:] = sorted(d for d in dirnames if os.path.normpath(os.path.join(rel, d)) not in skip)
+        # (names, and symlink targets: a directory or a link is listed in dirnames or filenames, never followed)
+        for name in dirnames + sorted(filenames):
+            shown = os.path.normpath(os.path.join(rel, name))
+            what = found(os.fsencode(name))
+            if what:
+                f.add(shown, what)
+            p = os.path.join(dirpath, name)
+            if os.path.islink(p):
+                try:
+                    what = found(os.fsencode(os.readlink(p)))
+                except OSError:
+                    unreadable += 1
+                    continue
+                if what:
+                    f.add(shown, what)
         for name in sorted(filenames):
             if deadline is not None and clock() > deadline:
                 return False, f.paths, "timeout"
@@ -166,7 +196,7 @@ def check_files(root="/", proc="/proc", deadline=None, clock=time.monotonic):
                 continue
             if what:
                 f.add(os.path.normpath(os.path.join(rel, name)), what)  # (as the container sees it)
-    if f.detail is None and unreadable:
+    if f.detail is None and (unreadable or walk_errors):
         # (root reads everything on a container's storage: a file that can't be read is doubt)
         return False, [], "unreadable"
     return f.result()
@@ -200,16 +230,18 @@ def http_get(url, headers, timeout):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
     try:
         with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
-            return r.status, r.read(METADATA_BODY_MAX)
+            return r.status, r.read(METADATA_BODY_MAX + 1)
     except urllib.error.HTTPError as e:
-        return e.code, (e.read(METADATA_BODY_MAX) if e.fp else b"")
+        return e.code, (e.read(METADATA_BODY_MAX + 1) if e.fp else b"")
     except (urllib.error.URLError, OSError, ValueError):
         return None
 
 
 def check_metadata(get=http_get, endpoints=METADATA_ENDPOINTS):
-    """Every endpoint on the list: a body that holds the name or a key shape is a finding.  An endpoint that answers
-    without one passes (reported in paths, so the report says what was reachable)."""
+    """Every endpoint on the list: a body that holds the name or a key shape is a finding, and so is one longer than
+    METADATA_BODY_MAX ('oversized': the rest wasn't read, so it can't be called clean).  An endpoint that answers
+    cleanly passes (reported in paths, so the report says what was reachable).  `get` returns at most
+    METADATA_BODY_MAX + 1 bytes."""
     f = Found()
     reachable = []
     for url, headers in endpoints:
@@ -217,7 +249,7 @@ def check_metadata(get=http_get, endpoints=METADATA_ENDPOINTS):
         if r is None:
             continue
         status, body = r
-        what = found(body)
+        what = "oversized" if len(body) > METADATA_BODY_MAX else found(body)
         if what:
             f.add(url, what)
         elif len(reachable) < PATHS_MAX:

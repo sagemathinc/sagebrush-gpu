@@ -13,8 +13,9 @@ import unittest
 
 from sbgpu_probe import checks, main
 
-NAME = "RUN" + "POD_API_KEY"  # (split here too, so this file can't match a scan of the probe's own tree)
-SHAPE = "rp" + "a_" + "A1b2C3d4E5f6G7h8I9j0"
+# (joined at run time, never folded into a constant, so this file and its bytecode can't match a scan of the tree)
+NAME = "_".join(("RUNPOD", "API", "KEY"))
+SHAPE = "_".join(("rpa", "A1b2C3d4E5f6G7h8I9j0"))
 LINE = re.compile(r'^SBGPU-PROBE \{"v":1,"boot":[1-9][0-9]*,"check":"(pid1|environ|files|metadata|history|done)",'
                   r'"pass":(true|false),"paths":\[.*\],"detail":"[a-z0-9-]{0,32}"\}$')
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,9 +77,77 @@ class FoundTest(Base):
                 if n.endswith(".py"):
                     self.assertIsNone(checks.scan_file(os.path.join(dirpath, n)), n)
 
+    def test_the_packaged_probe_with_its_bytecode_passes_its_own_file_scan(self):
+        """As production runs it: the tarball built and unpacked, then imported and compiled by python -I -S with
+        bytecode enabled (the launcher doesn't disable it), and the whole unpacked tree, .pyc files included,
+        scanned."""
+        import subprocess
+        import sys
+        import tarfile
+        work = tempfile.mkdtemp(prefix="sbgpu-probe-pkg-")
+        self.addCleanup(shutil.rmtree, work)
+        build = os.path.join(os.path.dirname(os.path.dirname(HERE)), "scripts", "build-tarball.py")
+        tgz = os.path.join(work, "probe.tar.gz")
+        subprocess.run([sys.executable, "-I", build, HERE, tgz], check=True, capture_output=True)
+        root = os.path.join(work, "root")
+        with tarfile.open(tgz) as t:
+            t.extractall(root, filter="data")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
+        agent = os.path.join(root, "sbgpu-agent")
+        subprocess.run([sys.executable, "-I", "-S", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import sbgpu_probe.checks, sbgpu_probe.main", agent],
+                       check=True, env=env, capture_output=True)
+        subprocess.run([sys.executable, "-I", "-S", "-m", "compileall", "-q", agent], check=True, env=env, capture_output=True)
+        pycs = [n for _, _, fs in os.walk(agent) for n in fs if n.endswith(".pyc")]
+        self.assertGreaterEqual(len(pycs), 3, pycs)
+        os.makedirs(os.path.join(root, "proc"))
+        with open(os.path.join(root, "proc", "mounts"), "w") as f:
+            f.write("none / overlay rw 0 0\nproc /proc proc rw 0 0\n")
+        self.assertEqual(checks.check_files(root=root, proc=os.path.join(root, "proc")), (True, [], "ok"))
+
+    def test_the_probe_writes_no_bytecode_when_run_as_production_runs_it(self):
+        """The real entry, python -I -S <dir>, bytecode enabled (no PYTHON* settings): nothing of the probe's package
+        is compiled to bytecode."""
+        import subprocess
+        import sys
+        import tarfile
+        work = tempfile.mkdtemp(prefix="sbgpu-probe-run-")
+        self.addCleanup(shutil.rmtree, work)
+        build = os.path.join(os.path.dirname(os.path.dirname(HERE)), "scripts", "build-tarball.py")
+        tgz = os.path.join(work, "probe.tar.gz")
+        subprocess.run([sys.executable, "-I", build, HERE, tgz], check=True, capture_output=True)
+        with tarfile.open(tgz) as t:
+            t.extractall(work, filter="data")
+        agent = os.path.join(work, "sbgpu-agent")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
+        env["HOME"] = work  # (its boot counter's parent may not be writable here: the run is stopped before files)
+        proc = subprocess.Popen([sys.executable, "-I", "-S", agent], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env)
+        try:
+            first = proc.stdout.readline().decode()
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+        pycs = [os.path.join(d, n) for d, _, fs in os.walk(agent) for n in fs if n.endswith(".pyc")]
+        # (Python's runner compiles the entry, __main__.py, before any of its code runs: that one file only, which
+        # holds nothing the probe looks for; nothing of sbgpu_probe is compiled, since bytecode is off before import)
+        self.assertTrue(all(os.path.basename(p).startswith("__main__.") for p in pycs), pycs)
+        for p in pycs:
+            self.assertIsNone(checks.scan_file(p), p)
+        # (it ran: the pid1 line, or nothing if it couldn't count its boot here)
+        self.assertTrue(first == "" or first.startswith("SBGPU-PROBE "), first)
+
     def test_show(self):
         self.assertEqual(checks.show("/etc/a b\x01\\"), "/etc/a b\\x01\\x5c")
         self.assertEqual(checks.show("/x/" + NAME + ".txt"), "/x/<name>.txt")
+        # (an assignment's whole value, up to the next separator, and every key shape: redacted before the name)
+        self.assertEqual(checks.show("/d/" + NAME + "=legacySecretValue/f"), "/d/<name>=<redacted>/f")
+        self.assertEqual(checks.show("/d/" + NAME + " : legacy.Secret-Value"), "/d/<name>=<redacted>")
+        self.assertEqual(checks.show("/d/x" + SHAPE + "y/z"), "/d/x<redacted>/z")
+        for p in ("/d/" + NAME + "=legacySecretValue", "/d/" + SHAPE, "/" + NAME + "/" + SHAPE + "/" + NAME + ":v"):
+            out = checks.show(p)
+            self.assertIsNone(checks.found(out.encode()), out)
+            self.assertNotIn("legacySecretValue", out)
+            self.assertNotIn(SHAPE[4:], out)
         self.assertEqual(len(checks.show("/" + "a" * 1000)), checks.PATH_BYTES)
         self.assertEqual(checks.show(b"/\xff"), "/\\xff")
 
@@ -179,6 +248,32 @@ class FilesTest(Base):
         os.symlink(outside, t.dir + "/linkdir")
         self.assertEqual(checks.check_files(root=t.dir, proc=t.proc), (True, [], "ok"))
 
+    def test_names_and_link_targets_are_scanned_and_reported_without_leaking(self):
+        cases = [
+            ("a file name", lambda t: t.write("/opt/" + SHAPE, "clean")),
+            ("an assignment as a file name", lambda t: t.write("/opt/" + NAME + "=legacySecretValue", "clean")),
+            ("a directory name", lambda t: t.write("/opt/" + NAME + "/f", "clean")),
+            ("a symlink's name", lambda t: os.symlink("/nowhere", t.dir + "/" + SHAPE)),
+            ("a symlink's target text", lambda t: os.symlink("/x/" + NAME + "=legacySecretValue", t.dir + "/link")),
+            ("a directory symlink's target text", lambda t: os.symlink("/x/" + SHAPE, t.dir + "/linkdir")),
+        ]
+        for why, make in cases:
+            t = Tree()
+            try:
+                make(t)
+                ok, paths, detail = checks.check_files(root=t.dir, proc=t.proc)
+                self.assertFalse(ok, why)
+                self.assertIn(detail, ("found-name", "found-shape"), why)
+                self.assertTrue(paths, why)
+                for p in paths:
+                    self.assertIsNone(checks.found(p.encode()), (why, p))
+                    self.assertNotIn("legacySecretValue", p, why)
+                out = main.line(1, "files", ok, paths, detail)
+                self.assertIsNone(checks.found(out.encode()), (why, out))
+                self.assertNotIn("legacySecretValue", out, why)
+            finally:
+                t.close()
+
     def test_paths_capped(self):
         t = self.tree()
         for i in range(30):
@@ -192,6 +287,28 @@ class FilesTest(Base):
         t.write("/b", "y")
         clock = iter([0, 100, 200]).__next__
         self.assertEqual(checks.check_files(root=t.dir, proc=t.proc, deadline=50, clock=clock)[2], "timeout")
+
+    def test_a_traversal_error_fails(self):
+        t = self.tree()
+        t.write("/a", "clean")
+        real = checks.os.walk
+
+        def walk(top, **kw):
+            kw["onerror"](PermissionError(13, "denied", t.dir + "/hidden"))
+            return real(top, **kw)
+        checks.os.walk = walk
+        try:
+            self.assertEqual(checks.check_files(root=t.dir, proc=t.proc), (False, [], "unreadable"))
+        finally:
+            checks.os.walk = real
+
+    def test_unreadable_directory_fails(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads everything")
+        t = self.tree()
+        t.write("/locked/inside", NAME)
+        os.chmod(t.dir + "/locked", 0)
+        self.assertEqual(checks.check_files(root=t.dir, proc=t.proc), (False, [], "unreadable"))
 
     def test_unreadable_file_fails(self):
         if os.geteuid() == 0:
@@ -227,6 +344,44 @@ class MetadataTest(Base):
             return (200, b'{"Token":"' + SHAPE.encode() + b'"}') if "170.2/v2/credentials" in url else (404, b"")
         ok, paths, detail = checks.check_metadata(get=get)
         self.assertEqual((ok, detail, paths), (False, "found-shape", ["http://169.254.170.2/v2/credentials"]))
+
+    def test_bodies_at_and_past_the_cap(self):
+        cap = checks.METADATA_BODY_MAX
+        one = checks.METADATA_ENDPOINTS[0][0]
+
+        def serve(body):
+            return lambda url, headers, timeout: (200, body) if url == one else None
+        self.assertEqual(checks.check_metadata(get=serve(b"a" * cap)), (True, [one], "ok"))
+        self.assertEqual(checks.check_metadata(get=serve(b"a" * (cap + 1))), (False, [one], "oversized"))
+        # (the key just past the cap: what get() returns is cap + 1 bytes, so it's oversized, not clean)
+        self.assertEqual(checks.check_metadata(get=serve((b"a" * cap + SHAPE.encode())[:cap + 1])), (False, [one], "oversized"))
+
+    def test_http_get_reads_one_byte_past_the_cap(self):
+        import http.server
+        import threading
+        cap = checks.METADATA_BODY_MAX
+        body = b"a" * cap + SHAPE.encode()
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        th = threading.Thread(target=srv.serve_forever, daemon=True)
+        th.start()
+        try:
+            status, got = checks.http_get("http://127.0.0.1:%d/" % srv.server_address[1], {}, 5)
+            self.assertEqual((status, len(got)), (200, cap + 1))
+            url = "http://127.0.0.1:%d/" % srv.server_address[1]
+            self.assertEqual(checks.check_metadata(endpoints=((url, {}),))[2], "oversized")
+        finally:
+            srv.shutdown()
+            srv.server_close()
 
     def test_the_list_is_fixed_and_link_local(self):
         for url, headers in checks.METADATA_ENDPOINTS:
