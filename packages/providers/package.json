@@ -1,0 +1,8 @@
+{
+  "name": "@sbgpu/providers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The provider interface and its adapters (quote, launch, stop, delete, status, availability), and placement.",
+  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }
+}

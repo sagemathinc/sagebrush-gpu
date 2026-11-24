@@ -1,0 +1,8 @@
+{
+  "name": "@sbgpu/machine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The machine side: boot script, agent, storage gateway Worker and ws-sync.",
+  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "sagebrush-gpu",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "typecheck": "tsc -b",
+    "test": "node --test --test-reporter=dot \"packages/*/src/**/*.test.ts\"",
+    "check": "bash scripts/check.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

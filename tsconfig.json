@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/api" },
+    { "path": "packages/control" },
+    { "path": "packages/providers" },
+    { "path": "packages/machine" },
+    { "path": "packages/ui" }
+  ]
+}

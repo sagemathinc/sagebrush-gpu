@@ -1,0 +1,8 @@
+{
+  "name": "@sbgpu/control",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The control plane: Cloudflare Worker + D1 (API, ledger, allocations, watchdog).",
+  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }
+}

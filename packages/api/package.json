@@ -1,0 +1,8 @@
+{
+  "name": "@sbgpu/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The API contract: types for every API object and endpoint, shared by every package and client.",
+  "exports": { ".": "./src/index.ts" }
+}
