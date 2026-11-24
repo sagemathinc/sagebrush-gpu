@@ -5,6 +5,7 @@ export * from "./time.ts";
 export * from "./errors.ts";
 export * from "./providers.ts";
 export * from "./tokens.ts";
+export * from "./jws.ts";
 export * from "./objects.ts";
 export * from "./budget.ts";
 export * from "./reserve.ts";
