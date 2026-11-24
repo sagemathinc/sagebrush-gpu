@@ -1,5 +1,5 @@
-// Money: integer micro-dollars (1e-6 USD), never floats. The ledger is in USD; any
-// other invoice currency is converted at invoice time, outside this package.
+// Money: integer micro-dollars (1e-6 USD), never floats. The ledger is in USD, and so are
+// invoices: there is no currency conversion anywhere.
 
 /** An integer number of micro-dollars (1 USD = 1_000_000). */
 export type Micros = number;
