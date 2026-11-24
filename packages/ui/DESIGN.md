@@ -63,8 +63,10 @@ cookie sessions). It uses only the public API, the same API Sagebrush uses.
 
 ## State and data flow
 
-- One `api` client interface (`api.ts`) with two implementations: `http` (fetch, ETag polling)
-  and `mock` (in-memory, fake clock). The UI picks `mock` with `?mock=1` in development.
+- One API client (`client.ts`), typed by `@sbgpu/api`'s `Endpoints` and sent with fetch.
+  The mock backend (`mock/`) plugs in as a fetch function, so the UI runs the same client
+  code against the mock and the control plane. The UI picks the mock with `?mock=1` in
+  development.
 - Signals per resource (`me`, `project`, `members`, `machines`, `meter`). Polling: every 5 s
   for machines that are changing state, every 30 s otherwise, paused while the tab is hidden.
 - The routes are hash-free paths (`/p/:projectId`, `/p/:projectId/members`, `/o/:orgId`). The
@@ -95,6 +97,15 @@ cookie sessions). It uses only the public API, the same API Sagebrush uses.
 - Save now is `POST /v1/machines/{id}/save` on the API. Save progress is read from the machine
   object. The UI never talks to the agent directly.
 
-## Open, to settle with gpu1
+## The mock backend (`src/mock/`)
 
-- The exact field names of the API types: `@sbgpu/api` replaces my draft types when it lands.
+An in-memory control plane for development and tests. It covers every browser endpoint of
+`@sbgpu/api` with its access rules, and uses `budget.ts` for start checks and hard stops.
+`advance(ms)` moves a fake clock one second at a time: machines boot (90 s), accrue one ledger
+entry per UTC minute (`entrySplit`), save (120 MiB at 20 MiB/s) and stop (15 s). Test hooks
+simulate idle stops and provider failures. `seed.ts` builds a demo world in which every quote
+refusal can be reached. The mock is not the control plane: where the contract leaves a choice
+open, the file header says which choice the mock makes.
+
+`mutants.json` lists this package's mutants as data (file, from, to, test) for the shared
+mutant runner.
