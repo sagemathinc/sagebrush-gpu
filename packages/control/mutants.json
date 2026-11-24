@@ -1,0 +1,132 @@
+[
+ {
+  "file": "src/ledger.ts",
+  "old": "const complete = minuteEnd <= nowMs;",
+  "new": "const complete = minuteEnd < nowMs;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const complete = minuteEnd <= nowMs;",
+  "new": "const complete = minuteEnd <= nowMs + 1000;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const finalPartial = end !== null && end <= nowMs && end < minuteEnd;",
+  "new": "const finalPartial = end !== null && end < minuteEnd;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const finalPartial = end !== null && end <= nowMs && end < minuteEnd;",
+  "new": "const finalPartial = false;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const seconds = Math.ceil((to - from) / 1000);",
+  "new": "const seconds = Math.round((to - from) / 1000);"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const seconds = Math.ceil((to - from) / 1000);",
+  "new": "const seconds = Math.floor((to - from) / 1000);"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const from = Math.max(b, m.accrualStartMs);",
+  "new": "const from = b;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const to = end === null ? minuteEnd : Math.min(minuteEnd, end);",
+  "new": "const to = minuteEnd;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "if (end !== null && b >= end) break;",
+  "new": "if (end !== null && b > end) break;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "if (to > from) {",
+  "new": "if (to >= from) {"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "if (m.billedThroughMs % MINUTE_MS !== 0) throw new RangeError(\"billedThroughMs is not a minute boundary\");",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "if (m.accrualEndMs < m.accrualStartMs) throw new RangeError(\"accrual ends before it starts\");",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "for (let n = 0; n < maxMinutes; n++) {",
+  "new": "for (let n = 0; n <= maxMinutes; n++) {"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "entries.push({ periodStartMs: b, seconds, split: entrySplit(m.providerCostPerHour, seconds, m.marginBps) });",
+  "new": "entries.push({ periodStartMs: b, seconds, split: entrySplit(m.providerCostPerHour, 60, m.marginBps) });"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "if (plan.billedThroughMs === m.billedThroughMs) continue;",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "      report.failed.push(m.id);",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "WHERE m.accrual_start_ms IS NOT NULL AND (m.accrual_end_ms IS NULL OR m.billed_through_ms < m.accrual_end_ms)`,\n  );\n  const report",
+  "new": "WHERE m.accrual_start_ms IS NOT NULL AND m.accrual_end_ms IS NULL`,\n  );\n  const report"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const running = list.filter((r) => r.accrual_end_ms === null);",
+  "new": "const running = list;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "for (const e of planAccrual(toMachine(r), Math.max(nowMs, r.accrual_end_ms), Number.MAX_SAFE_INTEGER).entries) pending += e.split.total;",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const oldest = Math.min(...running.map((r) => r.billed_through_ms));",
+  "new": "const oldest = Math.max(...running.map((r) => r.billed_through_ms));"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "unbilledSeconds: Math.ceil((nowMs - oldest) / 1000),",
+  "new": "unbilledSeconds: Math.floor((nowMs - oldest) / 1000),"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "unbilledSeconds: Math.ceil((nowMs - oldest) / 1000),",
+  "new": "unbilledSeconds: 0,"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "      stop = true; // fail closed",
+  "new": "      stop = false;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "Math.max(...running.map((r) => r.save_estimate_seconds))",
+  "new": "0"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "Math.max(...running.map((r) => r.save_estimate_seconds))",
+  "new": "running[0]!.save_estimate_seconds"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "if (stop) stops.push(",
+  "new": "if (stop && unspent >= 0) stops.push("
+ }
+]

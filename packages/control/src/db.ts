@@ -1,0 +1,41 @@
+// The control plane's database interface: reads, and atomic batches of writes. D1 runs
+// a batch as one transaction; if any statement fails, none of it applies. The ledger
+// relies on that: an entry and the machine's billed-through mark are written together.
+
+export type SqlValue = string | number | null;
+
+export interface Stmt {
+  sql: string;
+  params: SqlValue[];
+}
+
+export interface Db {
+  all<T>(sql: string, params?: SqlValue[]): Promise<T[]>;
+  /** All statements in one transaction, or none. */
+  batch(stmts: Stmt[]): Promise<void>;
+}
+
+export function stmt(sql: string, ...params: SqlValue[]): Stmt {
+  return { sql, params };
+}
+
+/** The part of Cloudflare's D1Database this module uses. */
+export interface D1Like {
+  prepare(sql: string): { bind(...values: SqlValue[]): D1StatementLike };
+  batch(statements: D1StatementLike[]): Promise<unknown>;
+}
+interface D1StatementLike {
+  all<T>(): Promise<{ results: T[] }>;
+}
+
+export function d1Db(d1: D1Like): Db {
+  return {
+    async all<T>(sql: string, params: SqlValue[] = []) {
+      return (await d1.prepare(sql).bind(...params).all<T>()).results;
+    },
+    async batch(stmts: Stmt[]) {
+      if (stmts.length === 0) return;
+      await d1.batch(stmts.map((s) => d1.prepare(s.sql).bind(...s.params)));
+    },
+  };
+}
