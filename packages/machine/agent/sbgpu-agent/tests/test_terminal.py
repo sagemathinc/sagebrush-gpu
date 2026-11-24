@@ -25,9 +25,9 @@ from sbgpu_agent import terminal as T  # noqa: E402
 
 # (no job control: the shell stays in the terminal's foreground group, so it gets SIGWINCH; the background job makes
 # its own process group in the same session, as an interactive shell's jobs do)
-LOOP = shell("loop.sh", """echo "hello $TERM"
+LOOP = shell("loop.sh", """trap 'echo winch; stty size' WINCH
+echo "hello $TERM"
 stty size
-trap 'echo winch; stty size' WINCH
 %s -I -S -c "import os,time; os.setpgid(0,0); time.sleep(600)" &
 while :; do sleep 0.05; done
 """ % sys.executable)
@@ -166,8 +166,8 @@ async def test_session_lifecycle():
         assert await until(lambda: {"relay": "close", "gen": 2} in leg.controls)
         assert s.exit is None and s2.exit is None
         # (its own: the tree rule over every group in its session, the background job too; exit by SIGHUP)
-        groups = session_groups_alive(s)
-        assert len(groups) >= 2, groups  # (the shell's, and the background subshell's under sh's job control or not)
+        # (the shell's, and the background subshell's under sh's job control or not; its setpgid may lag under load)
+        assert await until(lambda: len(session_groups_alive(s)) >= 2, 10), session_groups_alive(s)
         p.send({"t": "kill", "session": s.id})
         g, m = await recv(leg)
         assert g == 1 and m["t"] == "exit" and m["code"] is None and m["signal"] in ("SIGHUP", "SIGTERM", "SIGKILL"), m
