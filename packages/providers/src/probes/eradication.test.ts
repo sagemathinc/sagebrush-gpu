@@ -6,10 +6,12 @@ import { parseArgs, planFor } from "./cli.ts";
 import {
   checkPlan,
   judgeStage,
+  launcherSha256,
   outcomeOf,
   parseLogSse,
   parseProbeLine,
   ProbeFormatError,
+  probeLauncher,
   runEradicationProbe,
   type ProbePlan,
   type ProbeProviderApi,
@@ -88,13 +90,37 @@ for (const [what, lines, failure] of stageFailures) {
   });
 }
 
-test("judgeStage reports failed checks with their paths; the key name inside a probe line is fine", () => {
-  const r = judgeStage(RUN.map((l) => (l.includes('"files"') ? line("files", false, { paths: ["/etc/RUNPOD_API_KEY.txt"] }) : l)));
+test("judgeStage reports failed checks with their paths", () => {
+  const r = judgeStage(RUN.map((l) => (l.includes('"files"') ? line("files", false, { paths: ["/etc/rp_environment"] }) : l)));
   assert.deepEqual(r.failures, ["check-failed"]);
-  assert.deepEqual(r.failedChecks, [{ check: "files", detail: "found-name", paths: ["/etc/RUNPOD_API_KEY.txt"] }]);
+  assert.deepEqual(r.failedChecks, [{ check: "files", detail: "found-name", paths: ["/etc/rp_environment"] }]);
   assert.equal(r.complete, true);
   assert.equal(judgeStage(["token rpa_short"]).failures.includes("key-shaped-string-in-log"), false);
 });
+
+// SEC H2: the raw line is scanned before parsing, so no field of a passing probe line can carry
+// the key's name or a key-shaped string.
+const NAME = "RUNPOD_API_KEY";
+const SHAPE = "rpa_ABCDEFGHIJKLMNOPQRSTUV";
+const fieldRows: Array<[string, string, string]> = [
+  ["the name in paths of a passing line", line("files", true, { paths: [`/etc/${NAME}`] }), "key-name-in-log"],
+  ["the name as a whole path", line("files", true, { paths: [NAME] }), "key-name-in-log"],
+  ["a key shape in paths of a passing line", line("files", true, { paths: [`/tmp/${SHAPE}`] }), "key-shaped-string-in-log"],
+  ["an assignment in paths", line("files", true, { paths: [`${NAME}=x`] }), "key-shaped-string-in-log"],
+  ["the name in a malformed probe line", `SBGPU-PROBE {"${NAME}":1}`, "key-name-in-log"],
+  ["a key shape in a malformed probe line", `SBGPU-PROBE ${SHAPE}`, "key-shaped-string-in-log"],
+  ["the name in a non-probe line", `echo ${NAME}`, "key-name-in-log"],
+];
+
+for (const [what, l, failure] of fieldRows) {
+  test(`judgeStage fails on ${what}`, () => {
+    const files = RUN.findIndex((x) => x.includes('"files"'));
+    const lines = l.startsWith("SBGPU-PROBE") && !l.includes('"v":1') ? [...RUN, l] : l.startsWith("SBGPU-PROBE") ? [...RUN.slice(0, files), l, ...RUN.slice(files + 1)] : [...RUN, l];
+    const r = judgeStage(lines);
+    assert.equal(r.pass, false);
+    assert.ok(r.failures.includes(failure), JSON.stringify(r.failures));
+  });
+}
 
 test("parseLogSse reads RunPod's log events", () => {
   const body = 'id: 1\ndata: {"source":"container","line":"a","ts":"t"}\n\n: comment\n\ndata: {"source":"system",\ndata: "line":"b","ts":"t"}\n\n';
@@ -108,11 +134,72 @@ test("parseLogSse reads RunPod's log events", () => {
 // ---------------------------------------------------------------- plan
 
 const TOKEN = "A".repeat(43);
+const HASH = "a".repeat(64);
+const agent = { agentUrl: "https://cdn.example.test/probe-agent.tar.gz", agentSha256: HASH, controlUrl: "https://control.example.test" };
+const LAUNCHER = probeLauncher(agent);
 const spec: LaunchSpec = {
   machineId: "mch_pr0bepr0bepr0bepr0be", gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1",
-  image: "img", diskGb: 40, bootToken: TOKEN, launcher: ["/bin/sh", "-c", "x"], maxProviderCostPerHour: 3_000_000,
+  image: "img", diskGb: 40, bootToken: TOKEN, launcher: LAUNCHER, maxProviderCostPerHour: 3_000_000,
 };
-const plan: ProbePlan = { approval: "William, msg 123", spec, maxSpendMicros: 3_000_000, maxMinutes: 60, stageMinutes: 15, pollSeconds: 30 };
+const plan: ProbePlan = { approval: "William, msg 123", agent, spec, maxSpendMicros: 3_000_000, maxMinutes: 60, stageMinutes: 15, pollSeconds: 30 };
+
+// SEC H1: the launcher can only be the production one for the probe agent.
+test("probeLauncher is renderBootCommand's container argv, with the agent's values in it", () => {
+  assert.equal(LAUNCHER.length, 3);
+  assert.deepEqual(LAUNCHER.slice(0, 2), ["/bin/sh", "-c"]);
+  assert.ok(LAUNCHER[2]!.includes(agent.agentUrl));
+  assert.ok(LAUNCHER[2]!.includes(HASH));
+  for (const bad of [
+    { ...agent, agentUrl: "http://cdn.example.test/a.tgz" },
+    { ...agent, agentUrl: "https://cdn.example.test/a b.tgz" },
+    { ...agent, agentSha256: "A".repeat(64) },
+    { ...agent, agentSha256: "a".repeat(63) },
+    { ...agent, controlUrl: "ftp://control.example.test" },
+  ]) {
+    assert.throws(() => probeLauncher(bad), JSON.stringify(bad));
+  }
+});
+
+const hostile: Array<[string, string[]]> = [
+  ["a fake script", ["/bin/sh", "-c", "echo SBGPU-PROBE ..."]],
+  ["an extra argument", [...LAUNCHER, "--fake"]],
+  ["a missing argument", LAUNCHER.slice(0, 2)],
+  ["an altered script", ["/bin/sh", "-c", LAUNCHER[2]!.replace(HASH, "b".repeat(64))]],
+  ["another shell", ["/bin/bash", "-c", LAUNCHER[2]!]],
+  ["the launcher for another agent", probeLauncher({ ...agent, agentUrl: "https://evil.example.test/a.tgz" })],
+];
+
+for (const [what, launcher] of hostile) {
+  test(`a plan with ${what} as its launcher never launches`, async () => {
+    assert.throws(() => checkPlan({ ...plan, spec: { ...plan.spec, launcher } }), RangeError);
+    const w: World = { log: [], stages: [RUN, RUN, RUN] };
+    const h = harness(w);
+    await assert.rejects(runEradicationProbe({ ...plan, spec: { ...plan.spec, launcher } }, h.adapter, h.api, h.clock), RangeError);
+    assert.deepEqual(w.log, []);
+  });
+}
+
+test("the report records the probe agent and the launcher's hash", async () => {
+  const w: World = { log: [], stages: [RUN, RUN, RUN] };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.equal(r.agentUrl, agent.agentUrl);
+  assert.equal(r.agentSha256, HASH);
+  assert.equal(r.launcherSha256, await launcherSha256(LAUNCHER));
+  assert.match(r.launcherSha256, /^[0-9a-f]{64}$/);
+  assert.notEqual(await launcherSha256([...LAUNCHER, "x"]), r.launcherSha256);
+  // Argument boundaries count: ["ab", "c"] and ["a", "bc"] are different launchers.
+  assert.notEqual(await launcherSha256(["ab", "c"]), await launcherSha256(["a", "bc"]));
+  assert.equal(await launcherSha256([]), "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945");
+});
+
+test("an adapter whose boot token variable isn't the launcher's is refused", async () => {
+  const w: World = { log: [], stages: [RUN, RUN, RUN] };
+  const h = harness(w);
+  const a = { ...h.adapter, info: { ...h.adapter.info, bootTokenEnv: "OTHER" } };
+  await assert.rejects(runEradicationProbe(plan, a, h.api, h.clock), RangeError);
+  assert.deepEqual(w.log, []);
+});
 
 test("checkPlan accepts the default plan and refuses unsafe ones", () => {
   checkPlan(plan);
@@ -153,7 +240,7 @@ function status(over: Partial<ProviderMachineStatus> = {}): ProviderMachineStatu
   return {
     provider: "runpod", providerMachineId: "pod1", machineId: spec.machineId, state: "running", rawStatus: "RUNNING",
     gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1", image: "img", diskGb: 40, volumeGb: 0,
-    envNames: ["SBGPU_BOOT_TOKEN"], exposedPorts: [], unexpectedSettings: [], command: ["/bin/sh", "-c", "x"],
+    envNames: ["SBGPU_BOOT_TOKEN"], exposedPorts: [], unexpectedSettings: [], command: LAUNCHER,
     providerCostPerHour: 250_000, observedAt: "", ...over,
   };
 }
@@ -349,27 +436,36 @@ test("an invalid plan never launches", async () => {
 
 // ---------------------------------------------------------------- CLI arguments
 
-test("parseArgs: dry run by default; execute needs an approval", () => {
-  const o = parseArgs(["--launcher", "l.json"]);
+const ARGS = ["--agent-url", agent.agentUrl, "--agent-sha256", HASH, "--control-url", agent.controlUrl];
+
+test("parseArgs: dry run by default; execute needs an approval; no way to pass a launcher", () => {
+  const o = parseArgs(ARGS);
   assert.equal(o.execute, false);
   assert.equal(o.gpu, "RTX-A4000");
   assert.equal(o.maxUsd, 3);
-  assert.equal(parseArgs(["--launcher", "l.json", "--execute", "--approval", "William 2026-12-01"]).execute, true);
+  assert.equal(parseArgs([...ARGS, "--execute", "--approval", "William 2026-12-01"]).execute, true);
   for (const bad of [
-    [], ["--launcher"], ["--launcher", "l.json", "--execute"], ["--launcher", "l.json", "--execute", "--approval", "ok"],
-    ["--launcher", "l.json", "--gpu", "TPU"], ["--launcher", "l.json", "--max-usd", "-1"], ["--launcher", "l.json", "--max-usd", "x"],
-    ["--launcher", "l.json", "--bogus"], ["--launcher", "--execute"],
+    [], ARGS.slice(2), ARGS.slice(0, 4), [...ARGS.slice(0, 2), ...ARGS.slice(4)],
+    [...ARGS, "--launcher", "l.json"], [...ARGS, "--execute"], [...ARGS, "--execute", "--approval", "ok"],
+    [...ARGS, "--gpu", "TPU"], [...ARGS, "--max-usd", "-1"], [...ARGS, "--max-usd", "x"], [...ARGS, "--bogus"],
+    ["--agent-url", "--execute"],
   ]) {
     assert.throws(() => parseArgs(bad), RangeError, JSON.stringify(bad));
   }
 });
 
-test("planFor builds a checked plan whose rate cap fits the spend cap", () => {
-  const p = planFor(parseArgs(["--launcher", "l.json"]), ["/bin/sh", "-c", "x"], TOKEN);
+test("planFor builds the launcher itself and a checked plan whose rate cap fits the spend cap", () => {
+  const p = planFor(parseArgs(ARGS), TOKEN);
+  assert.deepEqual(p.spec.launcher, LAUNCHER);
+  assert.deepEqual(p.agent, agent);
   assert.equal(p.maxSpendMicros, 3_000_000);
   assert.equal(p.spec.maxProviderCostPerHour, 3_000_000);
   assert.equal(p.spec.machineId, "mch_pr0bepr0bepr0bepr0be");
-  assert.throws(() => planFor(parseArgs(["--launcher", "l.json"]), [], TOKEN), RangeError);
-  assert.throws(() => planFor(parseArgs(["--launcher", "l.json", "--max-usd", "11"]), ["x"], TOKEN), RangeError);
-  assert.throws(() => planFor(parseArgs(["--launcher", "l.json"]), ["x"], "short"), RangeError);
+  assert.throws(() => planFor(parseArgs([...ARGS, "--max-usd", "11"]), TOKEN), RangeError);
+  assert.throws(() => planFor(parseArgs(ARGS), "short"), RangeError);
+  for (const [flag, value] of [["--agent-url", "http://x.test/a.tgz"], ["--agent-sha256", "XYZ"], ["--control-url", "file:///etc"]] as const) {
+    const args = [...ARGS];
+    args[args.indexOf(flag) + 1] = value;
+    assert.throws(() => planFor(parseArgs(args), TOKEN), `${flag} ${value}`);
+  }
 });

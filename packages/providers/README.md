@@ -183,13 +183,19 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
 `packages/machine`). **It costs money and needs William's approval to run; it has not been run.**
 
 - `eradication.ts`, the driver:
-  - **Launch:** one pod, exactly as production does (`RunPodAdapter`). The launcher argv comes from
-    `@sbgpu/machine`'s `renderBootCommand` pointed at the pinned probe agent, so the unchanged
-    production launcher execs the probe. The boot token is random; nothing exchanges it.
+  - **Launch:** one pod, exactly as production does (`RunPodAdapter`). The launcher argv is built
+    inside the driver by `@sbgpu/machine`'s `renderBootCommand` from three closed values: the
+    probe agent's https URL, its pinned sha256 and the control URL. So the unchanged production
+    launcher fetches, verifies and execs the probe. There is no way to pass a launcher in, and a
+    plan whose launcher differs from that argv in any byte is refused before launch. The report
+    records the URL, the pin and the sha256 of the complete argv. The boot token is random;
+    nothing exchanges it.
   - **Results:** read from the container log (`SBGPU-PROBE {v, boot, check, pass, paths,
     detail}` lines). `judgeStage` passes a stage only if it holds exactly one run of pid1, environ,
-    files, metadata, history and done, in that order, all passing and in one boot, and no log line
-    contains the key's name or a key-shaped string.
+    files, metadata, history and done, in that order, all passing and in one boot. Every raw log
+    line, probe lines included, is scanned before parsing: the key's name or a key-shaped string
+    anywhere (even in a passing line's paths) fails the stage. The key formats must be confirmed
+    from RunPod's documentation before a paid admission run.
   - **Restart paths:** three stages: first boot, after a restart, and after a stop followed by a
     start (RunPod's v2 API has no separate reset).
   - **Every poll:** a drift check against the launch spec, a spend cap (rate cap times elapsed
@@ -202,8 +208,9 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
     The exec API and the web terminal are provider-side paths into the pod that bypass the launcher.
     They need the account key, not anything inside the pod, so they're outside the probe; SEC's
     write-up should name them.
-- `cli.ts`, the command line: a **dry run by default**. It prints the plan and the exact create
-  body, with the token masked. `--execute` needs `--approval "<who and where>"`, the API key in the
+- `cli.ts`, the command line: `--agent-url`, `--agent-sha256` and `--control-url` (required; no
+  `--launcher`). A **dry run by default**: it prints the plan, the launcher's sha256 and the exact
+  create body, with the token masked. `--execute` needs `--approval "<who and where>"`, the API key in the
   `RUNPOD_API_KEY` environment variable, and a spend cap of at most $10 (default $3). The pod's rate
   cap is the spend cap spread over the lifetime, so a pricier placement is refused at launch.
 

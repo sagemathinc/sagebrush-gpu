@@ -1,10 +1,13 @@
 // The eradication probe's command line. A dry run unless given --execute with an approval
 // reference; see eradication.ts for what the probe does.
 //
-//   node packages/providers/src/probes/cli.ts --launcher launcher.json [options]
+//   node packages/providers/src/probes/cli.ts --agent-url URL --agent-sha256 HEX --control-url URL [options]
 //
-//   --launcher FILE        JSON {"argv": [...]} from @sbgpu/machine's renderBootCommand, with the
-//                          probe agent's URL and sha256 (required)
+//   --agent-url URL        https URL of the pinned probe agent tarball (required)
+//   --agent-sha256 HEX     its sha256, 64 lowercase hex (required)
+//   --control-url URL      https URL of the control plane (required; checked by the launcher)
+//                          The launcher argv is built from these by @sbgpu/machine's
+//                          renderBootCommand; no other launcher can be given.
 //   --gpu TYPE             our GPU type id (default RTX-A4000, the cheapest Secure Cloud GPU we map)
 //   --dc ID                RunPod data center (default EU-SE-1)
 //   --image IMAGE          provider stock image (default: the production image)
@@ -16,19 +19,20 @@
 // With --execute, the API key comes from the RUNPOD_API_KEY environment variable of the shell
 // running this (never a file path, never printed). The report goes to stdout as JSON.
 
-import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { isGpuType } from "../gpus.ts";
 import type { Fetch } from "../http.ts";
 import { RunPodAdapter, RUNPOD_API } from "../runpod/adapter.ts";
 import type { LaunchSpec } from "../types.ts";
-import { checkPlan, parseLogSse, runEradicationProbe, type ProbePlan, type ProbeProviderApi } from "./eradication.ts";
+import { checkPlan, launcherSha256, parseLogSse, probeLauncher, runEradicationProbe, type ProbePlan, type ProbeProviderApi } from "./eradication.ts";
 
 export const DEFAULT_IMAGE = "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404";
 
 export interface CliOptions {
-  launcherFile: string;
+  agentUrl: string;
+  agentSha256: string;
+  controlUrl: string;
   gpu: string;
   dc: string;
   image: string;
@@ -41,7 +45,9 @@ export interface CliOptions {
 /** Parse the arguments; unknown or malformed ones throw. */
 export function parseArgs(argv: readonly string[]): CliOptions {
   const o: CliOptions = {
-    launcherFile: "",
+    agentUrl: "",
+    agentSha256: "",
+    controlUrl: "",
     gpu: "RTX-A4000",
     dc: "EU-SE-1",
     image: DEFAULT_IMAGE,
@@ -62,7 +68,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       return Number(v);
     };
     switch (a) {
-      case "--launcher": o.launcherFile = value(); break;
+      case "--agent-url": o.agentUrl = value(); break;
+      case "--agent-sha256": o.agentSha256 = value(); break;
+      case "--control-url": o.controlUrl = value(); break;
       case "--gpu": o.gpu = value(); break;
       case "--dc": o.dc = value(); break;
       case "--image": o.image = value(); break;
@@ -73,17 +81,22 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       default: throw new RangeError(`unknown argument: ${a}`);
     }
   }
-  if (o.launcherFile === "") throw new RangeError("--launcher is required");
+  if (o.agentUrl === "" || o.agentSha256 === "" || o.controlUrl === "") {
+    throw new RangeError("--agent-url, --agent-sha256 and --control-url are required");
+  }
   if (!isGpuType(o.gpu)) throw new RangeError(`unknown GPU type: ${o.gpu}`);
   if (o.execute && o.approval.trim().length < 8) throw new RangeError("--execute needs --approval");
   return o;
 }
 
-/** The plan for the options and launcher argv. The boot token is random: nothing exchanges it. */
-export function planFor(o: CliOptions, launcher: readonly string[], bootToken: string): ProbePlan {
-  if (!Array.isArray(launcher) || launcher.length === 0 || !launcher.every((s) => typeof s === "string")) {
-    throw new RangeError("the launcher file must hold {\"argv\": [strings]}");
-  }
+/**
+ * The plan for the options. The launcher is built from the probe agent's values by
+ * renderBootCommand (which refuses a non-https or non-plain URL and a malformed hash). The boot
+ * token is random: nothing exchanges it.
+ */
+export function planFor(o: CliOptions, bootToken: string): ProbePlan {
+  const agent = { agentUrl: o.agentUrl, agentSha256: o.agentSha256, controlUrl: o.controlUrl };
+  const launcher = probeLauncher(agent);
   const maxSpendMicros = Math.round(o.maxUsd * 1_000_000);
   const spec: LaunchSpec = {
     machineId: "mch_pr0bepr0bepr0bepr0be",
@@ -100,6 +113,7 @@ export function planFor(o: CliOptions, launcher: readonly string[], bootToken: s
   };
   const plan: ProbePlan = {
     approval: o.approval === "" ? "dry-run (no approval)" : o.approval,
+    agent,
     spec,
     maxSpendMicros,
     maxMinutes: o.maxMinutes,
@@ -139,14 +153,15 @@ async function readLogs(apiKey: string, id: string, since: string): Promise<stri
 
 async function main(argv: readonly string[]): Promise<number> {
   const o = parseArgs(argv);
-  const parsed: unknown = JSON.parse(readFileSync(o.launcherFile, "utf8"));
-  const launcher = (parsed as { argv?: unknown }).argv as string[];
-  const plan = planFor(o, launcher, randomBytes(32).toString("base64url"));
+  const plan = planFor(o, randomBytes(32).toString("base64url"));
   const preview = new RunPodAdapter({ apiKey: "unused", fetch: (() => Promise.reject(new Error("dry run"))) as Fetch });
   const body = preview.createBody(plan.spec);
   (body["env"] as Record<string, string>)[preview.info.bootTokenEnv] = "<random, 43 chars>";
   if (!o.execute) {
-    process.stdout.write(JSON.stringify({ dryRun: true, plan: { ...plan, spec: { ...plan.spec, bootToken: "<random>" } }, createBody: body }, null, 2) + "\n");
+    const launcherHash = await launcherSha256(plan.spec.launcher);
+    process.stdout.write(
+      JSON.stringify({ dryRun: true, launcherSha256: launcherHash, plan: { ...plan, spec: { ...plan.spec, bootToken: "<random>" } }, createBody: body }, null, 2) + "\n",
+    );
     return 0;
   }
   const apiKey = process.env["RUNPOD_API_KEY"];

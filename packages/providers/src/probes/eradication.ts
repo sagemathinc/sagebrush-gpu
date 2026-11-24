@@ -18,6 +18,7 @@
 // Running it costs money: it needs William's approval, recorded as an approval reference. The
 // CLI (cli.ts) is a dry run unless given --execute and that reference.
 
+import { BOOT_TOKEN_ENV, renderBootCommand } from "@sbgpu/machine";
 import { specDrift, expectedSpec } from "../drift.ts";
 import { terminateAndConfirm } from "../placement.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
@@ -38,9 +39,10 @@ export interface ProbeLine {
 }
 
 /**
- * Strings that must never appear in any log line: the key's variable name outside a probe line,
- * an assignment to it, or a string shaped like a RunPod API key ("rpa_" and a long token, per
- * RunPod's documented key format; to be confirmed against a real key's shape without reading one).
+ * Strings that must never appear in any raw log line, probe lines included: the key's variable
+ * name (anywhere, in any field), an assignment to it, or a string shaped like a RunPod API key
+ * ("rpa_" and a long token). The key formats must be confirmed from RunPod's documentation before
+ * a paid admission run; a probe report that names the variable in a path is a finding, not a pass.
  */
 const KEY_SHAPES = [/rpa_[A-Za-z0-9_-]{16,}/, /RUNPOD_API_KEY\s*[=:]\s*\S/];
 const KEY_NAME = "RUNPOD_API_KEY";
@@ -105,7 +107,9 @@ export function judgeStage(lines: readonly string[]): StageResult {
   const failedChecks: StageResult["failedChecks"] = [];
   const probe: ProbeLine[] = [];
   for (const line of lines) {
+    // The raw line, before any parsing: a field of a valid probe line is no hiding place.
     if (KEY_SHAPES.some((re) => re.test(line))) failures.push("key-shaped-string-in-log");
+    if (line.includes(KEY_NAME)) failures.push("key-name-in-log");
     let p: ProbeLine | null;
     try {
       p = parseProbeLine(line);
@@ -113,10 +117,7 @@ export function judgeStage(lines: readonly string[]): StageResult {
       failures.push("malformed-probe-line");
       continue;
     }
-    if (p === null) {
-      if (line.includes(KEY_NAME)) failures.push("key-name-in-log");
-      continue;
-    }
+    if (p === null) continue;
     probe.push(p);
     if (!p.pass) failedChecks.push({ check: p.check, detail: p.detail, paths: p.paths });
   }
@@ -130,10 +131,39 @@ export function judgeStage(lines: readonly string[]): StageResult {
 
 // ---------------------------------------------------------------- the plan
 
+/** The probe agent the production launcher fetches, verifies and execs. */
+export interface ProbeAgent {
+  /** https URL of the probe agent tarball. */
+  agentUrl: string;
+  /** Its pinned sha256, 64 lowercase hex. */
+  agentSha256: string;
+  /** https URL of the control plane (checked by the launcher; unused by the probe). */
+  controlUrl: string;
+}
+
+/**
+ * The production launcher argv for a probe agent: exactly what renderBootCommand builds in
+ * container mode. There is no other way to give the driver a launcher.
+ */
+export function probeLauncher(agent: ProbeAgent): string[] {
+  const r = renderBootCommand({ agentUrl: agent.agentUrl, agentSha256: agent.agentSha256, controlUrl: agent.controlUrl, mode: "container" });
+  if (!("argv" in r)) throw new RangeError("renderBootCommand gave no argv for container mode");
+  return r.argv;
+}
+
+/** Lowercase hex SHA-256 of the launcher argv, as JSON: the report's record of what ran. */
+export async function launcherSha256(argv: readonly string[]): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(argv));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export interface ProbePlan {
   /** Who approved the spend, and where (e.g. a message reference). Required to execute. */
   approval: string;
-  /** The production launch, with the probe agent's URL and pin in its launcher argv. */
+  /** The probe agent; the launch's launcher must be probeLauncher(agent), byte for byte. */
+  agent: ProbeAgent;
+  /** The production launch. */
   spec: LaunchSpec;
   /** Hard cap on the estimated spend, in micro-USD. At most $10. */
   maxSpendMicros: number;
@@ -161,6 +191,11 @@ export function checkPlan(plan: ProbePlan): void {
   intIn("pollSeconds", plan.pollSeconds, 10, 120);
   if (plan.stageMinutes * STAGES.length > plan.maxMinutes) throw new RangeError("maxMinutes is shorter than the stages need");
   if (!/^[A-Za-z0-9_-]{43}$/.test(plan.spec.bootToken)) throw new RangeError("the boot token must be 43 base64url characters");
+  // The launcher is the production one for this probe agent, or nothing runs.
+  const expected = probeLauncher(plan.agent);
+  if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {
+    throw new RangeError("the launcher is not the production launcher for this probe agent");
+  }
   if (plan.spec.maxProviderCostPerHour * (plan.maxMinutes / 60) > plan.maxSpendMicros * 4) {
     throw new RangeError("the rate cap is far above what the spend cap allows");
   }
@@ -189,6 +224,10 @@ export type ProbeOutcome = "pass" | "fail" | "aborted";
 export interface ProbeReport {
   outcome: ProbeOutcome;
   approval: string;
+  /** What ran: the probe agent's URL and pin, and the hash of the complete launcher argv. */
+  agentUrl: string;
+  agentSha256: string;
+  launcherSha256: string;
   providerMachineId: string | null;
   stages: Array<{ stage: Stage; result: StageResult | null }>;
   /** Fixed words, e.g. "spend-cap", "lifetime", "drift:image", "launch-failed". */
@@ -210,9 +249,13 @@ export async function runEradicationProbe(
   clock: ProbeClock,
 ): Promise<ProbeReport> {
   checkPlan(plan);
+  if (adapter.info.bootTokenEnv !== BOOT_TOKEN_ENV) throw new RangeError("the adapter's boot token variable isn't the launcher's");
   const report: ProbeReport = {
     outcome: "aborted",
     approval: plan.approval,
+    agentUrl: plan.agent.agentUrl,
+    agentSha256: plan.agent.agentSha256,
+    launcherSha256: await launcherSha256(plan.spec.launcher),
     providerMachineId: null,
     stages: STAGES.map((stage) => ({ stage, result: null })),
     aborts: [],

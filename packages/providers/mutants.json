@@ -1043,11 +1043,6 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "      if (line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");",
-  "new": ""
- },
- {
-  "file": "src/probes/eradication.ts",
   "old": "if (keys !== \"boot,check,detail,pass,paths,v\") throw",
   "new": "if (false) throw"
  },
@@ -1175,5 +1170,65 @@
   "file": "src/probes/cli.ts",
   "old": "execute: false,",
   "new": "execute: true,"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "new": "",
+  "note": "SEC H2: name in every raw line"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "new": "    if (!line.startsWith(PROBE_PREFIX) && line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "note": "SEC H2: probe lines are scanned too"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "new": "  if (false) {",
+  "note": "SEC H1"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "new": "  if (plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "note": "SEC H1: an extra argument"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "new": "  if (plan.spec.launcher.length !== expected.length) {",
+  "note": "SEC H1: an altered script"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (adapter.info.bootTokenEnv !== BOOT_TOKEN_ENV) throw",
+  "new": "  if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    launcherSha256: await launcherSha256(plan.spec.launcher),",
+  "new": "    launcherSha256: await launcherSha256([]),"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  const bytes = new TextEncoder().encode(JSON.stringify(argv));",
+  "new": "  const bytes = new TextEncoder().encode(argv.join(\"\"));"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    agentSha256: plan.agent.agentSha256,",
+  "new": "    agentSha256: \"\","
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  const launcher = probeLauncher(agent);",
+  "new": "  const launcher = [\"/bin/sh\", \"-c\", o.agentUrl];"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  if (o.agentUrl === \"\" || o.agentSha256 === \"\" || o.controlUrl === \"\") {",
+  "new": "  if (o.agentUrl === \"\") {"
  }
 ]
