@@ -130,6 +130,7 @@ launcher (PID 1) -> exec agent (clean env) -> eradication checks -> enroll -> re
 A machine is idle when, for `idle.minutes` (project policy, default 30):
 - no terminal input on any session, and
 - no Jupyter kernel activity (via Jupyter's `/api/status` `last_activity` and `/api/kernels` execution states, polled locally), and
+- no process busy on the CPU (any process in the container above 10% of one core over the sample), whether or not it's in a terminal session, and
 - GPU utilisation below `gpuUtilThresholdPct` (default 5%) on every sample (`nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits`, every 30 s).
 
 A training run with no terminal attached keeps the GPU busy, so the machine isn't idle. An idle machine is saved, then stopped. At 5 minutes before an idle stop, the agent writes a warning to every attached terminal, and any input cancels it. Sustained 100% GPU with no session for hours is reported in the heartbeat (`activity`), and the watchdog decides (abuse flag).
@@ -177,6 +178,8 @@ The agent's implementation is `sbgpu_agent/terminal.py` and `terminal_output.py`
 - **Errors and closes:** a message before an open gets `error: "not_open"`. A malformed message closes the page: 1002 (not a terminal message, a malformed resize, a kill for another session), 1008 (a malformed or second open, a bad ack, a malformed or oversized `in`, input past its credit), 1009 (any message over 64 KiB; the relay leg enforces it).
 - **Limits:** output frames of at most 49,137 decoded bytes (65,534 serialized), coalesced at most 24 times a second (stepping down to 8 and 4 for large windows); output read at most 1 MiB/s per session; rows and cols 1..1000.
 - **Stopping a session:** the process-tree rule: SIGHUP, SIGTERM, then SIGKILL after 2 s, recounting the PTY's session every 50 ms until it is empty, so a job that makes a new group late is still caught. The PTY is then drained (at most one ring's worth) and closed; at 30 s it's closed regardless.
+- **What a terminal stop covers:** the terminal's original POSIX session only: its shell, its jobs, and every process group still in that session. This applies to `kill`, the 24 h detached-idle stop and the terminals' `stop_all`. A process the member moves out of the session (`setsid`, a daemon) is their own process on their own machine (they have root), and no terminal stop reaches it (product ruling, Nov 24). Such a process still counts as activity for idle detection (3.2).
+- **What the machine's stop covers:** every process in the container. At a stop, a revoke or the agent's end, the agent (PID 1 in container mode) sends SIGTERM to every other process (`kill(-1)`, which spares only PID 1), waits up to 2 s, then SIGKILLs. It repeats the census until /proc shows no other process, for at most 10 s (`proctree.stop_everything`). The provider's termination of the machine (at a stop, the budget's hard stop, or from the watchdog) remains the outer boundary.
 
 ### 4.2 Jupyter
 

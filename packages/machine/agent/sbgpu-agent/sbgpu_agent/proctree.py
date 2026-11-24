@@ -148,3 +148,72 @@ def exit_status(status):
     if os.WIFEXITED(status):
         return os.WEXITSTATUS(status), None
     return None, None
+
+
+STOP_LIMITS = {
+    "termWaitS": 2.0,   # after SIGTERM to everything, this long for processes to end on their own
+    "capS": 10.0,       # the census repeats (SIGKILL each time) until no other process is left, at most this long
+    "everyS": 0.05,     # between censuses
+}
+
+
+def other_processes(proc="/proc", self_pid=1):
+    """Every process in this PID namespace except self_pid, zombies not counted (they are reaped separately)."""
+    out = []
+    for d in os.listdir(proc):
+        if not d.isdigit() or int(d) == self_pid:
+            continue
+        fields = _stat_fields_in(proc, d)
+        if fields and fields[0] != b"Z":
+            out.append(int(d))
+    return sorted(out)
+
+
+def _stat_fields_in(proc, pid):
+    try:
+        with open("%s/%s/stat" % (proc, pid), "rb") as f:
+            st = f.read()
+    except OSError:
+        return None
+    return st[st.rfind(b")") + 2:].split()
+
+
+def _reap():
+    try:
+        while os.waitpid(-1, os.WNOHANG)[0]:
+            pass
+    except ChildProcessError:
+        pass
+
+
+def stop_everything(pid=None, proc="/proc", kill=os.kill, sleep=time.sleep, clock=time.monotonic, reap=_reap):
+    """The machine's stop (a stop, a revoke, the agent ending), in container mode where the agent is PID 1: SIGTERM to
+    every other process in the container (kill(-1), which spares only PID 1), up to termWaitS for them to end, then
+    SIGKILL to whatever is left, and the census again (SIGKILL each time) until /proc shows no other process, at most
+    capS.  This reaches processes that left a terminal's session (setsid, daemons) too.  Returns the pids still there
+    at the end (none, normally).  Refuses to run as anything but PID 1, where kill(-1) would signal processes outside
+    the container."""
+    pid = os.getpid() if pid is None else pid
+    if pid != 1:
+        raise RuntimeError("stop_everything runs only as PID 1")
+    try:
+        kill(-1, signal.SIGTERM)
+    except ProcessLookupError:
+        return []
+    end = clock() + STOP_LIMITS["termWaitS"]
+    while clock() < end:
+        reap()
+        if not other_processes(proc, 1):
+            return []
+        sleep(STOP_LIMITS["everyS"])
+    end = clock() + STOP_LIMITS["capS"]
+    while True:
+        try:
+            kill(-1, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        reap()
+        left = other_processes(proc, 1)
+        if not left or clock() >= end:
+            return left
+        sleep(STOP_LIMITS["everyS"])

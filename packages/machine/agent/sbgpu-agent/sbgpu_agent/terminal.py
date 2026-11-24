@@ -29,10 +29,18 @@ late message from an ended grant does nothing.
 Sessions: at most 4 running; a PTY with $SHELL (else /bin/sh) as a login shell, in a new session, TERM=xterm-256color;
 output read into a 1 MiB ring at most 1 MiB/s, and while a page is attached only within its credit
 (terminal_output.py); ended sessions' rings kept 10 minutes, the last 8; a detached session with no output and no
-attach for 24 h stopped.  Stopping (kill, exit's leftovers, the agent ending) is the tree rule over every process
-group in the PTY's session: SIGHUP, SIGTERM, then SIGKILL 2 s later, with the session counted again every 50 ms until
-it is empty, so a group made after one census is caught by the next.  Only then is the PTY drained (bounded: one
-ring's worth) and closed; at 30 s it is closed whatever still writes.
+attach for 24 h stopped.  Stopping (kill, exit's leftovers, the detached-idle stop, stop_all) is the tree rule over
+every process group in the PTY's POSIX session: SIGHUP, SIGTERM, then SIGKILL 2 s later, with the session counted
+again every 50 ms until it is empty, so a group made after one census is caught by the next.  Only then is the PTY
+drained (bounded: one ring's worth) and closed; at 30 s it is closed whatever still writes.
+
+What a terminal stop covers, exactly (kill, the detached-idle stop, stop_all): the terminal's original POSIX session
+(its shell, its jobs, and every process group still in that session).  A process the member moves out of it (setsid,
+a daemon) is the member's own process on their own machine: no terminal stop reaches it, by design (product ruling,
+Nov 24).  The machine's stop reaches it: in container mode the agent, PID 1, ends every other process in the container
+(proctree.stop_everything), and the provider's termination of the machine (at a stop, the budget's hard stop, or the
+watchdog) is the outer boundary.  Idle detection counts GPU and process activity as well as terminals, so such a
+process keeps the machine from looking idle.
 """
 
 import asyncio
@@ -450,6 +458,11 @@ class Terminals:
 
     # ---- pages
     def page_message(self, p, msg):
+        # (a page that has closed, or is on a leg other than the current one, is gone: nothing it sends has any
+        # effect, an open included, so a late open can't spawn, attach, resize or take a session over)
+        if p.closed or p.leg is not self.host.leg:
+            self.stats["lateIgnored"] += 1
+            return None
         if not isinstance(msg, dict) or not isinstance(msg.get("t"), str):
             return p.close(1002, "not a terminal message")
         t = msg["t"]

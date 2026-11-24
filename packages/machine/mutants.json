@@ -517,6 +517,12 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "for _ in range(-(-left // TERMINAL_LIMITS[\"read\"])):",
+  "new": "while True:",
+  "note": "terminal: drain: unbounded read count"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
   "old": "room = TERMINAL_LIMITS[\"rate\"] - self.rate_bytes",
   "new": "room = TERMINAL_LIMITS[\"rate\"]",
   "note": "terminal: rate: no ceiling"
@@ -532,5 +538,41 @@
   "old": "        return None, (signal.Signals(sig).name if sig in signal.valid_signals() else str(sig))",
   "new": "        return 128 + sig, None",
   "note": "terminal: exit status: a signal as a code"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "        if p.closed or p.leg is not self.host.leg:\n            self.stats[\"lateIgnored\"] += 1",
+  "new": "        if p.closed:\n            self.stats[\"lateIgnored\"] += 1",
+  "note": "terminal: stale: a page on an old leg acts"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "        if p.closed or p.leg is not self.host.leg:\n            self.stats[\"lateIgnored\"] += 1",
+  "new": "        if p.leg is not self.host.leg:\n            self.stats[\"lateIgnored\"] += 1",
+  "note": "terminal: stale: a closed page acts"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/proctree.py",
+  "old": "    if pid != 1:\n        raise RuntimeError(\"stop_everything runs only as PID 1\")\n",
+  "new": "",
+  "note": "terminal: stop_everything: not only as PID 1"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/proctree.py",
+  "old": "        if not left or clock() >= end:\n            return left",
+  "new": "        if True:\n            return left",
+  "note": "terminal: stop_everything: one census only"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/proctree.py",
+  "old": "        if fields and fields[0] != b\"Z\":",
+  "new": "        if fields:",
+  "note": "terminal: stop_everything: zombies counted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/proctree.py",
+  "old": "    end = clock() + STOP_LIMITS[\"termWaitS\"]\n    while clock() < end:",
+  "new": "    end = clock()\n    while clock() < end:",
+  "note": "terminal: stop_everything: no wait after SIGTERM"
  }
 ]

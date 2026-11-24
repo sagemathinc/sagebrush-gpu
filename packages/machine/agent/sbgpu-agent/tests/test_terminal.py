@@ -507,6 +507,115 @@ async def test_input_after_the_exit_goes_nowhere():
         await t.end()
 
 
+@aio
+async def test_a_stale_page_can_create_nothing_and_take_nothing_over():
+    """A page that has closed, or is on a leg that is no longer the host's, is gone: its open spawns nothing, attaches
+    to nothing and takes no session over, and nothing else it sends has any effect."""
+    t = await Run().start(sh=LOOP)
+    try:
+        leg = await t.relay.leg()
+        pa = await tpaired(t, leg, 1)
+        sid = (await pa.open())["session"]
+        s = t.terms.running[sid]
+        page_a = t.runner.pages[1]
+        leg.drop()  # (the leg lost: page_a is on a leg that is no longer the host's)
+        leg2 = await t.relay.leg()
+        pb = await tpaired(t, leg2, 2)
+        assert (await pb.open(session=sid))["t"] == "opened"
+        holder = t.runner.pages[2].grant
+        spawned, late = t.terms.stats["spawned"], t.terms.stats["lateIgnored"]
+        # (stale create: page_a's leg is gone; its open makes nothing)
+        page_a.closed = False  # (even a page that doesn't know it's closed: the leg decides)
+        t.terms.page_message(page_a, {"t": "open", "rows": 24, "cols": 80})
+        # (stale takeover: page_a's reattach to the live session takes nothing over)
+        t.terms.page_message(page_a, {"t": "open", "session": sid, "rows": 5, "cols": 5})
+        assert t.terms.stats["spawned"] == spawned and len(t.terms.running) == 1
+        assert s.grant is holder and holder.live and (s.rows, s.cols) != (5, 5)
+        assert page_a.grant is None and t.terms.stats["lateIgnored"] == late + 2
+        # (a closed page on the current leg: the same)
+        pc = await tpaired(t, leg2, 3)
+        page_c = t.runner.pages[3]
+        leg2.control(relay="page-close", gen=3)
+        t.terms.page_message(page_c, {"t": "open", "rows": 24, "cols": 80})
+        t.terms.page_message(page_c, {"t": "open", "session": sid, "rows": 5, "cols": 5})
+        assert t.terms.stats["spawned"] == spawned and s.grant is holder and page_c.grant is None
+        del pc
+    finally:
+        await t.end()
+
+
+ESCAPED_PID = os.path.join(TMP, "escaped.pid")
+ESCAPER = script("escaper.py", """import os, sys, time
+os.setsid()
+with open(sys.argv[1], "w") as f:
+    f.write(str(os.getpid()))
+time.sleep(600)
+""")
+SETSID = shell("setsid.sh", "%s -I -S %s %s &\nwhile :; do sleep 0.05; done\n" % (sys.executable, ESCAPER, ESCAPED_PID))
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    with open("/proc/%d/stat" % pid, "rb") as f:
+        return f.read().split(b")")[-1].split()[0] != b"Z"
+
+
+@aio
+async def test_a_process_that_leaves_the_session_survives_terminal_stops():
+    """The documented boundary (product ruling, Nov 24): a terminal's kill and stop_all cover its POSIX session only.
+    A process that called setsid() is out of it and keeps running; only the machine's stop (stop_everything, as PID 1)
+    or the provider's termination ends it."""
+    if os.path.exists(ESCAPED_PID):
+        os.unlink(ESCAPED_PID)
+    t = await Run().start(sh=SETSID)
+    escaped = None
+    try:
+        leg = await t.relay.leg()
+        p = await tpaired(t, leg, 1)
+        sid = (await p.open())["session"]
+        s = t.terms.running[sid]
+        assert await until(lambda: os.path.exists(ESCAPED_PID) and read_file(ESCAPED_PID).strip(), 5)
+        escaped = int(read_file(ESCAPED_PID))
+        assert os.getsid(escaped) == escaped != s.leader  # (its own session now)
+        p.send({"t": "kill", "session": sid})
+        assert await until(lambda: s.exit is not None and not session_groups_alive(s), 8)
+        t.terms.stop_all()
+        await T.drain_sessions(3.0)
+        assert alive(escaped), "the escaped process was expected to survive the terminal's stops"
+    finally:
+        await t.end()
+        if escaped is not None and alive(escaped):
+            os.kill(escaped, 9)
+
+
+def test_drain_read_count_is_bounded_with_short_reads():
+    """The drain's documented work bound holds even when every read is short (one byte): at most ceil(ring/read) reads,
+    then it stops, though the ring isn't full and the PTY always has more."""
+    from sbgpu_agent.proctree import LoopTimers as RealTimers
+    s = T.Session(type("H", (), {"stats": {"outBytes": 0}, "timers": RealTimers()})(), "s" * 22, 24, 80)
+    s.master = 12345  # (never a real fd: the read is replaced)
+    calls = []
+    real = T.os.read
+
+    def short(fd, n):
+        assert fd == 12345
+        calls.append(n)
+        if len(calls) > 10_000:
+            raise RuntimeError("an unbounded drain")
+        return b"y"
+    T.os.read = short
+    try:
+        s._drain()
+    finally:
+        T.os.read = real
+    cap, rd = T.TERMINAL_LIMITS["ring"], T.TERMINAL_LIMITS["read"]
+    assert len(calls) == -(-cap // rd), len(calls)
+    assert len(s.ring.buf) == len(calls)
+
+
 def test_ring_and_replay():
     r = T.Ring(cap=10_000)
     r.append(b"abc\ndef")
