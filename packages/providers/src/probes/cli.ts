@@ -25,7 +25,7 @@ import { isGpuType } from "../gpus.ts";
 import type { Fetch } from "../http.ts";
 import { RunPodAdapter, RUNPOD_API } from "../runpod/adapter.ts";
 import type { LaunchSpec } from "../types.ts";
-import { checkPlan, launcherSha256, parseLogSse, probeLauncher, runEradicationProbe, type ProbePlan, type ProbeProviderApi } from "./eradication.ts";
+import { CALL_TIMEOUT_MS, checkPlan, launcherSha256, parseLogSse, probeLauncher, runEradicationProbe, type ProbePlan, type ProbeProviderApi } from "./eradication.ts";
 
 export const DEFAULT_IMAGE = "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404";
 
@@ -124,31 +124,53 @@ export function planFor(o: CliOptions, bootToken: string): ProbePlan {
   return plan;
 }
 
-/** Read an SSE log stream for a few quiet seconds, then stop (the stream never ends by itself). */
-async function readLogs(apiKey: string, id: string, since: string): Promise<string[]> {
+/**
+ * The length of the complete events at the start of an SSE body: up to and including its last
+ * blank line, whether lines end in LF or CRLF. Anything after it is an unfinished event.
+ */
+export function completeEventsLength(body: string): number {
+  let end = 0;
+  for (const m of body.matchAll(/(?:\r\n|\n)(?:\r\n|\n)/g)) end = m.index + m[0].length;
+  return end;
+}
+
+export interface ReadLogsOptions {
+  fetch?: typeof fetch;
+  /** Stop after this long without new data (the stream never ends by itself). */
+  quietMs?: number;
+  /** Stop after this long in all. */
+  maxMs?: number;
+  maxBytes?: number;
+}
+
+/** Read RunPod's SSE log stream until it is quiet, then keep only its complete events. */
+export async function readLogs(apiKey: string, id: string, since: string, opts: ReadLogsOptions = {}): Promise<string[]> {
+  const doFetch = opts.fetch ?? fetch;
   const url = `${RUNPOD_API}/v2/pods/${encodeURIComponent(id)}/logs?${new URLSearchParams({ since })}`;
   const ctl = new AbortController();
-  const hard = setTimeout(() => ctl.abort(), 30_000);
+  const hard = setTimeout(() => ctl.abort(), opts.maxMs ?? CALL_TIMEOUT_MS);
   let body = "";
   try {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: "text/event-stream" }, signal: ctl.signal });
+    const res = await doFetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: "text/event-stream" }, signal: ctl.signal });
     if (res.status !== 200 || res.body === null) throw new Error(`logs HTTP ${res.status}`);
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     for (;;) {
-      const quiet = new Promise<"quiet">((r) => setTimeout(() => r("quiet"), 3000));
-      const next = await Promise.race([reader.read(), quiet]);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const quiet = new Promise<"quiet">((r) => {
+        timer = setTimeout(() => r("quiet"), opts.quietMs ?? 3000);
+      });
+      const next = await Promise.race([reader.read(), quiet]).finally(() => clearTimeout(timer));
       if (next === "quiet" || next.done) break;
       body += dec.decode(next.value, { stream: true });
-      if (body.length > 4_000_000) throw new Error("logs too large");
+      if (body.length > (opts.maxBytes ?? 4_000_000)) throw new Error("logs too large");
     }
     await reader.cancel().catch(() => {});
   } finally {
     clearTimeout(hard);
     ctl.abort();
   }
-  // Only whole events count.
-  return parseLogSse(body.slice(0, body.lastIndexOf("\n\n") + 2));
+  return parseLogSse(body.slice(0, completeEventsLength(body)));
 }
 
 async function main(argv: readonly string[]): Promise<number> {

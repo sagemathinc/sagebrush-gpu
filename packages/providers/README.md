@@ -193,16 +193,27 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
   - **Results:** read from the container log (`SBGPU-PROBE {v, boot, check, pass, paths,
     detail}` lines). `judgeStage` passes a stage only if it holds exactly one run of pid1, environ,
     files, metadata, history and done, in that order, all passing and in one boot. Every raw log
-    line, probe lines included, is scanned before parsing: the key's name or a key-shaped string
-    anywhere (even in a passing line's paths) fails the stage. The key formats must be confirmed
+    line, probe lines included, is scanned before parsing, and every decoded field of an accepted
+    probe line again after it (JSON escapes such as `\u0052` hide from a raw scan): the key's name
+    or a key-shaped string anywhere fails the stage. The key formats must be confirmed
     from RunPod's documentation before a paid admission run.
   - **Restart paths:** three stages: first boot, after a restart, and after a stop followed by a
     start (RunPod's v2 API has no separate reset).
-  - **Every poll:** a drift check against the launch spec, a spend cap (rate cap times elapsed
-    time, checked one poll ahead), a lifetime cap and a per-stage timeout.
+  - **Budget:** a reserve of 387 s is kept at every step: one provider call in flight (every call
+    times out in 30 s) plus the whole cleanup (a terminate and 10 status reads with 3 s between
+    them). Before every status read, log read, action and sleep, the elapsed time plus the step
+    plus the reserve must fit the lifetime cap and, at the highest rate seen, the spend cap; and
+    the budget is checked again after each status read. Stop-state polling and every restart,
+    stop and start are guarded the same way, with the drift check, so nothing starts again past
+    the budget. The plan itself is refused if its stages and the reserve don't fit the lifetime,
+    or the reserve doesn't fit the spend cap at the rate cap.
+  - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
+    the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.
   - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing
     aborted and the pod is confirmed gone; `fail` if the probe found something; otherwise
-    `aborted` (inconclusive).
+    `aborted` (inconclusive). The report says whether the estimate stayed within the cap
+    (`withinCap`); if termination couldn't be confirmed, it reports the `exposure` (the pod and
+    its rate) instead of claiming a ceiling: a remote termination can't be guaranteed locally.
   - **No exec API:** it never uses RunPod's exec API. Exec'd processes get the container's
     configured environment, key included, which would plant the key in `/proc` and spoil the probe.
     The exec API and the web terminal are provider-side paths into the pod that bypass the launcher.

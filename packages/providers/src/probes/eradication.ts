@@ -118,6 +118,11 @@ export function judgeStage(lines: readonly string[]): StageResult {
       continue;
     }
     if (p === null) continue;
+    // ... and the decoded fields too: JSON escapes ("\u0052UNPOD...") hide from the raw scan.
+    for (const field of [...p.paths, p.detail]) {
+      if (KEY_SHAPES.some((re) => re.test(field))) failures.push("key-shaped-string-in-log");
+      if (field.includes(KEY_NAME)) failures.push("key-name-in-log");
+    }
     probe.push(p);
     if (!p.pass) failedChecks.push({ check: p.check, detail: p.detail, paths: p.paths });
   }
@@ -177,8 +182,24 @@ export interface ProbePlan {
 
 export const MAX_PROBE_SPEND_MICROS = 10_000_000;
 
+/**
+ * Every provider call is bounded by a 30 s timeout (RunPodAdapter's default, and the CLI's log
+ * and action calls). The driver keeps this much time in reserve at every step: one call in flight,
+ * plus the whole cleanup (a terminate and CONFIRM_POLLS status reads, with sleeps between them).
+ */
+export const CALL_TIMEOUT_MS = 30_000;
+export const CONFIRM_POLLS = 10;
+export const CONFIRM_INTERVAL_MS = 3000;
+export const CLEANUP_RESERVE_MS = CALL_TIMEOUT_MS * (1 + CONFIRM_POLLS) + CONFIRM_INTERVAL_MS * (CONFIRM_POLLS - 1);
+export const RESERVE_MS = CALL_TIMEOUT_MS + CLEANUP_RESERVE_MS;
+
 function intIn(name: string, x: number, lo: number, hi: number): void {
   if (!Number.isSafeInteger(x) || x < lo || x > hi) throw new RangeError(`${name} must be an integer in [${lo}, ${hi}], got ${x}`);
+}
+
+/** Micro-USD for `ms` at `rate` micro-USD per hour, rounded up. */
+function costFor(rate: number, ms: number): number {
+  return Math.ceil((rate * ms) / 3_600_000);
 }
 
 export function checkPlan(plan: ProbePlan): void {
@@ -189,7 +210,9 @@ export function checkPlan(plan: ProbePlan): void {
   intIn("maxMinutes", plan.maxMinutes, 5, 120);
   intIn("stageMinutes", plan.stageMinutes, 1, 30);
   intIn("pollSeconds", plan.pollSeconds, 10, 120);
-  if (plan.stageMinutes * STAGES.length > plan.maxMinutes) throw new RangeError("maxMinutes is shorter than the stages need");
+  if (plan.stageMinutes * STAGES.length * 60_000 + RESERVE_MS > plan.maxMinutes * 60_000) {
+    throw new RangeError("maxMinutes is shorter than the stages and the cleanup reserve need");
+  }
   if (!/^[A-Za-z0-9_-]{43}$/.test(plan.spec.bootToken)) throw new RangeError("the boot token must be 43 base64url characters");
   // The launcher is the production one for this probe agent, or nothing runs.
   const expected = probeLauncher(plan.agent);
@@ -199,11 +222,15 @@ export function checkPlan(plan: ProbePlan): void {
   if (plan.spec.maxProviderCostPerHour * (plan.maxMinutes / 60) > plan.maxSpendMicros * 4) {
     throw new RangeError("the rate cap is far above what the spend cap allows");
   }
+  // Launching at all must leave room for the launch call and a full cleanup.
+  if (costFor(plan.spec.maxProviderCostPerHour, RESERVE_MS + plan.pollSeconds * 1000) > plan.maxSpendMicros) {
+    throw new RangeError("the spend cap doesn't cover the launch and cleanup reserve at the rate cap");
+  }
 }
 
 // ---------------------------------------------------------------- the driver
 
-/** What the driver needs from the provider, beyond the adapter. */
+/** What the driver needs from the provider, beyond the adapter. Each call times out in 30 s. */
 export interface ProbeProviderApi {
   /** POST /v2/pods/{id}/action. */
   action(providerMachineId: string, action: "restart" | "stop" | "start"): Promise<void>;
@@ -232,22 +259,33 @@ export interface ProbeReport {
   stages: Array<{ stage: Stage; result: StageResult | null }>;
   /** Fixed words, e.g. "spend-cap", "lifetime", "drift:image", "launch-failed". */
   aborts: string[];
-  /** Upper bound: the pod's rate times its whole lifetime, stopped time included. */
+  /** Upper bound: the highest rate seen times the pod's whole lifetime, stopped time included. */
   estimatedSpendMicros: number;
+  /** estimatedSpendMicros is at most the plan's cap. */
+  withinCap: boolean;
   terminatedConfirmed: boolean;
+  /**
+   * null when the pod is confirmed gone. Otherwise the driver can't bound the spend: the pod may
+   * keep billing at this rate (micro-USD per hour) until a human terminates it.
+   */
+  exposure: { providerMachineId: string; ratePerHour: number } | null;
 }
 
 /**
  * Run the probe. Always terminates the pod and confirms it's gone before returning; if that
- * can't be confirmed, terminatedConfirmed is false and a human must act. Never throws once a pod
- * may exist: every failure becomes an abort in the report.
+ * can't be confirmed, the report says so (exposure) and a human must act. Never throws once a
+ * pod may exist: every failure becomes an abort in the report.
+ *
+ * The plan is copied first; only the copy is checked and used, so changing the
+ * caller's plan while the probe runs changes nothing.
  */
 export async function runEradicationProbe(
-  plan: ProbePlan,
+  input: ProbePlan,
   adapter: ProviderAdapter,
   api: ProbeProviderApi,
   clock: ProbeClock,
 ): Promise<ProbeReport> {
+  const plan: ProbePlan = structuredClone(input);
   checkPlan(plan);
   if (adapter.info.bootTokenEnv !== BOOT_TOKEN_ENV) throw new RangeError("the adapter's boot token variable isn't the launcher's");
   const report: ProbeReport = {
@@ -260,11 +298,35 @@ export async function runEradicationProbe(
     stages: STAGES.map((stage) => ({ stage, result: null })),
     aborts: [],
     estimatedSpendMicros: 0,
+    withinCap: true,
     terminatedConfirmed: true,
+    exposure: null,
   };
   const t0 = clock.now();
   let rate = plan.spec.maxProviderCostPerHour;
-  const spend = () => Math.ceil((rate * (clock.now() - t0)) / 3_600_000);
+  const spend = () => costFor(rate, clock.now() - t0);
+
+  /**
+   * Whether `extraMs` more (a sleep), one call in flight and a full cleanup still fit the
+   * lifetime and the spend cap. Returns an abort word, or null.
+   */
+  const fits = (extraMs: number): string | null => {
+    const after = clock.now() - t0 + extraMs + RESERVE_MS;
+    if (after > plan.maxMinutes * 60_000) return "lifetime";
+    if (costFor(rate, after) > plan.maxSpendMicros) return "spend-cap";
+    return null;
+  };
+
+  const finish = async (id: string | null): Promise<ProbeReport> => {
+    if (id !== null) {
+      report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, CONFIRM_POLLS, CONFIRM_INTERVAL_MS);
+      if (!report.terminatedConfirmed) report.exposure = { providerMachineId: id, ratePerHour: rate };
+    }
+    report.estimatedSpendMicros = spend();
+    report.withinCap = report.estimatedSpendMicros <= plan.maxSpendMicros;
+    report.outcome = outcomeOf(report);
+    return report;
+  };
 
   let id: string;
   try {
@@ -275,40 +337,58 @@ export async function runEradicationProbe(
     // A failed launch may still have left a pod (the adapter reports its id): clean it up.
     const left = typeof e === "object" && e !== null && "providerMachineId" in e ? (e as { providerMachineId: unknown }).providerMachineId : null;
     report.aborts.push("launch-failed");
-    if (typeof left === "string") {
-      report.providerMachineId = left;
-      report.terminatedConfirmed = await terminateAndConfirm(adapter, left, clock.sleep, 10, 3000);
-    }
-    report.estimatedSpendMicros = spend();
-    return report;
+    if (typeof left === "string") report.providerMachineId = left;
+    return finish(typeof left === "string" ? left : null);
   }
   report.providerMachineId = id;
   const expected = expectedSpec(plan.spec, adapter.info, id);
 
-  /** One poll: drift, spend and lifetime. Returns an abort word, or null. */
-  const guard = async (): Promise<string | null> => {
-    if (clock.now() - t0 > plan.maxMinutes * 60_000) return "lifetime";
-    // One more poll interval must still fit under the cap.
-    if (Math.ceil((rate * (clock.now() - t0 + plan.pollSeconds * 1000)) / 3_600_000) > plan.maxSpendMicros) return "spend-cap";
+  /** Before any call: the budget, then a status read with the drift check. */
+  const guard = async (): Promise<{ abort: string | null; status: ProviderMachineStatus | null }> => {
+    const over = fits(0);
+    if (over !== null) return { abort: over, status: null };
     let s: ProviderMachineStatus;
     try {
       s = await adapter.status(id);
     } catch {
-      return "status-unreadable";
+      return { abort: "status-unreadable", status: null };
     }
     if (s.providerCostPerHour !== null) rate = Math.max(rate, s.providerCostPerHour);
     const drift = specDrift(expected, s).filter((d) => !(d.field === "dataCenter" && s.dataCenter === null));
-    if (drift.length > 0) return `drift:${drift[0]!.field}`;
-    return null;
+    if (drift.length > 0) return { abort: `drift:${drift[0]!.field}`, status: s };
+    // The status call itself took time (up to a call timeout): check the budget again.
+    return { abort: fits(0), status: s };
+  };
+
+  /** Sleep one poll interval, if the budget allows it. */
+  const pause = async (): Promise<boolean> => {
+    const over = fits(plan.pollSeconds * 1000);
+    if (over !== null) {
+      report.aborts.push(over);
+      return false;
+    }
+    await clock.sleep(plan.pollSeconds * 1000);
+    return true;
+  };
+
+  /** Run a provider action, only within budget and with no drift. */
+  const act = async (action: "restart" | "stop" | "start"): Promise<boolean> => {
+    const g = await guard();
+    if (g.abort !== null) {
+      report.aborts.push(g.abort);
+      return false;
+    }
+    await api.action(id, action);
+    return true;
   };
 
   /** Wait for one stage's probe run to finish; judge it. */
   const stage = async (index: number, since: string): Promise<boolean> => {
     const deadline = clock.now() + plan.stageMinutes * 60_000;
     for (;;) {
-      const abort = await guard();
-      if (abort !== null) {
-        report.aborts.push(abort);
+      const g = await guard();
+      if (g.abort !== null) {
+        report.aborts.push(g.abort);
         return false;
       }
       let lines: string[];
@@ -328,26 +408,28 @@ export async function runEradicationProbe(
         report.aborts.push("stage-timeout");
         return false;
       }
-      await clock.sleep(plan.pollSeconds * 1000);
+      if (!(await pause())) {
+        report.stages[index]!.result = result;
+        return false;
+      }
     }
   };
 
-  /** Wait until the pod reports `state` (bounded by the stage time). */
-  const waitState = async (state: ProviderMachineStatus["state"], rawStatus?: string): Promise<boolean> => {
+  /** Wait until the pod reports `state`, under the same guard (bounded by the stage time). */
+  const waitState = async (state: ProviderMachineStatus["state"], rawStatus: string): Promise<boolean> => {
     const deadline = clock.now() + plan.stageMinutes * 60_000;
     for (;;) {
-      try {
-        const s = await adapter.status(id);
-        if (s.state === state && (rawStatus === undefined || s.rawStatus === rawStatus)) return true;
-      } catch {
-        report.aborts.push("status-unreadable");
+      const g = await guard();
+      if (g.abort !== null) {
+        report.aborts.push(g.abort);
         return false;
       }
+      if (g.status !== null && g.status.state === state && g.status.rawStatus === rawStatus) return true;
       if (clock.now() >= deadline) {
         report.aborts.push("state-timeout");
         return false;
       }
-      await clock.sleep(plan.pollSeconds * 1000);
+      if (!(await pause())) return false;
     }
   };
 
@@ -356,27 +438,19 @@ export async function runEradicationProbe(
     let ok = await stage(0, new Date(t0).toISOString());
     if (ok) {
       const since = iso();
-      await api.action(id, "restart");
-      ok = await stage(1, since);
+      ok = (await act("restart")) && (await stage(1, since));
     }
     if (ok) {
-      await api.action(id, "stop");
-      ok = await waitState("failed", "EXITED");
+      ok = (await act("stop")) && (await waitState("failed", "EXITED"));
       if (ok) {
         const since = iso();
-        await api.action(id, "start");
-        ok = await stage(2, since);
+        ok = (await act("start")) && (await stage(2, since));
       }
     }
   } catch {
     report.aborts.push("driver-error");
-    report.outcome = "aborted";
-  } finally {
-    report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, 10, 3000);
-    report.estimatedSpendMicros = spend();
   }
-  report.outcome = outcomeOf(report);
-  return report;
+  return finish(id);
 }
 
 /**

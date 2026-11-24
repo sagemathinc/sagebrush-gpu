@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
-import { parseArgs, planFor } from "./cli.ts";
+import { completeEventsLength, parseArgs, planFor, readLogs } from "./cli.ts";
 import {
   checkPlan,
   judgeStage,
@@ -10,8 +10,10 @@ import {
   outcomeOf,
   parseLogSse,
   parseProbeLine,
+  CALL_TIMEOUT_MS,
   ProbeFormatError,
   probeLauncher,
+  RESERVE_MS,
   runEradicationProbe,
   type ProbePlan,
   type ProbeProviderApi,
@@ -110,7 +112,17 @@ const fieldRows: Array<[string, string, string]> = [
   ["the name in a malformed probe line", `SBGPU-PROBE {"${NAME}":1}`, "key-name-in-log"],
   ["a key shape in a malformed probe line", `SBGPU-PROBE ${SHAPE}`, "key-shaped-string-in-log"],
   ["the name in a non-probe line", `echo ${NAME}`, "key-name-in-log"],
+  // TESTS T1 (r2): JSON escapes decode to the name or a key shape after the raw scan.
+  ["an escaped name in paths", line("files", true, { paths: ["/tmp/RUNPOD_API_KEY"] }).replace("RUNPOD", "\\u0052UNPOD"), "key-name-in-log"],
+  ["an escaped key shape in paths", line("files", true, { paths: [`/tmp/${SHAPE}`] }).replace("rpa_", "\\u0072pa_"), "key-shaped-string-in-log"],
+  ["an escaped assignment in paths", line("files", true, { paths: ["RUNPOD_API_KEY=x"] }).replace("=", "\\u003d").replace("RUNPOD", "\\u0052UNPOD"), "key-shaped-string-in-log"],
 ];
+
+test("the escaped rows really hide from the raw scan", () => {
+  const escaped = line("files", true, { paths: ["/tmp/RUNPOD_API_KEY"] }).replace("RUNPOD", "\\u0052UNPOD");
+  assert.ok(!escaped.includes(NAME));
+  assert.deepEqual(parseProbeLine(escaped)!.paths, ["/tmp/RUNPOD_API_KEY"]);
+});
 
 for (const [what, l, failure] of fieldRows) {
   test(`judgeStage fails on ${what}`, () => {
@@ -213,7 +225,16 @@ test("checkPlan accepts the default plan and refuses unsafe ones", () => {
   ];
   for (const b of bad) assert.throws(() => checkPlan({ ...plan, ...b }), RangeError, JSON.stringify(b));
   checkPlan({ ...plan, maxSpendMicros: 10_000_000, maxMinutes: 120, stageMinutes: 30, pollSeconds: 10 });
-  checkPlan({ ...plan, maxMinutes: 45, spec: { ...spec, maxProviderCostPerHour: 16_000_000 } });
+  checkPlan({ ...plan, maxMinutes: 60, spec: { ...spec, maxProviderCostPerHour: 12_000_000 } });
+  // LIMITS H2: the stages plus the cleanup reserve must fit the lifetime ...
+  assert.equal(RESERVE_MS, 387_000);
+  checkPlan({ ...plan, maxMinutes: 52 }); // 45 min of stages + 6.45 min reserve
+  assert.throws(() => checkPlan({ ...plan, maxMinutes: 51 }), RangeError);
+  // ... and the spend cap must cover the launch and cleanup reserve (plus a poll) at the rate cap.
+  const need = Math.ceil((3_000_000 * (RESERVE_MS + 30_000)) / 3_600_000);
+  const short = { ...plan, maxMinutes: 10, stageMinutes: 1 }; // where the reserve rule is the binding one
+  checkPlan({ ...short, maxSpendMicros: need });
+  assert.throws(() => checkPlan({ ...short, maxSpendMicros: need - 1 }), /cleanup reserve/);
 });
 
 test("outcomeOf", () => {
@@ -251,11 +272,21 @@ interface World {
   statusOver?: (n: number) => Partial<ProviderMachineStatus> | Error;
   launchError?: ProviderError;
   terminateFails?: boolean;
+  /** Terminate takes this long. */
+  terminateDelayMs?: number;
+  /** Each status read takes this long. */
+  statusDelayMs?: number;
+  /** The raw status a stopped pod reports (default EXITED). */
+  stoppedRaw?: string;
+  /** How many log reads the driver made. */
+  logCalls?: number;
   actionFails?: string;
   /** Each stage's log lines appear only this long after the stage starts. */
   logDelayMs?: number;
   /** A stop takes this long to reach EXITED; start before then is refused. */
   stopDelayMs?: number;
+  /** The spec the adapter was asked to launch. */
+  launched?: LaunchSpec;
 }
 
 function harness(w: World) {
@@ -270,22 +301,25 @@ function harness(w: World) {
     info: { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootTokenEnv: "SBGPU_BOOT_TOKEN" },
     listOffers: async () => [],
     listMachines: async () => [],
-    launch: async () => {
+    launch: async (s: LaunchSpec) => {
       w.log.push("launch");
+      w.launched = s;
       if (w.launchError) throw w.launchError;
       return { providerMachineId: "pod1", status: status({ state: "provisioning" }) };
     },
     status: async (id) => {
       statusCalls++;
+      t += w.statusDelayMs ?? 0;
       if (gone) return status({ providerMachineId: id, state: "terminated" });
       const over = w.statusOver?.(statusCalls);
       if (over instanceof Error) throw over;
-      if (stopped && t >= stoppedAt + (w.stopDelayMs ?? 0)) return status({ state: "failed", rawStatus: "EXITED", ...over });
+      if (stopped && t >= stoppedAt + (w.stopDelayMs ?? 0)) return status({ state: "failed", rawStatus: w.stoppedRaw ?? "EXITED", ...over });
       if (stopped) return status({ state: "stopping", rawStatus: "RUNNING", ...over });
       return status(over);
     },
     terminate: async () => {
       w.log.push("terminate");
+      t += w.terminateDelayMs ?? 0;
       if (w.terminateFails) throw new Error("503");
       gone = true;
     },
@@ -302,7 +336,10 @@ function harness(w: World) {
       if (action === "stop") stoppedAt = t;
       stopped = action === "stop";
     },
-    logs: async () => (t >= stageAt + (w.logDelayMs ?? 0) ? (w.stages[stage] ?? []) : []),
+    logs: async () => {
+      w.logCalls = (w.logCalls ?? 0) + 1;
+      return t >= stageAt + (w.logDelayMs ?? 0) ? (w.stages[stage] ?? []) : [];
+    },
   };
   const clock = { now: () => t, sleep: async (ms: number) => { t += ms; } };
   return { adapter, api, clock, elapsed: () => t - 1_800_000_000_000 };
@@ -328,14 +365,116 @@ test("the driver waits for the stop to finish before starting again", async () =
   assert.deepEqual(w.log, ["launch", "restart", "stop", "start", "terminate"]);
 });
 
-test("the lifetime cap stops slow stages", async () => {
-  // Each stage takes 14 minutes, the stop another 14: past 45 minutes during the last stage.
-  const w: World = { log: [], stages: [RUN, RUN, RUN], logDelayMs: 14 * 60_000, stopDelayMs: 14 * 60_000 };
+test("the lifetime cap stops slow stages, leaving room for the cleanup", async () => {
+  // Each stage takes 11 minutes, the stop another 11: the 45-minute lifetime, less the reserve,
+  // runs out during the last stage.
+  const w: World = { log: [], stages: [RUN, RUN, RUN], logDelayMs: 11 * 60_000, stopDelayMs: 11 * 60_000 };
   const h = harness(w);
-  const r = await runEradicationProbe({ ...plan, maxMinutes: 45 }, h.adapter, h.api, h.clock);
+  const r = await runEradicationProbe({ ...plan, maxMinutes: 45, stageMinutes: 12 }, h.adapter, h.api, h.clock);
   assert.deepEqual(r.aborts, ["lifetime"]);
   assert.equal(r.outcome, "aborted");
-  assert.ok(h.elapsed() <= 46 * 60_000, String(h.elapsed()));
+  assert.ok(h.elapsed() + RESERVE_MS <= 45 * 60_000, String(h.elapsed()));
+  assert.deepEqual(w.log, ["launch", "restart", "stop", "start", "terminate"]);
+});
+
+test("LIMITS H1: a slow stop never leads to a start past the budget", async () => {
+  // $1/h against a $0.20 cap; the first two stages finish at once; the stop takes 15 minutes.
+  const p = { ...plan, maxSpendMicros: 200_000, maxMinutes: 45, stageMinutes: 10, spec: { ...spec, maxProviderCostPerHour: 1_000_000 } };
+  const w: World = { log: [], stages: [RUN, RUN, RUN], stopDelayMs: 15 * 60_000, statusOver: () => ({ providerCostPerHour: 1_000_000 }) };
+  const h = harness(w);
+  const r = await runEradicationProbe(p, h.adapter, h.api, h.clock);
+  assert.deepEqual(w.log, ["launch", "restart", "stop", "terminate"]);
+  assert.deepEqual(r.aborts, ["spend-cap"]);
+  assert.ok(r.estimatedSpendMicros <= 200_000, String(r.estimatedSpendMicros));
+  assert.equal(r.withinCap, true);
+});
+
+test("LIMITS H1: no action is taken once the pod drifts", async () => {
+  // Status read 1 is the first stage's guard; read 2 is the guard before the restart.
+  const w: World = { log: [], stages: [RUN, RUN, RUN], statusOver: (n) => (n >= 2 ? { image: "other" } : {}) };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.deepEqual(w.log, ["launch", "terminate"]);
+  assert.deepEqual(r.aborts, ["drift:image"]);
+});
+
+test("LIMITS H2: a slow terminate still fits the cap (the cleanup reserve)", async () => {
+  const p = { ...plan, maxSpendMicros: 200_000, maxMinutes: 45, stageMinutes: 10, spec: { ...spec, maxProviderCostPerHour: 1_000_000 } };
+  const w: World = { log: [], stages: [[]], terminateDelayMs: CALL_TIMEOUT_MS, statusOver: () => ({ providerCostPerHour: 1_000_000 }) };
+  const h = harness(w);
+  const r = await runEradicationProbe(p, h.adapter, h.api, h.clock);
+  assert.deepEqual(r.aborts, ["spend-cap"]);
+  assert.ok(r.estimatedSpendMicros <= 200_000, String(r.estimatedSpendMicros));
+  assert.equal(r.withinCap, true);
+  assert.equal(r.exposure, null);
+});
+
+// At 3.6M micro-USD per hour, one millisecond costs exactly one micro: costs equal times.
+const exact = { ...plan, maxMinutes: 10, stageMinutes: 1, pollSeconds: 10, spec: { ...spec, maxProviderCostPerHour: 3_600_000 } };
+
+test("LIMITS: the spend boundary is exact (equal to the cap is allowed, one past is not)", async () => {
+  // A stage that never finishes; polls every 10 s; the reserve is 387 s. The pause at 30 s would
+  // end at 30 + 10 + 387 = 427 s = 427000 micro: one past this cap.
+  const w: World = { log: [], stages: [[]] };
+  const h = harness(w);
+  const r = await runEradicationProbe({ ...exact, maxSpendMicros: 426_999 }, h.adapter, h.api, h.clock);
+  assert.deepEqual(r.aborts, ["spend-cap"]);
+  assert.equal(h.elapsed(), 30_000);
+  const w2: World = { log: [], stages: [[]] };
+  const h2 = harness(w2);
+  await runEradicationProbe({ ...exact, maxSpendMicros: 427_000 }, h2.adapter, h2.api, h2.clock);
+  assert.equal(h2.elapsed(), 40_000);
+});
+
+test("LIMITS: the budget is checked again after a slow status read", async () => {
+  // The guard passes at 0 s (387000 <= cap); the status read takes 20 s; 407000 > cap.
+  const w: World = { log: [], stages: [RUN], statusDelayMs: 20_000 };
+  const h = harness(w);
+  const r = await runEradicationProbe({ ...exact, maxSpendMicros: 406_999 }, h.adapter, h.api, h.clock);
+  assert.deepEqual(r.aborts, ["spend-cap"]);
+  assert.equal(w.logCalls ?? 0, 0);
+});
+
+test("a pod that crashed (ERROR) is not taken for a stopped one", async () => {
+  const w: World = { log: [], stages: [RUN, RUN, RUN], stoppedRaw: "ERROR" };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.deepEqual(r.aborts, ["state-timeout"]);
+  assert.deepEqual(w.log, ["launch", "restart", "stop", "terminate"]);
+});
+
+test("withinCap is false when the cleanup overran the reserve", async () => {
+  const p = { ...plan, maxSpendMicros: 200_000, maxMinutes: 45, stageMinutes: 10, spec: { ...spec, maxProviderCostPerHour: 1_000_000 } };
+  const w: World = { log: [], stages: [[]], terminateDelayMs: 30 * 60_000 };
+  const h = harness(w);
+  const r = await runEradicationProbe(p, h.adapter, h.api, h.clock);
+  assert.equal(r.withinCap, false);
+  assert.ok(r.estimatedSpendMicros > 200_000);
+});
+
+test("LIMITS H2: an unconfirmed termination is reported as exposure", async () => {
+  const w: World = { log: [], stages: [RUN.slice(0, 1)], terminateFails: true };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.equal(r.terminatedConfirmed, false);
+  assert.deepEqual(r.exposure, { providerMachineId: "pod1", ratePerHour: 3_000_000 });
+  assert.equal(r.outcome, "aborted");
+});
+
+test("SEC H1: changing the plan while the driver runs changes nothing", async () => {
+  const mutable: ProbePlan = structuredClone(plan);
+  const w: World = { log: [], stages: [RUN, RUN, RUN] };
+  const h = harness(w);
+  const running = runEradicationProbe(mutable, h.adapter, h.api, h.clock);
+  // The driver is now awaiting the launcher digest: swap in a fake launcher.
+  mutable.spec.launcher = ["/bin/sh", "-c", "echo fake"];
+  mutable.spec.image = "attacker/image";
+  mutable.maxSpendMicros = 10_000_000;
+  const r = await running;
+  assert.deepEqual(w.launched!.launcher, LAUNCHER);
+  assert.equal(w.launched!.image, "img");
+  assert.equal(r.launcherSha256, await launcherSha256(LAUNCHER));
+  assert.equal(r.outcome, "pass");
 });
 
 test("a finding in a later stage fails the probe and still terminates", async () => {
@@ -369,8 +508,8 @@ test("drift aborts at once and terminates", async () => {
 });
 
 test("the spend cap stops the probe before it is exceeded", async () => {
-  // $1/h against a $0.20 cap: 12 minutes of budget.
-  const p = { ...plan, maxSpendMicros: 200_000, maxMinutes: 45, stageMinutes: 15, spec: { ...spec, maxProviderCostPerHour: 1_000_000 } };
+  // $1/h against a $0.20 cap: 12 minutes of budget, 6.45 of them held in reserve.
+  const p = { ...plan, maxSpendMicros: 200_000, maxMinutes: 45, stageMinutes: 10, spec: { ...spec, maxProviderCostPerHour: 1_000_000 } };
   const w: World = { log: [], stages: [RUN.slice(0, 1)], statusOver: () => ({ providerCostPerHour: 1_000_000 }) };
   const h = harness(w);
   const r = await runEradicationProbe(p, h.adapter, h.api, h.clock);
@@ -468,4 +607,49 @@ test("planFor builds the launcher itself and a checked plan whose rate cap fits 
     args[args.indexOf(flag) + 1] = value;
     assert.throws(() => planFor(parseArgs(args), TOKEN), `${flag} ${value}`);
   }
+});
+
+// ---------------------------------------------------------------- TESTS T2: the SSE reader
+
+const ev = (line: string, eol: string) => `data: ${JSON.stringify({ source: "container", line, ts: "t" })}${eol}${eol}`;
+
+/** A fetch whose response body streams these chunks, then ends (or stays open). */
+function streamFetch(chunks: string[], end = true): typeof fetch {
+  return (async () => {
+    const enc = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const ch of chunks) c.enqueue(enc.encode(ch));
+        if (end) c.close();
+      },
+    });
+    return new Response(body, { status: 200 });
+  }) as unknown as typeof fetch;
+}
+
+test("completeEventsLength finds the last blank line, LF or CRLF", () => {
+  assert.equal(completeEventsLength("data: a\n\n"), 9);
+  assert.equal(completeEventsLength("data: a\r\n\r\n"), 11);
+  assert.equal(completeEventsLength("data: a\n\ndata: b"), 9);
+  assert.equal(completeEventsLength("data: a\r\n\r\ndata: b\r\n"), 11);
+  assert.equal(completeEventsLength("data: a\r\n"), 0);
+  assert.equal(completeEventsLength(""), 0);
+});
+
+for (const [what, chunks, expected] of [
+  ["LF events", [ev("hello", "\n"), ev("world", "\n")], ["hello", "world"]],
+  ["CRLF events", [ev("hello", "\r\n"), ev("world", "\r\n")], ["hello", "world"]],
+  ["a CRLF delimiter split across chunks", [ev("hello", "\r\n").slice(0, -2), "\r\n", ev("world", "\r\n")], ["hello", "world"]],
+  ["an LF delimiter split across chunks", [ev("hello", "\n").slice(0, -1), "\n" + ev("world", "\n")], ["hello", "world"]],
+  ["an incomplete tail", [ev("hello", "\r\n"), 'data: {"source":"container","line":"partial"'], ["hello"]],
+  ["an event split mid-JSON", [ev("hello", "\n").slice(0, 20), ev("hello", "\n").slice(20)], ["hello"]],
+] as const) {
+  test(`readLogs keeps complete events: ${what}`, async () => {
+    assert.deepEqual(await readLogs("k", "pod1", "t", { fetch: streamFetch([...chunks]) }), expected);
+  });
+}
+
+test("readLogs stops on a quiet open stream and keeps what is complete", async () => {
+  const lines = await readLogs("k", "pod1", "t", { fetch: streamFetch([ev("hello", "\r\n")], false), quietMs: 20 });
+  assert.deepEqual(lines, ["hello"]);
 });

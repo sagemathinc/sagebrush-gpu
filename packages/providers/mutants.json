@@ -1083,11 +1083,6 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "if (plan.stageMinutes * STAGES.length > plan.maxMinutes) throw",
-  "new": "if (false) throw"
- },
- {
-  "file": "src/probes/eradication.ts",
   "old": "if (!/^[A-Za-z0-9_-]{43}$/.test(plan.spec.bootToken)) throw",
   "new": "if (false) throw"
  },
@@ -1100,41 +1095,6 @@
   "file": "src/probes/eradication.ts",
   "old": "if (typeof plan.approval !== \"string\" || plan.approval.trim().length < 8) {",
   "new": "if (typeof plan.approval !== \"string\") {"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "if (clock.now() - t0 > plan.maxMinutes * 60_000) return \"lifetime\";",
-  "new": ""
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "if (Math.ceil((rate * (clock.now() - t0 + plan.pollSeconds * 1000)) / 3_600_000) > plan.maxSpendMicros) return \"spend-cap\";",
-  "new": ""
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "if (Math.ceil((rate * (clock.now() - t0 + plan.pollSeconds * 1000)) / 3_600_000) > plan.maxSpendMicros) return \"spend-cap\";",
-  "new": "if (Math.ceil((rate * (clock.now() - t0)) / 3_600_000) > plan.maxSpendMicros) return \"spend-cap\";"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "if (drift.length > 0) return `drift:${drift[0]!.field}`;",
-  "new": ""
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "    report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, 10, 3000);\n    report.estimatedSpendMicros = spend();\n  }",
-  "new": "    report.estimatedSpendMicros = spend();\n  }"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "    if (typeof left === \"string\") {",
-  "new": "    if (false) {"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "      ok = await waitState(\"failed\", \"EXITED\");",
-  "new": "      ok = true;"
  },
  {
   "file": "src/probes/eradication.ts",
@@ -1230,5 +1190,129 @@
   "file": "src/probes/cli.ts",
   "old": "  if (o.agentUrl === \"\" || o.agentSha256 === \"\" || o.controlUrl === \"\") {",
   "new": "  if (o.agentUrl === \"\") {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    for (const field of [...p.paths, p.detail]) {\n      if (KEY_SHAPES.some((re) => re.test(field))) failures.push(\"key-shaped-string-in-log\");\n      if (field.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n    }\n",
+  "new": "",
+  "note": "TESTS T1 r2: decoded fields must be scanned"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (field.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (KEY_SHAPES.some((re) => re.test(field))) failures.push(\"key-shaped-string-in-log\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const after = clock.now() - t0 + extraMs + RESERVE_MS;",
+  "new": "    const after = clock.now() - t0 + extraMs;",
+  "note": "LIMITS H2: reserve"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const after = clock.now() - t0 + extraMs + RESERVE_MS;",
+  "new": "    const after = clock.now() - t0 + RESERVE_MS;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (after > plan.maxMinutes * 60_000) return \"lifetime\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (costFor(rate, after) > plan.maxSpendMicros) return \"spend-cap\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (costFor(rate, after) > plan.maxSpendMicros) return \"spend-cap\";",
+  "new": "    if (costFor(rate, after) > plan.maxSpendMicros + 1) return \"spend-cap\";"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "export const RESERVE_MS = CALL_TIMEOUT_MS + CLEANUP_RESERVE_MS;",
+  "new": "export const RESERVE_MS = CLEANUP_RESERVE_MS;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "export const CLEANUP_RESERVE_MS = CALL_TIMEOUT_MS * (1 + CONFIRM_POLLS) + CONFIRM_INTERVAL_MS * (CONFIRM_POLLS - 1);",
+  "new": "export const CLEANUP_RESERVE_MS = CALL_TIMEOUT_MS + CONFIRM_INTERVAL_MS * (CONFIRM_POLLS - 1);"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const over = fits(plan.pollSeconds * 1000);",
+  "new": "    const over = fits(0);",
+  "note": "LIMITS H2: check before sleeping"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const g = await guard();\n    if (g.abort !== null) {\n      report.aborts.push(g.abort);\n      return false;\n    }\n    await api.action(id, action);",
+  "new": "    await api.action(id, action);",
+  "note": "LIMITS H1: guard before actions"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (g.status !== null && g.status.state === state && g.status.rawStatus === rawStatus) return true;",
+  "new": "      if (g.status !== null && g.status.state === state) return true;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    return { abort: fits(0), status: s };",
+  "new": "    return { abort: null, status: s };"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.stageMinutes * STAGES.length * 60_000 + RESERVE_MS > plan.maxMinutes * 60_000) {",
+  "new": "  if (plan.stageMinutes * STAGES.length * 60_000 > plan.maxMinutes * 60_000) {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (costFor(plan.spec.maxProviderCostPerHour, RESERVE_MS + plan.pollSeconds * 1000) > plan.maxSpendMicros) {",
+  "new": "  if (false) {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (!report.terminatedConfirmed) report.exposure = { providerMachineId: id, ratePerHour: rate };",
+  "new": "",
+  "note": "LIMITS H2: exposure"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    report.withinCap = report.estimatedSpendMicros <= plan.maxSpendMicros;",
+  "new": "    report.withinCap = true;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, CONFIRM_POLLS, CONFIRM_INTERVAL_MS);",
+  "new": "      report.terminatedConfirmed = true;"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  for (const m of body.matchAll(/(?:\\r\\n|\\n)(?:\\r\\n|\\n)/g)) end = m.index + m[0].length;",
+  "new": "  end = body.lastIndexOf(\"\\n\\n\") + 2;",
+  "note": "TESTS T2: CRLF"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  for (const m of body.matchAll(/(?:\\r\\n|\\n)(?:\\r\\n|\\n)/g)) end = m.index + m[0].length;",
+  "new": "  for (const m of body.matchAll(/(?:\\r\\n|\\n|\\r)(?:\\r\\n|\\n|\\r)/g)) end = m.index + m[0].length;",
+  "note": "a lone CRLF is not a blank line"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  return parseLogSse(body.slice(0, completeEventsLength(body)));",
+  "new": "  return parseLogSse(body);",
+  "note": "incomplete tails are dropped"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  const plan: ProbePlan = structuredClone(input);",
+  "new": "  const plan: ProbePlan = input;",
+  "note": "SEC H1: the plan is snapshotted before it is checked"
  }
 ]
