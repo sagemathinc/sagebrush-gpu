@@ -4,8 +4,13 @@
 import { batch, computed, signal } from "@preact/signals";
 import {
   ACCRUING_STATES,
+  projectRoleAtLeast,
   type Machine,
   type Me,
+  type Member,
+  type Micros,
+  type SpendCsvGrouping,
+  type Team,
   type PriceListItem,
   type Project,
   type ProjectRole,
@@ -42,6 +47,10 @@ export class Store {
   readonly machines = signal<Machine[]>([]);
   readonly gpuTypes = signal<PriceListItem[]>([]);
   readonly quotes = signal<Readonly<Record<string, Quote>>>({});
+  /** Staff only (assistant and up): everyone in the project, its teams, and every machine. */
+  readonly members = signal<Member[]>([]);
+  readonly teams = signal<Team[]>([]);
+  readonly allMachines = signal<Machine[]>([]);
 
   readonly membership = computed(() => this.me.value?.projects.find((p) => p.projectId === this.projectId.value) ?? null);
   readonly role = computed<ProjectRole | null>(() => this.membership.value?.role ?? null);
@@ -55,6 +64,9 @@ export class Store {
     this.role.value === "member" ? (this.meters.value.find((m) => m.holder.kind === "team") ?? null) : null,
   );
   readonly activeMachines = computed(() => this.machines.value.filter((m) => ACCRUING_STATES.includes(m.state)));
+  /** Assistants and up see the manager's pages; managers and owners can change things there. */
+  readonly isStaff = computed(() => this.role.value != null && projectRoleAtLeast(this.role.value, "assistant"));
+  readonly canManage = computed(() => this.role.value != null && projectRoleAtLeast(this.role.value, "manager"));
 
   /** Increments on every navigation (openProject, and any session change); results of older ones are dropped. */
   #generation = 0;
@@ -78,9 +90,14 @@ export class Store {
   async #act<T>(key: string, fn: () => Promise<T>): Promise<T | null> {
     if (this.busy.value.has(key)) return null;
     const session = this.#sessionGeneration;
+    const generation = this.#generation;
     this.busy.value = new Set([...this.busy.value, key]);
     try {
       const result = await fn();
+      // A success that answers an earlier navigation or a replaced session is moot too: it
+      // returns nothing (no link to open, no result to show) and leaves the banner alone.
+      // (Every session change is also a navigation, so the one counter covers both.)
+      if (generation !== this.#generation) return null;
       this.error.value = null;
       return result;
     } catch (err) {
@@ -112,6 +129,9 @@ export class Store {
       this.machines.value = [];
       this.gpuTypes.value = [];
       this.quotes.value = {};
+      this.members.value = [];
+      this.teams.value = [];
+      this.allMachines.value = [];
     });
   }
 
@@ -168,6 +188,9 @@ export class Store {
         this.machines.value = [];
         this.gpuTypes.value = [];
         this.quotes.value = {};
+        this.members.value = [];
+        this.teams.value = [];
+        this.allMachines.value = [];
       });
     }
     const generation = ++this.#generation;
@@ -233,16 +256,32 @@ export class Store {
     if (projectId == null) return;
     const params = { projectId };
     const gpuTypes = this.gpuTypes.value;
-    const [spend, machines, quotes] = await Promise.all([
+    const staff = this.isStaff.value;
+    const [spend, machines, quotes, managed] = await Promise.all([
       this.client.call("getSpend", { params }),
       this.client.call("listMachines", { params }),
       Promise.all(gpuTypes.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
+      staff
+        ? Promise.all([
+            this.client.call("getProject", { params }),
+            this.client.call("listMembers", { params }),
+            this.client.call("listTeams", { params }),
+            this.client.call("listMachines", { params, query: { all: "1" } }),
+          ])
+        : null,
     ]);
     if (generation !== this.#generation) return; // navigated meanwhile
     batch(() => {
       this.meters.value = spend.meters;
       this.machines.value = machines.items;
       this.quotes.value = Object.fromEntries(quotes.map((q) => [q.gpuType, q]));
+      if (managed) {
+        const [project, members, teams, all] = managed;
+        this.project.value = project;
+        this.members.value = members.items;
+        this.teams.value = teams.teams;
+        this.allMachines.value = all.items;
+      }
     });
   }
 
@@ -292,6 +331,92 @@ export class Store {
 
   remove(machineId: string): Promise<boolean> {
     return this.#machineAction("delete", machineId);
+  }
+
+  // ---------------------------------------------------------------- managing (staff)
+
+  /** Set one member's allocation. */
+  async setAllocation(memberId: string, amount: Micros): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`allocation:${memberId}`, async () => {
+      await this.client.call("setMemberAllocation", { params: { projectId, memberId }, body: { amount } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
+  /**
+   * Apply several allocation changes, one at a time; stops at the first refusal and says how
+   * far it got. Returns how many were applied.
+   */
+  async setAllocations(changes: ReadonlyArray<{ memberId: string; to: Micros }>): Promise<number> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return 0;
+    let applied = 0;
+    await this.#act("allocations", async () => {
+      try {
+        for (const c of changes) {
+          try {
+            await this.client.call("setMemberAllocation", { params: { projectId, memberId: c.memberId }, body: { amount: c.to } });
+          } catch (err) {
+            if (err instanceof ApiError) {
+              throw new ApiError(err.code, err.status, `${applied} of ${changes.length} allocations changed, then: ${err.message}`);
+            }
+            throw err;
+          }
+          applied++;
+        }
+      } finally {
+        await this.refresh().catch(() => undefined);
+      }
+    });
+    return applied;
+  }
+
+  /** Invite these addresses, each with `allocation`. Returns how many members came back. */
+  async invite(emails: readonly string[], allocation: Micros): Promise<number> {
+    const projectId = this.projectId.value;
+    if (projectId == null || emails.length === 0) return 0;
+    const result = await this.#act("invite", async () => {
+      const { members } = await this.client.call("inviteMembers", {
+        params: { projectId },
+        body: { members: emails.map((email) => ({ email, allocation })) },
+      });
+      await this.refresh();
+      return members.length;
+    });
+    return result ?? 0;
+  }
+
+  async removeMember(memberId: string): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`removeMember:${memberId}`, async () => {
+      await this.client.call("removeMember", { params: { projectId, memberId } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
+  /** Stop every machine in the project (saving first). Returns how many were stopping. */
+  async stopAll(): Promise<number | null> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return null;
+    return this.#act("stopAll", async () => {
+      const { stopping } = await this.client.call("stopAllMachines", { params: { projectId }, body: {} });
+      await this.refresh();
+      return stopping.length;
+    });
+  }
+
+  /** The spend CSV, as text, for a download. */
+  async spendCsv(by: SpendCsvGrouping): Promise<string | null> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return null;
+    return this.#act(`csv:${by}`, () => this.client.call("getSpendCsv", { params: { projectId }, query: { by } }));
   }
 
   /**

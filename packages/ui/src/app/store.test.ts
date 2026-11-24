@@ -310,6 +310,15 @@ test("an action that finds the session over clears every protected object", asyn
   assert.deepEqual(t.store.quotes.value, {});
 });
 
+test("a manager's people, teams and machines go when the session ends", async () => {
+  const t = await controllable(seedDemo().emails.manager);
+  await t.store.openProject(t.demo.projectId);
+  assert.ok(t.store.members.value.length > 0);
+  t.demo.backend.currentUserId = null;
+  assert.equal(await t.store.poll(), false);
+  assert.deepEqual([t.store.members.value, t.store.teams.value, t.store.allMachines.value], [[], [], []]);
+});
+
 test("a poll that finds the session over clears every protected object too", async () => {
   const t = await controllable();
   await t.store.openProject(t.demo.projectId);
@@ -422,4 +431,105 @@ test("signing in as someone else drops the previous session's load in flight", a
   await first;
   assert.equal(t.store.me.value?.user.email, t.demo.emails.manager);
   assert.equal(t.store.project.value, null); // the member's answer never reaches the manager's page
+});
+
+test("an action's success from a replaced session changes nothing in the new one", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  const start = new RegExp(`^POST /v1/projects/${t.demo.projectId}/machines$`);
+  t.hold(start, true); // the server starts it; the answer arrives late
+  const started = t.store.start("L4");
+  await new Promise((r) => setTimeout(r, 0));
+  await t.store.signOut();
+  await t.store.verifySignIn(`mock:${t.demo.emails.teamMember}`);
+  await t.store.openProject(t.otherId);
+  t.store.error.value = "the new session's own message";
+  t.release();
+  assert.equal(await started, false);
+  assert.equal(t.store.me.value?.user.email, t.demo.emails.teamMember);
+  assert.equal(t.store.projectId.value, t.otherId);
+  assert.deepEqual(t.store.machines.value, []); // not the old member's machine
+  assert.equal(t.store.error.value, "the new session's own message");
+});
+
+test("an action's success after navigating away returns nothing (no link to open)", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  await t.store.start("L4");
+  t.demo.backend.advance(90_000);
+  const id = t.store.machines.value[0]!.id;
+  t.hold(/\/jupyter-link$/, true);
+  const link = t.store.jupyterLink(id);
+  await new Promise((r) => setTimeout(r, 0));
+  await t.store.openProject(t.otherId);
+  t.release();
+  assert.equal(await link, null);
+  assert.equal(t.store.error.value, null);
+});
+
+test("staff refresh loads people, teams and every machine; members don't ask", async () => {
+  const m = await controllable(); // a member
+  await m.store.openProject(m.demo.projectId);
+  assert.equal(m.store.isStaff.value, false);
+  assert.equal(m.log.filter((x) => x.endsWith("/members") || x.includes("all=1")).length, 0);
+  assert.deepEqual(m.store.members.value, []);
+  const t = await controllable(seedDemo().emails.manager);
+  await t.store.openProject(t.demo.projectId);
+  assert.equal(t.store.isStaff.value, true);
+  assert.equal(t.store.canManage.value, true);
+  assert.equal(t.store.members.value.length, 8);
+  assert.equal(t.store.teams.value.length, 2);
+  assert.ok(t.log.includes(`GET /v1/projects/${t.demo.projectId}/machines?all=1`));
+  const a = await controllable(seedDemo().emails.assistant);
+  await a.store.openProject(a.demo.projectId);
+  assert.deepEqual([a.store.isStaff.value, a.store.canManage.value], [true, false]);
+  // Switching projects, or the session ending, forgets them.
+  await t.store.openProject(t.otherId);
+  assert.deepEqual([t.store.members.value, t.store.teams.value, t.store.allMachines.value], [[], [], []]);
+});
+
+test("manager actions: one allocation, a bulk change that stops at a refusal, invites, Stop all, CSV", async () => {
+  const t = await controllable(seedDemo().emails.manager);
+  const p = t.demo.projectId;
+  await t.store.openProject(p);
+  const id = (email: string) => t.store.members.value.find((m) => m.email === email)!.id;
+  assert.equal(await t.store.setAllocation(id("ada@example.org"), 30_000_000), true);
+  assert.equal(t.store.project.value?.allocated, 205_200_000); // refreshed
+  // Bulk: the second change would pass the budget, so the server refuses it.
+  const applied = await t.store.setAllocations([
+    { memberId: id("alan@example.org"), to: 10_000_000 },
+    { memberId: id("grace@example.org"), to: 5_000_000_000 },
+    { memberId: id("edsger@example.org"), to: 1 },
+  ]);
+  assert.equal(applied, 1);
+  assert.match(t.store.error.value ?? "", /^1 of 3 allocations changed, then: allocations would add up to more than the budget/);
+  assert.equal(t.store.meters.value.find((m) => m.allocationId === t.store.members.value.find((x) => x.email === "edsger@example.org")!.allocationId)?.amount, 25_000_000);
+  assert.equal(await t.store.setAllocations([]), 0);
+  assert.equal(await t.store.invite(["new@example.org", "ada@example.org"], 2_000_000), 2);
+  assert.equal(t.store.members.value.length, 9);
+  const newcomer = t.store.members.value.find((m) => m.email === "new@example.org")!;
+  assert.equal(t.store.meters.value.find((m) => m.allocationId === newcomer.allocationId)?.amount, 2_000_000);
+  const sent = t.log.length;
+  assert.equal(await t.store.invite([], 1), 0);
+  assert.equal(t.log.length, sent); // nothing sent
+  assert.equal(await t.store.stopAll(), 0);
+  const me = t.store.members.value.find((m) => m.email === "manager@example.org")!;
+  await t.store.setAllocation(me.id, 10_000_000);
+  await t.store.client.call("startMachine", { params: { projectId: p }, body: { gpuType: "L4" } });
+  assert.equal(await t.store.stopAll(), 1);
+  const csv = await t.store.spendCsv("member");
+  assert.match(csv ?? "", /^email,name,team,allocation_usd/);
+  assert.equal(await t.store.removeMember(id("new@example.org")), true);
+  assert.equal(t.store.members.value.find((m) => m.email === "new@example.org")?.status, "removed");
+});
+
+test("manager actions need a project", async () => {
+  const t = await controllable(seedDemo().emails.manager);
+  assert.equal(await t.store.setAllocation("mbr_x", 1), false);
+  assert.equal(await t.store.setAllocations([{ memberId: "mbr_x", to: 1 }]), 0);
+  assert.equal(await t.store.invite(["a@b.co"], 1), 0);
+  assert.equal(await t.store.removeMember("mbr_x"), false);
+  assert.equal(await t.store.stopAll(), null);
+  assert.equal(await t.store.spendCsv("day"), null);
+  assert.equal(t.log.filter((x) => !x.includes("/auth/")).length, 0);
 });
