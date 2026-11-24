@@ -12,8 +12,10 @@ export const FINAL_SAVE_MAX_SECONDS = 3600;
 /**
  * Seconds to reserve for a final save of `dirtyBytes` (bytes changed since the last save, as the agent reports in
  * its heartbeat).  The agent runs on a machine the member controls, so the figure is untrusted: anything not a
- * non-negative finite number gets the maximum, and every answer is capped.  A member who under-reports only puts
- * their own final save at risk (the last periodic snapshot stays); over-reporting only stops their machine sooner.
+ * non-negative finite number gets the maximum, and every answer is capped.  It is an estimate (20 MB/s assumed),
+ * not a guarantee: a slower save, or an agent that under-reports, can outlast it, and then the stop at the deadline
+ * keeps the previous snapshot and marks the save incomplete.  Over-reporting reserves more, which can shorten running
+ * time on the same allocation (a team's too).
  */
 export function finalSaveReserveSeconds(dirtyBytes: number): number {
   if (typeof dirtyBytes !== "number" || !Number.isFinite(dirtyBytes) || dirtyBytes < 0) return FINAL_SAVE_MAX_SECONDS;

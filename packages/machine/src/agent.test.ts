@@ -28,7 +28,7 @@ test("the agent's Python unit tests pass", () => {
 
 // Each Record below must name every field of its contract type, and only those (the compiler checks).
 const ENROLL_FIELDS: Record<keyof AgentEnrollRequest, true> = {
-  bootToken: true, agentVersion: true, agentSha256: true, provider: true, providerMachineId: true, mode: true,
+  bootToken: true, agentVersion: true, agentSha256: true, providerMachineId: true, mode: true,
   eradication: true, gpu: true, hostname: true,
 };
 const HEARTBEAT_FIELDS: Record<keyof AgentHeartbeatRequest, true> = {
@@ -59,9 +59,7 @@ agent.handle({"id": "cmd_1", "op": "save"})
 print(json.dumps({"enroll": enroll, "heartbeat": agent.heartbeat_request(), "abort": sent[0], "saveStatus": sent[1],
                   "reasons": list(eradication.REASONS)}))
 `) as { enroll: object; heartbeat: { activity: object; save: object }; abort: object; saveStatus: { save: object }; reasons: string[] };
-  // (provider: the launcher doesn't know it; control has it from the boot token's record.  Proposed to control:
-  // drop it from the request.  Until then this test names the one field the agent leaves out.)
-  assert.deepEqual(keys(got.enroll), keys(ENROLL_FIELDS).filter((k) => k !== "provider"));
+  assert.deepEqual(keys(got.enroll), keys(ENROLL_FIELDS));
   assert.deepEqual(keys(got.heartbeat), keys(HEARTBEAT_FIELDS));
   assert.deepEqual(keys(got.heartbeat.activity), keys(ACTIVITY_FIELDS));
   assert.deepEqual(keys(got.heartbeat.save), [...keys(SAVE_FIELDS), "dirtyBytes"].sort());

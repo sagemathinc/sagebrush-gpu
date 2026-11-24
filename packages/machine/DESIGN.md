@@ -1,6 +1,6 @@
-# The machine side: design (r1)
+# The machine side: design (r2)
 
-*Draft r1, Nov 24 2026. Lane: machine (@sagebrush-gpu3). For review by SEC (boot, tokens, relay, gateway), LIMITS (quotas, reserve) and TESTS.*
+*Draft r2, Nov 24 2026 (after SEC, LIMITS and TESTS review of r1). Lane: machine. For review by SEC (boot, tokens, relay, gateway), LIMITS (quotas, reserve) and TESTS.*
 
 This covers everything that runs on, or talks directly to, a member's GPU machine:
 
@@ -34,7 +34,7 @@ SBGPU_MODE='container'            # or 'vm'
 The **boot token** is the only value in the provider's environment for the machine (`SBGPU_BOOT_TOKEN`), never in the script text.
 
 - **Container providers (RunPod):** the launcher is the container's entrypoint, so it runs as **PID 1** and is the first code in the container: `entrypoint: ["/bin/sh", "-c", "<script>"]`, no `cmd`, `ports: []`, SSH and the provider's Jupyter off, no template, and the environment is the boot token alone. The image's own entrypoint (RunPod's `/start.sh`: nginx, sshd, Jupyter, and a dump of the whole environment into `/etc/rp_environment`) **never runs**. Jupyter comes from our agent, through the relay.
-- **VM providers (cloud-init: Hyperstack, Nebius):** `user_data` is the same script with `SBGPU_MODE='vm'`, and it installs a systemd unit for the agent. (Whether a VM provider injects anything like RunPod's key is checked per provider, before it's admitted.)
+- **VM providers (cloud-init: Hyperstack, Nebius):** `user_data` would be the same script with `SBGPU_MODE='vm'`, installing a systemd unit for the agent. **VM mode is refused for now** (the launcher exits on it; SEC, Nov 24): see section 2. (Whether a VM provider injects anything like RunPod's key is checked per provider, before it's admitted.)
 
 ### 1.2 What the launcher does
 
@@ -47,7 +47,10 @@ Everything runs in the foreground: the launcher starts no background process, so
 5. Write `/run/sbgpu/boot.json` (mode 0600, directory 0700): the control URL, the mode and the boot token. The agent reads it and deletes it before it enrolls.
 6. `exec env -i <allowlist> python3 -I -S /opt/sbgpu/agent/<sha256>/sbgpu-agent`: the agent **replaces** the launcher as PID 1, with an environment rebuilt from an allowlist (1.4), not the original minus some names.
 
-**Integrity: the hash is pinned per launch, with no signature check on the machine (proposal; SEC rules on it).** The control plane puts the exact sha256 of the current release into every launch's command, which travels over the provider's API. A pinned hash fixes the bytes completely, so an on-machine signature would add nothing as long as the launcher never fetches an unpinned "latest". The signing key lives only in release CI, which signs the release manifest (version, URL, sha256); the control plane checks that signature before it pins a hash. If SEC wants an on-machine Ed25519 check as well, it can be added with `openssl pkeyutl -verify` (usually present, not guaranteed) or a small pure-Python verifier.
+**Integrity: the hash is pinned per launch, with no signature check on the machine (SEC, Nov 24: approved on three conditions).** The control plane puts the exact sha256 of the current release into every launch's command, which travels over the provider's API. A pinned hash fixes the bytes completely, and a key sent in the same launch command would add no independent root of trust. The conditions:
+1. Release CI signs the release manifest `{version, immutable URL, sha256}`; the signing key lives only in release CI.
+2. The control plane verifies that signature before it pins a hash for any launch.
+3. Enroll compares the agent's reported `agentSha256` with the hash recorded for that launch, and refuses a mismatch.
 
 ### 1.3 PID 1 (container mode)
 
@@ -81,7 +84,7 @@ The probe never sees, hashes or reports the key's value (the Nov 16 ruling). It 
 1. **pid1:** the probe is PID 1 (exec keeps the launcher's PID) and `/proc/1/cmdline` is python3 running it, with no other process.
 2. **Every process's environment:** `/proc/*/environ`, `/proc/*/task/*/environ`.
 3. **Files:** a search over the whole filesystem except `/proc` and `/sys` (every mount in `/proc/mounts`, including `/etc`, `/root`, `/tmp`, `/var/log` and `/run`) for the variable's name and for strings shaped like the provider's documented key formats. Any hit fails, reported by path only. The probe never sees, hashes or reports the key's value (the Nov 16 ruling); a shape match is enough to fail.
-4. **Metadata:** every link-local and provider address reachable from the pod (`169.254.169.254`, `169.254.170.2`, the provider's documented helper endpoints, and the env-advertised URLs before cleaning), checking that none returns the key or a replacement credential.
+4. **Metadata:** a fixed, reviewed list of link-local and provider endpoints (`169.254.169.254`, `169.254.170.2`, and the provider's documented helper endpoints), built into the probe tarball. The probe can't recover endpoints that were advertised only in the original environment, since the launcher's exec discards it; the original environment is never preserved or passed on. It checks that none of these endpoints returns the key or a replacement credential.
 5. **Restart paths** (the driver): restart, and stop then start; every check runs again at each boot. The boot count is kept in `/opt/sbgpu/probe-boots` and cross-checked against the driver's count of `pid1` lines.
 6. **history:** shell histories and the files from step 3 under `/root` and `/home`. The driver checks the logs themselves.
 
@@ -99,7 +102,8 @@ Every token carries a `kind` claim and is refused anywhere else. Signed tokens u
 | `page` (opaque) | control → browser | 60 s, single use | `mbr`, `mch` | one relay page connection |
 | `jupyter` (opaque code) | control → browser link | 60 s, single use | `mbr`, `mch` | swapped for a cookie on the machine's Jupyter origin |
 
-- **The boot token's TTL (SEC ruling of Nov 16: at most 2 minutes, first exchange wins).** Image pulls and VM boots can take several minutes before any of our code runs (a VM provider took about 5.5 minutes to be usable in a spike), so 2 minutes from the launch request would fail slow starts. Proposal for SEC: the 2 minutes start when the provider first reports the machine running, which for a container is when our launcher starts. The watchdog's 2-minute "billed but not enrolled" stop starts from the same moment. VM mode, where cloud-init runs well after the VM reports running, needs its own figure: proposal 6 minutes from running, for SEC.
+- **The boot token's TTL: at most 120 s, first exchange wins** (SEC rulings of Nov 16 and Nov 24). For containers, the 120 s start when the provider first reports the machine running, which is when our launcher starts; image pulls before that don't count. The watchdog's "billed but not enrolled" stop starts from the same moment.
+- **VM mode stays refused** until a design keeps the boot credential's exchange window within 2 minutes. In a VM, cloud-init runs well after the provider reports the VM running, and an instance id is a claim checked against a known string, not attestation: anyone who reads the metadata knows what to claim in the first-exchange race. Acceptable designs: provider-verifiable instance identity; a fresh credential injected when cloud-init is ready; or another design that keeps the 2-minute cap.
 - The token is in pod metadata that the provider's API shows, so it's readable by anyone with the account key, and by the pod's own `RUNPOD_API_KEY` until eradication. Single use, first exchange wins, the exact pod-id binding and the short TTL are what protect it. The self-identity cross-check (`RUNPOD_POD_ID`, read by the launcher before the exec, sent at enroll) only catches mistakes: user code could fake it, but no user code runs before enroll.
 - **Incarnation:** each enroll for a machine increments `inc`. The relay and the gateway refuse a token from an older incarnation.
 - **Stop kills everything:** once the control plane marks a machine stopped, its agent, workspace and page tokens are refused (the Workers check the machine's state in D1, or a revocation list in KV, at each connection and each write).
@@ -166,6 +170,7 @@ agent -> page   {"t":"opened","session":id}
 
 - **Credit:** the page acks the decoded output bytes it has written (`upto`, cumulative). The agent sends at most 1 MiB beyond the last ack; the rest goes only to the ring.
 - **Sessions:** at most 4 running per machine; each has a 1 MiB scrollback ring. A reattach replays a terminal reset plus the ring from a line boundary, then `live`. A detached session lives until the machine stops (or 24 h with no output and no attach).
+- **Exit:** a shell that exits is never restarted. Its session's scrollback is kept 10 minutes (the last 8 ended sessions at most): a reattach then replays it and sends `exit` again right after `live`; later, it gets `error: "no-session"`. Ended sessions don't count toward the 4 running ones.
 - **Limits:** an `in` frame carries at most 16 KiB decoded; an output frame at most 48 KiB decoded; rows and cols are 1..1000; any other message to the agent is at most 8 KiB.
 - **Stopping a session:** the process-tree rule from the original: SIGHUP, SIGTERM, then SIGKILL after 2 s, recounting the PTY's session until it is empty.
 
@@ -222,7 +227,12 @@ All in the gateway, from the token and the project policy in D1:
 
 ### 5.6 The final-save reserve
 
-The ledger keeps enough allocation to finish a save before the hard stop. The agent reports `dirtyBytes` (bytes changed since the last save) in each heartbeat. This package exports `finalSaveReserveSeconds(dirtyBytes)`, using a conservative throughput (assume 20 MB/s) plus a fixed 60 s, which the ledger turns into money at the machine's rate.
+The ledger holds back part of the allocation for a final save before the hard stop. The amount is an **estimate**, not a guarantee that the save will finish:
+
+- `finalSaveReserveSeconds(dirtyBytes)` (in `@sbgpu/api`) assumes an upload rate of 20 MB/s plus a fixed 60 s, capped at one hour. `dirtyBytes` is the agent's report in each heartbeat: the bytes changed since the last save.
+- The budget takes the larger of this and the project policy's floor (`budget.reserveSeconds`). The ledger then charges it through the contract's per-minute, pinned-rate rules, not as a separate hourly ceiling.
+- A slower network, many small files, or an agent that under-reports can make the save outlast the reserve. At the deadline the machine stops regardless (3.3): the previous snapshot stays the latest, and the stop is marked incomplete. Under-reporting can therefore lose the final changes.
+- Over-reporting only reserves more, which can shorten running time on the same allocation. That includes a team allocation shared with others, not just the reporting member's machine.
 
 ## 6. Team git (later)
 
@@ -232,8 +242,8 @@ A repository per team, served behind the same gateway and token scheme, cloned a
 
 | threat | answer |
 |---|---|
-| A tampered agent (CDN or transit) | the hash pinned per launch; HTTPS only; installed only after a full match |
-| A copied boot token | single use, 2 min from running, bound to the launch and the provider machine id; a reuse attempt flags the machine |
+| A tampered agent (CDN or transit) | the hash pinned per launch from a CI-signed manifest that control verifies; enroll compares the agent's hash with the launch record; HTTPS only; installed only after a full match |
+| A copied boot token | single use, at most 120 s from first running (containers), bound to the launch and the provider machine id (a cross-check, not attestation); a reuse attempt flags the machine; VM mode refused until it can meet the same window |
 | RunPod's pod API key, readable by root | the launcher is PID 1 and execs the agent with an allowlisted environment; the agent checks before any access, and aborts on doubt (1.4); the probe (1.5) gates admission |
 | A copied agent or workspace token (the member has root) | worth only this member's own areas and machine, for at most 1 h / 15 min; dead at stop or re-enroll; quotas apply |
 | A member's notebook attacking the UI | Jupyter on a separate origin per machine; cookie host-scoped |
@@ -254,6 +264,6 @@ A repository per team, served behind the same gateway and token scheme, cloned a
 ## 9. Open questions
 
 1. SEC: is a hash pinned per launch enough, or do you also want Ed25519 checked on the machine (section 1.2)?
-2. SEC: the boot token's 2 minutes counted from the provider's first "running" report, and 6 minutes for VM mode (section 2).
-3. Control: re-enroll in VM mode after an agent crash, or always stop the machine (section 1.3)?
+2. VM mode: which provider offers verifiable instance identity, or a way to inject a fresh credential when cloud-init is ready, so the boot credential stays within 2 minutes (section 2). Until then VM mode is refused.
+3. Control: in VM mode, once it exists, re-enroll after an agent crash, or always stop the machine (section 1.3)?
 4. Providers: whether each VM provider injects any credential into the machine (metadata, cloud-init, environment) before it's admitted.
