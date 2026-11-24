@@ -21,7 +21,8 @@ await build({
   entryPoints: { app: `${here}src/app/main.ts` },
   bundle: true,
   format: "esm",
-  splitting: mock,
+  // The terminal (xterm) loads only when opened, as its own chunk.
+  splitting: true,
   outdir,
   minify: true,
   sourcemap: true,
@@ -32,5 +33,6 @@ await build({
   logLevel: "warning",
 });
 for (const file of ["index.html", "styles.css"]) await copyFile(`${here}web/${file}`, `${outdir}/${file}`);
+await copyFile(`${here}node_modules/@xterm/xterm/css/xterm.css`, `${outdir}/xterm.css`);
 const { size } = await stat(`${outdir}/app.js`);
 console.log(`${outdir}: app.js ${size} bytes`);

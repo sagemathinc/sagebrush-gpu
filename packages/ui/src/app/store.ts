@@ -20,6 +20,14 @@ import {
 import { ApiError, type Client } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
 import { jupyterUrl } from "../view.ts";
+import { terminalUrl } from "../terminal/session.ts";
+
+export interface StoreOptions {
+  /** The UI's own host (location.host); the terminal relay must be on it. */
+  uiHost?: string;
+  /** Demo build only: a local mock terminal to use instead of the relay. */
+  devTerminal?: { url: string; token: string };
+}
 
 /** Poll fast while something is changing, slowly otherwise. */
 export const FAST_POLL_MS = 2_000;
@@ -75,9 +83,12 @@ export class Store {
   /** The banner message the last failed poll set, so a later good poll can clear it (and only it). */
   #pollError: string | null = null;
 
-  constructor(client: Client, now: () => number = Date.now) {
+  readonly #options: StoreOptions;
+
+  constructor(client: Client, now: () => number = Date.now, options: StoreOptions = {}) {
     this.client = client;
     this.now = now;
+    this.#options = options;
   }
 
   pollDelayMs(): number {
@@ -424,6 +435,35 @@ export class Store {
     const projectId = this.projectId.value;
     if (projectId == null) return null;
     return this.#act(`csv:${by}`, () => this.client.call("getSpendCsv", { params: { projectId }, query: { by } }));
+  }
+
+  /**
+   * What one terminal connection needs: a fresh single-use page token from the API and the
+   * relay's terminal URL, checked to be wss: on the UI's own host (terminal/session.ts
+   * terminalUrl) before the token is sent anywhere. Null when either can't be had; the
+   * terminal then retries with backoff. Not an #act: a terminal's retries shouldn't touch
+   * the busy keys, and its failures show in the terminal's own status line.
+   */
+  async terminalAccess(machineId: string): Promise<{ token: string; url: string } | null> {
+    const dev = this.#options.devTerminal;
+    if (dev) {
+      const url = terminalUrl(dev.url, machineId, "", true);
+      return url == null ? null : { token: dev.token, url };
+    }
+    let session: { token: string; relayUrl: string };
+    try {
+      session = await this.client.call("openMachineSession", { params: { machineId }, body: {} });
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "unauthenticated") this.#endSession();
+      return null;
+    }
+    const host = this.#options.uiHost ?? (typeof location === "undefined" ? "" : location.host);
+    const url = terminalUrl(session.relayUrl, machineId, host);
+    if (url == null) {
+      this.error.value = "The server sent a terminal address that isn't this site's relay; the terminal was not opened.";
+      return null;
+    }
+    return { token: session.token, url };
   }
 
   /**

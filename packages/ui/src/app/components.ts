@@ -12,6 +12,7 @@ import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
 import { ManagePage } from "./manage-page.ts";
+import { TerminalPanel } from "./terminal-panel.ts";
 
 export { html };
 
@@ -165,6 +166,7 @@ export function StartPanel({ store }: { store: Store }): VNode {
 // ---------------------------------------------------------------- machines
 
 export function MachineCard({ store, machine: m, labels, now }: { store: Store; machine: Machine; labels: ProjectLabels; now: number }): VNode {
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const actions = machineActions(m);
   const pct = savePercent(m);
   const busy = (kind: string) => store.isBusy(`${kind}:${m.id}`);
@@ -193,12 +195,14 @@ export function MachineCard({ store, machine: m, labels, now }: { store: Store; 
     ${m.finalSaveIncomplete ? html`<p class="warn small">The final save didn't finish; work after the last save was lost.</p>` : null}
     ${m.error ? html`<p class="warn small">${m.error}</p>` : null}
     <div class="actions">
+      ${actions.openTerminal && !terminalOpen ? html`<button onClick=${() => setTerminalOpen(true)}>Open terminal</button>` : null}
       ${actions.openJupyter ? html`<button onClick=${openJupyter} disabled=${busy("jupyter")}>Open Jupyter</button>` : null}
       ${actions.save ? html`<button class="secondary" onClick=${() => store.save(m.id)} disabled=${busy("save")}>Save now</button>` : null}
       ${actions.stop ? html`<button class="secondary" onClick=${() => store.stop(m.id)} disabled=${busy("stop")}>Stop</button>` : null}
       ${actions.restart ? html`<button onClick=${() => store.restart(m.id)} disabled=${busy("restart")}>Start again</button>` : null}
       ${actions.delete ? html`<button class="danger" onClick=${remove} disabled=${busy("delete")}>Delete</button>` : null}
     </div>
+    ${terminalOpen && actions.openTerminal ? html`<${TerminalPanel} store=${store} machineId=${m.id} onClose=${() => setTerminalOpen(false)} />` : null}
   </li>`;
 }
 

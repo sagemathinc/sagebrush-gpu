@@ -1308,5 +1308,230 @@
   "file": "src/mock/backend.ts",
   "old": "return { teams: teams.filter((t) => t.id === own).map((t) => this.#teamView(t)) };",
   "new": "return { teams: teams.map((t) => this.#teamView(t)) };"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "export const ACK_EVERY_BYTES = 32 * 1024;",
+  "new": "export const ACK_EVERY_BYTES = 64 * 1024;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "export const INPUT_CREDIT_BYTES = 64 * 1024;",
+  "new": "export const INPUT_CREDIT_BYTES = 80 * 1024;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "export const IN_FRAME_BYTES = 16 * 1024;",
+  "new": "export const IN_FRAME_BYTES = 32 * 1024;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "export const PING_EVERY_MS = 15_000;",
+  "new": "export const PING_EVERY_MS = 30_000;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "return Math.min(RECONNECT_MAX_MS, 1000 * 2 ** Math.min(Math.max(attempt - 1, 0), 30));",
+  "new": "return Math.min(RECONNECT_MAX_MS, 1000 * 2 ** Math.min(attempt, 30));"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "  if (!Number.isFinite(n)) return SIZE_MIN;\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "return Math.max(SIZE_MIN, Math.min(SIZE_MAX, Math.floor(n)));",
+  "new": "return Math.max(SIZE_MIN, Math.min(SIZE_MAX, Math.round(n)));"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "  if (url.username !== \"\" || url.password !== \"\") return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "if (!local && (url.protocol !== \"wss:\" || url.host !== uiHost.toLowerCase())) return null;",
+  "new": "if (!local && url.protocol !== \"wss:\") return null;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "const local = allowLocal && url.protocol === \"ws:\" && url.hostname === \"127.0.0.1\";",
+  "new": "const local = allowLocal && url.protocol === \"ws:\";"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (this.#status.kind !== \"live\" || this.#leg == null) return;",
+  "new": "    if (this.#leg == null) return;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "      if (leg.inSent - leg.inAcked + next.length > INPUT_CREDIT_BYTES) return;",
+  "new": "      if (leg.inSent + next.length > INPUT_CREDIT_BYTES * 100) return;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "          if (leg.written - leg.acked >= ACK_EVERY_BYTES) {",
+  "new": "          if (leg.written - leg.acked > ACK_EVERY_BYTES) {"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (text.startsWith(RELAY_PREFIX)) return this.#onRelay(text);",
+  "new": "    if (text.startsWith('{\"relay\":\"ready')) return this.#onRelay(text);"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (!leg.ready) return this.#fault(\"the terminal spoke before the relay was ready\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "      return this.#sendRaw({ relay: \"ack\", r: m.r });",
+  "new": "      return;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "      if (leg.ready) return;\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "      this.#sendRaw({ relay: \"ping\" });\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "m.upto < leg.inAcked || m.upto > leg.inSent",
+  "new": "m.upto > leg.inSent"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "        this.#setStatus({ kind: \"exited\", code, signal, earlier: leg.justLive });",
+  "new": "        this.#setStatus({ kind: \"exited\", code, signal, earlier: false });"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "        leg.justLive = false;\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "        this.#attempt = 0;\n        this.#setStatus({ kind: \"live\" });",
+  "new": "        this.#setStatus({ kind: \"live\" });"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (code === 4009) return this.#setStatus({ kind: \"elsewhere\" });",
+  "new": "    if (code === 4009) return this.#retry();"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (code === 1002 || code === 1003 || code === 1008 || code === 1009) {",
+  "new": "    if (code === 1002 || code === 1003 || code === 1009) {"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (this.#status.kind === \"exited\") return; // nothing more to show; a new shell is the user's call",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "        this.#o.storage.set(this.#o.machineId, null);\n        this.#closeLeg();\n        void this.#connect();\n        return;",
+  "new": "        this.#closeLeg();\n        void this.#connect();\n        return;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "  newShell(): void {\n    this.#o.storage.set(this.#o.machineId, null);",
+  "new": "  newShell(): void {"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "        this.#o.sink.reset();\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (epoch !== this.#epoch || this.#disposed) return;\n    if (access == null)",
+  "new": "    if (access == null)"
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "          t.setInputEnabled(next.kind === \"live\");",
+  "new": "          t.setInputEnabled(true);"
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "      if (screen.current == null) return t.dispose();",
+  "new": "      if (false) return t.dispose();"
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "      session.current?.dispose();\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "      term?.dispose();\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "      for (const l of listeners) l.dispose();\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "status.kind === \"exited\" || status.kind === \"closed\" && status.reason !== \"revoked\"",
+  "new": "status.kind === \"exited\" || status.kind === \"closed\""
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "      return `Connection lost. Reconnecting in ${Math.ceil(status.inMs / 1000)} s…`;",
+  "new": "      return `Connection lost. Reconnecting in ${Math.floor(status.inMs / 1000)} s…`;"
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "      return status.earlier ? `This shell ${how} earlier.` : `The shell ${how}.`;",
+  "new": "      return `The shell ${how}.`;"
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "status.code === 0 || status.code == null ? \"ended\"",
+  "new": "status.code === 0 ? \"ended\""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") this.#endSession();\n      return null;\n    }\n    const host",
+  "new": "      return null;\n    }\n    const host"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (url == null) {\n      this.error.value = \"The server sent a terminal address",
+  "new": "    if (url == null) {\n      void \"The server sent a terminal address"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      return url == null ? null : { token: dev.token, url };",
+  "new": "      return { token: dev.token, url: url ?? dev.url };"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${actions.openTerminal && !terminalOpen ? html`<button onClick=${() => setTerminalOpen(true)}>Open terminal</button>` : null}",
+  "new": "${!terminalOpen ? html`<button onClick=${() => setTerminalOpen(true)}>Open terminal</button>` : null}"
+ },
+ {
+  "file": "src/terminal/xterm.ts",
+  "old": "  const value = m[name] ?? m.default?.[name];",
+  "new": "  const value = m[name];"
+ },
+ {
+  "file": "src/terminal/xterm.ts",
+  "old": "  if (value == null) throw new Error(`${name} isn't exported by the loaded module`);\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "        if (!disposed) setStatus({ kind: \"closed\", reason: \"fault\", detail: `The terminal couldn't load:",
+  "new": "        if (false) setStatus({ kind: \"closed\", reason: \"fault\", detail: `The terminal couldn't load:"
  }
 ]
