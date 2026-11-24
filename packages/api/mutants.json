@@ -473,5 +473,35 @@
   "file": "src/tokens.ts",
   "old": "exp - first > BOOT_TOKEN_TTL_SECONDS * 1000 ||",
   "new": "exp - first > BOOT_TOKEN_TTL_SECONDS * 1001 ||"
+ },
+ {
+  "file": "src/reserve.ts",
+  "old": "FINAL_SAVE_FIXED_SECONDS + Math.ceil",
+  "new": "Math.ceil",
+  "note": "reserve: no fixed seconds"
+ },
+ {
+  "file": "src/reserve.ts",
+  "old": "Math.ceil(dirtyBytes / FINAL_SAVE_BYTES_PER_SECOND)",
+  "new": "Math.floor(dirtyBytes / FINAL_SAVE_BYTES_PER_SECOND)",
+  "note": "reserve: rounds down"
+ },
+ {
+  "file": "src/reserve.ts",
+  "old": "return Math.min(seconds, FINAL_SAVE_MAX_SECONDS);",
+  "new": "return seconds;",
+  "note": "reserve: no cap"
+ },
+ {
+  "file": "src/reserve.ts",
+  "old": "|| dirtyBytes < 0) return",
+  "new": "|| dirtyBytes < -1) return",
+  "note": "reserve: small negatives accepted"
+ },
+ {
+  "file": "src/reserve.ts",
+  "old": "!Number.isFinite(dirtyBytes) || ",
+  "new": "",
+  "note": "reserve: NaN and infinities accepted"
  }
 ]

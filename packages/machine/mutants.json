@@ -1,0 +1,320 @@
+[
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if [ \"$sum\" != \"$SBGPU_AGENT_SHA256\" ]",
+  "new": "if [ \"${sum%?}\" != \"${SBGPU_AGENT_SHA256%?}\" ]",
+  "note": "prefix-compare"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if [ \"$sum\" != \"$SBGPU_AGENT_SHA256\" ]",
+  "new": "if false",
+  "note": "no-hash"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "exec env -i \"$@\"",
+  "new": "exec env \"$@\"",
+  "note": "no-env-i"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "*\"$key\"*) fail",
+  "new": "*\"$key\"*UNUSED) fail",
+  "note": "no-key-check"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "    -* | d*) ;;",
+  "new": "    *) ;;",
+  "note": "no-link-check"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "    /* | .. | ../* | */.. | */../*) exit 1 ;;",
+  "new": "    /*) exit 1 ;;",
+  "note": "no-dotdot"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "--proto =https ",
+  "new": "",
+  "note": "no-proto"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if not newurl.startswith(\"https://\"):",
+  "new": "if False:",
+  "note": "py-redirect"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if len(data) > cap:",
+  "new": "if False:",
+  "note": "py-cap"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "--max-filesize \"$SBGPU_MAX_BYTES\"",
+  "new": "",
+  "note": "curl-cap"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if [ \"$size\" -le 0 ] || [ \"$size\" -gt \"$SBGPU_MAX_BYTES\" ]; then fail \"bad download size\"; fi",
+  "new": ":",
+  "note": "size-check"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if [ \"${#token}\" -ne 43 ]; then fail \"bad boot token\"; fi",
+  "new": ":",
+  "note": "token-len"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "  *[!A-Za-z0-9_-]*) fail \"bad boot token\" ;;",
+  "new": "  *[!A-Za-z0-9_=$\\\"-]*) fail \"bad boot token\" ;;",
+  "note": "token-alpha"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "  *[!A-Za-z0-9-]*) pmid=\"\" ;;",
+  "new": "  *[!A-Za-z0-9/\\\"-]*) pmid=\"\" ;;",
+  "note": "pmid-alpha"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if [ \"${#pmid}\" -gt 64 ]; then pmid=\"\"; fi",
+  "new": ":",
+  "note": "pmid-len"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "  *) fail \"bad mode\" ;;",
+  "new": "  *) ;;",
+  "note": "mode-check"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "  *) fail \"the agent URL must be https\" ;;",
+  "new": "  *) ;;",
+  "note": "url-check"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "  *) fail \"the control URL must be https\" ;;",
+  "new": "  *) ;;",
+  "note": "ctl-check"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "if [ \"${#SBGPU_AGENT_SHA256}\" -ne 64 ]; then fail \"bad pinned sha256\"; fi",
+  "new": ":",
+  "note": "sha-len"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "  *[!0-9a-f]*) fail \"bad pinned sha256\" ;;",
+  "new": "  *[!0-9a-fA-F]*) fail \"bad pinned sha256\" ;;",
+  "note": "sha-alpha"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "chmod 600 \"$run/boot.json\"",
+  "new": "chmod 644 \"$run/boot.json\"",
+  "note": "chmod-boot"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "chmod 700 \"$run\"",
+  "new": "chmod 755 \"$run\"",
+  "note": "chmod-run"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "rm -f \"$tgz\"\n[ -f",
+  "new": ":\n[ -f",
+  "note": "rm-tgz"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "exec env -i \"$@\" \"$py\" -I -S",
+  "new": "exec env -i \"$@\" \"$py\"",
+  "note": "no-python-isolated"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "return set(ENV_FIXED) <= set(names) and set(names) <= allowed",
+  "new": "return set(names) <= allowed",
+  "note": "agent: env: fixed names not required"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "return set(ENV_FIXED) <= set(names) and set(names) <= allowed",
+  "new": "return set(ENV_FIXED) <= set(names)",
+  "note": "agent: env: extra names allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    if len(names) != len(set(names)):\n        return False\n",
+  "new": "",
+  "note": "agent: env: duplicates allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "if container and pid != 1:",
+  "new": "if False:",
+  "note": "agent: processes: not PID 1 allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "others = [d for d in os.listdir(proc) if d.isdigit() and int(d) != pid]",
+  "new": "others = []",
+  "note": "agent: processes: others ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "        if os.path.lexists(root + path):\n            return False",
+  "new": "        pass",
+  "note": "agent: files: rp_environment allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    if len(data) > SCAN_MAX:\n        return False\n",
+  "new": "",
+  "note": "agent: files: huge files pass"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "return KEY_NAME not in data",
+  "new": "return True",
+  "note": "agent: files: key name ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "if os.path.isfile(p) and not _scan(p):",
+  "new": "if False:",
+  "note": "agent: files: profile.d ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "        except Exception:\n            ok = False",
+  "new": "        except Exception:\n            ok = True",
+  "note": "agent: checks: errors pass"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "        if not ok and reason is None:\n            reason = why",
+  "new": "        if not ok:\n            reason = why",
+  "note": "agent: checks: last failure named"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if reason is not None:\n        try:\n            control.abort",
+  "new": "    if False:\n        try:\n            control.abort",
+  "note": "agent: start: failed checks ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "            os.unlink(path)",
+  "new": "            pass",
+  "note": "agent: boot.json: not removed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if len(data) > BOOT_JSON_MAX:\n        raise BootError(\"boot.json too large\")\n",
+  "new": "",
+  "note": "agent: boot.json: no size cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if boot[\"mode\"] not in (\"container\", \"vm\"):\n        raise BootError(\"bad mode\")\n",
+  "new": "",
+  "note": "agent: boot.json: any mode"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "                if e.refused:\n                    return EXIT_REFUSED",
+  "new": "                if False:\n                    return EXIT_REFUSED",
+  "note": "agent: heartbeat: refusal ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "backoff = min(backoff * 2, 60)",
+  "new": "backoff = min(backoff + 1, 60)",
+  "note": "agent: heartbeat: linear backoff"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "        if command[\"id\"] in self.done_commands:\n            return None\n",
+  "new": "",
+  "note": "agent: commands: no dedupe"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "        if op == \"revoke\":\n            return EXIT_REFUSED\n",
+  "new": "",
+  "note": "agent: commands: revoke ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "return EXIT_STOPPED if op != \"save\" else None",
+  "new": "return None",
+  "note": "agent: commands: stop ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "min(max(beat if isinstance(beat, int) else 30, HEARTBEAT_MIN_S), HEARTBEAT_MAX_S)",
+  "new": "max(beat if isinstance(beat, int) else 30, HEARTBEAT_MIN_S)",
+  "note": "agent: heartbeat: no upper clamp"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "if not isinstance(enrolled.get(\"incarnation\"), int):",
+  "new": "if False:",
+  "note": "agent: enroll: incarnation not required"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "\"providerMachineId\": boot[\"providerMachineId\"] or None,",
+  "new": "\"providerMachineId\": boot[\"providerMachineId\"],",
+  "note": "agent: enroll: empty id sent as string"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/control.py",
+  "old": "if not url.startswith(\"https://\"):",
+  "new": "if False:",
+  "note": "agent: control: http allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/control.py",
+  "old": "if len(data) > RESPONSE_MAX:",
+  "new": "if False:",
+  "note": "agent: control: no response cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/control.py",
+  "old": "return self.status in (401, 403)",
+  "new": "return self.status == 401",
+  "note": "agent: control: 403 not refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/control.py",
+  "old": "            if not self.token:\n                raise ControlError(None, \"no agent token\")\n",
+  "new": "",
+  "note": "agent: control: calls without a token"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/control.py",
+  "old": "        if isinstance(token, str) and token:\n            self.token = token",
+  "new": "        pass",
+  "note": "agent: heartbeat: token not refreshed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/control.py",
+  "old": "return [c for c in commands if isinstance(c, dict) and isinstance(c.get(\"id\"), str) and isinstance(c.get(\"op\"), str)]",
+  "new": "return [c for c in commands if isinstance(c, dict)]",
+  "note": "agent: heartbeat: malformed commands kept"
+ }
+]
