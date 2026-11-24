@@ -164,10 +164,9 @@ test("a stop without a save and a provider failure are both shown", async () => 
   await store.start("L4");
   demo.backend.advance(90_000);
   const id = store.machines.value[0]?.id as string;
-  const memberId = demo.backend.currentUserId;
   await store.verifySignIn(`mock:${demo.emails.manager}`);
   await store.client.call("stopMachine", { params: { machineId: id }, body: { save: false } });
-  demo.backend.currentUserId = memberId;
+  await store.verifySignIn(`mock:${demo.emails.member}`);
   demo.backend.advance(MIN);
   await store.refresh();
   let t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));

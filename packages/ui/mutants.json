@@ -621,8 +621,8 @@
  },
  {
   "file": "src/app/router.ts",
-  "old": "if (parts.length === 2 && parts[0] === \"p\" && SEGMENT.test(parts[1] as string)) {",
-  "new": "if (parts.length >= 2 && parts[0] === \"p\") {"
+  "old": "  if (parts[0] === \"p\" && SEGMENT.test(parts[1] ?? \"\")) {",
+  "new": "  if (parts[0] === \"p\") {"
  },
  {
   "file": "src/app/router.ts",
@@ -866,8 +866,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n    });\n  }\n\n  isBusy",
-  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n    });\n  }\n\n  isBusy"
+  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members",
+  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members"
  },
  {
   "file": "src/app/store.ts",
@@ -988,5 +988,290 @@
   "file": "src/app/store.ts",
   "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") this.#endSession();\n      this.error.value",
   "new": "      this.error.value"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": ".filter((m) => m.status !== \"removed\")\n    .map",
+  "new": ".map"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "if (ACCRUING_STATES.includes(m.state)) running.set",
+  "new": "if (m.state !== \"deleted\") running.set"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "team: m.teamId ? (teamName.get(m.teamId) ?? null) : null,",
+  "new": "team: null,"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "reserved: meter?.reserved ?? 0,",
+  "new": "reserved: 0,"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "storageBytes: meter?.storage.usedBytes ?? 0,",
+  "new": "storageBytes: 0,"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "return words.every((w) => hay.includes(w));",
+  "new": "return words.some((w) => hay.includes(w));"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "const hay = [r.email, r.name ?? \"\", r.team ?? \"\", r.role, r.status].join(\" \").toLowerCase();",
+  "new": "const hay = [r.email, r.name ?? \"\", r.team ?? \"\"].join(\" \").toLowerCase();"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "      if (x == null && y != null) return 1; // missing always last, whatever the direction",
+  "new": "      if (x == null && y != null) return dir;"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "    return c !== 0 ? c : a.email.localeCompare(b.email);",
+  "new": "    return c;"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "      c = dir * (a[key] - b[key]);",
+  "new": "      c = a[key] - b[key];"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "    if (!selected.has(r.memberId)) continue;\n",
+  "new": ""
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "const to = mode === \"set\" ? amount : r.allocation + amount;",
+  "new": "const to = mode === \"set\" ? amount : amount;"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "    if (to !== r.allocation) changes.push",
+  "new": "    changes.push"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "return { changes, delta, headroomAfter: project.budget - project.allocated - delta };",
+  "new": "return { changes, delta, headroomAfter: project.budget - project.allocated };"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "if (!Number.isSafeInteger(amount) || amount < 0) throw",
+  "new": "if (amount < 0) throw"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "    toInvite: list.valid.filter((e) => !present.has(e)),",
+  "new": "    toInvite: list.valid,"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "const present = new Set(existing.filter((m) => m.status !== \"removed\").map",
+  "new": "const present = new Set(existing.map"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": ".slice(0, 60) || \"project\";",
+  "new": ".slice(0, 80) || \"project\";"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": ".replace(/^-+|-+$/g, \"\")",
+  "new": ".replace(/^-+/g, \"\")"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "return `${slug}-spend-by-${by}-${isoDate.slice(0, 10)}.csv`;",
+  "new": "return `${slug}-spend-by-${by}-${isoDate}.csv`;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const staff = this.isStaff.value;",
+  "new": "    const staff = true;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "readonly isStaff = computed(() => this.role.value != null && projectRoleAtLeast(this.role.value, \"assistant\"));",
+  "new": "readonly isStaff = computed(() => this.role.value != null);"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "readonly canManage = computed(() => this.role.value != null && projectRoleAtLeast(this.role.value, \"manager\"));",
+  "new": "readonly canManage = computed(() => this.role.value != null && projectRoleAtLeast(this.role.value, \"assistant\"));"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n      });\n    }\n    const generation",
+  "new": "      });\n    }\n    const generation"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n    });\n  }\n\n  isBusy",
+  "new": "    });\n  }\n\n  isBusy"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.project.value = project;\n        this.members.value = members.items;",
+  "new": "        this.members.value = members.items;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "            this.client.call(\"listMachines\", { params, query: { all: \"1\" } }),",
+  "new": "            this.client.call(\"listMachines\", { params }),"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          applied++;\n",
+  "new": "\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "throw new ApiError(err.code, err.status, `${applied} of ${changes.length} allocations changed, then: ${err.message}`);",
+  "new": "throw err;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { members: emails.map((email) => ({ email, allocation })) },",
+  "new": "body: { members: emails.map((email) => ({ email })) },"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (projectId == null || emails.length === 0) return 0;",
+  "new": "    if (projectId == null) return 0;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      return stopping.length;",
+  "new": "      return 0;"
+ },
+ {
+  "file": "src/app/router.ts",
+  "old": "    if (parts.length === 3 && parts[2] === \"manage\") return",
+  "new": "    if (parts.length >= 3 && parts[2] === \"manage\") return"
+ },
+ {
+  "file": "src/app/router.ts",
+  "old": "      return `/p/${encodeURIComponent(route.projectId)}/manage`;",
+  "new": "      return `/p/${encodeURIComponent(route.projectId)}`;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${nav && store.isStaff.value ? html`",
+  "new": "${nav ? html`"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  const removable = (r: MemberRow) => actor != null && canRemoveMember(actor, r.role, owners).ok;",
+  "new": "  const removable = (r: MemberRow) => actor != null;"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "class=${r.allocation > 0 ? `band-${r.band}` : undefined}",
+  "new": "class=${`band-${r.band}`}"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "if (window.confirm(`Stop all ${running}",
+  "new": "if (true || window.confirm(`Stop all ${running}"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "disabled=${running === 0 || store.isBusy(\"stopAll\")}",
+  "new": "disabled=${store.isBusy(\"stopAll\")}"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    if (amount === row.allocation || (await store.setAllocation(row.memberId, amount))) setText(null);",
+  "new": "    if (await store.setAllocation(row.memberId, amount)) setText(null);"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    if (amount == null) return;\n    if (amount ===",
+  "new": "    if (amount ==="
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "disabled=${plan == null || plan.changes.length === 0 || plan.headroomAfter < 0 || store.isBusy(\"allocations\")}",
+  "new": "disabled=${plan == null || plan.changes.length === 0 || store.isBusy(\"allocations\")}"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    if (done === plan.changes.length) onDone();",
+  "new": "    onDone();"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  const over = needed != null && needed > headroom;",
+  "new": "  const over = false;"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    if ((await store.invite(preview.toInvite, allocation)) > 0) setText(\"\");",
+  "new": "    await store.invite(preview.toInvite, allocation);"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  if (!store.isStaff.value) {",
+  "new": "  if (false) {"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    ${store.canManage.value ? html`<${InviteForm} store=${store} />` : null}",
+  "new": "    <${InviteForm} store=${store} />"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "${canManage ? html`<td><input type=\"checkbox\"",
+  "new": "${true ? html`<td><input type=\"checkbox\""
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "if (text != null) download(csvFilename(p.name, by, new Date(store.now()).toISOString()), text);",
+  "new": "if (text != null) download(csvFilename(p.name, by, new Date().toISOString()), text);"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  const stoppable = (m: Machine) => m.state === \"starting\" || m.state === \"running\" || m.state === \"failed\";",
+  "new": "  const stoppable = (m: Machine) => m.state !== \"deleted\";"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (generation !== this.#generation) return null;\n      this.error.value = null;",
+  "new": "      this.error.value = null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (generation !== this.#generation) return applied;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        if (generation === this.#generation) await this.refresh().catch(() => undefined);",
+  "new": "        await this.refresh().catch(() => undefined);"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          applied++;\n        }\n        return applied;",
+  "new": "        }\n        return applied;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    return generation === this.#generation ? applied : null;",
+  "new": "    return applied;"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.memberId);",
+  "new": "void store.removeMember(row.memberId);"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.memberId);",
+  "new": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.email);"
  }
 ]

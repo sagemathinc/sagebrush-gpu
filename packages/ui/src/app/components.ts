@@ -3,7 +3,7 @@
 
 import type { ComponentChildren, VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { html as htmPreact } from "htm/preact";
+import { html } from "./html.ts";
 import type { Machine, PriceListItem, ProjectLabels, Quote, SpendMeter } from "@sbgpu/api";
 import { capitalize, withArticle } from "../labels.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
@@ -11,8 +11,9 @@ import { ago, machineActions, machineStateLabel, meterView, refusalText, savePer
 import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
+import { ManagePage } from "./manage-page.ts";
 
-export const html = htmPreact as (strings: TemplateStringsArray, ...values: unknown[]) => VNode;
+export { html };
 
 export interface Nav {
   /** The current path, e.g. "/p/prj_...". */
@@ -29,7 +30,7 @@ export interface DemoAccount {
   token: string;
 }
 
-function Link({ nav, to, children }: { nav: Nav; to: Route; children: ComponentChildren }): VNode {
+export function Link({ nav, to, children }: { nav: Nav; to: Route; children: ComponentChildren }): VNode {
   const href = routePath(to) + nav.search;
   const onClick = (e: MouseEvent) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
@@ -220,7 +221,8 @@ export function roleWord(role: string | null, labels: ProjectLabels): string {
   return role === "member" ? labels.member : role === "assistant" ? labels.assistant : labels.manager;
 }
 
-export function ProjectPage({ store, projectId, timers }: { store: Store; projectId: string; timers?: PollTimers | undefined }): VNode {
+/** Load a project on mount (and when it changes), then poll it until unmount. */
+export function useProjectLoad(store: Store, projectId: string, timers: PollTimers | undefined): void {
   useEffect(() => {
     let stop: (() => void) | null = null;
     let unmounted = false;
@@ -236,6 +238,10 @@ export function ProjectPage({ store, projectId, timers }: { store: Store; projec
       stop?.();
     };
   }, [projectId]);
+}
+
+export function ProjectPage({ store, projectId, timers, nav }: { store: Store; projectId: string; timers?: PollTimers | undefined; nav?: Nav | undefined }): VNode {
+  useProjectLoad(store, projectId, timers);
 
   const project = store.project.value;
   if (project == null || store.projectId.value !== projectId) return html`<main><p class="muted">Loading…</p></main>`;
@@ -247,6 +253,7 @@ export function ProjectPage({ store, projectId, timers }: { store: Store; projec
     <header class="page">
       <h1>${project.name}</h1>
       <span class="badge">${capitalize(labels.project)} · you are ${withArticle(roleWord(store.role.value, labels))}</span>
+      ${nav && store.isStaff.value ? html`<${Link} nav=${nav} to=${{ name: "manage", projectId }}>Manage this ${labels.project}<//>` : null}
     </header>
     <div class="grid">
       ${mine ? html`<${MeterCard} title="Your allocation" meter=${mine} now=${now} />` : null}
@@ -281,7 +288,9 @@ export function App({
       route.name === "home"
         ? html`<${Home} store=${store} nav=${nav} />`
         : route.name === "project"
-          ? html`<${ProjectPage} store=${store} projectId=${route.projectId} timers=${timers} />`
+          ? html`<${ProjectPage} store=${store} projectId=${route.projectId} timers=${timers} nav=${nav} />`
+          : route.name === "manage"
+            ? html`<${ManagePage} store=${store} projectId=${route.projectId} timers=${timers} nav=${nav} />`
           : html`<main><h1>Not found</h1><p><${Link} nav=${nav} to=${{ name: "home" }}>Your projects<//></p></main>`;
   }
   return html`<div class="app">
