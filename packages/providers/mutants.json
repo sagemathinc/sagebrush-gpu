@@ -739,5 +739,225 @@
   "file": "src/runpod/adapter.ts",
   "old": "if (!Object.hasOwn(ssh, k)) out.push",
   "new": "if (ssh[k] === undefined && false) out.push"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));",
+  "new": "return opts.toleranceMicros;"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));",
+  "new": "return Math.min(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "return Math.max(opts.toleranceMicros, Math.floor((ledger * opts.toleranceBps) / 10_000));",
+  "new": "return Math.max(opts.toleranceMicros, Math.ceil((ledger * opts.toleranceBps) / 10_000));"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "else if (Math.abs(difference) <= tolerance(c.ledger, opts)) status = \"ok\";",
+  "new": "else if (Math.abs(difference) < tolerance(c.ledger, opts)) status = \"ok\";"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "else if (Math.abs(difference) <= tolerance(c.ledger, opts)) status = \"ok\";",
+  "new": "else if (difference <= tolerance(c.ledger, opts)) status = \"ok\";"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "else status = difference > 0 ? \"over\" : \"under\";",
+  "new": "else status = difference > 0 ? \"under\" : \"over\";"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (c.bucket + size > closedBefore) status = \"pending\";",
+  "new": "if (c.bucket + size >= closedBefore) status = \"pending\";"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (c.bucket + size > closedBefore) status = \"pending\";",
+  "new": "if (c.bucket > closedBefore) status = \"pending\";"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "else if (c.machineId === null) status = \"unknown_machine\";",
+  "new": ""
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (e.kind !== \"compute\") continue;",
+  "new": ""
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "    if (e.machineId === null || e.provider === null) {",
+  "new": "    if (e.machineId === null) {"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (prev !== undefined && prev !== b.machineId) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (start % size !== 0 || end - start !== size) {",
+  "new": "if (end - start !== size) {"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (start % size !== 0 || end - start !== size) {",
+  "new": "if (start % size !== 0) {"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "c.billed = checkedSum(c.billed, r.total);",
+  "new": "c.billed = r.total;"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "c.ledger = checkedSum(c.ledger, e.amount.providerCost);",
+  "new": "c.ledger = checkedSum(c.ledger, e.amount.total);"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "const key = `${bucket}\\u0000${provider}\\u0000${machineId ?? `?${unknownPm}`}`;",
+  "new": "const key = `${bucket}\\u0000${provider}\\u0000${machineId ?? \"?\"}`;"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "const key = `${b.provider}\\u0000${b.providerMachineId}`;",
+  "new": "const key = `runpod\\u0000${b.providerMachineId}`;"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (!Number.isSafeInteger(x) || x < 0) throw",
+  "new": "if (x < 0) throw"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "opts.toleranceBps < 0 || opts.toleranceBps > 10_000",
+  "new": "opts.toleranceBps < 0"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (!Object.hasOwn(BUCKET_MS, opts.bucket)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (!/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d(:\\d\\d(\\.\\d+)?)?Z$/.test(t) || !Number.isFinite(ms)) {",
+  "new": "if (!Number.isFinite(ms)) {"
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "if (!Number.isSafeInteger(s)) throw new RangeError(\"sum exceeds the safe integer range\");",
+  "new": ""
+ },
+ {
+  "file": "src/reconcile.ts",
+  "old": "      cmp(a.bucketStart, b.bucketStart) ||\n",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(q) || q[\"bucketSize\"] !== query.bucket) throw",
+  "new": "if (!isObject(q)) throw"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!sameInstant(q[\"startTime\"], query.start) || !sameInstant(q[\"endTime\"], query.end)) {",
+  "new": "if (!sameInstant(q[\"endTime\"], query.end)) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!sameInstant(q[\"startTime\"], query.start) || !sameInstant(q[\"endTime\"], query.end)) {",
+  "new": "if (!sameInstant(q[\"startTime\"], query.start)) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (q[\"podId\"] !== undefined && q[\"podId\"] !== null) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(totals)) throw bad(\"has no totals\");",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (meta[\"recordCount\"] !== json[\"records\"].length) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || e > end || s % size !== 0",
+  "new": "!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || e > end || s % size !== 0"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || e > end || s % size !== 0",
+  "new": "!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || s % size !== 0"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || e > end || s % size !== 0",
+  "new": "!Number.isFinite(s) || !Number.isFinite(e) || s < start || e > end || s % size !== 0"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || e > end || s % size !== 0",
+  "new": "!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || e > end"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (Math.abs(sum - usdField(totals, \"totalAmount\")) > out.length) throw",
+  "new": "if (Math.abs(sum - usdField(totals, \"totalAmount\")) > out.length + 1) throw"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (Math.abs(sum - usdField(totals, \"totalAmount\")) > out.length) throw",
+  "new": "if (sum - usdField(totals, \"totalAmount\") > out.length) throw"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (typeof v !== \"number\" || !Number.isFinite(v) || v < 0) {",
+  "new": "if (typeof v !== \"number\") {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      gpu: usdField(r, \"gpuAmount\"),",
+  "new": "      gpu: 0,"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(r) || typeof r[\"podId\"] !== \"string\" || r[\"podId\"] === \"\") throw",
+  "new": "if (!isObject(r) || typeof r[\"podId\"] !== \"string\") throw"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (start % size !== 0 || end % size !== 0 || end <= start || (end - start) / size > MAX_BILLING_BUCKETS) {",
+  "new": "if (end <= start || (end - start) / size > MAX_BILLING_BUCKETS) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (start % size !== 0 || end % size !== 0 || end <= start || (end - start) / size > MAX_BILLING_BUCKETS) {",
+  "new": "if (start % size !== 0 || end % size !== 0 || end <= start) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (start % size !== 0 || end % size !== 0 || end <= start || (end - start) / size > MAX_BILLING_BUCKETS) {",
+  "new": "if (start % size !== 0 || end % size !== 0 || end < start || (end - start) / size > MAX_BILLING_BUCKETS) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (start % size !== 0 || end % size !== 0 || end <= start || (end - start) / size > MAX_BILLING_BUCKETS) {",
+  "new": "if (start % size !== 0 || end % size !== 0 || end <= start || (end - start) / size >= MAX_BILLING_BUCKETS) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const qs = new URLSearchParams({ startTime: norm.start, endTime: norm.end, bucketSize: norm.bucket });",
+  "new": "const qs = new URLSearchParams({ startTime: norm.start, endTime: norm.end });"
  }
 ]

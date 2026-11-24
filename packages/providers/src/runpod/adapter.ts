@@ -9,6 +9,7 @@ import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { retryAfterSeconds, type Fetch } from "../http.ts";
 import { machineName, parseMachineName } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
+import type { BillingQuery, BillingSource, ProviderBillingRecord } from "../reconcile.ts";
 import type {
   AdapterInfo,
   LaunchResult,
@@ -205,7 +206,71 @@ export function podStatus(pod: unknown, observedAt: string): ProviderMachineStat
   };
 }
 
-export class RunPodAdapter implements ProviderAdapter {
+const BILLING_BUCKET_MS = { hour: 3_600_000, day: 86_400_000 } as const;
+/** A window longer than this many buckets is refused: ask for it in parts. */
+export const MAX_BILLING_BUCKETS = 1000;
+
+function usdField(r: Record<string, unknown>, name: string): number {
+  const v = r[name];
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+    throw new ProviderError("runpod", "unknown", `RunPod billing record has no valid ${name}`);
+  }
+  return usdToMicros(v);
+}
+
+/**
+ * RunPod's pod billing response as our records. Fails unless the response is complete: the
+ * echoed window must be exactly the one asked for, every record must be one bucket inside it,
+ * and the records must add up to the reported totals (to within a micro per record, since each
+ * amount is rounded separately).
+ */
+export function parsePodBilling(json: unknown, query: BillingQuery): ProviderBillingRecord[] {
+  const bad = (why: string) => new ProviderError("runpod", "unknown", `RunPod billing response ${why}`);
+  if (!isObject(json) || !Array.isArray(json["records"]) || !isObject(json["metadata"])) throw bad("is malformed");
+  const meta = json["metadata"];
+  const q = meta["query"];
+  if (!isObject(q) || q["bucketSize"] !== query.bucket) throw bad("has another bucket size");
+  if (!sameInstant(q["startTime"], query.start) || !sameInstant(q["endTime"], query.end)) {
+    throw bad("covers another window");
+  }
+  if (q["podId"] !== undefined && q["podId"] !== null) throw bad("is filtered to one pod");
+  const totals = meta["totals"];
+  if (!isObject(totals)) throw bad("has no totals");
+  if (meta["recordCount"] !== json["records"].length) throw bad("has a record count that doesn't match");
+  const start = Date.parse(query.start);
+  const end = Date.parse(query.end);
+  const size = BILLING_BUCKET_MS[query.bucket];
+  const out: ProviderBillingRecord[] = [];
+  let sum = 0;
+  for (const r of json["records"]) {
+    if (!isObject(r) || typeof r["podId"] !== "string" || r["podId"] === "") throw bad("has a record without a pod");
+    const s = typeof r["startTime"] === "string" ? Date.parse(r["startTime"]) : Number.NaN;
+    const e = typeof r["endTime"] === "string" ? Date.parse(r["endTime"]) : Number.NaN;
+    if (!Number.isFinite(s) || !Number.isFinite(e) || e - s !== size || s < start || e > end || s % size !== 0) {
+      throw bad("has a record outside its buckets");
+    }
+    const total = usdField(r, "totalAmount");
+    out.push({
+      provider: "runpod",
+      providerMachineId: r["podId"],
+      bucketStart: new Date(s).toISOString(),
+      bucketEnd: new Date(e).toISOString(),
+      total,
+      gpu: usdField(r, "gpuAmount"),
+      cpu: usdField(r, "cpuAmount"),
+      disk: usdField(r, "diskAmount"),
+    });
+    sum += total;
+  }
+  if (Math.abs(sum - usdField(totals, "totalAmount")) > out.length) throw bad("doesn't add up to its totals");
+  return out;
+}
+
+function sameInstant(a: unknown, b: string): boolean {
+  return typeof a === "string" && Number.isFinite(Date.parse(a)) && Date.parse(a) === Date.parse(b);
+}
+
+export class RunPodAdapter implements ProviderAdapter, BillingSource {
   readonly info: AdapterInfo = {
     provider: "runpod",
     selfIdentity: { env: "RUNPOD_POD_ID" },
@@ -391,6 +456,27 @@ export class RunPodAdapter implements ProviderAdapter {
       if (e instanceof ProviderError && e.kind === "not_found") return;
       throw e;
     }
+  }
+
+  /**
+   * Pod billing for a window of whole buckets. Windows must be bucket-aligned (RunPod widens
+   * unaligned ones) and at most MAX_BILLING_BUCKETS long.
+   */
+  async billing(query: BillingQuery): Promise<ProviderBillingRecord[]> {
+    const size = Object.hasOwn(BILLING_BUCKET_MS, query.bucket) ? BILLING_BUCKET_MS[query.bucket] : Number.NaN;
+    const start = Date.parse(query.start);
+    const end = Date.parse(query.end);
+    if (!Number.isFinite(size) || !Number.isFinite(start) || !Number.isFinite(end)) {
+      throw new RangeError("billing query needs ISO start and end and a bucket of hour or day");
+    }
+    if (start % size !== 0 || end % size !== 0 || end <= start || (end - start) / size > MAX_BILLING_BUCKETS) {
+      throw new RangeError(`billing window must be 1 to ${MAX_BILLING_BUCKETS} whole ${query.bucket} buckets`);
+    }
+    const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
+    const norm = { start: iso(start), end: iso(end), bucket: query.bucket };
+    const qs = new URLSearchParams({ startTime: norm.start, endTime: norm.end, bucketSize: norm.bucket });
+    const { json } = await this.#call("GET", `/v2/billing/pods?${qs}`);
+    return parsePodBilling(json, norm);
   }
 
   async listMachines(): Promise<ProviderMachineStatus[]> {
