@@ -1,0 +1,477 @@
+[
+ {
+  "file": "src/money.ts",
+  "old": "return 2 * r >= d ? q + 1 : q;",
+  "new": "return 2 * r > d ? q + 1 : q;"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "return 2 * r >= d ? q + 1 : q;",
+  "new": "return q;"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "const q = Math.floor(n / d);",
+  "new": "const q = Math.round(n / d);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "return divRoundHalfUp(product, BPS_PER_UNIT);",
+  "new": "return Math.floor(product / BPS_PER_UNIT);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "x >= 0 && x <= 100 * BPS_PER_UNIT",
+  "new": "x >= 0 && x < 100 * BPS_PER_UNIT"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "x >= 0 && x <= 100 * BPS_PER_UNIT",
+  "new": "x > 0 && x <= 100 * BPS_PER_UNIT"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "const margin = marginOn(providerCost, marginBps);\n  return { providerCost, margin, total: checkedAdd(providerCost, margin) };",
+  "new": "const margin = marginOn(providerCost, marginBps);\n  return { providerCost, margin, total: providerCost };"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "return divRoundHalfUp(product, SECONDS_PER_HOUR);",
+  "new": "return Math.floor(product / SECONDS_PER_HOUR);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "return priceSplit(costForSeconds(providerPerHour, seconds), marginBps);",
+  "new": "const c = providerPerHour * seconds / 3600; const m = divRoundHalfUp(Math.round(c * marginBps), 10000); return { providerCost: Math.round(c), margin: m, total: Math.round(c) + m };"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "margin = checkedAdd(margin, s.margin);",
+  "new": "margin = checkedAdd(margin, s.providerCost);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "if (!isPriceSplit(s)) throw new RangeError(`not a price split: ${JSON.stringify(s)}`);",
+  "new": ""
+ },
+ {
+  "file": "src/money.ts",
+  "old": "if (!Number.isSafeInteger(r)) throw new RangeError(`${a} + ${b} exceeds the safe integer range`);",
+  "new": ""
+ },
+ {
+  "file": "src/money.ts",
+  "old": "if (!Number.isSafeInteger(r)) throw new RangeError(`${a} * ${b} exceeds the safe integer range`);",
+  "new": ""
+ },
+ {
+  "file": "src/money.ts",
+  "old": "if (!Number.isSafeInteger(x) || x < 0) {\n    throw new RangeError(`${name} must be a non-negative safe integer, got ${x}`);",
+  "new": "if (!Number.isSafeInteger(x)) {\n    throw new RangeError(`${name} must be a non-negative safe integer, got ${x}`);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "${neg && cents > 0 ? \"-\" : \"\"}",
+  "new": "${neg ? \"-\" : \"\"}"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "const cents = divRoundHalfUp(Math.abs(micros), 10_000);",
+  "new": "const cents = Math.floor(Math.abs(micros) / 10_000);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "const minutes = Math.ceil(windowSeconds / LEDGER_MINUTE_SECONDS);",
+  "new": "const minutes = Math.floor(windowSeconds / LEDGER_MINUTE_SECONDS);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "const minutes = Math.ceil(windowSeconds / LEDGER_MINUTE_SECONDS);",
+  "new": "const minutes = Math.round(windowSeconds / LEDGER_MINUTE_SECONDS);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "checkedMul(minutes, minuteCharge(m, LEDGER_MINUTE_SECONDS))",
+  "new": "checkedMul(minutes, minuteCharge(m, 59))"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return entrySplit(m.providerCostPerHour, seconds, m.marginBps).total;",
+  "new": "return entrySplit(m.providerCostPerHour, seconds, m.marginBps).providerCost;"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "if (seconds > LEDGER_MINUTE_SECONDS) throw",
+  "new": "if (seconds > LEDGER_MINUTE_SECONDS + 1) throw"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "checkCount(`machine ${i} providerCostPerHour`, providerCostPerHour);",
+  "new": ""
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "if (!isBasisPoints(marginBps)) throw new RangeError(`machine ${i} marginBps is invalid: ${String(marginBps)}`);",
+  "new": ""
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return Math.max(checkedMul(policyReserveMinutes, 60), estimatedSaveSeconds);",
+  "new": "return Math.max(policyReserveMinutes * 60, estimatedSaveSeconds);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return Math.max(checkedMul(policyReserveMinutes, 60), estimatedSaveSeconds);",
+  "new": "return policyReserveMinutes * 60;"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return chargeBound(machines, checkedAdd(seconds, LEDGER_MINUTE_SECONDS));",
+  "new": "return chargeBound(machines, seconds);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "    [\"unbilledSeconds\", i.unbilledSeconds],\n    [\"checkIntervalSeconds\", i.checkIntervalSeconds],\n    [\"safetySeconds\", i.safetySeconds],\n    [\"reserveSeconds\", i.reserveSeconds],\n  );\n  return chargeBound(i.machines, window);",
+  "new": "    [\"checkIntervalSeconds\", i.checkIntervalSeconds],\n    [\"safetySeconds\", i.safetySeconds],\n    [\"reserveSeconds\", i.reserveSeconds],\n  );\n  return chargeBound(i.machines, window);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "    [\"safetySeconds\", i.safetySeconds],\n    [\"reserveSeconds\", i.reserveSeconds],\n  );\n  return chargeBound(i.machines, window);",
+  "new": "    [\"safetySeconds\", i.safetySeconds],\n  );\n  return chargeBound(i.machines, window);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "    checkCount(name, x);\n    total = checkedAdd(total, x);",
+  "new": "    total = checkedAdd(total, x as number);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return i.unspent < hardStopThreshold(i);",
+  "new": "return i.unspent <= hardStopThreshold(i);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "if (!Number.isSafeInteger(i.unspent)) return true;",
+  "new": ""
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "  } catch {\n    return true;\n  }",
+  "new": "  } catch {\n    return false;\n  }"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "if (i.machines.length === 0) return false;",
+  "new": "if (i.machines.length === 0) return true;"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return chargeBound([...i.running, i.newMachine], window);",
+  "new": "return chargeBound([i.newMachine], window);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "[\"minStartSeconds\", i.minStartMinutes * 60],",
+  "new": "[\"minStartSeconds\", i.minStartMinutes * 59],"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "    [\"unbilledSeconds\", i.unbilledSeconds],\n    // a product",
+  "new": "    // a product"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return i.unspent >= requiredToStart(i);",
+  "new": "return i.unspent > requiredToStart(i);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "if (!Number.isSafeInteger(i.unspent)) return false;",
+  "new": ""
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "  } catch {\n    return false;\n  }",
+  "new": "  } catch {\n    return true;\n  }"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "return Math.max(0, amount - checkedAdd(spentTotal, reserved));",
+  "new": "return amount - checkedAdd(spentTotal, reserved);"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "  checkCount(\"spentTotal\", spentTotal);\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (row.usedAt !== null) return { ok: false, reason: \"used\" };",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (row.providerMachineId === null) return { ok: false, reason: \"unbound\" };",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "!(nowMs < exp)",
+  "new": "!(nowMs <= exp)"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (providerMachineId !== row.providerMachineId) return { ok: false, reason: \"instanceMismatch\" };",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const BOOT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;",
+  "new": "export const BOOT_TOKEN_PATTERN = /^[A-Za-z0-9_+=-]{43,44}$/;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "return own.length === keys.length && keys.every((k) => Object.hasOwn(o, k));",
+  "new": "return keys.every((k) => Object.hasOwn(o, k));"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "Object.getPrototypeOf(x) === Object.prototype",
+  "new": "true"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (x.v !== 1) return fail(\"version\");",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (typeof x.jti !== \"string\" || !JTI_PATTERN.test(x.jti)) return fail(\"jti\");",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!(x.iat < x.exp)) return fail(\"iat >= exp\");",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (x.exp - x.iat > TOKEN_TTL_SECONDS[kind]) return fail(\"lifetime over the cap\");",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (x.iat > nowSeconds + TOKEN_CLOCK_SKEW_SECONDS) return fail(\"issued in the future\");",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!(nowSeconds < x.exp)) return fail(\"expired\");",
+  "new": "if (!(nowSeconds <= x.exp)) return fail(\"expired\");"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!isCount(x.inc)) return fail(\"inc\");",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (x.kind !== kind) return fail(\"kind\");",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (g.area !== \"member\" && g.area !== \"team\") return \"rw grant area\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!isPositive(g.quotaBytes)) return \"rw grant quotaBytes\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (g.area === \"team\" && team === null) return \"team grant without a team\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (seen.has(g.area as string)) return \"duplicate grant area\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if ((o.grants as Array<{ mode: string }>).some((g) => g.mode !== \"ro\")) return \"final-save token with a writable grant\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!isPositive(mode.maxBytes)) return \"maxBytes\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!isId(\"snapshot\", mode.saveId)) return \"saveId\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (mode.area === \"team\" && o.team === null) return \"final-save to a team without a team\";",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (claims.mch !== machine.id || claims.inc !== machine.incarnation) return false;",
+  "new": "if (claims.mch !== machine.id) return false;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "return claims.mode.kind === \"final-save\" ? machine.state === \"saving\" : machine.state === \"running\";",
+  "new": "return machine.state === \"saving\" || machine.state === \"running\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "return machine.state === \"starting\" || machine.state === \"running\" || machine.state === \"saving\";",
+  "new": "return machine.state !== \"deleted\";"
+ },
+ {
+  "file": "src/authz.ts",
+  "old": "if (actor === \"manager\") return !ownerOnly(role);",
+  "new": "if (actor === \"manager\") return role !== \"owner\";"
+ },
+ {
+  "file": "src/authz.ts",
+  "old": "if (actor === \"manager\") return !ownerOnly(role);",
+  "new": "if (actor === \"manager\" || actor === \"assistant\") return !ownerOnly(role);"
+ },
+ {
+  "file": "src/authz.ts",
+  "old": "if (newRole !== undefined && !mayManage(actor, newRole)) return FORBIDDEN;",
+  "new": ""
+ },
+ {
+  "file": "src/authz.ts",
+  "old": "if (target === \"owner\" && newRole !== undefined && newRole !== \"owner\" && ownerCount <= 1) return LAST_OWNER;",
+  "new": ""
+ },
+ {
+  "file": "src/authz.ts",
+  "old": "if (target === \"owner\" && ownerCount <= 1) return LAST_OWNER;",
+  "new": "if (target === \"owner\" && ownerCount < 1) return LAST_OWNER;"
+ },
+ {
+  "file": "src/authz.ts",
+  "old": "  if (!mayManage(actor, target)) return FORBIDDEN;\n  if (target === \"owner\" && ownerCount <= 1)",
+  "new": "  if (target === \"owner\" && ownerCount <= 1)"
+ },
+ {
+  "file": "src/ids.ts",
+  "old": "body += ID_ALPHABET[b % 32];",
+  "new": "body += ID_ALPHABET[b % 31];"
+ },
+ {
+  "file": "src/ids.ts",
+  "old": "new RegExp(`^${prefix}_${BODY}$`)",
+  "new": "new RegExp(`^${prefix}_${BODY}`)"
+ },
+ {
+  "file": "src/time.ts",
+  "old": "&& new Date(t).toISOString() === x",
+  "new": ""
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "Object.hasOwn(ERROR_STATUS, x)",
+  "new": "x in ERROR_STATUS"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "running: [\"saving\", \"stopping\", \"failed\"]",
+  "new": "running: [\"saving\", \"stopping\", \"stopped\", \"failed\"]"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "stopped: [\"starting\", \"deleted\"]",
+  "new": "stopped: [\"starting\", \"running\", \"deleted\"]"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "return PROJECT_ROLES.indexOf(role) >= PROJECT_ROLES.indexOf(min);",
+  "new": "return PROJECT_ROLES.indexOf(role) > PROJECT_ROLES.indexOf(min);"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "if (pattern.length !== parts.length) continue;",
+  "new": ""
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "const SEGMENT = /^[A-Za-z0-9._-]+$/;",
+  "new": "const SEGMENT = /^[^/]*$/;"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "} else if (p !== s) {",
+  "new": "} else if (false) {"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "if (spec.method !== method) continue;",
+  "new": ""
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "setMemberAllocation: { method: \"PUT\", path: \"/v1/projects/:projectId/members/:memberId/allocation\", access: manager }",
+  "new": "setMemberAllocation: { method: \"PUT\", path: \"/v1/projects/:projectId/members/:memberId/allocation\", access: assistant }"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "addOrgCredit: { method: \"POST\", path: \"/v1/orgs/:orgId/credit\", access: { auth: \"system\" }",
+  "new": "addOrgCredit: { method: \"POST\", path: \"/v1/orgs/:orgId/credit\", access: { auth: \"session\", scope: \"org\", minRole: \"owner\" }"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "agentAbort: { method: \"POST\", path: \"/v1/agent/abort\", access: { auth: \"public\" }",
+  "new": "agentAbort: { method: \"POST\", path: \"/v1/agent/abort\", access: { auth: \"agent\" }"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "  if (minutes === 0) return 0;\n",
+  "new": "  if (minutes === 0) return 1;\n"
+ },
+ {
+  "file": "src/budget.ts",
+  "old": "  checkMachines(machines);\n  checkCount(\"windowSeconds\", windowSeconds);",
+  "new": "  checkCount(\"windowSeconds\", windowSeconds);"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (nowMs < first) return { ok: false, reason: \"notRunningYet\" };",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (nowMs < first) return { ok: false, reason: \"notRunningYet\" };",
+  "new": "if (nowMs < first - 1) return { ok: false, reason: \"notRunningYet\" };"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (nowMs < first) return { ok: false, reason: \"notRunningYet\" };",
+  "new": "if (nowMs <= first) return { ok: false, reason: \"notRunningYet\" };"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!(exp - first > 0) ||",
+  "new": "if (!(exp - first >= 0) ||"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!(exp - first > 0) ||",
+  "new": "if ("
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "exp - first > BOOT_TOKEN_TTL_SECONDS * 1000 ||",
+  "new": "exp - first > BOOT_TOKEN_TTL_SECONDS * 1001 ||"
+ }
+]

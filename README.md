@@ -33,3 +33,10 @@ next to the code, run with `node --test`.
 - **Times** on the wire are ISO-8601 UTC strings (`2027-02-01T09:00:00.000Z`).
 - **Ids** are prefixed strings (`org_…`, `prj_…`, `mch_…`).
 - **Errors** are `{ "error": { "code": ..., "message": ... } }` with a closed set of codes.
+
+## Mutation checks
+
+One shared runner, `scripts/mutants.py`, fails closed (see its header). Each package
+keeps its list in `packages/<pkg>/mutants.json`: `[{"file": "src/...", "old": "...",
+"new": "...", "note": "optional"}]`, paths relative to the package; tests are the
+package's `src/**/*.test.ts`. Run `python3 -I scripts/mutants.py packages/<pkg>`.
