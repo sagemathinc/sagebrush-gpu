@@ -386,8 +386,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "const reserved = reserveCharge(accruing.map(metered), this.#reserveSeconds(project));",
-  "new": "const reserved = 0;"
+  "old": "      reserveCharge(accruing.map(metered), this.#reserveSeconds(project)) +",
+  "new": "      0 +"
  },
  {
   "file": "src/mock/backend.ts",
@@ -396,8 +396,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "running: this.#accruingOn(allocation.id).map(metered),",
-  "new": "running: [],"
+  "old": "        running: running.map(metered),",
+  "new": "        running: [],"
  },
  {
   "file": "src/mock/backend.ts",
@@ -413,16 +413,6 @@
   "file": "src/mock/backend.ts",
   "old": "      if (entry != null) {\n",
   "new": "      if (false) {\n"
- },
- {
-  "file": "src/mock/backend.ts",
-  "old": "const rate = Math.max(entry.providerCostPerHour ?? 0, rec.m.pricePerHour.providerCost);",
-  "new": "const rate = rec.m.pricePerHour.providerCost;"
- },
- {
-  "file": "src/mock/backend.ts",
-  "old": "const rate = Math.max(entry.providerCostPerHour ?? 0, rec.m.pricePerHour.providerCost);",
-  "new": "const rate = entry.providerCostPerHour ?? 0;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -463,5 +453,45 @@
   "file": "src/mock/backend.ts",
   "old": "        present.add(email);\n",
   "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const amount = entrySplit(entry.providerCostPerHour ?? 0, total, entry.marginBps);",
+  "new": "const amount = entrySplit(rec.m.pricePerHour.providerCost, total, entry.marginBps);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (pinned == null) return 0;\n",
+  "new": "    if (pinned == null || true) return 0;\n"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "return minuteCharge({ ...m, providerCostPerHour: pinned }, 60) - minuteCharge(m, 60);",
+  "new": "return minuteCharge({ ...m, providerCostPerHour: pinned }, 60);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "return this.#minuteEntries.get(`${machineId}|${toIso(minuteStart(this.#now))}`)?.providerCostPerHour ?? null;",
+  "new": "return this.#minuteEntries.get(`${machineId}|${toIso(minuteStart(this.#now) - 60_000)}`)?.providerCostPerHour ?? null;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        (restarting == null ? 0 : this.#pinDelta(restarting, newMachine));",
+  "new": "        0;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "allocation.holder.kind, rec.m.id);",
+  "new": "allocation.holder.kind);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      accruing.reduce((sum, r) => sum + this.#pinDelta(r.m.id, metered(r)), 0);",
+  "new": "      0;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        running.reduce((sum, r) => sum + this.#pinDelta(r.m.id, metered(r)), 0) +",
+  "new": "        0 +"
  }
 ]

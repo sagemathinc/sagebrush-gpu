@@ -31,6 +31,7 @@ import {
   isNonNegativeMicros,
   matchRoute,
   meterRemaining,
+  minuteCharge,
   minuteStart,
   orgRoleAtLeast,
   priceSplit,
@@ -477,6 +478,22 @@ export class MockBackend {
     return Math.ceil((this.#now - minuteStart(this.#now)) / 1000);
   }
 
+  /** The rate pinned for this machine's current UTC minute, when that minute has an entry already. */
+  #pinnedRate(machineId: string): number | null {
+    return this.#minuteEntries.get(`${machineId}|${toIso(minuteStart(this.#now))}`)?.providerCostPerHour ?? null;
+  }
+
+  /**
+   * budget.ts bounds a window that starts this minute at one rate per machine. For a
+   * machine whose current minute is pinned at another rate, that first minute is off by
+   * the difference of the two full-minute charges; this is the correction to add.
+   */
+  #pinDelta(machineId: string, m: MeteredMachine): number {
+    const pinned = this.#pinnedRate(machineId);
+    if (pinned == null) return 0;
+    return minuteCharge({ ...m, providerCostPerHour: pinned }, 60) - minuteCharge(m, 60);
+  }
+
   #reserveSeconds(project: Project): number {
     return reserveSeconds(project.policy.finalSaveReserveMinutes, 0);
   }
@@ -485,7 +502,9 @@ export class MockBackend {
     const project = this.#project(allocation.projectId);
     const spent = this.#allocationSpent(allocation.id);
     const accruing = this.#accruingOn(allocation.id);
-    const reserved = reserveCharge(accruing.map(metered), this.#reserveSeconds(project));
+    const reserved =
+      reserveCharge(accruing.map(metered), this.#reserveSeconds(project)) +
+      accruing.reduce((sum, r) => sum + this.#pinDelta(r.m.id, metered(r)), 0);
     const quotaBytes =
       allocation.holder.kind === "member" ? project.policy.storageQuotaBytesPerMember : project.policy.storageQuotaBytesPerTeam;
     return {
@@ -536,7 +555,14 @@ export class MockBackend {
   }
 
   /** The quote for `member` starting `gpuType`, refused with the first reason that applies. */
-  #quote(project: Project, member: Member, gpuType: string, gpuCount: number, chargeTo: "member" | "team"): Quote {
+  #quote(
+    project: Project,
+    member: Member,
+    gpuType: string,
+    gpuCount: number,
+    chargeTo: "member" | "team",
+    restarting: string | null = null,
+  ): Quote {
     const allocation = this.#chargeAllocation(project, member, chargeTo);
     const allowed = project.policy.allowedGpuTypes.includes(gpuType) ? this.#allowedOffers(project, gpuType, gpuCount) : [];
     const underCap = allowed.filter((o) => o.pricePerHour.total <= project.policy.maxPricePerHour);
@@ -546,10 +572,17 @@ export class MockBackend {
     let unspent = 0;
     if (allocation && cheapest) {
       unspent = allocation.amount - this.#allocationSpent(allocation.id).total;
-      required = requiredToStart({
+      const newMachine = { providerCostPerHour: cheapest.pricePerHour.providerCost, marginBps: this.#marginBps(project) };
+      const running = this.#accruingOn(allocation.id);
+      // Machines whose current minute is pinned at another rate (a restart within the
+      // minute, this one included) are charged that rate until the minute ends.
+      const pins =
+        running.reduce((sum, r) => sum + this.#pinDelta(r.m.id, metered(r)), 0) +
+        (restarting == null ? 0 : this.#pinDelta(restarting, newMachine));
+      required = pins + requiredToStart({
         unspent,
-        newMachine: { providerCostPerHour: cheapest.pricePerHour.providerCost, marginBps: this.#marginBps(project) },
-        running: this.#accruingOn(allocation.id).map(metered),
+        newMachine,
+        running: running.map(metered),
         unbilledSeconds: this.#unbilledSeconds(),
         minStartMinutes: project.policy.minStartMinutes,
         checkIntervalSeconds: CHECK_INTERVAL_SECONDS,
@@ -635,18 +668,18 @@ export class MockBackend {
       const entry = this.#minuteEntries.get(key);
       if (entry != null) {
         // The machine already ran in this minute (stopped and started again): one entry
-        // per (machine, minute), so the minute is recomputed and rounded once, at the
-        // higher of the two rates, and only the difference is charged.
+        // per (machine, minute), at the rate pinned by its first fragment, so the minute is
+        // recomputed and rounded once, and only the difference is charged. A new
+        // placement's rate applies from the next minute.
         const total = entry.seconds + seconds;
         if (total > 60) throw new RangeError(`${key} would have ${total} seconds`);
-        const rate = Math.max(entry.providerCostPerHour ?? 0, rec.m.pricePerHour.providerCost);
-        const amount = entrySplit(rate, total, entry.marginBps);
+        const amount = entrySplit(entry.providerCostPerHour ?? 0, total, entry.marginBps);
         const delta = {
           providerCost: amount.providerCost - entry.amount.providerCost,
           margin: amount.margin - entry.amount.margin,
           total: amount.total - entry.amount.total,
         };
-        Object.assign(entry, { seconds: total, providerCostPerHour: rate, amount });
+        Object.assign(entry, { seconds: total, amount });
         rec.m.spent = addSplits(rec.m.spent, delta);
         rec.accruedUntil = to;
         continue;
@@ -729,6 +762,8 @@ export class MockBackend {
     for (const allocation of this.allocations.values()) {
       const accruing = this.#accruingOn(allocation.id);
       if (accruing.length === 0) continue;
+      // The check runs on a minute boundary, before any entry of the new minute exists, so
+      // no machine's minute is pinned here and budget.ts's bound is exact.
       const stop = shouldHardStop({
         unspent: allocation.amount - this.#allocationSpent(allocation.id).total,
         machines: accruing.map(metered),
@@ -1146,7 +1181,7 @@ export class MockBackend {
       const project = this.#project(rec.m.projectId);
       const member = this.#member(project.id, rec.m.memberId);
       const allocation = this.allocations.get(rec.m.allocationId) as Allocation;
-      const quote = this.#quote(project, member, rec.m.gpuType, rec.m.gpuCount, allocation.holder.kind);
+      const quote = this.#quote(project, member, rec.m.gpuType, rec.m.gpuCount, allocation.holder.kind, rec.m.id);
       const offer = quote.offers[0];
       if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? "policy", `cannot start: ${quote.reason}`);
       this.#setState(rec, "starting");
