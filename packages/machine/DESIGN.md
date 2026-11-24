@@ -130,6 +130,7 @@ launcher (PID 1) -> exec agent (clean env) -> eradication checks -> enroll -> re
 A machine is idle when, for `idle.minutes` (project policy, default 30):
 - no terminal input on any session, and
 - no Jupyter kernel activity (via Jupyter's `/api/status` `last_activity` and `/api/kernels` execution states, polled locally), and
+- no process busy on the CPU (any process in the container above 10% of one core over the sample), whether or not it's in a terminal session, and
 - GPU utilisation below `gpuUtilThresholdPct` (default 5%) on every sample (`nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits`, every 30 s).
 
 A training run with no terminal attached keeps the GPU busy, so the machine isn't idle. An idle machine is saved, then stopped. At 5 minutes before an idle stop, the agent writes a warning to every attached terminal, and any input cancels it. Sustained 100% GPU with no session for hours is reported in the heartbeat (`activity`), and the watchdog decides (abuse flag).
@@ -168,11 +169,17 @@ agent -> page   {"t":"opened","session":id}
                 {"t":"exit","code":n|null,"signal":s|null}   {"t":"error","error":e}
 ```
 
-- **Credit:** the page acks the decoded output bytes it has written (`upto`, cumulative). The agent sends at most 1 MiB beyond the last ack; the rest goes only to the ring.
-- **Sessions:** at most 4 running per machine; each has a 1 MiB scrollback ring. A reattach replays a terminal reset plus the ring from a line boundary, then `live`. A detached session lives until the machine stops (or 24 h with no output and no attach).
-- **Exit:** a shell that exits is never restarted. Its session's scrollback is kept 10 minutes (the last 8 ended sessions at most): a reattach then replays it and sends `exit` again right after `live`; later, it gets `error: "no-session"`. Ended sessions don't count toward the 4 running ones.
-- **Limits:** an `in` frame carries at most 16 KiB decoded; an output frame at most 48 KiB decoded; rows and cols are 1..1000; any other message to the agent is at most 8 KiB.
-- **Stopping a session:** the process-tree rule from the original: SIGHUP, SIGTERM, then SIGKILL after 2 s, recounting the PTY's session until it is empty.
+The agent's implementation is `sbgpu_agent/terminal.py` and `terminal_output.py`; their docstrings are the reference. In short:
+
+- **Output credit:** the page acks the decoded output bytes it has written (`upto`, cumulative). The agent stops reading the PTY at 256 KiB unacknowledged and resumes once acks bring that down to 64 KiB; meanwhile the program blocks in `write()`. An ack that goes back, or names more than was sent, closes the page (1008).
+- **Input credit:** `in` frames of at most 16 KiB decoded, at most 64 KiB received but not yet written to the PTY; `inack upto` counts the bytes written. Past the credit, the page is closed (1008). Input is written in 1 KiB pieces, so Ctrl-C reaches the program while its output is paused.
+- **Sessions:** at most 4 running per machine (`error: "sessions"`, with `limit`); each has a 1 MiB scrollback ring; ids are 22 base64url characters. A reattach replays a terminal reset plus the ring from a line boundary, then `live`. Another page reattaching takes the session over: the old page gets `error: "elsewhere"` and a close 4009. A detached session lives until the machine stops (or 24 h with no output and no attach).
+- **Exit:** a shell that exits is never restarted. The PTY's last output reaches the page first; `exit` is always the last output message. The session's scrollback is kept 10 minutes (the last 8 ended sessions at most): a reattach then replays it and sends `exit` again right after `live`; later it gets `error: "unknown_session"` (and a page still attached when it's dropped gets `error: "expired"`). Ended sessions don't count toward the 4 running ones.
+- **Errors and closes:** a message before an open gets `error: "not_open"`. A malformed message closes the page: 1002 (not a terminal message, a malformed resize, a kill for another session), 1008 (a malformed or second open, a bad ack, a malformed or oversized `in`, input past its credit), 1009 (any message over 64 KiB; the relay leg enforces it).
+- **Limits:** output frames of at most 49,137 decoded bytes (65,534 serialized), coalesced at most 24 times a second (stepping down to 8 and 4 for large windows); output read at most 1 MiB/s per session; rows and cols 1..1000.
+- **Stopping a session:** the process-tree rule: SIGHUP, SIGTERM, then SIGKILL after 2 s, recounting the PTY's session every 50 ms until it is empty, so a job that makes a new group late is still caught. The PTY is then drained (at most one ring's worth) and closed; at 30 s it's closed regardless.
+- **What a terminal stop covers:** the terminal's original POSIX session only: its shell, its jobs, and every process group still in that session. This applies to `kill`, the 24 h detached-idle stop and the terminals' `stop_all`. A process the member moves out of the session (`setsid`, a daemon) is their own process on their own machine (they have root), and no terminal stop reaches it (product ruling, Nov 24). Such a process still counts as activity for idle detection (3.2).
+- **What the machine's stop covers:** every process in the container. At a stop, a revoke or the agent's end, the agent (PID 1 in container mode) sends SIGTERM to every other process (`kill(-1)`, which spares only PID 1), waits up to 2 s, then SIGKILLs. It repeats the census until /proc shows no other process, for at most 10 s (`proctree.stop_everything`). The provider's termination of the machine (at a stop, the budget's hard stop, or from the watchdog) remains the outer boundary.
 
 ### 4.2 Jupyter
 

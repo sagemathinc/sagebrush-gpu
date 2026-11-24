@@ -75,20 +75,45 @@ test("hello, open, type, output, ack, resize, reattach with replay, exit", async
   b.ws.close();
 });
 
-test("a bad hello closes 4403; an unknown session is an error", async () => {
+test("a bad hello closes 4403; errors and closes as the agent's protocol has them", async () => {
   const c = new Client(server.port);
   await c.opened();
   c.send({ t: "hello", token: "nope" });
   await c.until(() => c.closed !== null);
   assert.equal(c.closed!.code, 4403);
+
   const d = new Client(server.port);
   await d.opened();
   d.send({ t: "hello", token: "dev" });
-  d.send({ t: "open", session: "nope", rows: 24, cols: 80 });
-  await d.until(() => d.msgs.some((m) => m.t === "error"));
-  assert.equal(d.msgs[0]!.error, "no-session");
-  d.send({ t: "open", rows: 0, cols: 80 });
+  d.send({ t: "resize", rows: 24, cols: 80 });
+  await d.until(() => d.msgs.length >= 1);
+  assert.deepEqual(d.msgs[0], { t: "error", error: "not_open" });
+  d.send({ t: "open", session: "A".repeat(22), rows: 24, cols: 80 });
   await d.until(() => d.msgs.length >= 2);
-  assert.equal(d.msgs[1]!.error, "bad-size");
-  d.ws.close();
+  assert.deepEqual(d.msgs[1], { t: "error", error: "unknown_session" });
+  d.send({ t: "open", rows: 0, cols: 80 });
+  await d.until(() => d.closed !== null);
+  assert.equal(d.closed!.code, 1008);
+
+  // a takeover: the first page hears "elsewhere" and is closed 4009
+  const e = new Client(server.port);
+  await e.opened();
+  e.send({ t: "hello", token: "dev" });
+  e.send({ t: "open", rows: 24, cols: 80 });
+  await e.until(() => e.msgs.some((m) => m.t === "live"));
+  const session = e.msgs.find((m) => m.t === "opened")!.session as string;
+  assert.match(session, /^[A-Za-z0-9_-]{22}$/);
+  const f = new Client(server.port);
+  await f.opened();
+  f.send({ t: "hello", token: "dev" });
+  f.send({ t: "open", session, rows: 24, cols: 80 });
+  await e.until(() => e.closed !== null);
+  assert.equal(e.closed!.code, 4009);
+  assert.ok(e.msgs.some((m) => m.t === "error" && m.error === "elsewhere"));
+  await f.until(() => f.msgs.some((m) => m.t === "live"));
+  // an ack past what was sent closes 1008
+  const sent = f.msgs.filter((m) => m.t === "out").reduce((n, m) => n + Buffer.from(m.b as string, "base64").length, 0);
+  f.send({ t: "ack", upto: sent + 1 });
+  await f.until(() => f.closed !== null);
+  assert.equal(f.closed!.code, 1008);
 });

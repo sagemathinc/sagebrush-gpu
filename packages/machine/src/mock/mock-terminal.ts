@@ -6,11 +6,14 @@
 //   then: new WebSocket("ws://127.0.0.1:8790/api/relay/v1/page?machine=mch_dev&chan=terminal")
 //         first message {"t":"hello","token":"dev"}
 //
-// What it implements of the protocol: hello; open (new) and open (reattach, with replay); in; resize; ack credit;
-// kill; out, inack, opened, replay, live, exit, error; the close codes 4403 (bad hello) and 1009/1003.  No Node
-// dependencies: a minimal RFC 6455 server (text frames, no extensions) and a Python PTY helper.
+// It follows the agent's protocol (sbgpu_agent/terminal.py): hello; open (new) and open (reattach, with replay); in
+// and inack; resize; ack credit (256 KiB high, 64 KiB low); kill; exit last; the errors not_open, sessions,
+// unknown_session, elsewhere (then 4009); a malformed message closes the page (1002 or 1008); 4403 for a bad hello;
+// 1009 and 1003 for too big and binary.  Simplified: input is written at once (no input credit), output isn't
+// coalesced, and an exited session stays 10 minutes.  No Node dependencies: a minimal RFC 6455 server (text frames,
+// no extensions) and a Python PTY helper.
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
@@ -20,7 +23,8 @@ export const MOCK_LIMITS = Object.freeze({
   message: 8 * 1024, // any page message but `in`
   inFrame: 16 * 1024, // decoded bytes of one `in`
   outFrame: 48 * 1024, // decoded bytes of one `out`
-  credit: 1024 * 1024, // output bytes sent beyond the page's last ack
+  creditHigh: 256 * 1024, // unacknowledged output at which sending stops ...
+  creditLow: 64 * 1024, // ... until acks bring it down to this
   ring: 1024 * 1024, // scrollback per session
   replayCut: 4096,
   sessions: 4,
@@ -90,6 +94,10 @@ interface Page {
   sent: number; // decoded output bytes sent
   acked: number;
   pending: Buffer[]; // output waiting for credit
+  paused: boolean; // at the high-water mark, until acks bring it to the low one
+  replaying: boolean; // the replay is still being sent: live follows it
+  exitDue: boolean; // the exit goes once the pending output has
+  exited: boolean;
   inBytes: number; // decoded input bytes received
 }
 
@@ -118,36 +126,59 @@ function replayBytes(s: Session): Buffer {
   return nl >= 0 ? all.subarray(nl + 1) : all;
 }
 
+function credit(p: Page): number {
+  const held = p.sent - p.acked;
+  if (held >= MOCK_LIMITS.creditHigh) p.paused = true;
+  return p.paused ? 0 : MOCK_LIMITS.creditHigh - held;
+}
+
 function pump(p: Page): void {
-  while (p.pending.length > 0 && p.sent - p.acked < MOCK_LIMITS.credit) {
+  while (p.pending.length > 0) {
+    const room = Math.min(credit(p), MOCK_LIMITS.outFrame);
+    if (room <= 0) return;
     let chunk = p.pending.shift()!;
-    if (chunk.length > MOCK_LIMITS.outFrame) {
-      p.pending.unshift(chunk.subarray(MOCK_LIMITS.outFrame));
-      chunk = chunk.subarray(0, MOCK_LIMITS.outFrame);
+    if (chunk.length > room) {
+      p.pending.unshift(chunk.subarray(room));
+      chunk = chunk.subarray(0, room);
     }
     p.sent += chunk.length;
     p.send({ t: "out", b: chunk.toString("base64") });
+  }
+  if (p.replaying) {
+    p.replaying = false;
+    p.send({ t: "live" });
+  }
+  if (p.exitDue && !p.exited && p.session?.exit) {
+    p.exited = true;
+    p.send({ t: "exit", ...p.session.exit });
   }
 }
 
 function output(s: Session, b: Buffer): void {
   ringAppend(s, b);
   const p = s.page;
-  if (!p) return;
-  // Beyond the credit, output goes to the ring only (a reattach replays it): drop what can't be sent.
+  if (!p || p.exited) return;
+  // Beyond the credit, output goes to the ring only (a reattach replays it).
   const queued = p.pending.reduce((n, x) => n + x.length, 0);
-  if (p.sent - p.acked + queued < MOCK_LIMITS.credit) p.pending.push(b);
+  const room = MOCK_LIMITS.creditHigh - (p.sent - p.acked) - queued;
+  if (room > 0) p.pending.push(b.subarray(0, room));
   pump(p);
 }
 
 function newSession(rows: number, cols: number): Session {
   const child = spawn("python3", ["-I", "-c", PTY_HELPER], { stdio: ["pipe", "pipe", "inherit", "pipe"] });
-  const s: Session = { id: randomUUID(), child, ring: [], ringBytes: 0, exit: null, page: null };
+  const s: Session = { id: randomBytes(16).toString("base64url"), child, ring: [], ringBytes: 0, exit: null, page: null };
+  // (a write to a helper that has exited fails with EPIPE: ignored, its exit is reported by the exit event)
+  child.stdin!.on("error", () => {});
+  (child.stdio[3] as NodeJS.WritableStream).on("error", () => {});
   (child.stdio[3] as NodeJS.WritableStream).write(`${rows} ${cols}\n`);
   child.stdout!.on("data", (b: Buffer) => output(s, b));
   child.on("exit", (code, signal) => {
     s.exit = { code, signal };
-    s.page?.send({ t: "exit", code, signal });
+    if (s.page) {
+      s.page.exitDue = true;
+      pump(s.page);
+    }
     setTimeout(() => sessions.delete(s.id), 10 * 60_000).unref();
   });
   sessions.set(s.id, s);
@@ -162,69 +193,92 @@ function size(m: Record<string, unknown>): [number, number] | null {
 }
 
 function attach(p: Page, s: Session): void {
-  if (s.page && s.page !== p) s.page.close(4009, "replaced");
+  if (s.page && s.page !== p) {
+    const old = s.page;
+    old.session = null;
+    old.send({ t: "error", error: "elsewhere" });
+    old.close(4009, "the session was opened elsewhere");
+  }
   s.page = p;
   p.session = s;
   p.send({ t: "opened", session: s.id });
   p.send({ t: "replay" });
+  p.replaying = true;
+  p.exitDue = s.exit !== null;
   p.pending.push(Buffer.from("\x1bc"), replayBytes(s));
   pump(p);
-  p.send({ t: "live" });
-  if (s.exit) p.send({ t: "exit", ...s.exit });
 }
 
+const SID = /^[A-Za-z0-9_-]{22}$/;
+
 function onMessage(p: Page, text: string): void {
-  let m: Record<string, unknown>;
+  if (Buffer.byteLength(text) > MOCK_LIMITS.frameMax) return p.close(1009, "too big");
+  let m: unknown;
   try {
     m = JSON.parse(text);
   } catch {
-    p.send({ t: "error", error: "bad-json" });
-    return;
+    return p.close(1002, "not a terminal message");
   }
-  if (m.t !== "in" && text.length > MOCK_LIMITS.message) return p.close(1009, "too big");
+  if (typeof m !== "object" || m === null || Array.isArray(m) || typeof (m as { t?: unknown }).t !== "string") {
+    return p.close(1002, "not a terminal message");
+  }
+  const msg = m as Record<string, unknown>;
+  const keys = Object.keys(msg).sort().join(",");
   const s = p.session;
-  switch (m.t) {
-    case "open": {
-      const sz = size(m);
-      if (!sz) return p.send({ t: "error", error: "bad-size" });
-      if (typeof m.session === "string") {
-        const old = sessions.get(m.session);
-        if (!old) return p.send({ t: "error", error: "no-session" });
-        attach(p, old);
-        (old.child.stdio[3] as NodeJS.WritableStream).write(`${sz[0]} ${sz[1]}\n`);
-        return;
-      }
-      const running = [...sessions.values()].filter((x) => !x.exit).length;
-      if (running >= MOCK_LIMITS.sessions) return p.send({ t: "error", error: "too-many-sessions" });
-      return attach(p, newSession(sz[0], sz[1]));
+  if (msg.t === "open") {
+    if (s) return p.close(1008, "this page already has a terminal");
+    const sz = size(msg);
+    if (!sz || (keys !== "cols,rows,t" && keys !== "cols,rows,session,t")) return p.close(1008, "terminal open refused (shape)");
+    if (msg.session !== undefined) {
+      if (typeof msg.session !== "string" || !SID.test(msg.session)) return p.close(1008, "terminal open refused (session)");
+      const old = sessions.get(msg.session);
+      if (!old) return p.send({ t: "error", error: "unknown_session" });
+      attach(p, old);
+      if (!old.exit) (old.child.stdio[3] as NodeJS.WritableStream).write(`${sz[0]} ${sz[1]}\n`);
+      return;
     }
+    const running = [...sessions.values()].filter((x) => !x.exit).length;
+    if (running >= MOCK_LIMITS.sessions) return p.send({ t: "error", error: "sessions", limit: MOCK_LIMITS.sessions });
+    return attach(p, newSession(sz[0], sz[1]));
+  }
+  if (!s) return p.send({ t: "error", error: "not_open" });
+  if (msg.t !== "in" && Buffer.byteLength(text) > MOCK_LIMITS.message) return p.close(1009, "too big");
+  switch (msg.t) {
     case "in": {
-      if (!s || typeof m.b !== "string") return p.send({ t: "error", error: "no-session" });
-      const b = Buffer.from(m.b, "base64");
-      if (b.length > MOCK_LIMITS.inFrame) return p.close(1009, "input frame too big");
+      const b = typeof msg.b === "string" && keys === "b,t" ? Buffer.from(msg.b, "base64") : null;
+      if (!b || b.toString("base64") !== msg.b || b.length > MOCK_LIMITS.inFrame) {
+        return p.close(1008, "a malformed or oversized input frame");
+      }
+      if (s.exit) return;
       s.child.stdin!.write(b);
       p.inBytes += b.length;
       return p.send({ t: "inack", upto: p.inBytes });
     }
     case "resize": {
-      const sz = size(m);
-      if (!s || !sz) return p.send({ t: "error", error: "bad-size" });
-      (s.child.stdio[3] as NodeJS.WritableStream).write(`${sz[0]} ${sz[1]}\n`);
+      const sz = size(msg);
+      if (!sz || keys !== "cols,rows,t") return p.close(1002, "a malformed resize");
+      if (!s.exit) (s.child.stdio[3] as NodeJS.WritableStream).write(`${sz[0]} ${sz[1]}\n`);
       return;
     }
     case "ack": {
-      if (typeof m.upto === "number" && m.upto > p.acked && m.upto <= p.sent) p.acked = m.upto;
+      const upto = msg.upto;
+      if (keys !== "t,upto" || !Number.isInteger(upto) || (upto as number) < p.acked || (upto as number) > p.sent) {
+        return p.close(1008, "a bad ack");
+      }
+      p.acked = upto as number;
+      if (p.paused && p.sent - p.acked <= MOCK_LIMITS.creditLow) p.paused = false;
       return pump(p);
     }
     case "kill": {
-      const k = typeof m.session === "string" ? sessions.get(m.session) : undefined;
-      if (!k) return p.send({ t: "error", error: "no-session" });
-      k.child.kill("SIGHUP");
-      setTimeout(() => k.exit || k.child.kill("SIGKILL"), 2000).unref();
+      if (keys !== "session,t" || msg.session !== s.id) return p.close(1002, "a kill for another session");
+      if (!s.exit) {
+        s.child.kill("SIGHUP");
+        setTimeout(() => s.exit || s.child.kill("SIGKILL"), 2000).unref();
+      }
       return;
     }
     default:
-      p.send({ t: "error", error: "unknown-message" });
+      return p.close(1002, "not a terminal message");
   }
 }
 
@@ -275,6 +329,10 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
     sent: 0,
     acked: 0,
     pending: [],
+    paused: false,
+    replaying: false,
+    exitDue: false,
+    exited: false,
     inBytes: 0,
   };
   const timer = setTimeout(() => hello || page.close(4403, "no hello"), MOCK_LIMITS.helloMs);
