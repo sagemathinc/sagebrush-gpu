@@ -72,6 +72,7 @@ import {
   type Team,
   type User,
 } from "@sbgpu/api";
+import { MACHINE_DOMAIN } from "../config.ts";
 import { isEmail } from "../emails.ts";
 import { toCsv, type CsvValue } from "../csv.ts";
 
@@ -1228,7 +1229,7 @@ export class MockBackend {
       this.#requireOwnMachine(rec, user);
       if (rec.m.state !== "running") throw new ApiFail("invalidState", "the machine is not running");
       return {
-        url: `https://m-${rec.m.id}.mock.invalid/?code=mock-${++this.#tokenCounter}`,
+        url: `https://m-${rec.m.id}.${MACHINE_DOMAIN}/?code=mock-${++this.#tokenCounter}`,
         expiresAt: toIso(this.#now + PAGE_TOKEN_SECONDS * 1000),
       };
     },
