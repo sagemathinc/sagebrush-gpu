@@ -42,7 +42,8 @@ def run_prologue(d, key, salt=None, extra_env=None):
 
 
 def expected_digest(salt, key):
-    return hashlib.sha256(capture.LABEL + b"\0" + bytes.fromhex(salt) + b"\0" + key.encode()).hexdigest()
+    kb = key if isinstance(key, bytes) else key.encode()
+    return hashlib.sha256(capture.LABEL + b"\0" + bytes.fromhex(salt) + b"\0" + kb).hexdigest()
 
 
 class Base(unittest.TestCase):
@@ -141,6 +142,27 @@ class PrologueTest(Base):
         r, _ = run_prologue(d2, random_key("rpa"))
         self.assertEqual(r.returncode, 3)
 
+    def test_the_directory_must_be_a_real_private_directory(self):
+        # a link to a directory: refused, and nothing written through it
+        d = self.tmp()
+        os.mkdir(d + "/real", 0o700)
+        os.symlink(d + "/real", d + "/link")
+        r, _ = run_prologue(d + "/link", random_key("rpa"))
+        self.assertEqual(r.returncode, 3)
+        self.assertIn(b"capture", r.stderr)
+        self.assertEqual(os.listdir(d + "/real"), [])
+        # a directory others can write to: refused
+        for mode in (0o720, 0o702):
+            d2 = self.tmp()
+            os.chmod(d2, mode)
+            r, _ = run_prologue(d2, random_key("rpa"))
+            self.assertEqual(r.returncode, 3, oct(mode))
+            self.assertEqual(os.listdir(d2), [])
+        # (a private one, 0700 or 0755, is accepted)
+        d3 = self.tmp()
+        os.chmod(d3, 0o755)
+        self.assertEqual(run_prologue(d3, random_key("rpa"))[0].returncode, 0)
+
     def test_the_launcher_follows_and_sees_the_key_unchanged(self):
         # (the prologue unsets only its own variables: the launcher still has the injected key for its own check)
         d = self.tmp()
@@ -238,6 +260,58 @@ class MatcherTest(Base):
             checks.MATCHER = None
 
 
+# (every byte an environment value can hold, as bytes, made at run time)
+ALL_BYTES = bytes(range(1, 256))
+
+
+class OtherBytesTest(Base):
+    """Keys with bytes of the "other" class beyond ASCII punctuation (space, whitespace, control, DEL, high and UTF-8
+    bytes): the real prologue captures them, and the matcher finds, redacts and hides the exact bytes."""
+
+    def keys(self):
+        x = random_key("", 20, "x").encode()
+        out = [x + "\u00e9".encode(), x + b" ", x + b"\n", b"\t" + x, x + b"\x01", x + b"\x7f", x + b"\xff\x80",
+               random_key("rpa", 16).encode() + b" \xc3\xa9\r"]
+        out.append(bytes(secrets.choice(ALL_BYTES) for _ in range(40)))  # (any bytes at all)
+        out.append(b"rpa_" + bytes(secrets.choice(ALL_BYTES) for _ in range(40)))
+        return out
+
+    def test_the_prologue_then_the_matcher(self):
+        for key in self.keys():
+            d = self.tmp()
+            r, salt = run_prologue(d, key)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            rec = capture.load(d + "/probe-capture")
+            self.assertEqual((rec["bytes"], rec["sha256"]), (len(key), expected_digest(salt, key)))
+            m = capture.Matcher(rec)
+            self.assertTrue(m.found(key), rec["classes"])
+            self.assertTrue(m.found(b"pre " + key + b" post\0"))
+            self.assertEqual(m.redact(b"a=" + key + b"\n"), b"a=<value>\n")
+            self.assertFalse(m.found(key[:-1] + bytes([key[-1] ^ 1])))
+            checks.MATCHER = m
+            try:
+                self.assertEqual(checks.show(b"/etc/" + key), "/etc/<value>")
+                self.assertEqual(checks.found(b"/etc/" + key), "found-value")
+            finally:
+                checks.MATCHER = None
+
+
+class SeverityTest(Base):
+    """A check's detail never goes down: the exact value outranks the name, the name a shape, any of them unreadable."""
+
+    def test_mixed_orders(self):
+        import itertools
+        kinds = ["unreadable", "found-shape", "found-name", "found-value"]
+        for n in (1, 2, 3, 4):
+            for order in itertools.permutations(kinds, n):
+                f = checks.Found()
+                for i, what in enumerate(order):
+                    f.add("/p%d" % i, what)
+                want = max(order, key=kinds.index)
+                self.assertEqual(f.result()[2], want, order)
+                self.assertFalse(f.result()[0])
+
+
 class RunTest(Base):
     """The probe's run with a real capture (made by the prologue) and the value planted around a fake tree."""
 
@@ -292,6 +366,42 @@ class RunTest(Base):
         self.assertIn("/etc/link", got["files"]["paths"])
         self.assertIn("/etc/app/conf", got["files"]["paths"])
         self.assertEqual((got["history"]["pass"], got["history"]["detail"]), (False, "found-value"))
+
+    def test_other_byte_keys_end_to_end(self):
+        # (a key with a high byte or a trailing space: a file holding it fails "files", and a file named by it, its
+        # contents forcing a path finding, is reported as <value> in every byte form: never raw, never escaped)
+        for tail in ("\u00e9".encode(), b" ", b"\n\x01\x7f\xff"):
+            os.unlink(self.root + "/opt/sbgpu/probe-capture")
+            key = random_key("", 20, "x").encode() + tail
+            r, self.salt = run_prologue(self.root + "/opt/sbgpu", key)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            shutil.rmtree(self.root + "/data", ignore_errors=True)
+            os.makedirs(self.root + "/data")
+            with open(self.root + "/data/held", "wb") as f:
+                f.write(b"t=" + key + b"\n")
+            with open(os.path.join(self.root.encode(), b"data", key), "wb") as f:
+                f.write(b"RUNPOD" + b"_API_KEY")
+            out = io.StringIO()
+            main.run(out=out, root=self.root, proc=self.proc, pid=1, boots_file=self.root + "/opt/sbgpu/probe-boots",
+                     get=lambda *a: None, capture_file=self.root + "/opt/sbgpu/probe-capture")
+            text = out.getvalue()
+            files = [json.loads(x[12:]) for x in text.splitlines() if json.loads(x[12:])["check"] == "files"][0]
+            self.assertEqual((files["pass"], files["detail"]), (False, "found-value"), tail)
+            self.assertIn("/data/held", files["paths"])
+            self.assertIn("/data/<value>", files["paths"])
+            esc = "".join(chr(c) if 32 <= c < 127 and c != 92 else "\\x%02x" % c for c in key)
+            for form in (key.decode("latin-1"), esc, key.decode("utf-8", "replace"), key[:-len(tail)].decode()):
+                self.assertNotIn(form, text, tail)
+
+    def test_the_value_and_the_name_in_one_check(self):
+        for first, second in ((b"X=" + self.key.encode(), b"RUNPOD" + b"_API_KEY=y"),
+                              (b"RUNPOD" + b"_API_KEY=y", b"X=" + self.key.encode())):
+            for pid, env in (("77", first), ("78", second)):
+                os.makedirs(self.proc + "/" + pid, exist_ok=True)
+                with open(self.proc + "/" + pid + "/environ", "wb") as f:
+                    f.write(env + b"\0")
+            got = self.run_probe()
+            self.assertEqual((got["environ"]["pass"], got["environ"]["detail"]), (False, "found-value"))
 
     def test_across_a_chunk_boundary(self):
         saved = checks.CHUNK

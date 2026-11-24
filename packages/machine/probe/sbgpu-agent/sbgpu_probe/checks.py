@@ -70,13 +70,17 @@ def show(path):
     return out[:PATH_BYTES]
 
 
+# (a check's detail only ever goes up this order: the exact value outranks everything, any finding outranks unreadable)
+SEVERITY = {"found-value": 3, "found-name": 2, "found-shape": 1}
+
+
 class Found:
     def __init__(self):
         self.paths = []
         self.detail = None
 
     def add(self, path, what):
-        if self.detail is None or what == "found-name":
+        if self.detail is None or SEVERITY.get(what, 0) > SEVERITY.get(self.detail, 0):
             self.detail = what
         if len(self.paths) < PATHS_MAX:
             self.paths.append(show(path))

@@ -3,7 +3,8 @@
 # injected into this pod's environment, RUNPOD_API_KEY, and keeps only what is derived from it:
 #   sha256("sbgpu-probe-capture-v1" NUL salt-bytes NUL key-bytes), the key's byte length, a coarse class set, and a
 #   short public-looking prefix (or none),
-# written to $SBGPU_PROBE_DIR/probe-capture (0600, created atomically, never replaced).  The key itself goes only into
+# written to $SBGPU_PROBE_DIR/probe-capture (0600, created atomically, never replaced; the directory must be a real
+# directory, not a link, owned by us and writable by nobody else).  The key itself goes only into
 # a quoted shell variable and, through printf (a shell builtin: no argv), into python3's stdin; never into argv,
 # command text, files, output or errors.  After a restart, the capture is computed again and must equal the stored one.
 # Any failure, or no injected key at all, stops here (exit 2 or 3) before the launcher: fail closed.
@@ -46,31 +47,36 @@ try:
     rec = json.dumps({"bytes": len(key), "classes": classes, "prefix": prefix, "salt": salt.hex(), "sha256": digest,
                       "v": 1}, separators=(",", ":"), sort_keys=True).encode("ascii")
     del key, data, m
-    path = sys.argv[1]
-    tmp = path + ".tmp"
+    # (the directory itself: a real directory, not a link, ours and writable by us only; every name below is
+    # opened relative to it, so nothing can swap it afterwards)
+    dfd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    st = os.fstat(dfd)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        fail(3, "directory")
+    path, tmp = "probe-capture", "probe-capture.tmp"
     try:
-        os.unlink(tmp)
+        os.unlink(tmp, dir_fd=dfd)
     except FileNotFoundError:
         pass
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
     os.write(fd, rec)
     os.fsync(fd)
     os.close(fd)
     try:
-        os.link(tmp, path)  # (atomic, and never replaces: noclobber)
+        os.link(tmp, path, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)  # (atomic, never replaces)
     except FileExistsError:
-        st = os.lstat(path)
+        st = os.stat(path, dir_fd=dfd, follow_symlinks=False)
         if not stat.S_ISREG(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o600 or st.st_size > 1024:
             fail(3, "file")
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dfd)
         old = os.read(fd, 2048)
         os.close(fd)
         if old != rec:
             fail(3, "changed since the last boot")
-    os.unlink(tmp)
+    os.unlink(tmp, dir_fd=dfd)
 except SystemExit:
     raise
 except BaseException:
     fail(3, "error")
-' "$SBGPU_PROBE_DIR/probe-capture" || exit 3
+' "$SBGPU_PROBE_DIR" || exit 3
 unset SBGPU_PROBE_SALT SBGPU_PROBE_DIR sbgpu_probe_py

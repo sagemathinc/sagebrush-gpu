@@ -21,8 +21,9 @@ CLASSES = {
     "s": b"_",
     "u": b"A-Z",
 }
-# ("other": any printable non-space byte that isn't one of the classes above, as a character set)
-OTHER = b"!-,./:-@\\[-^`{-~"
+# ("other": every byte that isn't one of the classes above, as the prologue classes it: punctuation, space and other
+# whitespace, control characters, DEL and high bytes (UTF-8 included); not NUL, which an environment value can't hold)
+OTHER = rb"\x01-\x2c\x2e\x2f\x3a-\x40\x5b-\x5e\x60\x7b-\xff"
 
 
 class CaptureError(ValueError):
