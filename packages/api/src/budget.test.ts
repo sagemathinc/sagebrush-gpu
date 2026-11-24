@@ -59,7 +59,7 @@ test("minuteCharge is the ledger entry, and never decreases with seconds", () =>
   assert.throws(() => minuteCharge({ providerCostPerHour: 1, marginBps: 0 }, 61), RangeError);
 });
 
-test("daybreak2's counterexamples: the bound is the ledger's own charge", () => {
+test("review counterexamples: the bound is the ledger's own charge", () => {
   // Three machines at 30 micro-$/h, margin 0, one 60 s entry each: the ledger charges 1 each.
   const three = Array.from({ length: 3 }, () => ({ providerCostPerHour: 30, marginBps: 0 }));
   assert.equal(ledgerCharge(three.map((m) => ({ ...m, start: 0, end: 60 }))), 3);

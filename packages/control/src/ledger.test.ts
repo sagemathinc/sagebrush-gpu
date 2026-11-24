@@ -288,8 +288,9 @@ test("schema: compute entries, the unique minute, and immutability", async () =>
   const a = await allocation(s, 1000);
   const m = await startMachine(s, a, 3_600_000, 3000, T0);
   const e = (o: Record<string, SqlValue> = {}) => computeEntry(s, { allocation: a, machine: m, ...o });
-  await assert.rejects(e({ seconds: 61 }));
-  await assert.rejects(e({ seconds: 0 }));
+  // splits consistent with entrySplit, so only the seconds bound can refuse them
+  await assert.rejects(e({ seconds: 61, cost: 61_000, margin: 18_300, total: 79_300 }));
+  await assert.rejects(e({ seconds: 0, cost: 0, margin: 0, total: 0 }));
   await assert.rejects(e({ period: T0 + 1 }));
   await assert.rejects(e({ total: 78_001 }));
   await assert.rejects(e({ cost: -1, total: 17_999 }));
@@ -299,7 +300,57 @@ test("schema: compute entries, the unique minute, and immutability", async () =>
   await assert.rejects(s.db.batch([stmt(`DELETE FROM ledger_entries`)]), /never deleted/);
 });
 
-test("schema: tenant integrity of the whole tuple (SEC H1)", async () => {
+test("schema: a compute entry's split is exactly entrySplit (half-up, provider cost then margin)", async () => {
+  const s = await seed();
+  const a = await allocation(s, 10 ** 12);
+  const at = async (rate: number, bps: number) => startMachine(s, a, rate, bps, T0);
+  const row = (m: string, rate: number, bps: number, seconds: number, cost: number, margin: number) =>
+    computeEntry(s, { allocation: a, machine: m, rate, bps, seconds, cost, margin, total: cost + margin });
+  // $3.60/h at 30% for 60 s: 60_000 + 18_000
+  const m1 = await at(3_600_000, 3000);
+  await assert.rejects(row(m1, 3_600_000, 3000, 60, 59_999, 18_000)); // cost under
+  await assert.rejects(row(m1, 3_600_000, 3000, 60, 60_001, 18_000)); // cost over
+  await assert.rejects(row(m1, 3_600_000, 3000, 60, 60_000, 17_999)); // margin under
+  await assert.rejects(row(m1, 3_600_000, 3000, 60, 60_000, 18_001)); // margin over
+  await assert.rejects(row(m1, 3_600_000, 3000, 60, 50_000, 15_000)); // self-consistent but false
+  await row(m1, 3_600_000, 3000, 60, 60_000, 18_000);
+  // half-up boundaries: 30/h for 60 s = 0.5 -> 1; 29/h -> 0.483 -> 0
+  const m2 = await at(30, 0);
+  await assert.rejects(row(m2, 30, 0, 60, 0, 0));
+  await row(m2, 30, 0, 60, 1, 0);
+  const m3 = await at(29, 0);
+  await assert.rejects(row(m3, 29, 0, 60, 1, 0));
+  await row(m3, 29, 0, 60, 0, 0);
+  // margin: 300/h for 60 s = 5; 5 at 1000 bps = 0.5 -> 1; at 999 bps = 0.4995 -> 0
+  const m4 = await at(300, 1000);
+  await assert.rejects(row(m4, 300, 1000, 60, 5, 0));
+  await row(m4, 300, 1000, 60, 5, 1);
+  const m5 = await at(300, 999);
+  await assert.rejects(row(m5, 300, 999, 60, 5, 1));
+  await row(m5, 300, 999, 60, 5, 0);
+  // a split entrySplit itself refuses (cost * bps past the safe range) can't be stored either
+  const big = 2 ** 46; // per hour; 60 s -> 2^46 / 60 ~ 1.17e12 cost; * 10_000 bps > MAX
+  const m6 = await at(big, 10_000);
+  assert.throws(() => entrySplit(big, 60, 10_000), RangeError);
+  const c = Math.floor((big * 60 * 2 + 3600) / 7200);
+  await assert.rejects(row(m6, big, 10_000, 60, c, c));
+  // random entries: entrySplit's split goes in, and the split off by one either way doesn't
+  const r = rng(77);
+  for (let i = 0; i < 60; i++) {
+    const rate = int(r, 0, 20_000_000);
+    const bps = int(r, 0, 20_000);
+    const seconds = int(r, 1, 60);
+    const m = await at(rate, bps);
+    const e = entrySplit(rate, seconds, bps);
+    for (const [dc, dm] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      if (e.providerCost + dc < 0 || e.margin + dm < 0) continue;
+      await assert.rejects(row(m, rate, bps, seconds, e.providerCost + dc, e.margin + dm), Error, `${rate} ${bps} ${seconds} ${dc} ${dm}`);
+    }
+    await row(m, rate, bps, seconds, e.providerCost, e.margin);
+  }
+});
+
+test("schema: tenant integrity of the whole tuple", async () => {
   const s = await seed();
   const a = await allocation(s, 1000);
   const m = await startMachine(s, a, 3_600_000, 3000, T0);
@@ -345,7 +396,7 @@ test("schema: tenant integrity of the whole tuple (SEC H1)", async () => {
   );
 });
 
-test("schema: integers only, within the safe range (SEC H2)", async () => {
+test("schema: integers only, within the safe range", async () => {
   const s = await seed();
   const a = await allocation(s, 1000);
   const m = await startMachine(s, a, 3_600_000, 3000, T0);
@@ -421,7 +472,7 @@ test("accrueAll writes each closed minute once", async () => {
   assert.deepEqual([r.machines, r.entries], [0, 0]);
 });
 
-test("a late failure in a batch rolls back every entry and the billed-through mark (TESTS T1)", async () => {
+test("a late failure in a batch rolls back every entry and the billed-through mark", async () => {
   const s = await seed();
   const a = await allocation(s, 10 ** 12);
   const id = await startMachine(s, a, 3_600_000, 0, T0);
@@ -565,7 +616,7 @@ test("findHardStops counts the exact pending charge of ended machines", async ()
   assert.equal(stops[0]?.machineIds.length, 1); // only the running one
 });
 
-test("findHardStops with an ended backlog of over 1440 minutes (LIMITS H1)", async () => {
+test("findHardStops with an ended backlog of over 1440 minutes", async () => {
   const run = async (slack: number) => {
     const s = await seed({ reserveMinutes: 0 });
     const backlog = 2000; // minutes, never accrued
@@ -600,6 +651,36 @@ test("findHardStops fails closed on unsafe pending, a malformed period, or bad d
   assert.equal((await findHardStops(t.db, T0 - 1000, { checkIntervalSeconds: 60, safetySeconds: 0 })).length, 1); // a clock before the mark
 });
 
+test("findHardStops: refunds count, and an unspent balance past the safe range fails closed", async () => {
+  const refund = (s: Seed, a: string, amount: number) =>
+    s.db.batch([
+      stmt(
+        `INSERT INTO ledger_entries (id, org_id, project_id, allocation_id, kind, period_start_ms, seconds, margin_bps, provider_cost, margin, total, created_ms)
+         VALUES (?, ?, ?, ?, 'adjustment', ?, 0, 0, ?, 0, ?, ?)`,
+        newId("ledgerEntry"), s.orgId, s.projectId, a, T0, -amount, -amount, T0,
+      ),
+    ]);
+  const o = { checkIntervalSeconds: 60, safetySeconds: 0 };
+  // a refund raises unspent: 60_000 alone stops at 1 minute short, plus a 1 refund it doesn't
+  const s = await seed({ reserveMinutes: 0 });
+  const a = await allocation(s, 59_999);
+  await startMachine(s, a, 3_600_000, 0, T0);
+  assert.equal((await findHardStops(s.db, T0, o)).length, 1);
+  await refund(s, a, 1);
+  assert.deepEqual(await findHardStops(s.db, T0, o), []);
+  // the largest valid balance: MAX - 10 plus a refund of 10 is exactly MAX
+  const t = await seed({ reserveMinutes: 0 });
+  const b = await allocation(t, MAX - 10);
+  await startMachine(t, b, 3_600_000, 0, T0);
+  await refund(t, b, 10);
+  assert.deepEqual(await findHardStops(t.db, T0, o), []);
+  // one more micro of refund puts unspent past the safe range: stop, with no figures
+  await refund(t, b, 1);
+  const stops = await findHardStops(t.db, T0, o);
+  assert.equal(stops.length, 1);
+  assert.deepEqual([stops[0]!.unspent, stops[0]!.threshold], [null, null]);
+});
+
 test("findHardStops uses the longest save estimate of the running machines", async () => {
   const s = await seed({ reserveMinutes: 0 });
   const a = await allocation(s, 10 * 60_000);
@@ -611,7 +692,7 @@ test("findHardStops uses the longest save estimate of the running machines", asy
   assert.equal(stops[0]?.threshold, 11 * 60_000);
 });
 
-test("pinned rate: a price-drop restart near the budget never overdraws (daybreak2's case)", async () => {
+test("pinned rate: a price-drop restart near the budget never overdraws", async () => {
   const s = await seed({ reserveMinutes: 0 });
   // 55 micro-$: the old placement costs 1 micro-$ per second ($3.60/h), the new one 1/10 of that
   const a = await allocation(s, 55);

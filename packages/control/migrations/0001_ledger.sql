@@ -132,6 +132,13 @@ CREATE TABLE ledger_entries (
     machine_id IS NOT NULL AND provider IS NOT NULL AND provider_cost_per_hour IS NOT NULL
     AND period_start_ms % 60000 = 0 AND seconds BETWEEN 1 AND 60
     AND provider_cost >= 0 AND margin >= 0
+    -- exactly entrySplit: the provider cost is rate * seconds / 3600 rounded half-up, and
+    -- the margin is cost * bps / 10000 rounded half-up (floor((2n + d) / 2d) on integers).
+    -- The products are bounded first, as entrySplit bounds them, so nothing overflows.
+    AND provider_cost_per_hour * seconds <= 9007199254740991
+    AND provider_cost = (provider_cost_per_hour * seconds * 2 + 3600) / 7200
+    AND provider_cost * margin_bps <= 9007199254740991
+    AND margin = (provider_cost * margin_bps * 2 + 10000) / 20000
   )),
   FOREIGN KEY (project_id, org_id) REFERENCES projects (id, org_id),
   FOREIGN KEY (allocation_id, project_id) REFERENCES allocations (id, project_id),

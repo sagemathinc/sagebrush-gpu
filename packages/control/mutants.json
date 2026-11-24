@@ -298,5 +298,45 @@
   "file": "src/ledger.ts",
   "old": "const seconds = Math.ceil(ms / 1000);",
   "new": "const seconds = Math.round(ms / 1000);"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND provider_cost = (provider_cost_per_hour * seconds * 2 + 3600) / 7200\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND provider_cost = (provider_cost_per_hour * seconds * 2 + 3600) / 7200\n",
+  "new": "    AND provider_cost = (provider_cost_per_hour * seconds * 2 + 3599) / 7200\n"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND provider_cost = (provider_cost_per_hour * seconds * 2 + 3600) / 7200\n",
+  "new": "    AND provider_cost = (provider_cost_per_hour * seconds) / 3600\n"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND margin = (provider_cost * margin_bps * 2 + 10000) / 20000\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND margin = (provider_cost * margin_bps * 2 + 10000) / 20000\n",
+  "new": "    AND margin = (provider_cost * margin_bps * 2 + 9999) / 20000\n"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND margin = (provider_cost * margin_bps * 2 + 10000) / 20000\n",
+  "new": "    AND margin = (provider_cost * margin_bps) / 10000\n"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND provider_cost * margin_bps <= 9007199254740991\n",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "unspent = checkedAdd(amount, -checkedAdd(spentRows[0]?.spent ?? 0, pending));",
+  "new": "unspent = amount - checkedAdd(spentRows[0]?.spent ?? 0, pending);"
  }
 ]

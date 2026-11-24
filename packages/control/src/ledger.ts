@@ -155,10 +155,11 @@ export function planAccrual(m: LedgerMachine, nowMs: number, maxMinutes = MAX_MI
 }
 
 /**
- * Everything still to be charged for a machine with no open interval, in space and time
- * linear in its intervals (not its minutes): the boundary minutes (those containing an
- * interval's unaligned start or end) are charged as the ledger will charge them, and
- * every other minute is a full minute of exactly one interval.
+ * Everything still to be charged for a machine with no open interval, independent of the
+ * number of minutes: O(k) space and O(k^2) time for k intervals. The boundary minutes
+ * (those containing an interval's unaligned start or end, at most 2k) are charged as the
+ * ledger will charge them, each looking at every interval; every other minute is a full
+ * minute of exactly one interval, counted with a checked multiplication.
  */
 export function pendingCharge(m: LedgerMachine): number {
   checkLedgerMachine(m);
@@ -390,8 +391,9 @@ export async function findHardStops(db: Db, nowMs: number, opts: HardStopOptions
       let pending = 0;
       for (const x of list) if (x.m.intervals.at(-1)?.endMs !== null) pending = checkedAdd(pending, pendingCharge(x.m));
       const amount = list[0]!.row.amount;
-      // amount and the checked sum are both in [0, MAX_SAFE_INTEGER], so this is safe
-      unspent = amount - checkedAdd(spentRows[0]?.spent ?? 0, pending);
+      // refunds can make spent negative, so the subtraction is checked too: a result past
+      // the safe range lands in the fail-closed path below
+      unspent = checkedAdd(amount, -checkedAdd(spentRows[0]?.spent ?? 0, pending));
       const w0 = Math.min(...running.map((x) => x.m.billedThroughMs));
       const unbilled = Math.ceil((nowMs - w0) / 1000);
       const reserve = reserveSeconds(list[0]!.row.final_save_reserve_minutes, Math.max(...running.map((x) => x.row.save_estimate_seconds)));
