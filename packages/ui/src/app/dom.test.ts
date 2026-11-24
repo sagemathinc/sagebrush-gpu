@@ -128,7 +128,7 @@ test("Open Jupyter opens the checked link in a new tab, and a hostile link not a
   await settle();
   const id = t.store.machines.value[0]!.id;
   assert.equal(opened.length, 1);
-  assert.match(String(opened[0]![0]), new RegExp(`^https://m-${id}\\.mock\\.invalid/\\?code=`));
+  assert.match(String(opened[0]![0]), new RegExp(`^https://m-${id}\\.machines\\.invalid/\\?code=`));
   assert.deepEqual(opened[0]!.slice(1), ["_blank", "noopener,noreferrer"]);
   const real = t.store.client.call.bind(t.store.client);
   (t.store.client as { call: typeof real }).call = (async (name: string, args: unknown) =>

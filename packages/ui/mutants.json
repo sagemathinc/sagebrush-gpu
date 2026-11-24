@@ -796,11 +796,6 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n",
-  "new": ""
- },
- {
-  "file": "src/app/store.ts",
   "old": "      if (this.#pollError != null && this.error.value === this.#pollError) this.error.value = null;",
   "new": "      this.error.value = null;"
  },
@@ -856,16 +851,6 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") this.#endSession();\n      this.error.value",
-  "new": "      this.error.value"
- },
- {
-  "file": "src/app/store.ts",
-  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") {\n        this.#endSession();\n        return false;\n      }\n",
-  "new": ""
- },
- {
-  "file": "src/app/store.ts",
   "old": "    this.#endSession();\n  }\n\n  // ----",
   "new": "  }\n\n  // ----"
  },
@@ -916,31 +901,6 @@
  },
  {
   "file": "src/view.ts",
-  "old": "  if (!url.hostname.startsWith(prefix)) return null;\n",
-  "new": ""
- },
- {
-  "file": "src/view.ts",
-  "old": "  const prefix = `m-${machineId.toLowerCase()}.`;",
-  "new": "  const prefix = `m-${machineId.toLowerCase()}`;"
- },
- {
-  "file": "src/view.ts",
-  "old": "if (domain.length < 2 || domain.some((label) => label === \"\")) return null;",
-  "new": "if (domain.some((label) => label === \"\")) return null;"
- },
- {
-  "file": "src/view.ts",
-  "old": "if (domain.length < 2 || domain.some((label) => label === \"\")) return null;",
-  "new": "if (domain.length < 2) return null;"
- },
- {
-  "file": "src/view.ts",
-  "old": "  if (typeof raw !== \"string\") return null;\n  let url: URL;",
-  "new": "  let url: URL;"
- },
- {
-  "file": "src/view.ts",
   "old": "  return url.href;\n}",
   "new": "  return String(raw);\n}"
  },
@@ -958,5 +918,70 @@
   "file": "src/app/polling.ts",
   "old": "    if (visible()) {",
   "new": "    if (true) {"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (typeof raw !== \"string\" || machineDomain === \"\") return null;",
+  "new": "  if (typeof raw !== \"string\") return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (url.hostname !== `m-${machineId}.${machineDomain}`.toLowerCase()) return null;",
+  "new": "  if (!url.hostname.startsWith(`m-${machineId}.`.toLowerCase())) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (url.hostname !== `m-${machineId}.${machineDomain}`.toLowerCase()) return null;",
+  "new": "  if (url.hostname !== `m-${machineId}.${machineDomain}`) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (url.hostname !== `m-${machineId}.${machineDomain}`.toLowerCase()) return null;",
+  "new": "  if (!url.hostname.endsWith(`.${machineDomain}`.toLowerCase())) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "export function jupyterUrl(raw: unknown, machineId: string, machineDomain: string = MACHINE_DOMAIN): string | null {",
+  "new": "export function jupyterUrl(raw: unknown, machineId: string, machineDomain: string = \"\"): string | null {"
+ },
+ {
+  "file": "src/config.ts",
+  "old": "export const TEST_MACHINE_DOMAIN = \"machines.invalid\";",
+  "new": "export const TEST_MACHINE_DOMAIN = \"machines.example\";"
+ },
+ {
+  "file": "src/config.ts",
+  "old": "typeof SBGPU_MACHINE_DOMAIN === \"string\" ? SBGPU_MACHINE_DOMAIN : TEST_MACHINE_DOMAIN;",
+  "new": "typeof SBGPU_MACHINE_DOMAIN === \"string\" ? SBGPU_MACHINE_DOMAIN : \"\";"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (generation !== this.#generation) return true;\n      if (this.#pollError",
+  "new": "      if (this.#pollError"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        if (session !== this.#sessionGeneration) return true;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (generation !== this.#generation) return true;\n      this.#pollError",
+  "new": "      this.#pollError"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "err.code === \"unauthenticated\" && session === this.#sessionGeneration) this.#endSession();",
+  "new": "err.code === \"unauthenticated\") this.#endSession();"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.#generation++;\n      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;",
+  "new": "      this.#generation++;\n      batch(() => {\n        this.me.value = me;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.#generation++;\n      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;",
+  "new": "      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;"
  }
 ]

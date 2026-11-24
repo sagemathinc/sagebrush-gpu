@@ -27,6 +27,7 @@ export async function controllable(email?: string) {
   let held: { pattern: RegExp; once: boolean; gate: Promise<void> } | null = null;
   let openGate: (() => void) | null = null;
   let failNext: Error | null = null;
+  let override: { pattern: RegExp; make: () => Response } | null = null;
   const fetchFn = async (url: string, init: RequestInit) => {
     log.push(`${init.method} ${url}`);
     if (failNext) {
@@ -34,13 +35,16 @@ export async function controllable(email?: string) {
       failNext = null;
       throw err;
     }
-    const answer = inner(url, init); // computed now, as a server would
-    if (held && held.pattern.test(`${init.method} ${url}`)) {
+    const key = `${init.method} ${url}`;
+    const replaced = override && override.pattern.test(key) ? override : null;
+    if (replaced) override = null;
+    const answer = replaced ? null : inner(url, init); // computed now, as a server would
+    if (held && held.pattern.test(key)) {
       const gate = held.gate;
       if (held.once) held = null;
       await gate;
     }
-    return answer;
+    return replaced ? replaced.make() : (answer as Promise<Response>);
   };
   const store = new Store(createClient({ fetch: fetchFn }), () => demo.backend.now());
   await store.verifySignIn(`mock:${email ?? demo.emails.member}`);
@@ -60,6 +64,10 @@ export async function controllable(email?: string) {
     },
     failOnce(err: Error) {
       failNext = err;
+    },
+    /** The next request matching `pattern` gets make()'s answer (or its throw) instead. */
+    respondOnce(pattern: RegExp, make: () => Response) {
+      override = { pattern, make };
     },
   };
 }

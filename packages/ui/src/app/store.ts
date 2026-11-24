@@ -56,8 +56,10 @@ export class Store {
   );
   readonly activeMachines = computed(() => this.machines.value.filter((m) => ACCRUING_STATES.includes(m.state)));
 
-  /** Increments on every navigation (openProject, signOut); results of older ones are dropped. */
+  /** Increments on every navigation (openProject, and any session change); results of older ones are dropped. */
   #generation = 0;
+  /** Increments when a session starts (sign-in): a 401 answers only the session it was asked in. */
+  #sessionGeneration = 0;
   /** The banner message the last failed poll set, so a later good poll can clear it (and only it). */
   #pollError: string | null = null;
 
@@ -75,13 +77,14 @@ export class Store {
   /** Run an action: mark it busy, record its error, and clear a session that has ended. */
   async #act<T>(key: string, fn: () => Promise<T>): Promise<T | null> {
     if (this.busy.value.has(key)) return null;
+    const session = this.#sessionGeneration;
     this.busy.value = new Set([...this.busy.value, key]);
     try {
       const result = await fn();
       this.error.value = null;
       return result;
     } catch (err) {
-      if (err instanceof ApiError && err.code === "unauthenticated") this.#endSession();
+      if (err instanceof ApiError && err.code === "unauthenticated" && session === this.#sessionGeneration) this.#endSession();
       this.error.value = err instanceof Error ? err.message : String(err);
       return null;
     } finally {
@@ -135,6 +138,9 @@ export class Store {
   async verifySignIn(token: string): Promise<boolean> {
     const me = await this.#act("signin", () => this.client.call("verifySignInLink", { body: { token } }));
     if (me != null) {
+      // A new session: answers still owed to an older one (a 401 included) don't apply.
+      this.#generation++;
+      this.#sessionGeneration++;
       batch(() => {
         this.me.value = me;
         this.meLoaded.value = true;
@@ -194,16 +200,25 @@ export class Store {
    * session signs the page out.
    */
   async poll(): Promise<boolean> {
+    // A round answers the navigation and session it was asked in: a later one makes its
+    // outcome moot (it's dropped, and counts as fine for the loop that asked).
+    const generation = this.#generation;
+    const session = this.#sessionGeneration;
     try {
       await this.refresh();
+      if (generation !== this.#generation) return true;
       if (this.#pollError != null && this.error.value === this.#pollError) this.error.value = null;
       this.#pollError = null;
       return true;
     } catch (err) {
       if (err instanceof ApiError && err.code === "unauthenticated") {
+        // The session cookie is shared: a 401 asked within the current session ends it,
+        // whatever project it was for; one from an older session is dropped.
+        if (session !== this.#sessionGeneration) return true;
         this.#endSession();
         return false;
       }
+      if (generation !== this.#generation) return true;
       this.#pollError = `Couldn't refresh: ${err instanceof Error ? err.message : String(err)}`;
       this.error.value = this.#pollError;
       return false;

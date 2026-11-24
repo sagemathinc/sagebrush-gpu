@@ -2,6 +2,7 @@
 // are tested without a DOM. Components only lay these out.
 
 import type { Machine, ProjectLabels, QuoteRefusal, SpendMeter, StopReason } from "@sbgpu/api";
+import { MACHINE_DOMAIN } from "./config.ts";
 import { withArticle } from "./labels.ts";
 import { computeMeter, formatDuration, type MeterBand } from "./meter.ts";
 import { formatPriceSplit, formatRate, formatUsd } from "./money.ts";
@@ -156,12 +157,12 @@ export function ago(iso: string, nowMs: number): string {
 
 /**
  * The machine's Jupyter link, or null if it isn't one to open: it must parse as an
- * absolute https URL with no user info and no port, on the machine's own host,
- * "m-<machine id>." followed by a domain of at least two labels (the machine relay's
- * per-machine origin, so Jupyter never runs on the UI's origin).
+ * absolute https URL with no user info and no port, on exactly the machine's own host,
+ * m-<machine id>.<machine domain> (the trusted build-time MACHINE_DOMAIN), so the one-time
+ * code goes only to the machine relay's per-machine origin, never to the UI's or anyone else's.
  */
-export function jupyterUrl(raw: unknown, machineId: string): string | null {
-  if (typeof raw !== "string") return null;
+export function jupyterUrl(raw: unknown, machineId: string, machineDomain: string = MACHINE_DOMAIN): string | null {
+  if (typeof raw !== "string" || machineDomain === "") return null;
   let url: URL;
   try {
     url = new URL(raw);
@@ -169,9 +170,6 @@ export function jupyterUrl(raw: unknown, machineId: string): string | null {
     return null;
   }
   if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "") return null;
-  const prefix = `m-${machineId.toLowerCase()}.`;
-  if (!url.hostname.startsWith(prefix)) return null;
-  const domain = url.hostname.slice(prefix.length).split(".");
-  if (domain.length < 2 || domain.some((label) => label === "")) return null;
+  if (url.hostname !== `m-${machineId}.${machineDomain}`.toLowerCase()) return null;
   return url.href;
 }

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MACHINE_STATES, QUOTE_REFUSALS, STOP_REASONS, type Machine, type SpendMeter } from "@sbgpu/api";
+import { MACHINE_DOMAIN, TEST_MACHINE_DOMAIN } from "./config.ts";
 import { capitalize, GENERIC_LABELS, plural, resolveLabels, withArticle } from "./labels.ts";
 import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "./view.ts";
 
@@ -162,34 +163,45 @@ test("ago", () => {
   assert.equal(ago("2027-02-01T10:05:00.000Z", t), "just now"); // a clock a little behind
 });
 
-test("jupyterUrl: only the machine's own https origin", () => {
+test("jupyterUrl: only exactly the machine's own https origin", () => {
   const id = "mch_0000000000000000000a";
-  const ok = `https://m-${id}.machines.example.org/?code=abc`;
-  assert.equal(jupyterUrl(ok, id), ok);
-  assert.equal(jupyterUrl(`https://M-${id.toUpperCase()}.Machines.Example.org/lab`, id), `https://m-${id}.machines.example.org/lab`);
+  const domain = "machines.example.org";
+  const ok = `https://m-${id}.${domain}/?code=abc`;
+  assert.equal(jupyterUrl(ok, id, domain), ok);
+  // Case doesn't matter in a host name: it compares as lowercase.
+  assert.equal(jupyterUrl(`https://M-${id.toUpperCase()}.Machines.Example.ORG/lab`, id, domain), `https://m-${id}.${domain}/lab`);
   for (const bad of [
-    `javascript:alert(1)//m-${id}.x.org`,
+    `https://m-${id}.attacker.example/steal?code=secret`, // the right label, someone else's domain
+    `https://m-${id}.${domain}.attacker.example/`,
+    `https://x.m-${id}.${domain}/`,
+    `https://${domain}/`,
+    `javascript:alert(1)//m-${id}.${domain}`,
     `data:text/html,<script>1</script>`,
-    `http://m-${id}.machines.example.org/`,
+    `http://m-${id}.${domain}/`,
     `https://evil.example/`,
-    `https://m-mch_000000000000000000zz.machines.example.org/`, // another machine
-    `https://m-${id}x.machines.example.org/`,
-    `https://user:pw@m-${id}.machines.example.org/`,
-    `https://m-${id}.machines.example.org@evil.example/`, // userinfo trick: the host is evil.example
-    `https://user@m-${id}.machines.example.org/`,
-    `https://:pw@m-${id}.machines.example.org/`,
-    `https://m-${id}.machines.example.org:8443/`,
-    `https://m-${id}.localhost/`, // a one-label domain
-    `https://m-${id}./`,
-    `https://m-${id}.a..b/`,
-    `//m-${id}.machines.example.org/`, // relative: no base, so it doesn't parse
+    `https://m-mch_000000000000000000zz.${domain}/`, // another machine
+    `https://m-${id}x.${domain}/`,
+    `https://user:pw@m-${id}.${domain}/`,
+    `https://m-${id}.${domain}@evil.example/`, // userinfo trick: the host is evil.example
+    `https://user@m-${id}.${domain}/`,
+    `https://:pw@m-${id}.${domain}/`,
+    `https://m-${id}.${domain}:8443/`,
+    `//m-${id}.${domain}/`, // relative: no base, so it doesn't parse
     `/lab`,
     "https://",
     "",
   ]) {
-    assert.equal(jupyterUrl(bad, id), null, bad);
+    assert.equal(jupyterUrl(bad, id, domain), null, bad);
   }
-  assert.equal(jupyterUrl(42, id), null);
-  assert.equal(jupyterUrl(null, id), null);
-  assert.equal(jupyterUrl(new URL(ok), id), null); // only the API's string, never an object
+  assert.equal(jupyterUrl(42, id, domain), null);
+  assert.equal(jupyterUrl(null, id, domain), null);
+  assert.equal(jupyterUrl(new URL(ok), id, domain), null); // only the API's string, never an object
+  assert.equal(jupyterUrl(ok, id, ""), null); // no configured domain: nothing opens
+  assert.equal(jupyterUrl(`https://m-${id}./`, id, ""), null); // ...not even a bare label
+  assert.equal(jupyterUrl(ok, id, "Machines.Example.ORG"), ok); // the configured domain's case doesn't matter
+  // Without a domain argument, the build's MACHINE_DOMAIN (the test default here).
+  assert.equal(MACHINE_DOMAIN, TEST_MACHINE_DOMAIN);
+  assert.equal(TEST_MACHINE_DOMAIN, "machines.invalid");
+  assert.equal(jupyterUrl(`https://m-${id}.machines.invalid/x`, id), `https://m-${id}.machines.invalid/x`);
+  assert.equal(jupyterUrl(ok, id), null);
 });

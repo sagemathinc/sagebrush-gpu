@@ -80,8 +80,8 @@ cookie sessions). It uses only the public API, the same API Sagebrush uses.
   entry point.
 - `src/view.ts`: what each screen shows and allows (state labels, stop reasons, refusal texts,
   which machine buttons, the meter's figures), as pure functions.
-- `build.mjs`: esbuild. `node build.mjs` writes `dist/web/` (production: the mock is compiled
-  out); `node build.mjs --mock` writes `dist/web-mock/`, where `?mock=1` runs the whole API in
+- `build.mjs`: esbuild. `MACHINE_DOMAIN=<domain> node build.mjs` writes `dist/web/` (production:
+  the mock is compiled out; the machine domain is trusted deploy configuration, see `src/config.ts`); `node build.mjs --mock` writes `dist/web-mock/`, where `?mock=1` runs the whole API in
   the page on a fake clock (`&speed=N` fake seconds per real second, default 10).
 - `serve.mjs`: a local static server with the app-path fallback, for development:
   `node serve.mjs --mock 5180`, then open `http://127.0.0.1:5180/?mock=1`.

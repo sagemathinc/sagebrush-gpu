@@ -137,7 +137,7 @@ test("jupyterLink returns the one-time URL", async () => {
   const id = store.machines.value[0]?.id as string;
   assert.equal(await store.jupyterLink(id), null); // not running yet
   demo.backend.advance(90_000);
-  assert.match((await store.jupyterLink(id)) ?? "", /^https:\/\/m-mch_[0-9a-z]+\.mock\.invalid\/\?code=/);
+  assert.match((await store.jupyterLink(id)) ?? "", /^https:\/\/m-mch_[0-9a-z]+\.machines\.invalid\/\?code=/);
 });
 
 /** A store whose fetches are counted per "METHOD path". */
@@ -327,7 +327,7 @@ test("jupyterLink opens only the machine's own https origin", async () => {
   await t.store.start("L4");
   t.demo.backend.advance(90_000);
   const id = t.store.machines.value[0]!.id;
-  assert.match((await t.store.jupyterLink(id)) ?? "", new RegExp(`^https://m-${id}\\.mock\\.invalid/\\?code=`));
+  assert.match((await t.store.jupyterLink(id)) ?? "", new RegExp(`^https://m-${id}\\.machines\\.invalid/\\?code=`));
   assert.equal(t.store.error.value, null);
   // A server that answers with someone else's address: refused, and said so.
   const real = t.store.client.call.bind(t.store.client);
@@ -335,4 +335,90 @@ test("jupyterLink opens only the machine's own https origin", async () => {
     name === "openJupyterLink" ? { url: "https://evil.example/", expiresAt: "2027-02-01T09:02:30.000Z" } : real(name as never, args as never)) as typeof real;
   assert.equal(await t.store.jupyterLink(id), null);
   assert.match(t.store.error.value ?? "", /isn't the machine's own address/);
+});
+
+const unauthenticated = () => Response.json({ error: { code: "unauthenticated", message: "session expired" } }, { status: 401 });
+
+/** Open A, start a poll of A whose spend answer is held (and replaced by `answer`), then open B. */
+async function stalePoll(answer?: () => Response) {
+  const t = await controllable();
+  const a = t.demo.projectId;
+  await t.store.openProject(a);
+  const spendA = new RegExp(`^GET /v1/projects/${a}/spend$`);
+  t.hold(spendA, true);
+  if (answer) t.respondOnce(spendA, answer);
+  const poll = t.store.poll();
+  await new Promise((r) => setTimeout(r, 0));
+  await t.store.openProject(t.otherId);
+  return { t, poll };
+}
+
+test("stale poll: a 401 asked in the current session ends it, even after navigating", async () => {
+  const { t, poll } = await stalePoll(unauthenticated);
+  t.release();
+  assert.equal(await poll, false);
+  assert.equal(t.store.me.value, null);
+  assert.equal(t.store.project.value, null);
+});
+
+test("stale poll: a 401 from before a re-sign-in doesn't end the new session", async () => {
+  const { t, poll } = await stalePoll(unauthenticated);
+  await t.store.signOut();
+  await t.store.verifySignIn(`mock:${t.demo.emails.member}`);
+  await t.store.openProject(t.otherId);
+  t.release();
+  assert.equal(await poll, true);
+  assert.equal(t.store.me.value?.user.email, t.demo.emails.member);
+  assert.equal(t.store.project.value?.id, t.otherId);
+  assert.equal(t.store.error.value, null);
+});
+
+test("stale poll: an older project's network error doesn't banner the current one", async () => {
+  const { t, poll } = await stalePoll(() => {
+    throw new TypeError("connection reset");
+  });
+  t.release();
+  assert.equal(await poll, true);
+  assert.equal(t.store.error.value, null);
+  assert.equal(t.store.project.value?.id, t.otherId);
+});
+
+test("stale poll: an older project's success doesn't clear the current one's newer banner", async () => {
+  const { t, poll } = await stalePoll();
+  t.failOnce(new TypeError("B is unreachable"));
+  assert.equal(await t.store.poll(), false);
+  const banner = t.store.error.value;
+  assert.match(banner ?? "", /Couldn't refresh: network error: B is unreachable/);
+  t.release();
+  assert.equal(await poll, true);
+  assert.equal(t.store.error.value, banner);
+  assert.equal(t.store.project.value?.id, t.otherId);
+});
+
+test("an action's 401 from before a re-sign-in doesn't end the new session", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  const start = new RegExp(`^POST /v1/projects/${t.demo.projectId}/machines$`);
+  t.hold(start, true);
+  t.respondOnce(start, unauthenticated);
+  const started = t.store.start("L4");
+  await new Promise((r) => setTimeout(r, 0));
+  await t.store.signOut();
+  await t.store.verifySignIn(`mock:${t.demo.emails.member}`);
+  t.release();
+  assert.equal(await started, false);
+  assert.equal(t.store.me.value?.user.email, t.demo.emails.member);
+});
+
+test("signing in as someone else drops the previous session's load in flight", async () => {
+  const t = await controllable();
+  const a = t.demo.projectId;
+  t.hold(new RegExp(`^GET /v1/projects/${a}$`));
+  const first = t.store.openProject(a);
+  await new Promise((r) => setTimeout(r, 0));
+  await t.store.verifySignIn(`mock:${t.demo.emails.manager}`);
+  t.release();
+  await first;
+  assert.equal(t.store.me.value?.user.email, t.demo.emails.manager);
+  assert.equal(t.store.project.value, null); // the member's answer never reaches the manager's page
 });
