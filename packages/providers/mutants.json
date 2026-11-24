@@ -1,0 +1,743 @@
+[
+ {
+  "file": "src/money.ts",
+  "old": "usd < 0) {",
+  "new": "usd < -1) {"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "Math.round(usd * 1_000_000)",
+  "new": "Math.floor(usd * 1_000_000)"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "if (!Number.isSafeInteger(micros)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "if (!name.startsWith(PREFIX)) return null;",
+  "new": ""
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "if (!isId(\"machine\", machineId)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "return isId(\"machine\", id) ? id : null;",
+  "new": "return id;"
+ },
+ {
+  "file": "src/locality.ts",
+  "old": "...EU_COUNTRIES, ...EEA_NON_EU, \"GB\"",
+  "new": "...EU_COUNTRIES, ...EEA_NON_EU"
+ },
+ {
+  "file": "src/locality.ts",
+  "old": "...EU_COUNTRIES, ...EEA_NON_EU, \"GB\"",
+  "new": "...EU_COUNTRIES, \"GB\""
+ },
+ {
+  "file": "src/locality.ts",
+  "old": "return country !== null && locality.includes(country);",
+  "new": "return country === null || locality.includes(country);"
+ },
+ {
+  "file": "src/locality.ts",
+  "old": "if (allowedCountries === null) return base;",
+  "new": ""
+ },
+ {
+  "file": "src/locality.ts",
+  "old": "base.filter((c) => allowedCountries.includes(c))",
+  "new": "[...allowedCountries]"
+ },
+ {
+  "file": "src/locality.ts",
+  "old": "return base === \"any\" ? [...allowedCountries] :",
+  "new": "return base === \"any\" ? \"any\" :"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "case \"price_above_cap\":\n      return \"next\";",
+  "new": "case \"price_above_cap\":\n      return \"stop\";"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "    case \"forbidden\":\n",
+  "new": ""
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "    case \"outcome_unknown\":\n",
+  "new": "    case \"outcome_unknown\":\n      return \"next\";\n"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "    case \"transient\":\n      return \"retry\";",
+  "new": "    case \"transient\":\n      return \"next\";"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (!policy.allowedGpuTypes.includes(request.gpuType)) return [];",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "o.gpuCount === request.gpuCount &&",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "policy.allowedProviders.includes(o.provider) &&",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "countryAllowed(policy.locality, o.country) &&",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "o.providerCostPerHour <= policy.maxProviderCostPerHour &&",
+  "new": "o.providerCostPerHour < policy.maxProviderCostPerHour &&"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "o.stock !== \"none\",",
+  "new": "true,"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "a.providerCostPerHour - b.providerCostPerHour ||",
+  "new": "b.providerCostPerHour - a.providerCostPerHour ||"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "compare(a.provider, b.provider) ||",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  high: 0,\n  medium: 1,",
+  "new": "  high: 1,\n  medium: 0,"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (!Number.isSafeInteger(maxTotal) || maxTotal < 0) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "maxProviderCostPerHour: providerCapForTotal(policy.maxPricePerHour, marginBps),",
+  "new": "maxProviderCostPerHour: policy.maxPricePerHour,"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (calls >= maxAttempts) {",
+  "new": "if (calls > maxAttempts) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (action === \"retry\" && retry < maxRetries) {",
+  "new": "if (action === \"retry\" && retry <= maxRetries) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (action === \"stop\") throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "retryAfterSeconds !== null ? retryAfterSeconds * 1000 : 1000 * 2 ** retry",
+  "new": "1000 * 2 ** retry"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "return Math.min(ms, MAX_BACKOFF_MS);",
+  "new": "return ms;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (!(e instanceof ProviderError)) throw e;",
+  "new": "if (!(e instanceof ProviderError)) continue;"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "if (observed.state === \"terminated\") return [];",
+  "new": "if (observed.state !== \"running\") return [];"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"volumeGb\", 0, observed.volumeGb);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"exposedPorts\", [], observed.exposedPorts);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"command\", expected.command, observed.command);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"image\", expected.image, observed.image);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"diskGb\", expected.diskGb, observed.diskGb);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"dataCenter\", expected.dataCenter, observed.dataCenter);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"gpuType\", expected.gpuType, observed.gpuType);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"gpuCount\", expected.gpuCount, observed.gpuCount);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"machineId\", expected.machineId, observed.machineId);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"providerMachineId\", expected.providerMachineId, observed.providerMachineId);",
+  "new": ""
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "[...expected.envNames].sort(), [...observed.envNames].sort()",
+  "new": "[...expected.envNames], [...observed.envNames]"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "check(\"envNames\",",
+  "new": "if (false) check(\"envNames\","
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "if (rate === null || rate > expected.maxProviderCostPerHour) {",
+  "new": "if (rate !== null && rate > expected.maxProviderCostPerHour) {"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "if (rate === null || rate > expected.maxProviderCostPerHour) {",
+  "new": "if (rate === null || rate >= expected.maxProviderCostPerHour) {"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "!/^[0-9]{1,6}$/.test(value.trim())",
+  "new": "!/^-?[0-9.]{1,6}$/.test(value.trim())"
+ },
+ {
+  "file": "src/runpod/catalog.ts",
+  "old": "if (prefix === \"US\") return \"US\";",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/catalog.ts",
+  "old": "if (prefix === \"CA\" && second === \"MTL\") return \"CA\";",
+  "new": "if (prefix === \"CA\") return \"CA\";"
+ },
+ {
+  "file": "src/runpod/catalog.ts",
+  "old": "(prefix === \"EU\" || prefix === \"EUR\")",
+  "new": "(prefix === \"EU\")"
+ },
+ {
+  "file": "src/runpod/catalog.ts",
+  "old": "if (parts.length !== 3 || !/^[0-9]+$/.test(parts[2]!)) return null;",
+  "new": "if (parts.length < 2) return null;"
+ },
+ {
+  "file": "src/runpod/catalog.ts",
+  "old": "return Object.hasOwn(RUNPOD_GPUS, runpodId) ? RUNPOD_GPUS[runpodId]! : null;",
+  "new": "return RUNPOD_GPUS[runpodId] ?? null;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "status === 429 ? retryAfterSeconds(retryAfter) : null,",
+  "new": "retryAfterSeconds(retryAfter),"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "status >= 500 && status <= 599",
+  "new": "status >= 500"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  EXITED: \"failed\",\n",
+  "new": "  EXITED: \"running\",\n"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  STARTING: \"provisioning\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "typeof cost === \"number\" && Number.isFinite(cost) && cost >= 0 ? usdToMicros(cost) : null",
+  "new": "typeof cost === \"number\" ? usdToMicros(Math.abs(cost)) : null"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "g[\"secure\"] !== true) continue;",
+  "new": "false) continue;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "!(price > 0)) continue;",
+  "new": "price < 0) continue;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "providerCostPerHour: perGpu * query.gpuCount,",
+  "new": "providerCostPerHour: perGpu,"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (country === null) continue;",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "cloud: \"SECURE\", count: String(query.gpuCount)",
+  "new": "cloud: \"SECURE\", count: \"1\""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      ports: [],\n      startSsh: false,",
+  "new": "      startSsh: false,"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "startSsh: false,",
+  "new": "startSsh: true,"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "cloud: \"SECURE\",\n      gpu:",
+  "new": "cloud: \"COMMUNITY\",\n      gpu:"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      mounts: {},\n",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (spec.bootToken === \"\") throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "(e.kind !== \"outcome_unknown\" && e.kind !== \"transient\")",
+  "new": "(e.kind !== \"outcome_unknown\")"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (found.length === 0) throw e;",
+  "new": "if (found.length === 0) throw new ProviderError(\"runpod\", \"outcome_unknown\", e.message);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (found.length > 1) {",
+  "new": "if (found.length > 2) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "s.machineId === machineId && s.state !== \"terminated\"",
+  "new": "s.machineId === machineId"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "(d) => !(d.field === \"dataCenter\" && status.dataCenter === null),",
+  "new": "(d) => d.field !== \"dataCenter\","
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "&& status.providerCostPerHour !== null;",
+  "new": ";"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (e instanceof ProviderError && e.kind === \"not_found\") return goneStatus",
+  "new": "if (e instanceof ProviderError) return goneStatus"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (e instanceof ProviderError && e.kind === \"not_found\") return;",
+  "new": "if (e instanceof ProviderError) return;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (s.machineId !== null) out.push(s);",
+  "new": "out.push(s);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (cursor !== null) qs.set(\"cursor\", cursor);",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "`/v2/pods/${encodeURIComponent(providerMachineId)}`);\n      const s = podStatus",
+  "new": "`/v2/pods/${providerMachineId}`);\n      const s = podStatus"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const name = e instanceof Error ? e.name : \"error\";",
+  "new": "const name = e instanceof Error ? e.message : \"error\";"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "return p + (2n * p * bps + 10_000n) / 20_000n;",
+  "new": "return p + (p * bps) / 10_000n;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "return p + (2n * p * bps + 10_000n) / 20_000n;",
+  "new": "return p + (2n * p * bps + 9_999n) / 20_000n;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (exactTotal(mid, bps) <= max) lo = mid;",
+  "new": "if (exactTotal(mid, bps) < max) lo = mid;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "let hi = max + 1n;",
+  "new": "let hi = max;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "while (hi - lo > 1n) {",
+  "new": "while (hi - lo > 2n) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (!isBasisPoints(marginBps)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (!Number.isSafeInteger(value) || value < min || value > MAX_LAUNCH_ATTEMPTS) {",
+  "new": "if (value < min || value > MAX_LAUNCH_ATTEMPTS) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (!Number.isSafeInteger(value) || value < min || value > MAX_LAUNCH_ATTEMPTS) {",
+  "new": "if (!Number.isSafeInteger(value) || value < min) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "checkBound(\"maxAttempts\", maxAttempts, 1);",
+  "new": "checkBound(\"maxAttempts\", maxAttempts, 0);"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "checkBound(\"maxRetriesPerOffer\", maxRetries, 0);",
+  "new": "checkBound(\"maxRetriesPerOffer\", maxRetries, 1);"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "checkBound(\"confirmPolls\", polls, 1);",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "intervalMs < 0 || intervalMs > 60_000",
+  "new": "intervalMs < 0"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (!Number.isSafeInteger(retry) || retry < 0) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "!(Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0)",
+  "new": "!(retryAfterSeconds >= 0)"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "          await opts.revokeBootToken(spec);\n",
+  "new": "          void opts.revokeBootToken;\n"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "throw new PlacementError(\"outcome_unknown\", \"the failed launch's boot token could not be revoked\", attempts);",
+  "new": "/* swallowed */"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (e.providerMachineId !== null) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "          if (!gone) {",
+  "new": "          if (false) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (s.state === \"terminated\") return true;",
+  "new": "return true;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "      if (i > 0) await sleep(intervalMs);\n",
+  "new": ""
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "for (let i = 0; i < polls; i++) {",
+  "new": "for (let i = 0; i < polls + 1; i++) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    await adapter.terminate(providerMachineId);\n    for",
+  "new": "    for"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "const confirmPolls = opts.confirmPolls ?? 10;",
+  "new": "const confirmPolls = opts.confirmPolls ?? 1;"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "    case \"spec_mismatch\":\n",
+  "new": ""
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "    this.providerMachineId = providerMachineId;",
+  "new": "    this.providerMachineId = null;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "NO_CAPACITY.test(errorDetail(body)) ? \"no_capacity\" : \"unplaceable\"",
+  "new": "\"unplaceable\""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "`RunPod HTTP ${status} (${kind})`,",
+  "new": "`RunPod HTTP ${status} (${kind}): ${body}`,"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (isObject(parsed) && typeof parsed[\"detail\"] === \"string\") return parsed[\"detail\"].slice(0, 1000);",
+  "new": "if (isObject(parsed)) return JSON.stringify(parsed);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "return Array.isArray(x) && x.every((s) => typeof s === \"string\") ? [...x] : null;",
+  "new": "return Array.isArray(x) ? x.filter((s) => typeof s === \"string\") : null;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0 ? x : Number.NaN;",
+  "new": "return typeof x === \"number\" ? x : 0;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(mounts) || Object.keys(mounts).some((k) => !MOUNT_KEYS.has(k))) return Number.NaN;",
+  "new": "if (!isObject(mounts)) return 0;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(mounts) || Object.keys(mounts).some((k) => !MOUNT_KEYS.has(k))) return Number.NaN;",
+  "new": "if (!isObject(mounts)) return Number.NaN;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (!Array.isArray(v)) return Number.NaN;",
+  "new": "    if (!Array.isArray(v)) continue;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (v.length > 0) gb = Number.POSITIVE_INFINITY;",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "isObject(env) && Object.values(env).every((v) => typeof v === \"string\") ? Object.keys(env) : [UNREADABLE]",
+  "new": "isObject(env) ? Object.keys(env) : []"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const command = entrypoint !== null && cmd !== null ? [...entrypoint, ...cmd] : [UNREADABLE];",
+  "new": "const command = [...(entrypoint ?? []), ...(cmd ?? [])];"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "exposedPorts: stringArray(pod[\"ports\"]) ?? [UNREADABLE],",
+  "new": "exposedPorts: stringArray(pod[\"ports\"]) ?? [],"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "image: typeof pod[\"image\"] === \"string\" ? pod[\"image\"] : UNREADABLE,",
+  "new": "image: typeof pod[\"image\"] === \"string\" ? pod[\"image\"] : \"\","
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(pod) || typeof pod[\"id\"] !== \"string\" || pod[\"id\"] === \"\") {",
+  "new": "if (!isObject(pod) || typeof pod[\"id\"] !== \"string\") {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "priceOnly ? \"price_above_cap\" : \"spec_mismatch\"",
+  "new": "\"price_above_cap\""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "        status.providerMachineId,\n      );\n    }\n    return",
+  "new": "        null,\n      );\n    }\n    return"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "throw new ProviderError(\"runpod\", \"outcome_unknown\", \"RunPod created a pod but its response has no id\");",
+  "new": "throw new ProviderError(\"runpod\", \"unplaceable\", \"no id\");"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(json) || !Array.isArray(json[\"pods\"]) || !isObject(json[\"pagination\"])) {",
+  "new": "if (!isObject(json) || !Array.isArray(json[\"pods\"])) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(json) || !Array.isArray(json[\"pods\"]) || !isObject(json[\"pagination\"])) {",
+  "new": "if (!isObject(json)) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (typeof pagination[\"hasNextPage\"] !== \"boolean\") {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(json) || !Array.isArray(json[\"gpus\"])) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "): Promise<boolean> {\n  checkConfirmBounds(polls, intervalMs);",
+  "new": "): Promise<boolean> {",
+  "note": "daybreak2 H2b: the exported helper validates its own bounds"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  checkConfirmBounds(confirmPolls, confirmIntervalMs);\n",
+  "new": "",
+  "note": "launchWithFallback checks confirm bounds before any effect"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (s.provider !== adapter.info.provider || s.providerMachineId !== providerMachineId) return false;",
+  "new": "",
+  "note": "SEC H3/T4: confirmation bound to the machine"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (s.provider !== adapter.info.provider || s.providerMachineId !== providerMachineId) return false;",
+  "new": "if (s.providerMachineId !== providerMachineId) return false;"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (s.provider !== adapter.info.provider || s.providerMachineId !== providerMachineId) return false;",
+  "new": "if (s.provider !== adapter.info.provider) return false;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      if (s.providerMachineId !== providerMachineId) {\n        throw",
+  "new": "      if (false) {\n        throw"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  check(\"unexpectedSettings\", [], observed.unexpectedSettings);\n",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    unexpectedSettings: unexpectedSettings(pod),\n",
+  "new": "    unexpectedSettings: [],\n"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (pod[\"cloud\"] !== \"SECURE\") out.push",
+  "new": "if (pod[\"cloud\"] === \"COMMUNITY\") out.push"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(ssh)) out.push(`ssh:${UNREADABLE}`);",
+  "new": "if (!isObject(ssh)) {}"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of Object.keys(ssh)) if (ssh[k] !== null) out.push(`ssh:${k}`);",
+  "new": "for (const k of [\"proxy\"]) if (ssh[k]) out.push(`ssh:${k}`);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (pod[\"template\"] !== null) out.push",
+  "new": "if (typeof pod[\"template\"] === \"string\") out.push"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!isObject(gn) || gn[\"enabled\"] !== false) out.push",
+  "new": "if (isObject(gn) && gn[\"enabled\"] === true) out.push"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "gb += size > 0 ? size : Number.NaN;",
+  "new": "gb += size;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  const cmd = stringArray(pod[\"cmd\"]);",
+  "new": "  const cmd = pod[\"cmd\"] === undefined || pod[\"cmd\"] === null ? [] : stringArray(pod[\"cmd\"]);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of [\"proxy\", \"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "new": "for (const k of [\"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "note": "SEC r3 H2: proxy presence"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of [\"proxy\", \"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "new": "for (const k of [\"proxy\"]) if (!Object.hasOwn(ssh, k))",
+  "note": "SEC r3 H2: direct presence"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of [\"proxy\", \"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "new": "for (const k of [] as string[]) if (!Object.hasOwn(ssh, k))",
+  "note": "SEC r3 H2: both presence checks"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!Object.hasOwn(ssh, k)) out.push",
+  "new": "if (ssh[k] === undefined && false) out.push"
+ }
+]
