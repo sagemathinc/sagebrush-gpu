@@ -84,7 +84,10 @@ export class Store {
       this.error.value = null;
       return result;
     } catch (err) {
-      if (err instanceof ApiError && err.code === "unauthenticated" && session === this.#sessionGeneration) this.#endSession();
+      // An answer for a session that has since been replaced (sign-out, sign-in) is moot:
+      // neither its 401 nor its message may touch the new session.
+      if (session !== this.#sessionGeneration) return null;
+      if (err instanceof ApiError && err.code === "unauthenticated") this.#endSession();
       this.error.value = err instanceof Error ? err.message : String(err);
       return null;
     } finally {
