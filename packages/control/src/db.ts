@@ -11,6 +11,8 @@ export interface Stmt {
 
 export interface Db {
   all<T>(sql: string, params?: SqlValue[]): Promise<T[]>;
+  /** One write; how many rows it changed (for compare-and-set updates). */
+  run(sql: string, params?: SqlValue[]): Promise<{ changes: number }>;
   /** All statements in one transaction, or none. */
   batch(stmts: Stmt[]): Promise<void>;
 }
@@ -26,12 +28,17 @@ export interface D1Like {
 }
 interface D1StatementLike {
   all<T>(): Promise<{ results: T[] }>;
+  run(): Promise<{ meta: { changes: number } }>;
 }
 
 export function d1Db(d1: D1Like): Db {
   return {
     async all<T>(sql: string, params: SqlValue[] = []) {
       return (await d1.prepare(sql).bind(...params).all<T>()).results;
+    },
+    async run(sql: string, params: SqlValue[] = []) {
+      const r = await d1.prepare(sql).bind(...params).run();
+      return { changes: r.meta.changes };
     },
     async batch(stmts: Stmt[]) {
       if (stmts.length === 0) return;

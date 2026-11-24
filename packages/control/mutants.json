@@ -338,5 +338,310 @@
   "file": "src/ledger.ts",
   "old": "unspent = checkedAdd(amount, -checkedAdd(spentRows[0]?.spent ?? 0, pending));",
   "new": "unspent = amount - checkedAdd(spentRows[0]?.spent ?? 0, pending);"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "\"referrer-policy\": \"no-referrer\",",
+  "new": "\"referrer-policy\": \"strict-origin-when-cross-origin\","
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  \"x-content-type-options\": \"nosniff\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  \"cache-control\": \"no-store\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (fromBrowser && req.method !== \"GET\" && req.headers.get(\"origin\") !== deps.config.appOrigin) {",
+  "new": "if (fromBrowser && req.method === \"POST\" && req.headers.get(\"origin\") !== deps.config.appOrigin) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (fromBrowser && req.method !== \"GET\" && req.headers.get(\"origin\") !== deps.config.appOrigin) {",
+  "new": "if (fromBrowser && req.method !== \"GET\" && req.headers.get(\"origin\") !== null && req.headers.get(\"origin\") !== deps.config.appOrigin) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "const fromBrowser = !url.pathname.startsWith(\"/v1/agent/\");",
+  "new": "const fromBrowser = true;"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "const fromBrowser = !url.pathname.startsWith(\"/v1/agent/\");",
+  "new": "const fromBrowser = !url.pathname.startsWith(\"/v1/\");"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (!/^application\\/json(\\s*;|$)/i.test(type))",
+  "new": "if (!/^application\\/json/i.test(type))"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (typeof v !== \"object\" || v === null || Array.isArray(v)) throw",
+  "new": "if (typeof v !== \"object\" || v === null) throw"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`",
+  "new": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND expires_ms > ?`"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`",
+  "new": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms >= ?`"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (rows.length !== 1) throw new HttpError(\"unauthenticated\", \"sign in first\");",
+  "new": ""
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (access.auth === \"system\") throw new HttpError(\"forbidden\", \"operators only\");",
+  "new": ""
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (access.auth === \"agent\") throw new HttpError(\"unauthenticated\", \"agent tokens are not accepted yet\");",
+  "new": "if (access.auth === \"agent\") return;"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (!role) throw new HttpError(\"notFound\", \"no such organization\");",
+  "new": "if (!role) throw new HttpError(\"forbidden\", \"no such organization\");"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (!orgRoleAtLeast(role, access.minRole)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (!role) throw new HttpError(\"notFound\", access.scope === \"machine\" ? \"no such machine\" : \"no such project\");",
+  "new": "if (!role) throw new HttpError(\"forbidden\", \"no such project\");"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (!projectRoleAtLeast(role, access.minRole)) throw",
+  "new": "if (!projectRoleAtLeast(role, \"member\")) throw"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (r.org_role === \"owner\") return \"owner\";",
+  "new": ""
+ },
+ {
+  "file": "src/app.ts",
+  "old": "WHERE m.project_id = p.id AND m.user_id = ? AND m.status = 'active') AS role,",
+  "new": "WHERE m.project_id = p.id AND m.user_id = ?) AS role,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (access.scope === \"machine\") {",
+  "new": "if (access.scope === \"org\") {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (await knownEmail(deps.db, email)) {",
+  "new": "if (true) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ? AND status <> 'removed') AS n`",
+  "new": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ?) AS n`"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "now + deps.config.signInLinkTtlMs,",
+  "new": "now + deps.config.signInLinkTtlMs + 1,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms > ?`",
+  "new": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND expires_ms > ?`"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms > ?`",
+  "new": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms >= ?`"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (used.changes !== 1) throw",
+  "new": "if (used.changes < 0) throw"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "WHERE email = ? AND status = 'invited' AND user_id IS NULL`,",
+  "new": "WHERE email = ? AND user_id IS NULL`,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "params: [await sha256Hex(sessionValue), now, now + deps.config.sessionTtlMs, email],",
+  "new": "params: [await sha256Hex(sessionValue), now, now + deps.config.sessionTtlMs + 1, email],"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "await ctx.deps.db.run(`UPDATE sessions SET revoked_ms = ? WHERE id_sha256 = ? AND revoked_ms IS NULL`, [ctx.deps.now(), ctx.sessionHash]);",
+  "new": ""
+ },
+ {
+  "file": "src/app.ts",
+  "old": "return json(200, { ok: true }, { \"set-cookie\": sessionCookie(\"\", 0) });",
+  "new": "return json(200, { ok: true });"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=",
+  "new": "; Path=/; Secure; SameSite=Strict; Max-Age="
+ },
+ {
+  "file": "src/app.ts",
+  "old": "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=",
+  "new": "; Path=/; HttpOnly; SameSite=Strict; Max-Age="
+ },
+ {
+  "file": "src/app.ts",
+  "old": "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=",
+  "new": "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age="
+ },
+ {
+  "file": "src/app.ts",
+  "old": "WHERE m.user_id = ? AND m.status = 'active' ORDER BY p.name, m.project_id`,",
+  "new": "WHERE m.user_id = ? ORDER BY p.name, m.project_id`,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (u.protocol !== \"https:\" || u.origin !== appOrigin || u.username || u.password) throw",
+  "new": "if (u.origin !== appOrigin || u.username || u.password) throw"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (u.protocol !== \"https:\" || u.origin !== appOrigin || u.username || u.password) throw",
+  "new": "if (u.protocol !== \"https:\" || u.username || u.password) throw"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (typeof machineDomain !== \"string\" || !HOSTNAME.test(machineDomain)) throw",
+  "new": "if (typeof machineDomain !== \"string\") throw"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "      out += B64URL[(acc >> bits) & 63];",
+  "new": "      out += B64URL[(acc >> bits) & 31];"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (bits > 0) out += B64URL[(acc << (6 - bits)) & 63];",
+  "new": ""
+ },
+ {
+  "file": "src/app.ts",
+  "old": "const e = x.trim().toLowerCase();",
+  "new": "const e = x.trim();"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "return e.length <= 254 && EMAIL.test(e) ? e : null;",
+  "new": "return EMAIL.test(e) ? e : null;"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "        return fail(new HttpError(\"internal\", \"internal error\"));",
+  "new": "        return fail(new HttpError(\"internal\", String(e)));"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (part.slice(0, i).trim() === name) return part.slice(i + 1).trim();",
+  "new": "if (part.slice(0, i).trim().endsWith(name)) return part.slice(i + 1).trim();"
+ },
+ {
+  "file": "migrations/0002_auth.sql",
+  "old": "  CHECK (status <> 'active' OR user_id IS NOT NULL)\n",
+  "new": "  CHECK (1)\n"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "WHERE m.project_id = p.id AND m.user_id = ? AND m.status = 'active') AS role,",
+  "new": "WHERE m.user_id = ? AND m.status = 'active') AS role,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "(SELECT o.role FROM org_members o WHERE o.org_id = p.org_id AND o.user_id = ?) AS org_role",
+  "new": "(SELECT o.role FROM org_members o WHERE o.user_id = ? LIMIT 1) AS org_role"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "`SELECT role FROM org_members WHERE org_id = ? AND user_id = ?`, [ctx.params.orgId ?? \"\", s.userId]",
+  "new": "`SELECT role FROM org_members WHERE user_id = ? OR org_id = ?`, [s.userId, ctx.params.orgId ?? \"\"]"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "    if (value.byteLength > cap - total) {",
+  "new": "    if (total > cap) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "    if (value.byteLength > cap - total) {",
+  "new": "    if (value.byteLength >= cap - total) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "      await reader.cancel().catch(() => {});\n      return null;",
+  "new": "      return null;"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
+  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= MAX_BODY_BYTES) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) < ?`,",
+  "new": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) <= ?`,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "      if (inserted.changes === 1) {",
+  "new": "      if (inserted.changes >= 0) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "now - 3_600_000, deps.config.maxLinksPerEmailPerHour]",
+  "new": "now - 60_000, deps.config.maxLinksPerEmailPerHour]"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "now + deps.config.signInLinkTtlMs, email,",
+  "new": "now + deps.config.signInLinkTtlMs + 1, email,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "          Promise.resolve()\n            .then(() => deps.mailer.sendSignInLink(email, url))\n            .catch(() => {}),",
+  "new": "          deps.mailer.sendSignInLink(email, url),"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "        deps.waitUntil(\n",
+  "new": "        await ((work: Promise<unknown>) => work)(\n"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== \"cache-control\") headers.set(k, v);",
+  "new": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== \"cache-control\" && !headers.has(k)) headers.set(k, v);"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (k !== \"cache-control\") headers.set(k, v);",
+  "new": "for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);"
  }
 ]
