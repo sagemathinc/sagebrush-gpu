@@ -23,6 +23,11 @@ import {
   type RouteAccess,
 } from "@sbgpu/api";
 import type { Db } from "./db.ts";
+import { HttpError, SECURITY_HEADERS, json } from "./http.ts";
+import { MEMBER_HANDLERS } from "./members.ts";
+import { normalizeEmail } from "./validate.ts";
+
+export { HttpError, SECURITY_HEADERS, json, normalizeEmail };
 
 // ---------------------------------------------------------------- config
 
@@ -81,13 +86,6 @@ export interface AppDeps {
 
 // ---------------------------------------------------------------- http helpers
 
-export const SECURITY_HEADERS: Readonly<Record<string, string>> = Object.freeze({
-  "referrer-policy": "no-referrer",
-  "x-content-type-options": "nosniff",
-  "x-frame-options": "DENY",
-  "cache-control": "no-store",
-});
-
 /**
  * The security headers on a response the Worker serves that isn't the API's JSON (the
  * app's HTML, including the sign-in landing page whose URL carries a one-time token).
@@ -101,21 +99,6 @@ export function withSecurityHeaders(res: Response): Response {
 
 export const SESSION_COOKIE = "__Host-sbgpu_session";
 export const MAX_BODY_BYTES = 64 * 1024;
-
-class HttpError extends Error {
-  readonly code: ErrorCode;
-  constructor(code: ErrorCode, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-function json(status: number, body: unknown, extra: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...SECURITY_HEADERS, "content-type": "application/json; charset=utf-8", ...extra },
-  });
-}
 
 function fail(e: HttpError): Response {
   return json(ERROR_STATUS[e.code], errorBody(e.code, e.message));
@@ -156,15 +139,6 @@ function cookieValue(req: Request, name: string): string | null {
 
 function sessionCookie(value: string, maxAgeSeconds: number): string {
   return `${SESSION_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}`;
-}
-
-// Same rules as the UI's invite-list parser: no quoted local parts, DNS-label domains.
-const LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
-const EMAIL = new RegExp(`^[^\\s@<>,;"]+@${LABEL}(?:\\.${LABEL})+$`);
-export function normalizeEmail(x: unknown): string | null {
-  if (typeof x !== "string") return null;
-  const e = x.trim().toLowerCase();
-  return e.length <= 254 && EMAIL.test(e) ? e : null;
 }
 
 /**
@@ -334,7 +308,7 @@ async function knownEmail(db: Db, email: string): Promise<boolean> {
   return (r[0]?.n ?? 0) > 0;
 }
 
-export const HANDLERS: Handlers = {
+const AUTH_HANDLERS: Handlers = {
   async requestSignInLink(ctx) {
     const { deps } = ctx;
     const email = normalizeEmail(ctx.body.email);
@@ -404,6 +378,8 @@ export const HANDLERS: Handlers = {
     return json(200, await buildMe(ctx.deps.db, ctx.userId as string));
   },
 };
+
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...MEMBER_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 

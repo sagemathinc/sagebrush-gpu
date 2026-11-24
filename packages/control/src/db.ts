@@ -17,6 +17,20 @@ export interface Db {
   batch(stmts: Stmt[]): Promise<void>;
 }
 
+/**
+ * D1 allows at most this many bound parameters in one statement (also inside a batch).
+ * A query over a list of ids binds it in chunks (see chunks()).
+ */
+export const D1_MAX_BOUND_PARAMETERS = 100;
+
+/** `items` in consecutive chunks of at most `size`. */
+export function chunks<T>(items: readonly T[], size: number): T[][] {
+  if (!Number.isSafeInteger(size) || size < 1) throw new RangeError("chunk size must be a positive integer");
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 export function stmt(sql: string, ...params: SqlValue[]): Stmt {
   return { sql, params };
 }
