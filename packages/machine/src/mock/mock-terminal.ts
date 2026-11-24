@@ -36,6 +36,7 @@ const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 // The PTY helper: runs $SHELL (else /bin/sh) in a PTY; stdin -> PTY, PTY -> stdout; fd 3 takes "rows cols\n" lines.
 const PTY_HELPER = `
 import fcntl, os, pty, select, signal, struct, sys, termios
+os.set_inheritable(3, False)  # the shell and its children must not hold the control pipe open
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
@@ -102,6 +103,7 @@ interface Page {
 }
 
 const sessions = new Map<string, Session>();
+const sockets = new Set<Duplex>(); // the upgraded sockets: server.close() and closeAllConnections() leave them open
 
 function ringAppend(s: Session, b: Buffer): void {
   s.ring.push(b);
@@ -336,7 +338,9 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
     inBytes: 0,
   };
   const timer = setTimeout(() => hello || page.close(4403, "no hello"), MOCK_LIMITS.helloMs);
+  sockets.add(socket);
   socket.on("close", () => {
+    sockets.delete(socket);
     clearTimeout(timer);
     closed = true;
     if (page.session?.page === page) page.session.page = null; // the session lives on, for a reattach
@@ -408,6 +412,8 @@ export function startMockTerminal(port: number): Promise<{ port: number; close()
         close: () => {
           for (const s of sessions.values()) if (!s.exit) s.child.kill("SIGKILL");
           sessions.clear();
+          for (const sock of sockets) sock.destroy();
+          sockets.clear();
           server.closeAllConnections();
           server.close();
         },
