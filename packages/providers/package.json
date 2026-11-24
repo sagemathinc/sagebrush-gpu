@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "description": "The provider interface and its adapters (quote, launch, stop, delete, status, availability), and placement.",
-  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }
+  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*", "@sbgpu/machine": "workspace:*" }
 }

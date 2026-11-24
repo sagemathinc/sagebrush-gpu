@@ -12,6 +12,7 @@ import { usdToMicros } from "../money.ts";
 import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
 import type {
   AdapterInfo,
+  LaunchOptions,
   LaunchResult,
   LaunchSpec,
   MachineState,
@@ -302,8 +303,14 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     this.#timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   }
 
-  /** One API call. Network failures and timeouts throw kind "outcome_unknown". */
-  async #call(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+  /**
+   * One API call. Network failures and timeouts throw kind "outcome_unknown", and so does a
+   * `shouldStop` that says to stop before the request is sent.
+   */
+  async #call(method: string, path: string, body?: unknown, shouldStop?: () => boolean): Promise<{ status: number; json: unknown }> {
+    if (shouldStop?.() === true) {
+      throw new ProviderError("runpod", "outcome_unknown", `RunPod ${method} ${path.split("?")[0]}: stopped at the caller's deadline`);
+    }
     const init: Parameters<Fetch>[1] = {
       method,
       headers: { Authorization: `Bearer ${this.#apiKey}`, Accept: "application/json" },
@@ -328,7 +335,10 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     try {
       return { status: res.status, json: JSON.parse(text) };
     } catch {
-      throw new ProviderError("runpod", "unknown", `RunPod ${method} ${path.split("?")[0]}: response is not JSON`, res.status);
+      // A request that changes something (POST, DELETE) succeeded but its reply is unreadable:
+      // the change may have happened. Only a read can be called a plain failure.
+      const kind: ProviderErrorKind = method === "GET" ? "unknown" : "outcome_unknown";
+      throw new ProviderError("runpod", kind, `RunPod ${method} ${path.split("?")[0]}: response is not JSON`, res.status);
     }
   }
 
@@ -395,15 +405,18 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     };
   }
 
-  async launch(spec: LaunchSpec): Promise<LaunchResult> {
+  async launch(spec: LaunchSpec, opts: LaunchOptions = {}): Promise<LaunchResult> {
     const body = this.createBody(spec);
+    const stop = opts.shouldStop;
+    if (stop?.() === true) throw new ProviderError("runpod", "unknown", "stopped at the caller's deadline before launching");
     let json: unknown;
     try {
       ({ json } = await this.#call("POST", "/v2/pods", body));
     } catch (e) {
       if (!(e instanceof ProviderError) || (e.kind !== "outcome_unknown" && e.kind !== "transient")) throw e;
       // The pod may exist even though the call failed: look for it by name before anyone retries.
-      const found = await this.#findByMachineId(spec.machineId).catch(() => {
+      // The search stops at the caller's deadline; a search that didn't finish proves nothing.
+      const found = await this.#findByMachineId(spec.machineId, stop).catch(() => {
         throw new ProviderError("runpod", "outcome_unknown", `${e.message}; the pod list could not be read`);
       });
       if (found.length === 0) throw e;
@@ -490,13 +503,13 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     return parsePodBilling(json, norm);
   }
 
-  async listMachines(): Promise<ProviderMachineStatus[]> {
+  async listMachines(opts: LaunchOptions = {}): Promise<ProviderMachineStatus[]> {
     const out: ProviderMachineStatus[] = [];
     let cursor: string | null = null;
     for (let page = 0; page < MAX_PAGES; page++) {
       const qs = new URLSearchParams({ limit: "1000" });
       if (cursor !== null) qs.set("cursor", cursor);
-      const { json } = await this.#call("GET", `/v2/pods?${qs}`);
+      const { json } = await this.#call("GET", `/v2/pods?${qs}`, undefined, opts.shouldStop);
       const observedAt = this.#observedAt();
       // A malformed page proves nothing: not that a machine is absent, nor that the list is complete.
       if (!isObject(json) || !Array.isArray(json["pods"]) || !isObject(json["pagination"])) {
@@ -520,8 +533,10 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     throw new ProviderError("runpod", "unknown", `RunPod pod list has more than ${MAX_PAGES} pages`);
   }
 
-  async #findByMachineId(machineId: string): Promise<ProviderMachineStatus[]> {
-    return (await this.listMachines()).filter((s) => s.machineId === machineId && s.state !== "terminated");
+  async #findByMachineId(machineId: string, shouldStop?: () => boolean): Promise<ProviderMachineStatus[]> {
+    const opts: LaunchOptions = {};
+    if (shouldStop !== undefined) opts.shouldStop = shouldStop;
+    return (await this.listMachines(opts)).filter((s) => s.machineId === machineId && s.state !== "terminated");
   }
 }
 

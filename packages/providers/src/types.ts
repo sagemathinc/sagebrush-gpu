@@ -53,6 +53,15 @@ export interface AdapterInfo {
   bootTokenEnv: string;
 }
 
+export interface LaunchOptions {
+  /**
+   * Checked before every provider request the launch makes, including any recovery after a
+   * lost response. Once it returns true, the launch stops: before the create request it fails
+   * with kind "unknown" (nothing was created); after it, with "outcome_unknown".
+   */
+  shouldStop?: () => boolean;
+}
+
 export interface OfferQuery {
   gpuCount: number;
 }
@@ -66,7 +75,7 @@ export interface ProviderAdapter {
    * an error with providerMachineId set means a machine exists that was rejected (it doesn't
    * match the spec), and the caller must revoke its boot token and terminate it.
    */
-  launch(spec: LaunchSpec): Promise<LaunchResult>;
+  launch(spec: LaunchSpec, opts?: LaunchOptions): Promise<LaunchResult>;
   /** A machine the provider no longer knows reports state "terminated". */
   status(providerMachineId: string): Promise<ProviderMachineStatus>;
   /** Idempotent: terminating a machine that is already gone succeeds. */

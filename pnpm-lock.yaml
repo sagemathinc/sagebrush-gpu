@@ -34,6 +34,9 @@ importers:
       '@sbgpu/api':
         specifier: workspace:*
         version: link:../api
+      '@sbgpu/machine':
+        specifier: workspace:*
+        version: link:../machine
 
   packages/ui:
     dependencies:

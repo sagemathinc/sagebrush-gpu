@@ -1025,5 +1025,347 @@
   "file": "src/runpod/adapter.ts",
   "old": "  const x = parseIsoUtc(a);\n  return x !== null && x === parseIsoUtc(b);",
   "new": "  return typeof a === \"string\" && Date.parse(a) === Date.parse(b);"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const KEY_SHAPES = [/rpa_[A-Za-z0-9_-]{16,}/, /RUNPOD_API_KEY\\s*[=:]\\s*\\S/];",
+  "new": "const KEY_SHAPES = [/RUNPOD_API_KEY\\s*[=:]\\s*\\S/];"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const KEY_SHAPES = [/rpa_[A-Za-z0-9_-]{16,}/, /RUNPOD_API_KEY\\s*[=:]\\s*\\S/];",
+  "new": "const KEY_SHAPES = [/rpa_[A-Za-z0-9_-]{16,}/];"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (KEY_SHAPES.some((re) => re.test(line))) failures.push(\"key-shaped-string-in-log\");",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (keys !== \"boot,check,detail,pass,paths,v\") throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (o[\"v\"] !== 1) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "paths.length > 20 ||",
+  "new": "paths.length > 21 ||"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "new TextEncoder().encode(p).length <= 256",
+  "new": "p.length <= 1000"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const DETAIL = /^[a-z0-9-]{0,32}$/;",
+  "new": "const DETAIL = /^.{0,64}$/;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const complete = order === PROBE_CHECKS.join(\",\");",
+  "new": "const complete = order.endsWith(\"done\");"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (new Set(probe.map((p) => p.boot)).size > 1) failures.push",
+  "new": "if (false) failures.push"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (failedChecks.length > 0) failures.push(\"check-failed\");",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (!/^[A-Za-z0-9_-]{43}$/.test(plan.spec.bootToken)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "intIn(\"maxSpendMicros\", plan.maxSpendMicros, 1, MAX_PROBE_SPEND_MICROS);",
+  "new": "intIn(\"maxSpendMicros\", plan.maxSpendMicros, 1, 2 * MAX_PROBE_SPEND_MICROS);"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (typeof plan.approval !== \"string\" || plan.approval.trim().length < 8) {",
+  "new": "if (typeof plan.approval !== \"string\") {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (r.stages.some((s) => s.result !== null && !s.result.pass && s.result.complete)) return \"fail\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (r.stages.every((s) => s.result?.pass === true) && r.aborts.length === 0 && r.terminatedConfirmed) return \"pass\";",
+  "new": "if (r.stages.every((s) => s.result?.pass === true) && r.aborts.length === 0) return \"pass\";"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (r.stages.every((s) => s.result?.pass === true) && r.aborts.length === 0 && r.terminatedConfirmed) return \"pass\";",
+  "new": "if (r.stages.some((s) => s.result?.pass === true) && r.aborts.length === 0 && r.terminatedConfirmed) return \"pass\";"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      throw new ProbeFormatError(\"a log event has no line\");",
+  "new": "      continue;"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "if (o.execute && o.approval.trim().length < 8) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "maxProviderCostPerHour: Math.floor((maxSpendMicros * 60) / o.maxMinutes),",
+  "new": "maxProviderCostPerHour: maxSpendMicros * 60,"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "execute: false,",
+  "new": "execute: true,"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "new": "",
+  "note": "SEC H2: name in every raw line"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "new": "    if (!line.startsWith(PROBE_PREFIX) && line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "note": "SEC H2: probe lines are scanned too"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "new": "  if (false) {",
+  "note": "SEC H1"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "new": "  if (plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "note": "SEC H1: an extra argument"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {",
+  "new": "  if (plan.spec.launcher.length !== expected.length) {",
+  "note": "SEC H1: an altered script"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (adapter.info.bootTokenEnv !== BOOT_TOKEN_ENV) throw",
+  "new": "  if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    launcherSha256: await launcherSha256(plan.spec.launcher),",
+  "new": "    launcherSha256: await launcherSha256([]),"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  const bytes = new TextEncoder().encode(JSON.stringify(argv));",
+  "new": "  const bytes = new TextEncoder().encode(argv.join(\"\"));"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    agentSha256: plan.agent.agentSha256,",
+  "new": "    agentSha256: \"\","
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  const launcher = probeLauncher(agent);",
+  "new": "  const launcher = [\"/bin/sh\", \"-c\", o.agentUrl];"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  if (o.agentUrl === \"\" || o.agentSha256 === \"\" || o.controlUrl === \"\") {",
+  "new": "  if (o.agentUrl === \"\") {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    for (const field of [...p.paths, p.detail]) {\n      if (KEY_SHAPES.some((re) => re.test(field))) failures.push(\"key-shaped-string-in-log\");\n      if (field.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n    }\n",
+  "new": "",
+  "note": "TESTS T1 r2: decoded fields must be scanned"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (field.includes(KEY_NAME)) failures.push(\"key-name-in-log\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (KEY_SHAPES.some((re) => re.test(field))) failures.push(\"key-shaped-string-in-log\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const after = clock.now() - t0 + extraMs + RESERVE_MS;",
+  "new": "    const after = clock.now() - t0 + extraMs;",
+  "note": "LIMITS H2: reserve"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const after = clock.now() - t0 + extraMs + RESERVE_MS;",
+  "new": "    const after = clock.now() - t0 + RESERVE_MS;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (after > plan.maxMinutes * 60_000) return \"lifetime\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (costFor(rate, after) > plan.maxSpendMicros) return \"spend-cap\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (costFor(rate, after) > plan.maxSpendMicros) return \"spend-cap\";",
+  "new": "    if (costFor(rate, after) > plan.maxSpendMicros + 1) return \"spend-cap\";"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "export const RESERVE_MS = CALL_TIMEOUT_MS + CLEANUP_RESERVE_MS;",
+  "new": "export const RESERVE_MS = CLEANUP_RESERVE_MS;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "export const CLEANUP_RESERVE_MS = CALL_TIMEOUT_MS * (1 + CONFIRM_POLLS) + CONFIRM_INTERVAL_MS * (CONFIRM_POLLS - 1);",
+  "new": "export const CLEANUP_RESERVE_MS = CALL_TIMEOUT_MS + CONFIRM_INTERVAL_MS * (CONFIRM_POLLS - 1);"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const over = fits(plan.pollSeconds * 1000);",
+  "new": "    const over = fits(0);",
+  "note": "LIMITS H2: check before sleeping"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const g = await guard();\n    if (g.abort !== null) {\n      report.aborts.push(g.abort);\n      return false;\n    }\n    await api.action(id, action);",
+  "new": "    await api.action(id, action);",
+  "note": "LIMITS H1: guard before actions"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (g.status !== null && g.status.state === state && g.status.rawStatus === rawStatus) return true;",
+  "new": "      if (g.status !== null && g.status.state === state) return true;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    return { abort: fits(0), status: s };",
+  "new": "    return { abort: null, status: s };"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (plan.stageMinutes * STAGES.length * 60_000 + RESERVE_MS > plan.maxMinutes * 60_000) {",
+  "new": "  if (plan.stageMinutes * STAGES.length * 60_000 > plan.maxMinutes * 60_000) {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (costFor(plan.spec.maxProviderCostPerHour, RESERVE_MS + plan.pollSeconds * 1000) > plan.maxSpendMicros) {",
+  "new": "  if (false) {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "        report.exposure = { providerMachineId: id, machineName: machineName(plan.spec.machineId), ratePerHour: rate };\n",
+  "new": "",
+  "note": "LIMITS H2: exposure"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    report.withinCap = report.estimatedSpendMicros <= plan.maxSpendMicros;",
+  "new": "    report.withinCap = true;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, CONFIRM_POLLS, CONFIRM_INTERVAL_MS);",
+  "new": "      report.terminatedConfirmed = true;"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  for (const m of body.matchAll(/(?:\\r\\n|\\n)(?:\\r\\n|\\n)/g)) end = m.index + m[0].length;",
+  "new": "  end = body.lastIndexOf(\"\\n\\n\") + 2;",
+  "note": "TESTS T2: CRLF"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  for (const m of body.matchAll(/(?:\\r\\n|\\n)(?:\\r\\n|\\n)/g)) end = m.index + m[0].length;",
+  "new": "  for (const m of body.matchAll(/(?:\\r\\n|\\n|\\r)(?:\\r\\n|\\n|\\r)/g)) end = m.index + m[0].length;",
+  "note": "a lone CRLF is not a blank line"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  return parseLogSse(body.slice(0, completeEventsLength(body)));",
+  "new": "  return parseLogSse(body);",
+  "note": "incomplete tails are dropped"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  const plan: ProbePlan = structuredClone(input);",
+  "new": "  const plan: ProbePlan = input;",
+  "note": "SEC H1: the plan is snapshotted before it is checked"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const launched = await adapter.launch(plan.spec, { shouldStop: () => fits(0) !== null });",
+  "new": "    const launched = await adapter.launch(plan.spec);",
+  "note": "LIMITS H2: the launch is bounded"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (!(e instanceof ProviderError) || e.kind === \"outcome_unknown\") {",
+  "new": "    if (false) {",
+  "note": "LIMITS H2: unknown-outcome exposure"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (!(e instanceof ProviderError) || e.kind === \"outcome_unknown\") {",
+  "new": "    if (!(e instanceof ProviderError)) {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      report.terminatedConfirmed = false;\n      report.exposure",
+  "new": "      report.exposure"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (stop?.() === true) throw new ProviderError(\"runpod\", \"unknown\", \"stopped at the caller's deadline before launching\");",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const found = await this.#findByMachineId(spec.machineId, stop).catch(() => {",
+  "new": "      const found = await this.#findByMachineId(spec.machineId).catch(() => {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const { json } = await this.#call(\"GET\", `/v2/pods?${qs}`, undefined, opts.shouldStop);",
+  "new": "      const { json } = await this.#call(\"GET\", `/v2/pods?${qs}`);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (shouldStop?.() === true) {\n      throw new ProviderError(\"runpod\", \"outcome_unknown\",",
+  "new": "    if (shouldStop?.() === true) {\n      throw new ProviderError(\"runpod\", \"unknown\","
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "      const kind: ProviderErrorKind = \"unknown\";",
+  "note": "TESTS T3: an unreadable create reply may have created a pod"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "      const kind: ProviderErrorKind = \"outcome_unknown\";"
  }
 ]

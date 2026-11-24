@@ -177,6 +177,61 @@ To confirm in the probe (all fail closed today, through the drift check at launc
 returned lists only what we set; how RunPod reports `entrypoint`/`cmd` back; and that a pod
 launched with `startSsh: false` reports `ssh: {proxy: null, direct: null}`.
 
+## The eradication probe (`src/probes/`)
+
+The provider side of SEC's release gate for RunPod (the in-pod side is the probe agent in
+`packages/machine`). **It costs money and needs William's approval to run; it has not been run.**
+
+- `eradication.ts`, the driver:
+  - **Launch:** one pod, exactly as production does (`RunPodAdapter`). The launcher argv is built
+    inside the driver by `@sbgpu/machine`'s `renderBootCommand` from three closed values: the
+    probe agent's https URL, its pinned sha256 and the control URL. So the unchanged production
+    launcher fetches, verifies and execs the probe. There is no way to pass a launcher in, and a
+    plan whose launcher differs from that argv in any byte is refused before launch. The report
+    records the URL, the pin and the sha256 of the complete argv. The boot token is random;
+    nothing exchanges it.
+  - **Results:** read from the container log (`SBGPU-PROBE {v, boot, check, pass, paths,
+    detail}` lines). `judgeStage` passes a stage only if it holds exactly one run of pid1, environ,
+    files, metadata, history and done, in that order, all passing and in one boot. Every raw log
+    line, probe lines included, is scanned before parsing, and every decoded field of an accepted
+    probe line again after it (JSON escapes such as `\u0052` hide from a raw scan): the key's name
+    or a key-shaped string anywhere fails the stage. The key formats must be confirmed
+    from RunPod's documentation before a paid admission run.
+  - **Restart paths:** three stages: first boot, after a restart, and after a stop followed by a
+    start (RunPod's v2 API has no separate reset).
+  - **Budget:** a reserve of 387 s is kept at every step: one provider call in flight (every call
+    times out in 30 s) plus the whole cleanup (a terminate and 10 status reads with 3 s between
+    them). Before every status read, log read, action and sleep, the elapsed time plus the step
+    plus the reserve must fit the lifetime cap and, at the highest rate seen, the spend cap; and
+    the budget is checked again after each status read. Stop-state polling and every restart,
+    stop and start are guarded the same way, with the drift check, so nothing starts again past
+    the budget. The plan itself is refused if its stages and the reserve don't fit the lifetime,
+    or the reserve doesn't fit the spend cap at the rate cap.
+  - **Launch:** the launch itself, recovery after a lost response included (a listing of up to
+    50 pages), is bounded the same way: the adapter checks `LaunchOptions.shouldStop` before
+    every request and stops when the budget can no longer hold one more call and the cleanup.
+    A launch whose outcome stays unknown (a lost response, a listing that failed, was malformed
+    or didn't finish, two pods with one name, a create response without an id) may have left a
+    pod: the report says `terminatedConfirmed: false` and an `exposure` with the machine name and
+    no provider id, never "nothing exists".
+  - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
+    the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.
+  - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing
+    aborted and the pod is confirmed gone; `fail` if the probe found something; otherwise
+    `aborted` (inconclusive). The report says whether the estimate stayed within the cap
+    (`withinCap`); if termination couldn't be confirmed, it reports the `exposure` (the pod and
+    its rate) instead of claiming a ceiling: a remote termination can't be guaranteed locally.
+  - **No exec API:** it never uses RunPod's exec API. Exec'd processes get the container's
+    configured environment, key included, which would plant the key in `/proc` and spoil the probe.
+    The exec API and the web terminal are provider-side paths into the pod that bypass the launcher.
+    They need the account key, not anything inside the pod, so they're outside the probe; SEC's
+    write-up should name them.
+- `cli.ts`, the command line: `--agent-url`, `--agent-sha256` and `--control-url` (required; no
+  `--launcher`). A **dry run by default**: it prints the plan, the launcher's sha256 and the exact
+  create body, with the token masked. `--execute` needs `--approval "<who and where>"`, the API key in the
+  `RUNPOD_API_KEY` environment variable, and a spend cap of at most $10 (default $3). The pod's rate
+  cap is the spend cap spread over the lifetime, so a pricier placement is refused at launch.
+
 ## Not yet
 
 - The second adapter after the Dec 12 provider decision: Shadeform, or Hyperstack/Nebius.
