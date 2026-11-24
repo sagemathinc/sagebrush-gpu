@@ -24,6 +24,9 @@ export function sqliteDb(): TestDb {
     async all<T>(sql: string, params: SqlValue[] = []) {
       return raw.prepare(sql).all(...params) as T[];
     },
+    async run(sql: string, params: SqlValue[] = []) {
+      return { changes: Number(raw.prepare(sql).run(...params).changes) };
+    },
     async batch(stmts: Stmt[]) {
       raw.exec("BEGIN");
       try {

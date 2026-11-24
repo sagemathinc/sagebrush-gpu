@@ -531,7 +531,7 @@ test("d1Db sends one awaited batch of bound statements, and propagates rejection
       return {
         bind(...values: SqlValue[]) {
           calls.push(`bind ${JSON.stringify(values)}`);
-          return { sql, values, all: async () => ({ results: [{ sql, values }] }) } as never;
+          return { sql, values, all: async () => ({ results: [{ sql, values }] }), run: async () => ({ meta: { changes: 3 } }) } as never;
         },
       };
     },
@@ -551,6 +551,7 @@ test("d1Db sends one awaited batch of bound statements, and propagates rejection
   reject = true;
   await assert.rejects(db.batch([stmt("C")]), /D1 says no/);
   assert.deepEqual(await db.all("SELECT ?", [7]), [{ sql: "SELECT ?", values: [7] }]);
+  assert.deepEqual(await db.run("UPDATE ?", [8]), { changes: 3 });
 });
 
 // ---------------------------------------------------------------- hard stops
