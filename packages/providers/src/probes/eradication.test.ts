@@ -457,7 +457,7 @@ test("LIMITS H2: an unconfirmed termination is reported as exposure", async () =
   const h = harness(w);
   const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
   assert.equal(r.terminatedConfirmed, false);
-  assert.deepEqual(r.exposure, { providerMachineId: "pod1", ratePerHour: 3_000_000 });
+  assert.deepEqual(r.exposure, { providerMachineId: "pod1", machineName: "sbg-mch_pr0bepr0bepr0bepr0be", ratePerHour: 3_000_000 });
   assert.equal(r.outcome, "aborted");
 });
 

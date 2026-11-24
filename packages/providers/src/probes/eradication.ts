@@ -20,6 +20,8 @@
 
 import { BOOT_TOKEN_ENV, renderBootCommand } from "@sbgpu/machine";
 import { specDrift, expectedSpec } from "../drift.ts";
+import { ProviderError } from "../errors.ts";
+import { machineName } from "../machine-name.ts";
 import { terminateAndConfirm } from "../placement.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
 
@@ -265,10 +267,12 @@ export interface ProbeReport {
   withinCap: boolean;
   terminatedConfirmed: boolean;
   /**
-   * null when the pod is confirmed gone. Otherwise the driver can't bound the spend: the pod may
-   * keep billing at this rate (micro-USD per hour) until a human terminates it.
+   * null when no pod exists or it is confirmed gone. Otherwise the driver can't bound the spend:
+   * a pod may keep billing at this rate (micro-USD per hour) until a human finds and terminates
+   * it. providerMachineId is null when a launch's outcome is unknown: the pod, if any, carries
+   * machineName.
    */
-  exposure: { providerMachineId: string; ratePerHour: number } | null;
+  exposure: { providerMachineId: string | null; machineName: string; ratePerHour: number } | null;
 }
 
 /**
@@ -320,7 +324,9 @@ export async function runEradicationProbe(
   const finish = async (id: string | null): Promise<ProbeReport> => {
     if (id !== null) {
       report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, CONFIRM_POLLS, CONFIRM_INTERVAL_MS);
-      if (!report.terminatedConfirmed) report.exposure = { providerMachineId: id, ratePerHour: rate };
+      if (!report.terminatedConfirmed) {
+        report.exposure = { providerMachineId: id, machineName: machineName(plan.spec.machineId), ratePerHour: rate };
+      }
     }
     report.estimatedSpendMicros = spend();
     report.withinCap = report.estimatedSpendMicros <= plan.maxSpendMicros;
@@ -330,15 +336,26 @@ export async function runEradicationProbe(
 
   let id: string;
   try {
-    const launched = await adapter.launch(plan.spec);
+    // The whole launch, recovery after a lost response included, stops when the budget can no
+    // longer hold one more call and the cleanup.
+    const launched = await adapter.launch(plan.spec, { shouldStop: () => fits(0) !== null });
     id = launched.providerMachineId;
     rate = Math.max(rate, launched.status.providerCostPerHour ?? rate);
   } catch (e) {
-    // A failed launch may still have left a pod (the adapter reports its id): clean it up.
-    const left = typeof e === "object" && e !== null && "providerMachineId" in e ? (e as { providerMachineId: unknown }).providerMachineId : null;
     report.aborts.push("launch-failed");
-    if (typeof left === "string") report.providerMachineId = left;
-    return finish(typeof left === "string" ? left : null);
+    // A failed launch may still have left a pod. With its id: clean it up.
+    const left = e instanceof ProviderError ? e.providerMachineId : null;
+    if (left !== null) {
+      report.providerMachineId = left;
+      return finish(left);
+    }
+    // Without one, if the create request may have gone through (a lost response, a search
+    // that didn't finish, anything unexpected), a pod may exist that we can't name: say so.
+    if (!(e instanceof ProviderError) || e.kind === "outcome_unknown") {
+      report.terminatedConfirmed = false;
+      report.exposure = { providerMachineId: null, machineName: machineName(plan.spec.machineId), ratePerHour: rate };
+    }
+    return finish(null);
   }
   report.providerMachineId = id;
   const expected = expectedSpec(plan.spec, adapter.info, id);

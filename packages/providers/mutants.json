@@ -1277,7 +1277,7 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "      if (!report.terminatedConfirmed) report.exposure = { providerMachineId: id, ratePerHour: rate };",
+  "old": "        report.exposure = { providerMachineId: id, machineName: machineName(plan.spec.machineId), ratePerHour: rate };\n",
   "new": "",
   "note": "LIMITS H2: exposure"
  },
@@ -1314,5 +1314,47 @@
   "old": "  const plan: ProbePlan = structuredClone(input);",
   "new": "  const plan: ProbePlan = input;",
   "note": "SEC H1: the plan is snapshotted before it is checked"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    const launched = await adapter.launch(plan.spec, { shouldStop: () => fits(0) !== null });",
+  "new": "    const launched = await adapter.launch(plan.spec);",
+  "note": "LIMITS H2: the launch is bounded"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (!(e instanceof ProviderError) || e.kind === \"outcome_unknown\") {",
+  "new": "    if (false) {",
+  "note": "LIMITS H2: unknown-outcome exposure"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (!(e instanceof ProviderError) || e.kind === \"outcome_unknown\") {",
+  "new": "    if (!(e instanceof ProviderError)) {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      report.terminatedConfirmed = false;\n      report.exposure",
+  "new": "      report.exposure"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (stop?.() === true) throw new ProviderError(\"runpod\", \"unknown\", \"stopped at the caller's deadline before launching\");",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const found = await this.#findByMachineId(spec.machineId, stop).catch(() => {",
+  "new": "      const found = await this.#findByMachineId(spec.machineId).catch(() => {"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const { json } = await this.#call(\"GET\", `/v2/pods?${qs}`, undefined, opts.shouldStop);",
+  "new": "      const { json } = await this.#call(\"GET\", `/v2/pods?${qs}`);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (shouldStop?.() === true) {\n      throw new ProviderError(\"runpod\", \"outcome_unknown\",",
+  "new": "    if (shouldStop?.() === true) {\n      throw new ProviderError(\"runpod\", \"unknown\","
  }
 ]

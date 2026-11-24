@@ -207,6 +207,13 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
     stop and start are guarded the same way, with the drift check, so nothing starts again past
     the budget. The plan itself is refused if its stages and the reserve don't fit the lifetime,
     or the reserve doesn't fit the spend cap at the rate cap.
+  - **Launch:** the launch itself, recovery after a lost response included (a listing of up to
+    50 pages), is bounded the same way: the adapter checks `LaunchOptions.shouldStop` before
+    every request and stops when the budget can no longer hold one more call and the cleanup.
+    A launch whose outcome stays unknown (a lost response, a listing that failed, was malformed
+    or didn't finish, two pods with one name, a create response without an id) may have left a
+    pod: the report says `terminatedConfirmed: false` and an `exposure` with the machine name and
+    no provider id, never "nothing exists".
   - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
     the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.
   - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing
