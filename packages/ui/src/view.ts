@@ -153,3 +153,25 @@ export function ago(iso: string, nowMs: number): string {
   if (!(seconds >= 60)) return "just now";
   return `${formatDuration(seconds)} ago`;
 }
+
+/**
+ * The machine's Jupyter link, or null if it isn't one to open: it must parse as an
+ * absolute https URL with no user info and no port, on the machine's own host,
+ * "m-<machine id>." followed by a domain of at least two labels (the machine relay's
+ * per-machine origin, so Jupyter never runs on the UI's origin).
+ */
+export function jupyterUrl(raw: unknown, machineId: string): string | null {
+  if (typeof raw !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "") return null;
+  const prefix = `m-${machineId.toLowerCase()}.`;
+  if (!url.hostname.startsWith(prefix)) return null;
+  const domain = url.hostname.slice(prefix.length).split(".");
+  if (domain.length < 2 || domain.some((label) => label === "")) return null;
+  return url.href;
+}

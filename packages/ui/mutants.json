@@ -646,11 +646,6 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") {\n        batch(",
-  "new": "      if (false) {\n        batch("
- },
- {
-  "file": "src/app/store.ts",
   "old": "      this.error.value = null;\n      return result;",
   "new": "      return result;"
  },
@@ -778,5 +773,190 @@
   "file": "src/app/components.ts",
   "old": "return role === \"member\" ? labels.member : role === \"assistant\" ? labels.assistant : labels.manager;",
   "new": "return role === \"member\" ? labels.member : labels.manager;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        if (generation !== this.#generation) return;\n        batch(() => {\n          this.project.value = project;",
+  "new": "        batch(() => {\n          this.project.value = project;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        if (generation === this.#generation) throw err;",
+  "new": "        throw err;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (generation !== this.#generation) return; // navigated meanwhile",
+  "new": "    if (this.projectId.value !== projectId) return;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    await this.#act(`load:${generation}`, async () => {",
+  "new": "    await this.#act(\"load\", async () => {"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#generation++;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (this.#pollError != null && this.error.value === this.#pollError) this.error.value = null;",
+  "new": "      this.error.value = null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (this.#pollError != null && this.error.value === this.#pollError) this.error.value = null;",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      return true;\n    } catch (err) {",
+  "new": "      return false;\n    } catch (err) {"
+ },
+ {
+  "file": "src/app/polling.ts",
+  "old": "return Math.min(MAX_BACKOFF_MS, FIRST_BACKOFF_MS * 2 ** Math.min(failures - 1, 30));",
+  "new": "return Math.min(MAX_BACKOFF_MS, FIRST_BACKOFF_MS * 2 ** Math.min(failures, 30));"
+ },
+ {
+  "file": "src/app/polling.ts",
+  "old": "export const MAX_BACKOFF_MS = 60_000;",
+  "new": "export const MAX_BACKOFF_MS = 120_000;"
+ },
+ {
+  "file": "src/app/polling.ts",
+  "old": "failures = ok ? 0 : failures + 1;",
+  "new": "failures = ok ? failures : failures + 1;"
+ },
+ {
+  "file": "src/app/polling.ts",
+  "old": "    if (handle !== undefined) timers.clearTimeout(handle);\n    handle = undefined;\n  };",
+  "new": "    handle = undefined;\n  };"
+ },
+ {
+  "file": "src/app/polling.ts",
+  "old": "    if (!stopped) handle = timers.setTimeout(round, ms);",
+  "new": "    handle = timers.setTimeout(round, ms);"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "      if (unmounted) return;\n      stop = startPolling",
+  "new": "      stop = startPolling"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "      stop?.();\n",
+  "new": "\n"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  }, [projectId]);",
+  "new": "  }, []);"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") this.#endSession();\n      this.error.value",
+  "new": "      this.error.value"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") {\n        this.#endSession();\n        return false;\n      }\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#endSession();\n  }\n\n  // ----",
+  "new": "  }\n\n  // ----"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "  #endSession(): void {\n    this.#generation++;\n",
+  "new": "  #endSession(): void {\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.projectId.value = null;\n      this.project.value = null;\n      this.meters.value = [];",
+  "new": "      this.meters.value = [];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n    });\n  }\n\n  isBusy",
+  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n    });\n  }\n\n  isBusy"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (url == null) this.error.value =",
+  "new": "    if (false) this.error.value ="
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const url = jupyterUrl(link.url, machineId);",
+  "new": "    const url = link.url;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "if (url.protocol !== \"https:\" || url.username",
+  "new": "if (url.username"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "url.username !== \"\" || url.password !== \"\" || url.port !== \"\") return null;",
+  "new": "url.password !== \"\" || url.port !== \"\") return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "url.username !== \"\" || url.password !== \"\" || url.port !== \"\") return null;",
+  "new": "url.username !== \"\" || url.port !== \"\") return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "url.username !== \"\" || url.password !== \"\" || url.port !== \"\") return null;",
+  "new": "url.username !== \"\" || url.password !== \"\") return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!url.hostname.startsWith(prefix)) return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  const prefix = `m-${machineId.toLowerCase()}.`;",
+  "new": "  const prefix = `m-${machineId.toLowerCase()}`;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "if (domain.length < 2 || domain.some((label) => label === \"\")) return null;",
+  "new": "if (domain.some((label) => label === \"\")) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "if (domain.length < 2 || domain.some((label) => label === \"\")) return null;",
+  "new": "if (domain.length < 2) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (typeof raw !== \"string\") return null;\n  let url: URL;",
+  "new": "  let url: URL;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  return url.href;\n}",
+  "new": "  return String(raw);\n}"
+ },
+ {
+  "file": "src/app/polling.ts",
+  "old": "    if (store.me.value == null) stopped = true;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    if (url) window.open(url, \"_blank\", \"noopener,noreferrer\");",
+  "new": "    if (url) window.open(url, \"_blank\");"
+ },
+ {
+  "file": "src/app/polling.ts",
+  "old": "    if (visible()) {",
+  "new": "    if (true) {"
  }
 ]

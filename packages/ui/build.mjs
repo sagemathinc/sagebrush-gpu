@@ -18,6 +18,8 @@ await build({
   outdir,
   minify: true,
   sourcemap: true,
+  // The production map points at sources without embedding them (the mock's text stays out).
+  sourcesContent: mock,
   target: "es2022",
   define: { SBGPU_MOCK: String(mock) },
   logLevel: "warning",

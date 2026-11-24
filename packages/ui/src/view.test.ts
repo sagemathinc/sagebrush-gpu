@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MACHINE_STATES, QUOTE_REFUSALS, STOP_REASONS, type Machine, type SpendMeter } from "@sbgpu/api";
 import { capitalize, GENERIC_LABELS, plural, resolveLabels, withArticle } from "./labels.ts";
-import { ago, formatBytes, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "./view.ts";
+import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "./view.ts";
 
 const COURSE = resolveLabels({ project: "course", member: "student", manager: "instructor", assistant: "TA", team: "group" });
 
@@ -160,4 +160,36 @@ test("ago", () => {
   assert.equal(ago("2027-02-01T09:59:00.000Z", t), "1 min ago");
   assert.equal(ago("2027-02-01T07:40:00.000Z", t), "2 h 20 min ago");
   assert.equal(ago("2027-02-01T10:05:00.000Z", t), "just now"); // a clock a little behind
+});
+
+test("jupyterUrl: only the machine's own https origin", () => {
+  const id = "mch_0000000000000000000a";
+  const ok = `https://m-${id}.machines.example.org/?code=abc`;
+  assert.equal(jupyterUrl(ok, id), ok);
+  assert.equal(jupyterUrl(`https://M-${id.toUpperCase()}.Machines.Example.org/lab`, id), `https://m-${id}.machines.example.org/lab`);
+  for (const bad of [
+    `javascript:alert(1)//m-${id}.x.org`,
+    `data:text/html,<script>1</script>`,
+    `http://m-${id}.machines.example.org/`,
+    `https://evil.example/`,
+    `https://m-mch_000000000000000000zz.machines.example.org/`, // another machine
+    `https://m-${id}x.machines.example.org/`,
+    `https://user:pw@m-${id}.machines.example.org/`,
+    `https://m-${id}.machines.example.org@evil.example/`, // userinfo trick: the host is evil.example
+    `https://user@m-${id}.machines.example.org/`,
+    `https://:pw@m-${id}.machines.example.org/`,
+    `https://m-${id}.machines.example.org:8443/`,
+    `https://m-${id}.localhost/`, // a one-label domain
+    `https://m-${id}./`,
+    `https://m-${id}.a..b/`,
+    `//m-${id}.machines.example.org/`, // relative: no base, so it doesn't parse
+    `/lab`,
+    "https://",
+    "",
+  ]) {
+    assert.equal(jupyterUrl(bad, id), null, bad);
+  }
+  assert.equal(jupyterUrl(42, id), null);
+  assert.equal(jupyterUrl(null, id), null);
+  assert.equal(jupyterUrl(new URL(ok), id), null); // only the API's string, never an object
 });

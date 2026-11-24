@@ -35,7 +35,7 @@ cookie sessions). It uses only the public API, the same API Sagebrush uses.
   allocation too low for the minimum slice). Start, then progress: requested, booting,
   restoring the workspace, running the setup script, ready.
 - **Machines:** state, GPU, provider, uptime, cost so far. Actions: Open terminal (embedded
-  xterm.js over gpu3's relay), Open Jupyter (a new tab through the relay), Save now (with
+  xterm.js over the machine relay), Open Jupyter (a new tab through the relay), Save now (with
   progress), Stop (save progress, then stopped), Restart, Delete.
 - **History:** past sessions with cost and stop reason.
 
@@ -97,7 +97,7 @@ cookie sessions). It uses only the public API, the same API Sagebrush uses.
 - `emails.ts`: parse and validate an invite list.
 - `labels.ts`: display labels, with articles and plurals for role words.
 
-## Terminal and Jupyter (agreed with gpu3)
+## Terminal and Jupyter (the machine relay's protocol)
 
 - The terminal is xterm.js over a WebSocket to the relay on the UI's own site:
   `/api/relay/v1/page?machine=<id>&chan=terminal`. The first frame is

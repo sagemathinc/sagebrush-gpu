@@ -10,6 +10,7 @@ import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
 import { ago, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "../view.ts";
 import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
+import { startPolling, type PollTimers } from "./polling.ts";
 
 export const html = htmPreact as (strings: TemplateStringsArray, ...values: unknown[]) => VNode;
 
@@ -219,21 +220,20 @@ export function roleWord(role: string | null, labels: ProjectLabels): string {
   return role === "member" ? labels.member : role === "assistant" ? labels.assistant : labels.manager;
 }
 
-export function ProjectPage({ store, projectId }: { store: Store; projectId: string }): VNode {
+export function ProjectPage({ store, projectId, timers }: { store: Store; projectId: string; timers?: PollTimers | undefined }): VNode {
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
-    const loop = async () => {
-      if (stopped) return;
-      if (typeof document === "undefined" || document.visibilityState === "visible") await store.refresh();
-      timer = setTimeout(loop, store.pollDelayMs());
-    };
+    let stop: (() => void) | null = null;
+    let unmounted = false;
     void store.openProject(projectId).then(() => {
-      timer = setTimeout(loop, store.pollDelayMs());
+      if (unmounted) return;
+      stop = startPolling(store, {
+        ...(timers ? { timers } : {}),
+        visible: () => typeof document === "undefined" || document.visibilityState === "visible",
+      });
     });
     return () => {
-      stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
+      unmounted = true;
+      stop?.();
     };
   }, [projectId]);
 
@@ -259,7 +259,18 @@ export function ProjectPage({ store, projectId }: { store: Store; projectId: str
 
 // ---------------------------------------------------------------- the app
 
-export function App({ store, nav, demoAccounts }: { store: Store; nav: Nav; demoAccounts?: DemoAccount[] | undefined }): VNode {
+export function App({
+  store,
+  nav,
+  demoAccounts,
+  timers,
+}: {
+  store: Store;
+  nav: Nav;
+  demoAccounts?: DemoAccount[] | undefined;
+  /** For tests: the polling loop's timers. */
+  timers?: PollTimers | undefined;
+}): VNode {
   const me = store.me.value;
   let page: VNode;
   if (!store.meLoaded.value) page = html`<main><p class="muted">Loading…</p></main>`;
@@ -270,7 +281,7 @@ export function App({ store, nav, demoAccounts }: { store: Store; nav: Nav; demo
       route.name === "home"
         ? html`<${Home} store=${store} nav=${nav} />`
         : route.name === "project"
-          ? html`<${ProjectPage} store=${store} projectId=${route.projectId} />`
+          ? html`<${ProjectPage} store=${store} projectId=${route.projectId} timers=${timers} />`
           : html`<main><h1>Not found</h1><p><${Link} nav=${nav} to=${{ name: "home" }}>Your projects<//></p></main>`;
   }
   return html`<div class="app">

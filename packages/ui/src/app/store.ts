@@ -14,6 +14,7 @@ import {
 } from "@sbgpu/api";
 import { ApiError, type Client } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
+import { jupyterUrl } from "../view.ts";
 
 /** Poll fast while something is changing, slowly otherwise. */
 export const FAST_POLL_MS = 2_000;
@@ -55,6 +56,11 @@ export class Store {
   );
   readonly activeMachines = computed(() => this.machines.value.filter((m) => ACCRUING_STATES.includes(m.state)));
 
+  /** Increments on every navigation (openProject, signOut); results of older ones are dropped. */
+  #generation = 0;
+  /** The banner message the last failed poll set, so a later good poll can clear it (and only it). */
+  #pollError: string | null = null;
+
   constructor(client: Client, now: () => number = Date.now) {
     this.client = client;
     this.now = now;
@@ -75,12 +81,7 @@ export class Store {
       this.error.value = null;
       return result;
     } catch (err) {
-      if (err instanceof ApiError && err.code === "unauthenticated") {
-        batch(() => {
-          this.me.value = null;
-          this.meLoaded.value = true;
-        });
-      }
+      if (err instanceof ApiError && err.code === "unauthenticated") this.#endSession();
       this.error.value = err instanceof Error ? err.message : String(err);
       return null;
     } finally {
@@ -88,6 +89,24 @@ export class Store {
       next.delete(key);
       this.busy.value = next;
     }
+  }
+
+  /**
+   * The session is over (signed out, or the server says unauthenticated): forget the user
+   * and every protected object, and drop the results of anything still in flight.
+   */
+  #endSession(): void {
+    this.#generation++;
+    batch(() => {
+      this.me.value = null;
+      this.meLoaded.value = true;
+      this.projectId.value = null;
+      this.project.value = null;
+      this.meters.value = [];
+      this.machines.value = [];
+      this.gpuTypes.value = [];
+      this.quotes.value = {};
+    });
   }
 
   isBusy(key: string): boolean {
@@ -126,11 +145,7 @@ export class Store {
 
   async signOut(): Promise<void> {
     await this.#act("signout", () => this.client.call("signOut", { body: {} }));
-    batch(() => {
-      this.me.value = null;
-      this.projectId.value = null;
-      this.project.value = null;
-    });
+    this.#endSession();
   }
 
   // ---------------------------------------------------------------- project
@@ -146,31 +161,66 @@ export class Store {
         this.quotes.value = {};
       });
     }
-    await this.#act("load", async () => {
-      const params = { projectId };
-      const [project, gpuTypes] = await Promise.all([
-        this.client.call("getProject", { params }),
-        this.client.call("listGpuTypes", { params }),
-      ]);
-      batch(() => {
-        this.project.value = project;
-        this.gpuTypes.value = gpuTypes.items;
-      });
-      await this.refresh();
+    const generation = ++this.#generation;
+    // Every navigation loads, even back to the same project: the latest one wins, and a
+    // superseded load neither writes its results nor reports its errors.
+    await this.#act(`load:${generation}`, async () => {
+      try {
+        const params = { projectId };
+        const [project, gpuTypes] = await Promise.all([
+          this.client.call("getProject", { params }),
+          this.client.call("listGpuTypes", { params }),
+        ]);
+        if (generation !== this.#generation) return;
+        batch(() => {
+          this.project.value = project;
+          this.gpuTypes.value = gpuTypes.items;
+        });
+        await this.#refresh(generation);
+      } catch (err) {
+        if (generation === this.#generation) throw err;
+      }
     });
   }
 
   /** Reload what changes over time: meters, machines and quotes. */
-  async refresh(): Promise<void> {
+  refresh(): Promise<void> {
+    return this.#refresh(this.#generation);
+  }
+
+  /**
+   * One polling round; true when it succeeded. It never throws, so the polling loop
+   * keeps going: a failure shows in the banner until a later round succeeds, and an ended
+   * session signs the page out.
+   */
+  async poll(): Promise<boolean> {
+    try {
+      await this.refresh();
+      if (this.#pollError != null && this.error.value === this.#pollError) this.error.value = null;
+      this.#pollError = null;
+      return true;
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "unauthenticated") {
+        this.#endSession();
+        return false;
+      }
+      this.#pollError = `Couldn't refresh: ${err instanceof Error ? err.message : String(err)}`;
+      this.error.value = this.#pollError;
+      return false;
+    }
+  }
+
+  async #refresh(generation: number): Promise<void> {
     const projectId = this.projectId.value;
     if (projectId == null) return;
     const params = { projectId };
+    const gpuTypes = this.gpuTypes.value;
     const [spend, machines, quotes] = await Promise.all([
       this.client.call("getSpend", { params }),
       this.client.call("listMachines", { params }),
-      Promise.all(this.gpuTypes.value.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
+      Promise.all(gpuTypes.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
     ]);
-    if (this.projectId.value !== projectId) return; // navigated away meanwhile
+    if (generation !== this.#generation) return; // navigated meanwhile
     batch(() => {
       this.meters.value = spend.meters;
       this.machines.value = machines.items;
@@ -226,9 +276,16 @@ export class Store {
     return this.#machineAction("delete", machineId);
   }
 
-  /** A one-time Jupyter link; the caller opens it in a new tab (never on our origin). */
+  /**
+   * A one-time Jupyter link, checked (view.ts jupyterUrl) before anyone opens it: the
+   * caller opens it in a new tab, never on our origin. Null, with the reason in the
+   * banner, when the request failed or the link is not one we'd open.
+   */
   async jupyterLink(machineId: string): Promise<string | null> {
     const link = await this.#act(`jupyter:${machineId}`, () => this.client.call("openJupyterLink", { params: { machineId }, body: {} }));
-    return link?.url ?? null;
+    if (link == null) return null;
+    const url = jupyterUrl(link.url, machineId);
+    if (url == null) this.error.value = "The server sent a Jupyter link that isn't the machine's own address; it was not opened.";
+    return url;
   }
 }

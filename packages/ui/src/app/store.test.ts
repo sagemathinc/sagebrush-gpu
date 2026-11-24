@@ -4,6 +4,7 @@ import { createClient } from "../client.ts";
 import { mockFetch } from "../mock/fetch.ts";
 import { seedDemo, type Demo } from "../mock/seed.ts";
 import { FAST_POLL_MS, SLOW_POLL_MS, Store } from "./store.ts";
+import { controllable } from "./testkit.ts";
 
 const MIN = 60_000;
 
@@ -177,4 +178,161 @@ test("switching projects clears the old project's data", async () => {
   assert.deepEqual(store.gpuTypes.value, []);
   assert.deepEqual(store.meters.value, []);
   assert.match(store.error.value ?? "", /no such project/);
+});
+
+test("navigation race: the latest project wins, even when an older load answers last", async () => {
+  const t = await controllable();
+  const a = t.demo.projectId;
+  const b = t.otherId;
+  t.hold(new RegExp(`^GET /v1/projects/${a}$`));
+  const first = t.store.openProject(a); // its getProject waits
+  await t.store.openProject(b);
+  assert.equal(t.store.project.value?.id, b);
+  t.release();
+  await first;
+  assert.equal(t.store.projectId.value, b);
+  assert.equal(t.store.project.value?.id, b);
+  assert.deepEqual(t.store.gpuTypes.value.map((g) => g.gpuType), ["A6000"]);
+  assert.deepEqual(Object.keys(t.store.quotes.value), ["A6000"]);
+  assert.equal(t.store.myMeter.value?.amount, 5_000_000);
+  assert.ok(t.log.includes(`GET /v1/projects/${b}`));
+  // A's late answer led to nothing more for A.
+  assert.ok(!t.log.some((x) => x === `GET /v1/projects/${a}/spend` || x === `GET /v1/projects/${a}/machines`));
+  assert.equal(t.store.error.value, null);
+  assert.equal(t.store.busy.value.size, 0);
+});
+
+test("navigation race: a superseded load's refresh is dropped too", async () => {
+  const t = await controllable();
+  const a = t.demo.projectId;
+  const b = t.otherId;
+  t.hold(new RegExp(`^GET /v1/projects/${a}/spend$`)); // A gets as far as its meters
+  const first = t.store.openProject(a);
+  await new Promise((r) => setTimeout(r, 0));
+  await t.store.openProject(b);
+  t.release();
+  await first;
+  assert.equal(t.store.project.value?.id, b);
+  assert.ok(t.store.meters.value.every((m) => m.amount === 5_000_000));
+  assert.deepEqual(t.store.gpuTypes.value.map((g) => g.gpuType), ["A6000"]);
+});
+
+test("navigation race: a superseded load's error stays hidden", async () => {
+  const t = await controllable();
+  t.hold(/^GET \/v1\/projects\/prj_zzzzzzzzzzzzzzzzzzzz/); // both of its requests fail late
+  const first = t.store.openProject("prj_zzzzzzzzzzzzzzzzzzzz"); // will be notFound
+  await t.store.openProject(t.otherId);
+  t.release();
+  await first;
+  assert.equal(t.store.error.value, null);
+  assert.equal(t.store.project.value?.id, t.otherId);
+});
+
+test("reopening the same project while it loads still loads it", async () => {
+  const t = await controllable();
+  const a = t.demo.projectId;
+  t.hold(new RegExp(`^GET /v1/projects/${a}$`));
+  const first = t.store.openProject(a);
+  const second = t.store.openProject(a);
+  t.release();
+  await Promise.all([first, second]);
+  assert.equal(t.store.project.value?.id, a);
+  assert.equal(t.store.gpuTypes.value.length, 4);
+});
+
+test("poll: a failure keeps polling alive and clears itself when a later round succeeds", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  t.failOnce(new TypeError("connection reset"));
+  await t.store.poll(); // never throws
+  assert.match(t.store.error.value ?? "", /^Couldn't refresh: network error: connection reset/);
+  assert.notEqual(t.store.me.value, null);
+  await t.store.poll();
+  assert.equal(t.store.error.value, null);
+});
+
+test("poll: an action's error is not cleared by a good poll", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  await t.store.start("A10"); // noCapacity
+  const message = t.store.error.value;
+  assert.match(message ?? "", /noCapacity/);
+  await t.store.poll();
+  assert.equal(t.store.error.value, message);
+});
+
+test("poll: an ended session signs the page out", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  t.demo.backend.currentUserId = null;
+  await t.store.poll();
+  assert.equal(t.store.me.value, null);
+  assert.equal(t.store.meLoaded.value, true);
+});
+
+test("signing out drops a load still in flight", async () => {
+  const t = await controllable();
+  const a = t.demo.projectId;
+  t.hold(new RegExp(`^GET /v1/projects/${a}$`));
+  const first = t.store.openProject(a);
+  await t.store.signOut();
+  t.release();
+  await first;
+  assert.equal(t.store.project.value, null);
+  assert.equal(t.store.projectId.value, null);
+});
+
+test("navigation race: an older load of the same project can't overwrite a newer one", async () => {
+  const t = await controllable();
+  const a = t.demo.projectId;
+  t.hold(new RegExp(`^GET /v1/projects/${a}/machines$`), true); // only the first load's answer is late
+  const first = t.store.openProject(a);
+  await new Promise((r) => setTimeout(r, 0));
+  // Meanwhile a machine starts (by another tab, say), and the project is opened again.
+  await t.store.client.call("startMachine", { params: { projectId: a }, body: { gpuType: "L4" } });
+  await t.store.openProject(t.otherId);
+  await t.store.openProject(a);
+  assert.equal(t.store.machines.value.length, 1);
+  t.release();
+  await first; // its stale answer (no machines) arrives last
+  assert.equal(t.store.machines.value.length, 1);
+});
+
+test("an action that finds the session over clears every protected object", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  t.demo.backend.currentUserId = null;
+  assert.equal(await t.store.start("L4"), false);
+  assert.equal(t.store.me.value, null);
+  assert.equal(t.store.projectId.value, null);
+  assert.equal(t.store.project.value, null);
+  assert.deepEqual([t.store.meters.value, t.store.machines.value, t.store.gpuTypes.value], [[], [], []]);
+  assert.deepEqual(t.store.quotes.value, {});
+});
+
+test("a poll that finds the session over clears every protected object too", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  t.demo.backend.currentUserId = null;
+  assert.equal(await t.store.poll(), false);
+  assert.equal(t.store.me.value, null);
+  assert.equal(t.store.project.value, null);
+  assert.deepEqual(t.store.meters.value, []);
+  assert.deepEqual(t.store.quotes.value, {});
+});
+
+test("jupyterLink opens only the machine's own https origin", async () => {
+  const t = await controllable();
+  await t.store.openProject(t.demo.projectId);
+  await t.store.start("L4");
+  t.demo.backend.advance(90_000);
+  const id = t.store.machines.value[0]!.id;
+  assert.match((await t.store.jupyterLink(id)) ?? "", new RegExp(`^https://m-${id}\\.mock\\.invalid/\\?code=`));
+  assert.equal(t.store.error.value, null);
+  // A server that answers with someone else's address: refused, and said so.
+  const real = t.store.client.call.bind(t.store.client);
+  (t.store.client as { call: typeof real }).call = (async (name: string, args: unknown) =>
+    name === "openJupyterLink" ? { url: "https://evil.example/", expiresAt: "2027-02-01T09:02:30.000Z" } : real(name as never, args as never)) as typeof real;
+  assert.equal(await t.store.jupyterLink(id), null);
+  assert.match(t.store.error.value ?? "", /isn't the machine's own address/);
 });
