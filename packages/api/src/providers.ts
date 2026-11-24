@@ -72,6 +72,11 @@ export interface ProviderMachineStatus {
   command: string[];
   /** Environment variable names only, never values. */
   envNames: string[];
+  /**
+   * Provider settings outside our launch shape, as "name:value" (e.g. "ssh:proxy",
+   * "cloud:COMMUNITY"); expected empty. Unreadable values are listed too.
+   */
+  unexpectedSettings: string[];
   providerCostPerHour: Micros | null;
   observedAt: IsoTime;
 }
