@@ -1,53 +1,48 @@
 [
  {
   "file": "src/ledger.ts",
-  "old": "const complete = minuteEnd <= nowMs;",
-  "new": "const complete = minuteEnd < nowMs;"
+  "old": "if (b + MINUTE_MS > nowMs) break;",
+  "new": "if (b + MINUTE_MS > nowMs + 1000) break;"
  },
  {
   "file": "src/ledger.ts",
-  "old": "const complete = minuteEnd <= nowMs;",
-  "new": "const complete = minuteEnd <= nowMs + 1000;"
+  "old": "if (b + MINUTE_MS > nowMs) break;",
+  "new": "if (b + MINUTE_MS >= nowMs) break;"
  },
  {
   "file": "src/ledger.ts",
-  "old": "const finalPartial = end !== null && end <= nowMs && end < minuteEnd;",
-  "new": "const finalPartial = end !== null && end < minuteEnd;"
+  "old": "if (doneAt !== null && b >= doneAt) break;",
+  "new": ""
  },
  {
   "file": "src/ledger.ts",
-  "old": "const finalPartial = end !== null && end <= nowMs && end < minuteEnd;",
-  "new": "const finalPartial = false;"
+  "old": "const doneAt = last === undefined ? m.billedThroughMs : last.endMs === null ? null : ceilMinute(last.endMs);",
+  "new": "const doneAt = last === undefined ? m.billedThroughMs : last.endMs === null ? null : floorMinute(last.endMs);"
  },
  {
   "file": "src/ledger.ts",
-  "old": "const seconds = Math.ceil((to - from) / 1000);",
-  "new": "const seconds = Math.round((to - from) / 1000);"
+  "old": "  for (const f of frags) ms += f.ms;",
+  "new": "  for (const f of frags) ms = Math.max(ms, f.ms);"
  },
  {
   "file": "src/ledger.ts",
-  "old": "const seconds = Math.ceil((to - from) / 1000);",
-  "new": "const seconds = Math.floor((to - from) / 1000);"
+  "old": "const pin = frags[0]!.iv;",
+  "new": "const pin = frags[frags.length - 1]!.iv;"
  },
  {
   "file": "src/ledger.ts",
-  "old": "const from = Math.max(b, m.accrualStartMs);",
-  "new": "const from = b;"
+  "old": "    const from = Math.max(b, iv.startMs);\n    const to = Math.min(e, iv.endMs ?? nowMs);",
+  "new": "    const from = b;\n    const to = Math.min(e, iv.endMs ?? nowMs);"
  },
  {
   "file": "src/ledger.ts",
-  "old": "const to = end === null ? minuteEnd : Math.min(minuteEnd, end);",
-  "new": "const to = minuteEnd;"
+  "old": "if (to > from) out.push({ iv, ms: to - from });",
+  "new": "if (to >= from) out.push({ iv, ms: to - from });"
  },
  {
   "file": "src/ledger.ts",
-  "old": "if (end !== null && b >= end) break;",
-  "new": "if (end !== null && b > end) break;"
- },
- {
-  "file": "src/ledger.ts",
-  "old": "if (to > from) {",
-  "new": "if (to >= from) {"
+  "old": "if (maxMinutes > MAX_MINUTES_PER_RUN) throw new RangeError(`maxMinutes is capped at ${MAX_MINUTES_PER_RUN}`);",
+  "new": ""
  },
  {
   "file": "src/ledger.ts",
@@ -56,18 +51,73 @@
  },
  {
   "file": "src/ledger.ts",
-  "old": "if (m.accrualEndMs < m.accrualStartMs) throw new RangeError(\"accrual ends before it starts\");",
+  "old": "if (iv.startMs < prevEnd) throw new RangeError(\"intervals overlap\");",
   "new": ""
  },
  {
   "file": "src/ledger.ts",
-  "old": "for (let n = 0; n < maxMinutes; n++) {",
-  "new": "for (let n = 0; n <= maxMinutes; n++) {"
+  "old": "if (i !== m.intervals.length - 1) throw new RangeError(\"only the last interval may be open\");",
+  "new": ""
  },
  {
   "file": "src/ledger.ts",
-  "old": "entries.push({ periodStartMs: b, seconds, split: entrySplit(m.providerCostPerHour, seconds, m.marginBps) });",
-  "new": "entries.push({ periodStartMs: b, seconds, split: entrySplit(m.providerCostPerHour, 60, m.marginBps) });"
+  "old": "if (iv.incarnation <= prevInc) throw new RangeError(\"intervals are not in incarnation order\");",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "if (m.intervals.some((iv) => iv.endMs === null)) throw new RangeError(\"pendingCharge needs every interval closed\");",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "    if (s % MINUTE_MS !== 0) boundary.add(floorMinute(s));\n",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "    if (e % MINUTE_MS !== 0) boundary.add(floorMinute(e));\n",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const full = Math.max(0, (floorMinute(e) - ceilMinute(s)) / MINUTE_MS);",
+  "new": "const full = Math.max(0, (ceilMinute(e) - ceilMinute(s)) / MINUTE_MS);"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const s = Math.max(iv.startMs, B);",
+  "new": "const s = iv.startMs;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "total = checkedAdd(total, checkedMul(full, fullMinuteCharge(iv)));",
+  "new": "total = total + full * fullMinuteCharge(iv);"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const pinned = (fragments(m.intervals, c, open.startMs + MINUTE_MS)[0]?.iv ?? open) as AccrualInterval;",
+  "new": "const pinned = open;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const nBefore = Math.min(n, Math.max(0, idx));",
+  "new": "const nBefore = 0;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "maxBps = Math.max(maxBps, iv.marginBps);",
+  "new": ""
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const nAt = idx >= 0 && idx < n ? 1 : 0;",
+  "new": "const nAt = idx >= 0 && idx <= n ? 1 : 0;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const n = Math.ceil(windowSeconds / LEDGER_MINUTE_SECONDS);",
+  "new": "const n = Math.floor(windowSeconds / LEDGER_MINUTE_SECONDS);"
  },
  {
   "file": "src/ledger.ts",
@@ -81,52 +131,172 @@
  },
  {
   "file": "src/ledger.ts",
-  "old": "WHERE m.accrual_start_ms IS NOT NULL AND (m.accrual_end_ms IS NULL OR m.billed_through_ms < m.accrual_end_ms)`,\n  );\n  const report",
-  "new": "WHERE m.accrual_start_ms IS NOT NULL AND m.accrual_end_ms IS NULL`,\n  );\n  const report"
- },
- {
-  "file": "src/ledger.ts",
-  "old": "const running = list.filter((r) => r.accrual_end_ms === null);",
+  "old": "const running = list.filter((x) => x.m.intervals.at(-1)?.endMs === null);",
   "new": "const running = list;"
  },
  {
   "file": "src/ledger.ts",
-  "old": "for (const e of planAccrual(toMachine(r), Math.max(nowMs, r.accrual_end_ms), Number.MAX_SAFE_INTEGER).entries) pending += e.split.total;",
+  "old": "for (const x of list) if (x.m.intervals.at(-1)?.endMs !== null) pending = checkedAdd(pending, pendingCharge(x.m));",
   "new": ""
  },
  {
   "file": "src/ledger.ts",
-  "old": "const oldest = Math.min(...running.map((r) => r.billed_through_ms));",
-  "new": "const oldest = Math.max(...running.map((r) => r.billed_through_ms));"
+  "old": "const w0 = Math.min(...running.map((x) => x.m.billedThroughMs));",
+  "new": "const w0 = Math.max(...running.map((x) => x.m.billedThroughMs));"
  },
  {
   "file": "src/ledger.ts",
-  "old": "unbilledSeconds: Math.ceil((nowMs - oldest) / 1000),",
-  "new": "unbilledSeconds: Math.floor((nowMs - oldest) / 1000),"
+  "old": "const unbilled = Math.ceil((nowMs - w0) / 1000);",
+  "new": "const unbilled = Math.floor((nowMs - w0) / 1000);"
  },
  {
   "file": "src/ledger.ts",
-  "old": "unbilledSeconds: Math.ceil((nowMs - oldest) / 1000),",
-  "new": "unbilledSeconds: 0,"
- },
- {
-  "file": "src/ledger.ts",
-  "old": "      stop = true; // fail closed",
-  "new": "      stop = false;"
- },
- {
-  "file": "src/ledger.ts",
-  "old": "Math.max(...running.map((r) => r.save_estimate_seconds))",
+  "old": "Math.max(...running.map((x) => x.row.save_estimate_seconds))",
   "new": "0"
  },
  {
   "file": "src/ledger.ts",
-  "old": "Math.max(...running.map((r) => r.save_estimate_seconds))",
-  "new": "running[0]!.save_estimate_seconds"
+  "old": "        checkMs(name, v);\n",
+  "new": ""
  },
  {
   "file": "src/ledger.ts",
-  "old": "if (stop) stops.push(",
-  "new": "if (stop && unspent >= 0) stops.push("
+  "old": "      stop = unspent < threshold;",
+  "new": "      stop = unspent <= threshold;"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "    } catch {\n      stop = true;\n    }",
+  "new": "    } catch {\n      stop = false;\n    }"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "stmt(`UPDATE machines SET billed_through_ms = COALESCE(billed_through_ms, ?) WHERE id = ?`, floorMinute(iv.startMs), machineId),",
+  "new": "stmt(`UPDATE machines SET billed_through_ms = COALESCE(billed_through_ms, ?) WHERE id = ?`, ceilMinute(iv.startMs), machineId),"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "`UPDATE machine_accruals SET end_ms = ? WHERE machine_id = ? AND incarnation = ? AND end_ms IS NULL`",
+  "new": "`UPDATE machine_accruals SET end_ms = ? WHERE machine_id = ? AND incarnation = ?`"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "      raw.exec(\"BEGIN\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "        raw.exec(\"ROLLBACK\");\n",
+  "new": "        raw.exec(\"COMMIT\");\n"
+ },
+ {
+  "file": "src/db.ts",
+  "old": "await d1.batch(stmts.map((s) => d1.prepare(s.sql).bind(...s.params)));",
+  "new": "for (const s of stmts) await d1.batch([d1.prepare(s.sql).bind(...s.params)]);"
+ },
+ {
+  "file": "src/db.ts",
+  "old": "await d1.batch(stmts.map((s) => d1.prepare(s.sql).bind(...s.params)));",
+  "new": "void d1.batch(stmts.map((s) => d1.prepare(s.sql).bind(...s.params)));"
+ },
+ {
+  "file": "src/db.ts",
+  "old": "      if (stmts.length === 0) return;\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  FOREIGN KEY (allocation_id, project_id) REFERENCES allocations (id, project_id),\n  UNIQUE (id, project_id, allocation_id)",
+  "new": "  UNIQUE (id, project_id, allocation_id)"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  FOREIGN KEY (project_id, org_id) REFERENCES projects (id, org_id),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  FOREIGN KEY (allocation_id, project_id) REFERENCES allocations (id, project_id),\n  FOREIGN KEY (machine_id",
+  "new": "  FOREIGN KEY (machine_id"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  FOREIGN KEY (machine_id, project_id, allocation_id) REFERENCES machines (id, project_id, allocation_id)\n",
+  "new": "  CHECK (1)\n"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  WHERE p.provider = NEW.provider AND p.provider_cost_per_hour = NEW.provider_cost_per_hour AND p.margin_bps = NEW.margin_bps",
+  "new": "  WHERE p.provider = NEW.provider AND p.margin_bps = NEW.margin_bps"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    ORDER BY a.start_ms LIMIT 1",
+  "new": "    ORDER BY a.start_ms DESC LIMIT 1"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  amount INTEGER NOT NULL CHECK (amount BETWEEN 0 AND 9007199254740991),",
+  "new": "  amount INTEGER NOT NULL CHECK (amount >= 0),"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  updated_ms INTEGER NOT NULL CHECK (updated_ms BETWEEN 0 AND 9007199254740991),\n  UNIQUE (project_id, holder_kind, holder_id),\n  UNIQUE (id, project_id)\n) STRICT;",
+  "new": "  updated_ms INTEGER NOT NULL CHECK (updated_ms BETWEEN 0 AND 9007199254740991),\n  UNIQUE (project_id, holder_kind, holder_id),\n  UNIQUE (id, project_id)\n);"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  created_ms INTEGER NOT NULL CHECK (created_ms BETWEEN 0 AND 9007199254740991),\n  CHECK (total = provider_cost + margin),",
+  "new": "  created_ms INTEGER NOT NULL,\n  CHECK (total = provider_cost + margin),"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "CREATE TRIGGER ledger_entries_immutable BEFORE UPDATE ON ledger_entries",
+  "new": "CREATE TRIGGER ledger_entries_immutable BEFORE UPDATE OF note ON ledger_entries"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "CREATE TRIGGER ledger_entries_kept BEFORE DELETE ON ledger_entries",
+  "new": "CREATE TRIGGER ledger_entries_kept BEFORE DELETE ON ledger_entries WHEN 0"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  WHERE a.machine_id = NEW.machine_id AND (a.end_ms IS NULL OR a.end_ms > NEW.start_ms OR a.incarnation >= NEW.incarnation)",
+  "new": "  WHERE a.machine_id = NEW.machine_id AND (a.end_ms IS NULL OR a.incarnation >= NEW.incarnation)"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": ") OR NEW.start_ms < (SELECT billed_through_ms FROM machines WHERE id = NEW.machine_id)\nBEGIN",
+  "new": ")\nBEGIN"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "WHEN OLD.end_ms IS NOT NULL OR NEW.end_ms IS NULL",
+  "new": "WHEN NEW.end_ms IS NULL"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  OR NEW.end_ms < (SELECT billed_through_ms FROM machines WHERE id = NEW.machine_id)\nBEGIN",
+  "new": "\nBEGIN"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "CREATE TRIGGER machine_accruals_no_delete BEFORE DELETE ON machine_accruals",
+  "new": "CREATE TRIGGER machine_accruals_no_delete BEFORE DELETE ON machine_accruals WHEN 0"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "  billed_through_ms INTEGER CHECK (billed_through_ms IS NULL OR (billed_through_ms BETWEEN 0 AND 9007199254740991 AND billed_through_ms % 60000 = 0)),",
+  "new": "  billed_through_ms INTEGER CHECK (billed_through_ms IS NULL OR billed_through_ms BETWEEN 0 AND 9007199254740991),"
+ },
+ {
+  "file": "migrations/0001_ledger.sql",
+  "old": "    AND period_start_ms % 60000 = 0 AND seconds BETWEEN 1 AND 60",
+  "new": "    AND period_start_ms % 60000 = 0 AND seconds BETWEEN 0 AND 61"
+ },
+ {
+  "file": "src/ledger.ts",
+  "old": "const seconds = Math.ceil(ms / 1000);",
+  "new": "const seconds = Math.round(ms / 1000);"
  }
 ]

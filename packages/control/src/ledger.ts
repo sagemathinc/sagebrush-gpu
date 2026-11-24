@@ -1,46 +1,60 @@
 // The ledger: per-minute accrual, and the hard-stop check that reads it.
 //
-// THE LEDGER RULE (the contract's, see @sbgpu/api budget.ts): one compute entry per
-// machine per UTC minute, charging entrySplit(rate, seconds, marginBps) for the seconds
-// the machine accrued in that minute, at the rate recorded on the machine at start. A
-// minute is billed once its usage is final: when the minute has ended, or when the
-// machine's accrual has ended inside it. Entries are never updated. Each machine's
-// billed_through_ms (always a minute boundary) moves forward in the same transaction as
-// its entries, and the unique (machine, minute) index makes a concurrent second run of
-// the same minutes fail as a whole.
+// THE LEDGER RULE (the contract's; see the notes in @sbgpu/api budget.ts):
+// - One compute entry per machine per UTC minute, keyed (machine, minute), written once
+//   the minute has closed and never updated.
+// - Its seconds are those of all the machine's accrual intervals in that minute, summed
+//   and rounded up once (at most 60): a restart within the minute adds to the same entry.
+// - Its rate is PINNED: the rate of the machine's first fragment in that minute. A new
+//   placement's rate applies from the next UTC minute.
+// - Its charge is entrySplit(pinned rate, seconds, pinned margin).
+// Each machine's billed_through_ms (a minute boundary) moves forward in the same
+// transaction as its entries, and the unique (machine, minute) index makes a concurrent
+// second run of the same minutes fail as a whole.
 
 import {
   LEDGER_MINUTE_SECONDS,
+  checkedAdd,
+  checkedMul,
   entrySplit,
+  isBasisPoints,
   newId,
   reserveSeconds,
-  shouldHardStop,
-  hardStopThreshold,
-  type HardStopInput,
   type PriceSplit,
 } from "@sbgpu/api";
 import { stmt, type Db, type Stmt } from "./db.ts";
 
 const MINUTE_MS = LEDGER_MINUTE_SECONDS * 1000;
-/** At most this many minutes per machine per run (a day), to bound a batch. */
+/** At most this many minutes per machine per accrual run (a day): an enforced ceiling. */
 export const MAX_MINUTES_PER_RUN = 24 * 60;
 
-export interface AccrualMachine {
+/** One placement of a machine, with its rate snapshot, while it accrued. */
+export interface AccrualInterval {
+  incarnation: number;
+  provider: string;
+  providerCostPerHour: number;
+  marginBps: number;
+  startMs: number;
+  endMs: number | null;
+}
+
+export interface LedgerMachine {
   id: string;
   orgId: string;
   projectId: string;
   allocationId: string;
-  provider: string;
-  providerCostPerHour: number;
-  marginBps: number;
-  accrualStartMs: number;
-  accrualEndMs: number | null;
   billedThroughMs: number;
+  /** The intervals not yet fully billed, in incarnation order. */
+  intervals: AccrualInterval[];
 }
 
 export interface PlannedEntry {
   periodStartMs: number;
   seconds: number;
+  /** The pinned fragment's placement. */
+  provider: string;
+  providerCostPerHour: number;
+  marginBps: number;
   split: PriceSplit;
 }
 
@@ -49,79 +63,239 @@ export interface AccrualPlan {
   billedThroughMs: number;
 }
 
+const floorMinute = (ms: number) => Math.floor(ms / MINUTE_MS) * MINUTE_MS;
+const ceilMinute = (ms: number) => Math.ceil(ms / MINUTE_MS) * MINUTE_MS;
+
 function checkMs(name: string, x: unknown): asserts x is number {
   if (typeof x !== "number" || !Number.isSafeInteger(x) || x < 0) throw new RangeError(`${name} must be a non-negative safe integer, got ${String(x)}`);
 }
 
-/**
- * The entries to write for one machine at `nowMs`: every minute from billedThroughMs on
- * whose usage is final, up to `maxMinutes` of them. Minutes with no accrual are skipped
- * (no entry), but still passed.
- */
-export function planAccrual(m: AccrualMachine, nowMs: number, maxMinutes = MAX_MINUTES_PER_RUN): AccrualPlan {
-  checkMs("nowMs", nowMs);
-  checkMs("accrualStartMs", m.accrualStartMs);
+/** Refuses a machine whose intervals are malformed, unordered, overlapping, or open before the last. */
+export function checkLedgerMachine(m: LedgerMachine): void {
   checkMs("billedThroughMs", m.billedThroughMs);
-  checkMs("maxMinutes", maxMinutes);
-  if (m.accrualEndMs !== null) {
-    checkMs("accrualEndMs", m.accrualEndMs);
-    if (m.accrualEndMs < m.accrualStartMs) throw new RangeError("accrual ends before it starts");
-  }
   if (m.billedThroughMs % MINUTE_MS !== 0) throw new RangeError("billedThroughMs is not a minute boundary");
-  const end = m.accrualEndMs;
+  let prevEnd = -1;
+  let prevInc = -1;
+  m.intervals.forEach((iv, i) => {
+    checkMs(`interval ${i} incarnation`, iv.incarnation);
+    checkMs(`interval ${i} startMs`, iv.startMs);
+    checkMs(`interval ${i} providerCostPerHour`, iv.providerCostPerHour);
+    if (!isBasisPoints(iv.marginBps)) throw new RangeError(`interval ${i} marginBps is invalid`);
+    if (iv.incarnation <= prevInc) throw new RangeError("intervals are not in incarnation order");
+    if (iv.startMs < prevEnd) throw new RangeError("intervals overlap");
+    if (iv.endMs === null) {
+      if (i !== m.intervals.length - 1) throw new RangeError("only the last interval may be open");
+    } else {
+      checkMs(`interval ${i} endMs`, iv.endMs);
+      if (iv.endMs < iv.startMs) throw new RangeError("an interval ends before it starts");
+      prevEnd = iv.endMs;
+    }
+    prevInc = iv.incarnation;
+  });
+}
+
+/** The machine's fragments in the minute starting at `b`, in time order. */
+function fragments(intervals: readonly AccrualInterval[], b: number, nowMs: number): Array<{ iv: AccrualInterval; ms: number }> {
+  const out: Array<{ iv: AccrualInterval; ms: number }> = [];
+  const e = b + MINUTE_MS;
+  for (const iv of intervals) {
+    const from = Math.max(b, iv.startMs);
+    const to = Math.min(e, iv.endMs ?? nowMs);
+    if (to > from) out.push({ iv, ms: to - from });
+  }
+  return out;
+}
+
+/** The entry for one minute's fragments: seconds summed, rounded up once; the first fragment's rate. */
+function minuteEntry(b: number, frags: Array<{ iv: AccrualInterval; ms: number }>): PlannedEntry | null {
+  if (frags.length === 0) return null;
+  let ms = 0;
+  for (const f of frags) ms += f.ms;
+  // fragments in a minute are disjoint, so ms <= 60_000 and seconds <= 60
+  const seconds = Math.ceil(ms / 1000);
+  const pin = frags[0]!.iv;
+  return {
+    periodStartMs: b,
+    seconds,
+    provider: pin.provider,
+    providerCostPerHour: pin.providerCostPerHour,
+    marginBps: pin.marginBps,
+    split: entrySplit(pin.providerCostPerHour, seconds, pin.marginBps),
+  };
+}
+
+/** The total a full minute at this placement's rate costs. */
+export function fullMinuteCharge(iv: { providerCostPerHour: number; marginBps: number }): number {
+  return entrySplit(iv.providerCostPerHour, LEDGER_MINUTE_SECONDS, iv.marginBps).total;
+}
+
+/**
+ * The entries to write for one machine at `nowMs`: every CLOSED minute (minute end <=
+ * now) from billedThroughMs on, up to `maxMinutes` (at most MAX_MINUTES_PER_RUN).
+ * Minutes with no accrual get no entry but are passed; billing stops after the end of
+ * the last closed interval when no interval is open.
+ */
+export function planAccrual(m: LedgerMachine, nowMs: number, maxMinutes = MAX_MINUTES_PER_RUN): AccrualPlan {
+  checkMs("nowMs", nowMs);
+  checkMs("maxMinutes", maxMinutes);
+  if (maxMinutes > MAX_MINUTES_PER_RUN) throw new RangeError(`maxMinutes is capped at ${MAX_MINUTES_PER_RUN}`);
+  checkLedgerMachine(m);
+  const last = m.intervals[m.intervals.length - 1];
+  const doneAt = last === undefined ? m.billedThroughMs : last.endMs === null ? null : ceilMinute(last.endMs);
   const entries: PlannedEntry[] = [];
   let b = m.billedThroughMs;
   for (let n = 0; n < maxMinutes; n++) {
-    if (end !== null && b >= end) break;
-    const minuteEnd = b + MINUTE_MS;
-    const complete = minuteEnd <= nowMs;
-    const finalPartial = end !== null && end <= nowMs && end < minuteEnd;
-    if (!complete && !finalPartial) break;
-    const from = Math.max(b, m.accrualStartMs);
-    const to = end === null ? minuteEnd : Math.min(minuteEnd, end);
-    if (to > from) {
-      // Part of a second is billed as a second; a minute never exceeds 60.
-      const seconds = Math.ceil((to - from) / 1000);
-      entries.push({ periodStartMs: b, seconds, split: entrySplit(m.providerCostPerHour, seconds, m.marginBps) });
-    }
-    b = minuteEnd;
+    if (doneAt !== null && b >= doneAt) break;
+    if (b + MINUTE_MS > nowMs) break;
+    const e = minuteEntry(b, fragments(m.intervals, b, nowMs));
+    if (e) entries.push(e);
+    b += MINUTE_MS;
   }
   return { entries, billedThroughMs: b };
 }
 
-interface MachineRow {
-  id: string;
+/**
+ * Everything still to be charged for a machine with no open interval, in space and time
+ * linear in its intervals (not its minutes): the boundary minutes (those containing an
+ * interval's unaligned start or end) are charged as the ledger will charge them, and
+ * every other minute is a full minute of exactly one interval.
+ */
+export function pendingCharge(m: LedgerMachine): number {
+  checkLedgerMachine(m);
+  if (m.intervals.some((iv) => iv.endMs === null)) throw new RangeError("pendingCharge needs every interval closed");
+  const B = m.billedThroughMs;
+  const ivs = m.intervals.filter((iv) => (iv.endMs as number) > B);
+  const boundary = new Set<number>();
+  let total = 0;
+  for (const iv of ivs) {
+    const s = Math.max(iv.startMs, B);
+    const e = iv.endMs as number;
+    if (s % MINUTE_MS !== 0) boundary.add(floorMinute(s));
+    if (e % MINUTE_MS !== 0) boundary.add(floorMinute(e));
+    // whole minutes inside [s, e) that hold no other fragment
+    const full = Math.max(0, (floorMinute(e) - ceilMinute(s)) / MINUTE_MS);
+    total = checkedAdd(total, checkedMul(full, fullMinuteCharge(iv)));
+  }
+  const endAll = Math.max(...ivs.map((iv) => iv.endMs as number), B);
+  for (const b of boundary) {
+    const e = minuteEntry(b, fragments(ivs, b, endAll));
+    if (e) total = checkedAdd(total, e.split.total);
+  }
+  return total;
+}
+
+/**
+ * The most the ledger can charge a RUNNING machine for the window of `windowSeconds`
+ * from the minute boundary W0: the open placement's rate for minutes after the one it
+ * started in; the pinned rate (first fragment's) for that minute; and, for any earlier
+ * unbilled minutes (only when accrual has lagged), the highest rate and margin among its
+ * unbilled intervals. Each minute is counted as a full minute.
+ */
+export function runningBound(m: LedgerMachine, w0: number, windowSeconds: number): number {
+  checkLedgerMachine(m);
+  checkMs("w0", w0);
+  checkMs("windowSeconds", windowSeconds);
+  if (w0 % MINUTE_MS !== 0) throw new RangeError("w0 is not a minute boundary");
+  const open = m.intervals[m.intervals.length - 1];
+  if (!open || open.endMs !== null) throw new RangeError("runningBound needs an open interval");
+  const n = Math.ceil(windowSeconds / LEDGER_MINUTE_SECONDS);
+  const c = floorMinute(open.startMs);
+  const pinned = (fragments(m.intervals, c, open.startMs + MINUTE_MS)[0]?.iv ?? open) as AccrualInterval;
+  let maxRate = 0;
+  let maxBps = 0;
+  for (const iv of m.intervals) {
+    maxRate = Math.max(maxRate, iv.providerCostPerHour);
+    maxBps = Math.max(maxBps, iv.marginBps);
+  }
+  const idx = (c - w0) / MINUTE_MS; // the window index of minute c (may be < 0 or >= n)
+  const nBefore = Math.min(n, Math.max(0, idx));
+  const nAt = idx >= 0 && idx < n ? 1 : 0;
+  const nAfter = n - nBefore - nAt;
+  let t = checkedMul(nBefore, fullMinuteCharge({ providerCostPerHour: maxRate, marginBps: maxBps }));
+  t = checkedAdd(t, checkedMul(nAt, fullMinuteCharge(pinned)));
+  return checkedAdd(t, checkedMul(nAfter, fullMinuteCharge(open)));
+}
+
+// ---------------------------------------------------------------- database
+
+interface IntervalRow {
+  machine_id: string;
   org_id: string;
   project_id: string;
   allocation_id: string;
+  billed_through_ms: number;
+  incarnation: number;
   provider: string;
   provider_cost_per_hour: number;
   margin_bps: number;
-  accrual_start_ms: number;
-  accrual_end_ms: number | null;
-  billed_through_ms: number;
+  start_ms: number;
+  end_ms: number | null;
+  amount: number;
+  final_save_reserve_minutes: number;
+  save_estimate_seconds: number;
 }
 
-const MACHINE_COLUMNS = `m.id, p.org_id, m.project_id, m.allocation_id, m.provider, m.provider_cost_per_hour,
-  m.margin_bps, m.accrual_start_ms, m.accrual_end_ms, m.billed_through_ms`;
+/** Every machine with unbilled accrual, with its unbilled intervals. */
+async function loadUnbilled(db: Db): Promise<Array<{ m: LedgerMachine; row: IntervalRow }>> {
+  const rows = await db.all<IntervalRow>(
+    `SELECT a.machine_id, p.org_id, m.project_id, m.allocation_id, m.billed_through_ms, a.incarnation, a.provider,
+       a.provider_cost_per_hour, a.margin_bps, a.start_ms, a.end_ms, al.amount, p.final_save_reserve_minutes,
+       m.save_estimate_seconds
+     FROM machine_accruals a
+     JOIN machines m ON m.id = a.machine_id
+     JOIN projects p ON p.id = m.project_id
+     JOIN allocations al ON al.id = m.allocation_id
+     WHERE m.billed_through_ms IS NOT NULL AND (a.end_ms IS NULL OR a.end_ms > m.billed_through_ms)
+     ORDER BY a.machine_id, a.incarnation`,
+  );
+  const byMachine = new Map<string, { m: LedgerMachine; row: IntervalRow }>();
+  for (const r of rows) {
+    let x = byMachine.get(r.machine_id);
+    if (!x) {
+      x = {
+        m: { id: r.machine_id, orgId: r.org_id, projectId: r.project_id, allocationId: r.allocation_id, billedThroughMs: r.billed_through_ms, intervals: [] },
+        row: r,
+      };
+      byMachine.set(r.machine_id, x);
+    }
+    x.m.intervals.push({
+      incarnation: r.incarnation,
+      provider: r.provider,
+      providerCostPerHour: r.provider_cost_per_hour,
+      marginBps: r.margin_bps,
+      startMs: r.start_ms,
+      endMs: r.end_ms,
+    });
+  }
+  return [...byMachine.values()];
+}
 
-function toMachine(r: MachineRow): AccrualMachine {
-  return {
-    id: r.id,
-    orgId: r.org_id,
-    projectId: r.project_id,
-    allocationId: r.allocation_id,
-    provider: r.provider,
-    providerCostPerHour: r.provider_cost_per_hour,
-    marginBps: r.margin_bps,
-    accrualStartMs: r.accrual_start_ms,
-    accrualEndMs: r.accrual_end_ms,
-    billedThroughMs: r.billed_through_ms,
-  };
+/** Open a placement's accrual interval (sets billed-through on the first one). */
+export function openAccrual(
+  machineId: string,
+  iv: { incarnation: number; provider: string; providerCostPerHour: number; marginBps: number; startMs: number },
+): Stmt[] {
+  return [
+    stmt(
+      `INSERT INTO machine_accruals (machine_id, incarnation, provider, provider_cost_per_hour, margin_bps, start_ms) VALUES (?, ?, ?, ?, ?, ?)`,
+      machineId,
+      iv.incarnation,
+      iv.provider,
+      iv.providerCostPerHour,
+      iv.marginBps,
+      iv.startMs,
+    ),
+    stmt(`UPDATE machines SET billed_through_ms = COALESCE(billed_through_ms, ?) WHERE id = ?`, floorMinute(iv.startMs), machineId),
+  ];
+}
+
+/** Close the open interval of a placement, when the provider confirms the stop. */
+export function closeAccrual(machineId: string, incarnation: number, endMs: number): Stmt[] {
+  return [stmt(`UPDATE machine_accruals SET end_ms = ? WHERE machine_id = ? AND incarnation = ? AND end_ms IS NULL`, endMs, machineId, incarnation)];
 }
 
 /** The writes for one machine's plan: its entries and the guarded billed-through move. */
-export function accrualStatements(m: AccrualMachine, plan: AccrualPlan, nowMs: number): Stmt[] {
+export function accrualStatements(m: LedgerMachine, plan: AccrualPlan, nowMs: number): Stmt[] {
   const stmts = plan.entries.map((e) =>
     stmt(
       `INSERT INTO ledger_entries (id, org_id, project_id, allocation_id, kind, machine_id, provider, period_start_ms,
@@ -132,11 +306,11 @@ export function accrualStatements(m: AccrualMachine, plan: AccrualPlan, nowMs: n
       m.projectId,
       m.allocationId,
       m.id,
-      m.provider,
+      e.provider,
       e.periodStartMs,
       e.seconds,
-      m.providerCostPerHour,
-      m.marginBps,
+      e.providerCostPerHour,
+      e.marginBps,
       e.split.providerCost,
       e.split.margin,
       e.split.total,
@@ -152,22 +326,17 @@ export function accrualStatements(m: AccrualMachine, plan: AccrualPlan, nowMs: n
 export interface AccrualReport {
   machines: number;
   entries: number;
-  /** Machines whose batch failed (e.g. another run billed the same minutes first). */
+  /** Machines whose batch failed (e.g. another run billed the same minutes first) or whose data is malformed. */
   failed: string[];
 }
 
-/** Bill every machine's final minutes up to `nowMs`; each machine in its own transaction. */
+/** Bill every machine's closed minutes up to `nowMs`; each machine in its own transaction. */
 export async function accrueAll(db: Db, nowMs: number, maxMinutes = MAX_MINUTES_PER_RUN): Promise<AccrualReport> {
-  const rows = await db.all<MachineRow>(
-    `SELECT ${MACHINE_COLUMNS} FROM machines m JOIN projects p ON p.id = m.project_id
-     WHERE m.accrual_start_ms IS NOT NULL AND (m.accrual_end_ms IS NULL OR m.billed_through_ms < m.accrual_end_ms)`,
-  );
   const report: AccrualReport = { machines: 0, entries: 0, failed: [] };
-  for (const r of rows) {
-    const m = toMachine(r);
-    const plan = planAccrual(m, nowMs, maxMinutes);
-    if (plan.billedThroughMs === m.billedThroughMs) continue;
+  for (const { m } of await loadUnbilled(db)) {
     try {
+      const plan = planAccrual(m, nowMs, maxMinutes);
+      if (plan.billedThroughMs === m.billedThroughMs) continue;
       await db.batch(accrualStatements(m, plan, nowMs));
       report.machines++;
       report.entries += plan.entries.length;
@@ -186,65 +355,59 @@ export interface HardStopOptions {
 export interface HardStop {
   allocationId: string;
   machineIds: string[];
-  unspent: number;
+  /** Null when the figures couldn't be computed (the stop is then fail-closed). */
+  unspent: number | null;
   threshold: number | null;
 }
 
-interface ActiveRow extends MachineRow {
-  amount: number;
-  final_save_reserve_minutes: number;
-  save_estimate_seconds: number;
-}
-
 /**
- * The allocations whose accruing machines must stop now (saving first), by the contract's
- * shouldHardStop. unspent = the allocation's amount, minus its ledger entries, minus the
- * exact charge still to be written for machines whose accrual has ended. The window
- * starts at the oldest billed-through boundary of its running machines.
+ * The allocations whose running machines must stop now (saving first). For each
+ * allocation with a running machine:
+ *   unspent = amount - its ledger entries - the exact pending charge of its machines
+ *             with no open interval (pendingCharge);
+ *   threshold = the sum of runningBound over its running machines, for the window from
+ *             the oldest billed boundary among them of unbilled + check + safety +
+ *             reserve seconds (the contract's hard-stop periods);
+ *   stop when unspent < threshold.
+ * Any invalid figure or overflow stops the allocation (fail closed).
  */
 export async function findHardStops(db: Db, nowMs: number, opts: HardStopOptions): Promise<HardStop[]> {
-  const rows = await db.all<ActiveRow>(
-    `SELECT ${MACHINE_COLUMNS}, a.amount, p.final_save_reserve_minutes, m.save_estimate_seconds
-     FROM machines m JOIN allocations a ON a.id = m.allocation_id JOIN projects p ON p.id = m.project_id
-     WHERE m.accrual_start_ms IS NOT NULL AND (m.accrual_end_ms IS NULL OR m.billed_through_ms < m.accrual_end_ms)`,
-  );
-  const byAllocation = new Map<string, ActiveRow[]>();
-  for (const r of rows) {
-    const list = byAllocation.get(r.allocation_id) ?? [];
-    list.push(r);
-    byAllocation.set(r.allocation_id, list);
+  const byAllocation = new Map<string, Array<{ m: LedgerMachine; row: IntervalRow }>>();
+  for (const x of await loadUnbilled(db)) {
+    const list = byAllocation.get(x.m.allocationId) ?? [];
+    list.push(x);
+    byAllocation.set(x.m.allocationId, list);
   }
   const stops: HardStop[] = [];
   for (const [allocationId, list] of byAllocation) {
-    const running = list.filter((r) => r.accrual_end_ms === null);
+    const running = list.filter((x) => x.m.intervals.at(-1)?.endMs === null);
     if (running.length === 0) continue;
-    const spentRows = await db.all<{ spent: number | null }>(`SELECT SUM(total) AS spent FROM ledger_entries WHERE allocation_id = ?`, [allocationId]);
-    let pending = 0;
-    for (const r of list) {
-      if (r.accrual_end_ms === null) continue;
-      for (const e of planAccrual(toMachine(r), Math.max(nowMs, r.accrual_end_ms), Number.MAX_SAFE_INTEGER).entries) pending += e.split.total;
-    }
-    const first = list[0] as ActiveRow;
-    const unspent = first.amount - (spentRows[0]?.spent ?? 0) - pending;
-    const oldest = Math.min(...running.map((r) => r.billed_through_ms));
-    const input: HardStopInput = {
-      unspent,
-      machines: running.map((r) => ({ providerCostPerHour: r.provider_cost_per_hour, marginBps: r.margin_bps })),
-      unbilledSeconds: Math.ceil((nowMs - oldest) / 1000),
-      checkIntervalSeconds: opts.checkIntervalSeconds,
-      safetySeconds: opts.safetySeconds,
-      reserveSeconds: 0,
-    };
+    let unspent: number | null = null;
     let threshold: number | null = null;
-    let stop: boolean;
+    let stop = true;
     try {
-      input.reserveSeconds = reserveSeconds(first.final_save_reserve_minutes, Math.max(...running.map((r) => r.save_estimate_seconds)));
-      threshold = hardStopThreshold(input);
-      stop = shouldHardStop(input);
+      const spentRows = await db.all<{ spent: number | null }>(`SELECT SUM(total) AS spent FROM ledger_entries WHERE allocation_id = ?`, [allocationId]);
+      let pending = 0;
+      for (const x of list) if (x.m.intervals.at(-1)?.endMs !== null) pending = checkedAdd(pending, pendingCharge(x.m));
+      const amount = list[0]!.row.amount;
+      // amount and the checked sum are both in [0, MAX_SAFE_INTEGER], so this is safe
+      unspent = amount - checkedAdd(spentRows[0]?.spent ?? 0, pending);
+      const w0 = Math.min(...running.map((x) => x.m.billedThroughMs));
+      const unbilled = Math.ceil((nowMs - w0) / 1000);
+      const reserve = reserveSeconds(list[0]!.row.final_save_reserve_minutes, Math.max(...running.map((x) => x.row.save_estimate_seconds)));
+      let window = 0;
+      for (const [name, v] of [["unbilled", unbilled], ["check", opts.checkIntervalSeconds], ["safety", opts.safetySeconds], ["reserve", reserve]] as const) {
+        checkMs(name, v);
+        window = checkedAdd(window, v);
+      }
+      let t = 0;
+      for (const x of running) t = checkedAdd(t, runningBound(x.m, w0, window));
+      threshold = t;
+      stop = unspent < threshold;
     } catch {
-      stop = true; // fail closed
+      stop = true;
     }
-    if (stop) stops.push({ allocationId, machineIds: running.map((r) => r.id), unspent, threshold });
+    if (stop) stops.push({ allocationId, machineIds: running.map((x) => x.m.id), unspent, threshold });
   }
   return stops;
 }

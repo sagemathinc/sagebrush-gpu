@@ -6,6 +6,14 @@
 // (0..60) it ran in that minute. Rounding happens per entry, so the budget bounds below
 // are computed from the same per-entry charge, never from an aggregate hourly rate.
 // entrySplit is non-decreasing in s, so no entry costs more than a full minute's entry.
+// - A minute's entry is written once the minute has closed, and never updated.
+// - Its seconds are those of all the machine's accrual intervals (placements) in the
+//   minute, summed and rounded up once: a restart within the minute adds to the same
+//   entry.
+// - Its rate is PINNED: that of the machine's first fragment in the minute. A new
+//   placement's rate (a restart re-placed the machine) applies from the next minute, so
+//   admission and the hard stop price the rest of the current minute at the pinned rate
+//   and later minutes at the new one.
 //
 // Every input is validated on its own before anything is combined; sums and products
 // refuse results past Number.MAX_SAFE_INTEGER. The two decisions fail closed: invalid
