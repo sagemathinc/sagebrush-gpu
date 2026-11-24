@@ -127,6 +127,43 @@ is unknown or above the cap. Unknown values count as drift. The watchdog polls s
 terminates on any drift, revoking the machine's tokens first. This is a secondary control: it
 does not contain a provider credential readable inside the machine (see below).
 
+## Reconciliation (`reconcile.ts`)
+
+Providers bill per machine in time buckets; the ledger charges per machine per minute.
+`reconcile(billing, ledger, bindings, opts)` sums both per (machine, bucket) and gives each pair a
+status:
+
+| Status | Meaning |
+|---|---|
+| `ok` | The difference is within tolerance: the larger of `toleranceMicros` and $\lfloor \text{ledger} \cdot \text{bps} / 10000 \rfloor$, computed exactly (BigInt) for every safe amount. |
+| `over` | The provider billed more than the ledger charged (we under-charged, or a machine ran unmetered). |
+| `under` | The provider billed less than the ledger charged. |
+| `unknown_machine` | The provider billed a machine we have no binding for: it ran outside our control. |
+| `pending` | The bucket isn't closed yet (`closedBefore`); nothing is concluded. |
+
+Only compute entries count, at their provider cost (`amount.providerCost`). `bindings` map
+provider machines to ours; one machine may have had several provider machines (restarts), and a
+provider machine bound to two of ours is an error. Every input it can't reconcile (a malformed
+or nonexistent time such as 2026-02-30, a record that isn't exactly one bucket, an unsafe sum, bad
+tolerances) is an error, never `ok`. It's pure: the control plane fetches the bill and the ledger
+rows and decides what to do.
+
+Choosing `toleranceMicros`: under the ledger's pinned-rate rule, a compute entry carries the
+provider and rate of its minute's first fragment. In the minute a restart re-places a machine on
+another provider, the other provider's seconds are charged under the first provider's entry. That
+shows up as the first provider `under` and the second `over` by at most one minute at the higher
+rate, per restart. So set `toleranceMicros` to at least one minute at the highest allowed rate,
+times the restarts a machine may have in one bucket.
+
+`BillingSource.billing({start, end, bucket})` fetches the bill. On RunPod it reads
+`GET /v2/billing/pods` for whole hour or day buckets (at most 1000), and fails unless the
+response is complete: the echoed window and bucket size are exactly the ones asked for, it's not
+filtered to one pod, every record is one bucket inside the window, there is at most one record per
+pod and bucket (as RunPod documents), the record and distinct-pod counts match, and the records add
+up to the reported totals (to a micro per record), with every partial sum a safe integer. RunPod's billing records
+arrive late (in hourly buckets), so a reconcile should only conclude on buckets well in the past;
+the live signal for a running machine is its rate (`cost` on the pod).
+
 ## RunPod status
 
 SEC (Nov 24): RunPod stays blocked for real use, because RunPod injects a pod-scoped API key that
@@ -142,8 +179,6 @@ launched with `startSsh: false` reports `ssh: {proxy: null, direct: null}`.
 
 ## Not yet
 
-- Reconciliation helpers (RunPod's billing records come in hourly buckets; the pod's `cost` is the
-  live signal).
 - The second adapter after the Dec 12 provider decision: Shadeform, or Hyperstack/Nebius.
 
 ## Tests
