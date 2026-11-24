@@ -971,11 +971,6 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "err.code === \"unauthenticated\" && session === this.#sessionGeneration) this.#endSession();",
-  "new": "err.code === \"unauthenticated\") this.#endSession();"
- },
- {
-  "file": "src/app/store.ts",
   "old": "      this.#generation++;\n      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;",
   "new": "      this.#generation++;\n      batch(() => {\n        this.me.value = me;"
  },
@@ -983,5 +978,15 @@
   "file": "src/app/store.ts",
   "old": "      this.#generation++;\n      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;",
   "new": "      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (session !== this.#sessionGeneration) return null;\n      if (err instanceof ApiError",
+  "new": "      if (err instanceof ApiError"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") this.#endSession();\n      this.error.value",
+  "new": "      this.error.value"
  }
 ]

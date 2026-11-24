@@ -408,6 +408,7 @@ test("an action's 401 from before a re-sign-in doesn't end the new session", asy
   t.release();
   assert.equal(await started, false);
   assert.equal(t.store.me.value?.user.email, t.demo.emails.member);
+  assert.equal(t.store.error.value, null); // and its message doesn't banner the new session
 });
 
 test("signing in as someone else drops the previous session's load in flight", async () => {
