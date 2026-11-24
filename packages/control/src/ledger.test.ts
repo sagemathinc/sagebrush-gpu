@@ -230,7 +230,7 @@ async function seed(o: { reserveMinutes?: number } = {}): Promise<Seed> {
   await db.batch([
     stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'o', 3000, ?)`, orgId, T0),
     stmt(
-      `INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, final_save_reserve_minutes, created_ms) VALUES (?, ?, 'p', ?, ?, 10000000000, ?, ?)`,
+      `INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, final_save_reserve_minutes, created_ms) VALUES (?, ?, 'p', ?, ?, 9007199254740991, ?, ?)`,
       projectId, orgId, T0, T0 + 90 * 24 * 60 * MIN, o.reserveMinutes ?? 10, T0,
     ),
   ]);
@@ -359,7 +359,7 @@ test("schema: tenant integrity of the whole tuple", async () => {
   const orgB = other.orgId;
   await s.db.batch([
     stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'b', 0, ?)`, orgB, T0),
-    stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'pb', ?, ?, 0, ?)`, other.projectId, orgB, T0, T0 + MIN, T0),
+    stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'pb', ?, ?, 9007199254740991, ?)`, other.projectId, orgB, T0, T0 + MIN, T0),
   ]);
   const allocB = await allocation(s, 1000, other.projectId);
   const e = (o: Record<string, SqlValue>) => computeEntry(s, { allocation: a, machine: m, ...o });

@@ -236,11 +236,6 @@
  },
  {
   "file": "migrations/0001_ledger.sql",
-  "old": "  amount INTEGER NOT NULL CHECK (amount BETWEEN 0 AND 9007199254740991),",
-  "new": "  amount INTEGER NOT NULL CHECK (amount >= 0),"
- },
- {
-  "file": "migrations/0001_ledger.sql",
   "old": "  updated_ms INTEGER NOT NULL CHECK (updated_ms BETWEEN 0 AND 9007199254740991),\n  UNIQUE (project_id, holder_kind, holder_id),\n  UNIQUE (id, project_id)\n) STRICT;",
   "new": "  updated_ms INTEGER NOT NULL CHECK (updated_ms BETWEEN 0 AND 9007199254740991),\n  UNIQUE (project_id, holder_kind, holder_id),\n  UNIQUE (id, project_id)\n);"
  },
@@ -338,21 +333,6 @@
   "file": "src/ledger.ts",
   "old": "unspent = checkedAdd(amount, -checkedAdd(spentRows[0]?.spent ?? 0, pending));",
   "new": "unspent = amount - checkedAdd(spentRows[0]?.spent ?? 0, pending);"
- },
- {
-  "file": "src/app.ts",
-  "old": "\"referrer-policy\": \"no-referrer\",",
-  "new": "\"referrer-policy\": \"strict-origin-when-cross-origin\","
- },
- {
-  "file": "src/app.ts",
-  "old": "  \"x-content-type-options\": \"nosniff\",\n",
-  "new": ""
- },
- {
-  "file": "src/app.ts",
-  "old": "  \"cache-control\": \"no-store\",\n",
-  "new": ""
  },
  {
   "file": "src/app.ts",
@@ -541,16 +521,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "const e = x.trim().toLowerCase();",
-  "new": "const e = x.trim();"
- },
- {
-  "file": "src/app.ts",
-  "old": "return e.length <= 254 && EMAIL.test(e) ? e : null;",
-  "new": "return EMAIL.test(e) ? e : null;"
- },
- {
-  "file": "src/app.ts",
   "old": "        return fail(new HttpError(\"internal\", \"internal error\"));",
   "new": "        return fail(new HttpError(\"internal\", String(e)));"
  },
@@ -663,21 +633,263 @@
   "note": "test db: one variable under D1's limit"
  },
  {
-  "file": "src/testing/sqlite.ts",
-  "old": "  const raw = new DatabaseSync(\":memory:\", { limits: { variableNumber: D1_MAX_VARIABLES } });",
-  "new": "  const raw = new DatabaseSync(\":memory:\");",
-  "note": "test db: no variable limit"
+  "file": "src/http.ts",
+  "old": "\"referrer-policy\": \"no-referrer\",",
+  "new": "\"referrer-policy\": \"strict-origin-when-cross-origin\","
  },
  {
-  "file": "src/testing/sqlite.ts",
-  "old": "export const D1_MAX_VARIABLES = 100;",
-  "new": "export const D1_MAX_VARIABLES = 101;",
-  "note": "test db: one variable over D1's limit"
+  "file": "src/http.ts",
+  "old": "  \"x-content-type-options\": \"nosniff\",\n",
+  "new": ""
  },
  {
-  "file": "src/testing/sqlite.ts",
-  "old": "export const D1_MAX_VARIABLES = 100;",
-  "new": "export const D1_MAX_VARIABLES = 99;",
-  "note": "test db: one variable under D1's limit"
+  "file": "src/http.ts",
+  "old": "  \"cache-control\": \"no-store\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/validate.ts",
+  "old": "const e = x.trim().toLowerCase();",
+  "new": "const e = x.trim();"
+ },
+ {
+  "file": "src/validate.ts",
+  "old": "return e.length <= 254 && EMAIL.test(e) ? e : null;",
+  "new": "return EMAIL.test(e) ? e : null;"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN (SELECT COALESCE(SUM(amount), 0) FROM allocations WHERE project_id = NEW.project_id)\n   > (SELECT budget FROM projects WHERE id = NEW.project_id)\nBEGIN\n  SELECT RAISE(ABORT, 'over-allocation: allocations would exceed the project budget');\nEND;\n\nCREATE TRIGGER allocations_within_budget_update",
+  "new": "WHEN 0\nBEGIN\n  SELECT RAISE(ABORT, 'over-allocation: allocations would exceed the project budget');\nEND;\n\nCREATE TRIGGER allocations_within_budget_update"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "CREATE TRIGGER allocations_within_budget_update AFTER UPDATE OF amount, project_id ON allocations\nWHEN (SELECT",
+  "new": "CREATE TRIGGER allocations_within_budget_update AFTER UPDATE OF amount, project_id ON allocations\nWHEN 0 AND (SELECT"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN NEW.budget < (SELECT COALESCE(SUM(amount), 0) FROM allocations WHERE project_id = NEW.id)",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN NEW.budget < (SELECT COALESCE(SUM(amount), 0) FROM allocations WHERE project_id = NEW.id)",
+  "new": "WHEN NEW.budget < (SELECT COALESCE(SUM(amount), 0) FROM allocations WHERE project_id = NEW.id) - 1"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "   > (SELECT budget FROM projects WHERE id = NEW.project_id)\nBEGIN\n  SELECT RAISE(ABORT, 'over-allocation: allocations would exceed the project budget');\nEND;\n\nCREATE TRIGGER allocations_within_budget_update",
+  "new": "   >= (SELECT budget FROM projects WHERE id = NEW.project_id)\nBEGIN\n  SELECT RAISE(ABORT, 'over-allocation: allocations would exceed the project budget');\nEND;\n\nCREATE TRIGGER allocations_within_budget_update"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN OLD.role = 'owner' AND OLD.status = 'active' AND (NEW.role <> 'owner' OR NEW.status <> 'active')",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN OLD.role = 'owner' AND OLD.status = 'active' AND (NEW.role <> 'owner' OR NEW.status <> 'active')",
+  "new": "WHEN OLD.role = 'owner' AND OLD.status = 'active' AND NEW.role <> 'owner'"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN OLD.role = 'owner' AND OLD.status = 'active' AND (NEW.role <> 'owner' OR NEW.status <> 'active')",
+  "new": "WHEN OLD.role = 'owner' AND (NEW.role <> 'owner' OR NEW.status <> 'active')"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "    WHERE m.project_id = OLD.project_id AND m.role = 'owner' AND m.status = 'active' AND m.id <> OLD.id",
+  "new": "    WHERE m.project_id = OLD.project_id AND m.role = 'owner' AND m.id <> OLD.id"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "    WHERE m.project_id = OLD.project_id AND m.role = 'owner' AND m.status = 'active' AND m.id <> OLD.id",
+  "new": "    WHERE m.role = 'owner' AND m.status = 'active' AND m.id <> OLD.id"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "CREATE TRIGGER members_kept BEFORE DELETE ON members\n",
+  "new": "CREATE TRIGGER members_kept BEFORE DELETE ON members WHEN 0\n"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN NEW.project_id <> OLD.project_id OR NEW.email <> OLD.email",
+  "new": "WHEN NEW.project_id <> OLD.project_id"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN NEW.project_id <> OLD.project_id OR NEW.email <> OLD.email",
+  "new": "WHEN NEW.email <> OLD.email"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (msg.includes(\"over-allocation\")) throw new HttpError(\"conflict\", \"allocations would exceed the project budget\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (msg.includes(\"last-owner\")) throw new HttpError(\"conflict\", \"a project keeps at least one active owner\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (msg.includes(\"UNIQUE\") && msg.includes(\"members.\")) throw new HttpError(\"conflict\", \"already a member of this project\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (d.reason === \"lastOwner\") throw new HttpError(\"conflict\", \"a project keeps at least one active owner\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (d.reason === \"forbidden\") throw new HttpError(\"forbidden\", \"your role doesn't allow this\");",
+  "new": "if (d.reason === \"forbidden\") return;"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (typeof x !== \"string\" || x.length > MAX_NAME_LENGTH) throw",
+  "new": "if (typeof x !== \"string\" || x.length > MAX_NAME_LENGTH + 1) throw"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "  return x.trim() || null;",
+  "new": "  return x || null;"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "  if (x !== undefined && x !== null) throw new HttpError(\"badRequest\", \"teams aren't available yet\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (!Array.isArray(list) || list.length === 0 || list.length > MAX_INVITES_PER_REQUEST) {",
+  "new": "if (!Array.isArray(list) || list.length > MAX_INVITES_PER_REQUEST) {"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (!Array.isArray(list) || list.length === 0 || list.length > MAX_INVITES_PER_REQUEST) {",
+  "new": "if (!Array.isArray(list) || list.length === 0 || list.length > MAX_INVITES_PER_REQUEST + 1) {"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (seen.has(email)) throw new HttpError(\"badRequest\", `${email} is listed twice`);",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "const role = o.role === undefined ? \"member\" : o.role;",
+  "new": "const role = o.role === undefined ? \"assistant\" : o.role;"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "decide(canInvite(ctx.projectRole as ProjectRole, role));",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "decide(canInvite(ctx.projectRole as ProjectRole, role));",
+  "new": "decide(canInvite(\"owner\", role));"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (!isNonNegativeMicros(allocation)) throw new HttpError(\"badRequest\", \"an allocation is a non-negative whole number of micro-dollars\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "SELECT ?, ?, u.id, ?, ?, ?, CASE WHEN u.id IS NULL THEN 'invited' ELSE 'active' END, ?",
+  "new": "SELECT ?, ?, NULL, ?, ?, ?, 'invited', ?"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (target.status === \"removed\") throw new HttpError(\"invalidState\", \"this member was removed\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "decide(canUpdateMember(ctx.projectRole as ProjectRole, target.role, role, await ownerCountFor(db, target)));",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "decide(canUpdateMember(ctx.projectRole as ProjectRole, target.role, role, await ownerCountFor(db, target)));",
+  "new": "decide(canUpdateMember(ctx.projectRole as ProjectRole, target.role, undefined, await ownerCountFor(db, target)));"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (target.status === \"removed\") throw new HttpError(\"invalidState\", \"this member was already removed\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "decide(canRemoveMember(ctx.projectRole as ProjectRole, target.role, await ownerCountFor(db, target)));",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (!isNonNegativeMicros(amount)) throw new HttpError(\"badRequest\", \"amount is a non-negative whole number of micro-dollars\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "const r = await db.all<MemberRow>(`${MEMBER_SELECT} WHERE m.project_id = ? AND m.id = ?`, [projectId, memberId]);",
+  "new": "const r = await db.all<MemberRow>(`${MEMBER_SELECT} WHERE m.id = ?`, [memberId]);"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "`${MEMBER_SELECT} WHERE m.project_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`,",
+  "new": "`${MEMBER_SELECT} WHERE m.project_id = ? AND m.id >= ? ORDER BY m.id LIMIT ?`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "const next = rows.length > MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;",
+  "new": "const next = rows.length >= MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "[projectId, cursor ?? \"\", MEMBERS_PAGE_SIZE + 1],",
+  "new": "[projectId, cursor ?? \"\", MEMBERS_PAGE_SIZE],"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "params: [role ?? null, name === undefined ? 0 : 1, name ?? null, target.id],",
+  "new": "params: [role ?? null, 1, name ?? null, target.id],"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "CREATE TRIGGER allocations_within_budget_update AFTER UPDATE OF amount, project_id ON allocations\nWHEN (SELECT COALESCE(SUM(amount), 0) FROM allocations WHERE project_id = NEW.project_id)",
+  "new": "CREATE TRIGGER allocations_within_budget_update AFTER UPDATE OF amount, project_id ON allocations\nWHEN (SELECT COALESCE(SUM(amount), 0) FROM allocations)"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN NEW.budget < (SELECT COALESCE(SUM(amount), 0) FROM allocations WHERE project_id = NEW.id)",
+  "new": "WHEN NEW.budget < (SELECT COALESCE(SUM(amount), 0) FROM allocations)"
+ },
+ {
+  "file": "migrations/0003_members.sql",
+  "old": "WHEN (SELECT COALESCE(SUM(amount), 0) FROM allocations WHERE project_id = NEW.project_id)\n   > (SELECT budget FROM projects WHERE id = NEW.project_id)\nBEGIN\n  SELECT RAISE(ABORT, 'over-allocation: allocations would exceed the project budget');\nEND;\n\nCREATE TRIGGER allocations_within_budget_update",
+  "new": "WHEN (SELECT COALESCE(SUM(amount), 0) FROM allocations)\n   > (SELECT budget FROM projects WHERE id = NEW.project_id)\nBEGIN\n  SELECT RAISE(ABORT, 'over-allocation: allocations would exceed the project budget');\nEND;\n\nCREATE TRIGGER allocations_within_budget_update"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "for (const ids of chunks(rows.map((r) => r.id), D1_MAX_BOUND_PARAMETERS - 1)) {",
+  "new": "for (const ids of chunks(rows.map((r) => r.id), D1_MAX_BOUND_PARAMETERS)) {"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "    members.sort((a, b) => (a.email < b.email ? -1 : a.email > b.email ? 1 : 0));\n",
+  "new": ""
+ },
+ {
+  "file": "src/db.ts",
+  "old": "  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));",
+  "new": "  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size - 1));"
+ },
+ {
+  "file": "src/db.ts",
+  "old": "if (!Number.isSafeInteger(size) || size < 1) throw",
+  "new": "if (size < 1) throw"
  }
 ]
