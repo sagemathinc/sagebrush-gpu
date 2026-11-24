@@ -84,7 +84,7 @@ check("an empty list is a bad input", [], 2, "BAD INPUT")
 check("a non-list is a bad input", None, 2, "BAD INPUT", raw='{"mutants": []}')
 check("broken JSON is a bad input", None, 2, "BAD INPUT", raw="[")
 
-# astra2's case: a package with exactly one test. A load error is one failing "test" named
+# A package with exactly one test. A load error is one failing "test" named
 # by the file, so the count matches the baseline; it must still be INVALID.
 def one_test(p):
     os.remove(os.path.join(p, "src/other.test.ts"))
@@ -93,7 +93,7 @@ def one_test(p):
 
 check("one test: a load error is invalid", [{"file": M, "old": "x + 1;", "new": "x +;"}], 1, "INVALID", setup=one_test)
 check("one test: a real kill passes", [killed], 0, "KILLED", setup=one_test)
-# astra2's fixture exactly: a one-test file beside a healthy file (baseline 2 tests)
+# A one-test file beside a healthy file (baseline 2 tests)
 def one_test_beside_healthy(p):
     with open(os.path.join(p, "src/a/m.test.ts"), "w") as f:
         f.write('import {test} from "node:test";\nimport assert from "node:assert/strict";\nimport {f} from "./m.ts";\ntest("adds",()=>assert.equal(f(1),2));\n')
