@@ -1,4 +1,4 @@
-import { priceSplit, type BasisPoints, type ProjectPolicy } from "@sbgpu/api";
+import { isBasisPoints, type BasisPoints, type ProjectPolicy } from "@sbgpu/api";
 import { ProviderError, launchErrorAction, type ProviderErrorKind } from "./errors.ts";
 import { countryAllowed, localityFor, type Locality } from "./locality.ts";
 import type {
@@ -21,18 +21,29 @@ export interface PlacementPolicy {
   maxProviderCostPerHour: Micros;
 }
 
+/** priceSplit's total in exact integer arithmetic: p + round-half-up(p * bps / 10_000). */
+function exactTotal(p: bigint, bps: bigint): bigint {
+  return p + (2n * p * bps + 10_000n) / 20_000n;
+}
+
 /**
- * The largest provider cost per hour whose total with our margin (priceSplit, the contract's
- * one rounding rule) is at most `maxTotal`.
+ * The largest provider cost per hour whose total with our margin (priceSplit's rounding) is at
+ * most `maxTotal`. Exact for every safe integer `maxTotal` and every valid margin: a binary
+ * search in BigInt over [0, maxTotal], using that the total never decreases as the cost grows.
  */
 export function providerCapForTotal(maxTotal: Micros, marginBps: BasisPoints): Micros {
   if (!Number.isSafeInteger(maxTotal) || maxTotal < 0) throw new RangeError(`not a price: ${maxTotal}`);
-  // The estimate never overshoots: p <= maxTotal / (1 + bps/10_000) makes the exact margin at
-  // most maxTotal - p, an integer, so rounding the margin can't push the total past maxTotal.
-  // It can undershoot by float error (by at most one), so step up while the next cost fits.
-  let p = Math.floor((maxTotal * 10_000) / (10_000 + marginBps));
-  for (let step = 0; step < 2 && priceSplit(p + 1, marginBps).total <= maxTotal; step++) p++;
-  return p;
+  if (!isBasisPoints(marginBps)) throw new RangeError(`not a margin in basis points: ${marginBps}`);
+  const max = BigInt(maxTotal);
+  const bps = BigInt(marginBps);
+  let lo = 0n; // exactTotal(lo) <= max always holds
+  let hi = max + 1n; // exactTotal(hi) > max always holds (the total is at least the cost)
+  while (hi - lo > 1n) {
+    const mid = (lo + hi) / 2n;
+    if (exactTotal(mid, bps) <= max) lo = mid;
+    else hi = mid;
+  }
+  return Number(lo);
 }
 
 /** A project's policy as placement reads it, at the organization's or project's margin. */
@@ -116,11 +127,21 @@ export interface FallbackOptions {
   /** Ranked offers (rankOffers), tried in order. */
   offers: readonly Offer[];
   adapters: Partial<Record<ProviderId, ProviderAdapter>>;
+  /** Called once per launch call: each call gets its own spec, so its own boot token. */
   spec: (offer: Offer) => LaunchSpec;
+  /**
+   * Revoke the boot token of a spec whose launch failed, before anything else happens. If it
+   * throws, the search stops with outcome_unknown.
+   */
+  revokeBootToken: (spec: LaunchSpec) => Promise<void>;
   sleep: (ms: number) => Promise<void>;
-  /** Launch calls in total, retries included. */
+  /** Status polls after terminating a rejected machine, before giving up (default 10). */
+  confirmPolls?: number;
+  /** Between those polls (default 3000 ms). */
+  confirmIntervalMs?: number;
+  /** Launch calls in total, retries included: an integer in [1, 20], default 6. */
   maxAttempts?: number;
-  /** Retries of one offer after rate limiting or a transient failure. */
+  /** Retries of one offer after rate limiting or a transient failure: [0, 20], default 2. */
   maxRetriesPerOffer?: number;
 }
 
@@ -132,19 +153,66 @@ export interface Placed {
 
 const MAX_BACKOFF_MS = 30_000;
 
+/** The largest value accepted for maxAttempts and maxRetriesPerOffer. */
+export const MAX_LAUNCH_ATTEMPTS = 20;
+
+function checkBound(name: string, value: number, min: number): void {
+  if (!Number.isSafeInteger(value) || value < min || value > MAX_LAUNCH_ATTEMPTS) {
+    throw new RangeError(`${name} must be an integer in [${min}, ${MAX_LAUNCH_ATTEMPTS}], got ${value}`);
+  }
+}
+
 export function backoffMs(retry: number, retryAfterSeconds: number | null): number {
+  if (!Number.isSafeInteger(retry) || retry < 0) throw new RangeError(`not a retry number: ${retry}`);
+  if (retryAfterSeconds !== null && !(Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0)) {
+    throw new RangeError(`not a Retry-After: ${retryAfterSeconds}`);
+  }
   const ms = retryAfterSeconds !== null ? retryAfterSeconds * 1000 : 1000 * 2 ** retry;
   return Math.min(ms, MAX_BACKOFF_MS);
+}
+
+/**
+ * Terminate a machine and poll until the provider reports it terminated. Any error, or no
+ * confirmation within `polls` status reads, gives false: the machine may still be running.
+ */
+export async function terminateAndConfirm(
+  adapter: ProviderAdapter,
+  providerMachineId: string,
+  sleep: (ms: number) => Promise<void>,
+  polls: number,
+  intervalMs: number,
+): Promise<boolean> {
+  try {
+    await adapter.terminate(providerMachineId);
+    for (let i = 0; i < polls; i++) {
+      if (i > 0) await sleep(intervalMs);
+      if ((await adapter.status(providerMachineId)).state === "terminated") return true;
+    }
+  } catch {
+    // fall through: unconfirmed
+  }
+  return false;
 }
 
 /**
  * Launch on the first offer that works. Capacity-type refusals move on to the next offer;
  * rate limits and transient failures retry the same offer; anything else stops the search,
  * including "outcome_unknown": a machine may exist, so launching elsewhere could make two.
+ * After every failed launch call, the call's boot token is revoked first; a machine the
+ * provider created but we rejected is then terminated and confirmed gone, and if either step
+ * fails the search stops with outcome_unknown.
  */
 export async function launchWithFallback(opts: FallbackOptions): Promise<Placed> {
   const maxAttempts = opts.maxAttempts ?? 6;
   const maxRetries = opts.maxRetriesPerOffer ?? 2;
+  checkBound("maxAttempts", maxAttempts, 1);
+  checkBound("maxRetriesPerOffer", maxRetries, 0);
+  const confirmPolls = opts.confirmPolls ?? 10;
+  const confirmIntervalMs = opts.confirmIntervalMs ?? 3000;
+  checkBound("confirmPolls", confirmPolls, 1);
+  if (!Number.isSafeInteger(confirmIntervalMs) || confirmIntervalMs < 0 || confirmIntervalMs > 60_000) {
+    throw new RangeError(`confirmIntervalMs must be an integer in [0, 60000], got ${confirmIntervalMs}`);
+  }
   const attempts: LaunchAttempt[] = [];
   if (opts.offers.length === 0) throw new PlacementError("no_offers", "no offer matches", attempts);
   let calls = 0;
@@ -160,14 +228,34 @@ export async function launchWithFallback(opts: FallbackOptions): Promise<Placed>
         throw new PlacementError(last?.kind ?? "no_capacity", `gave up after ${calls} launch attempts`, attempts);
       }
       calls++;
+      const spec = opts.spec(offer);
       try {
-        const result = await adapter.launch(opts.spec(offer));
+        const result = await adapter.launch(spec);
         attempts.push({ provider: offer.provider, dataCenter: offer.dataCenter, outcome: "launched", detail: "" });
         return { offer, result, attempts };
       } catch (e) {
+        // Whatever happened, this spec's boot token must never be usable again.
+        try {
+          await opts.revokeBootToken(spec);
+        } catch {
+          if (e instanceof ProviderError) {
+            attempts.push({ provider: offer.provider, dataCenter: offer.dataCenter, outcome: e.kind, detail: e.message });
+          }
+          throw new PlacementError("outcome_unknown", "the failed launch's boot token could not be revoked", attempts);
+        }
         if (!(e instanceof ProviderError)) throw e;
         last = e;
         attempts.push({ provider: offer.provider, dataCenter: offer.dataCenter, outcome: e.kind, detail: e.message });
+        if (e.providerMachineId !== null) {
+          const gone = await terminateAndConfirm(adapter, e.providerMachineId, opts.sleep, confirmPolls, confirmIntervalMs);
+          if (!gone) {
+            throw new PlacementError(
+              "outcome_unknown",
+              `machine ${e.providerMachineId} was rejected but its termination is not confirmed`,
+              attempts,
+            );
+          }
+        }
         const action = launchErrorAction(e.kind);
         if (action === "stop") throw new PlacementError(e.kind, e.message, attempts);
         if (action === "retry" && retry < maxRetries) {

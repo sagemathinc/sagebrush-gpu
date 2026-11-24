@@ -4,7 +4,9 @@ The provider interface, its adapters, placement and the drift check. Lane: provi
 
 Everything here runs in a Cloudflare Worker: the only I/O is an injected `fetch`, so tests never
 reach a provider. Provider API keys come from the control plane's secrets and are only ever sent
-in an `Authorization` header; error messages never include a request.
+in an `Authorization` header. Error messages never include a request, and never include the
+provider's response text either (it can echo request values such as the boot token): only the
+HTTP status and our error kind.
 
 ## The interface (`types.ts`)
 
@@ -40,9 +42,18 @@ On RunPod the create body is fixed (`RunPodAdapter.createBody`): Secure Cloud, o
 sshd, Jupyter) never runs.
 
 **After every launch** the adapter checks the returned pod against the spec (the drift check
-below, except a data center the scheduler hasn't reported yet). Any difference terminates the pod
-at once: a higher rate is `price_above_cap` (placement tries the next offer), anything else is
-`invalid_request` (placement stops).
+below, except a data center the scheduler hasn't reported yet). A pod that doesn't match is
+reported with its id: `price_above_cap` when only the rate is too high, `spec_mismatch` for
+anything else. Placement then cleans it up (below).
+
+**Parsing fails closed.** Only a pod without an id is an error. Every other field RunPod sends
+malformed or not at all is kept as an unreadable value (`<unreadable>`, `NaN`) that never equals
+an expected one, so the drift check reports it: missing or non-string `ports`, `env`, `entrypoint`
+or `cmd` entries, missing or malformed `mounts` (an unknown mount kind, a non-array network or
+global list, a non-integer size), a non-integer disk or GPU count, a missing image. A list or
+catalog response that doesn't match RunPod's schema (`pods` array, `pagination.hasNextPage`
+boolean, a cursor whenever there is a next page) is an error: it proves neither that a machine is
+absent nor that the list is complete.
 
 ## Errors (`errors.ts`)
 
@@ -51,15 +62,20 @@ launch loop does next:
 
 | Action | Kinds |
 |---|---|
-| next offer | `no_capacity`, `unplaceable`, `forbidden`, `price_above_cap` |
+| next offer | `no_capacity`, `unplaceable`, `forbidden`, `price_above_cap` (after cleanup) |
 | retry the same offer, with backoff | `rate_limited` (honours `Retry-After`), `transient` |
-| stop | `invalid_request`, `insufficient_funds`, `auth`, `not_found`, `outcome_unknown`, `unknown` |
+| stop | `spec_mismatch` (after cleanup), `invalid_request`, `insufficient_funds`, `auth`, `not_found`, `outcome_unknown`, `unknown` |
+
+An error with `providerMachineId` set means the call left a machine behind that the caller must
+clean up.
 
 `outcome_unknown` means the request may have reached the provider (no response, a timeout): a
 machine may exist. On a launch, the adapter first lists our machines by name; if it finds exactly
-one, that is the launch's result. Otherwise the error stands, and nothing launches elsewhere, so a
-lost response can't make two machines. A 5xx with no machine found stays `transient` and is
-retried under the same name; the watchdog treats two machines with one machine id as an alarm.
+one, that is the launch's result. If the listing fails or is malformed, the result is
+`outcome_unknown` and nothing launches elsewhere, so a lost response can't make two machines. A
+5xx followed by a valid listing with no such machine stays `transient` and is retried under the
+same name, with a fresh boot token (the old one is revoked first, so a late-appearing machine
+can't enroll); the watchdog treats two machines with one machine id as an alarm.
 
 RunPod (v2 REST API): 400 is either capacity or a rule violation and has no machine-readable
 code, so a 400 whose detail says capacity is `no_capacity`, any other 400 is `unplaceable`; 401
@@ -70,7 +86,8 @@ code, so a 400 whose detail says capacity is `no_capacity`, any other 400 is `un
 
 - `placementPolicy(projectPolicy, marginBps)`: the project policy as placement reads it. The
   policy's price cap is the total with margin; the provider cap is the largest provider cost whose
-  `priceSplit` total fits (`providerCapForTotal`, exact under the contract's rounding).
+  `priceSplit` total fits (`providerCapForTotal`: a BigInt binary search, exact for every safe
+  integer cap and every valid margin; other inputs are refused).
 - `rankOffers(offers, policy, request)`: the requested GPU type (if the policy allows it) and
   count, allowed providers, allowed countries, provider cost at most the cap, and stock other than
   `none`; cheapest first, then the better stock label, then provider and data center, so the same
@@ -78,9 +95,16 @@ code, so a 400 whose detail says capacity is `no_capacity`, any other 400 is `un
   even "high" offer can still refuse a launch.
 - `launchWithFallback(...)`: tries the ranked offers in order, following `launchErrorAction`, at
   most `maxAttempts` launch calls in all (default 6) and `maxRetriesPerOffer` retries per offer
-  (default 2), backing off 1 s, 2 s, 4 s ... (at most 30 s) or as `Retry-After` says.
+  (default 2), backing off 1 s, 2 s, 4 s ... (at most 30 s) or as `Retry-After` says. The bounds
+  are integers in [1, 20] and [0, 20], checked before any effect.
+- Every launch call gets its own spec, so its own boot token. **After every failed call, its boot
+  token is revoked first** (`revokeBootToken`, supplied by the control plane). If the call left a
+  machine behind, placement then terminates it and polls until the provider reports it gone
+  (`confirmPolls`, default 10, `confirmIntervalMs`, default 3 s). If the revocation, the
+  termination or the confirmation fails, the search stops with `outcome_unknown`: no next offer,
+  no second launch.
 
-**Locality** (`locality.ts`): presets are country sets. `eu-uk` is the EU, the rest of the EEA
+**Locality** (`locality.ts`): presets are country sets. `europe` is the EU, the rest of the EEA
 (Iceland, Liechtenstein, Norway) and the UK; `eu` the 27 EU states; `uk`, `us`, `ca` one country
 each; `any` everything. The project's `allowedCountries` narrows a preset further. A data center
 whose country we can't determine is never offered (RunPod: `US-DE-1` is Delaware, not Germany, so
@@ -115,9 +139,10 @@ returned lists only what we set; and how RunPod reports `entrypoint`/`cmd` back.
 
 ## Tests
 
-`bash scripts/check.sh` runs typecheck and every test. `python3 -I scripts/mutants-providers.py .`
-applies 93 mutants (flipped comparisons, dropped checks, wrong mappings) and expects every one to
-fail a test.
+`bash scripts/check.sh` runs typecheck and every test. `mutants.json` lists this package's mutants
+(flipped comparisons, dropped checks, wrong mappings, relaxed parsing), for the repo's shared
+fail-closed mutant runner, `scripts/mutants.py`. Each entry is `{file, old, new}` with `file`
+relative to this package.
 
 Fixtures (`src/runpod/fixtures/`) are recorded RunPod responses and RunPod's documented examples,
 with no credentials or account identifiers; their README says where each comes from.

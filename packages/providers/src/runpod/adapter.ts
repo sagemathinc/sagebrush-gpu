@@ -39,12 +39,15 @@ export interface RunPodOptions {
 /** A RunPod refusal that means capacity (RunPod has no machine-readable code for it). */
 const NO_CAPACITY = /no longer any instances available|no (gpu )?capacity|not enough (free )?gpus|no available (machines|gpus|instances)/i;
 
-/** Map one RunPod HTTP error to a ProviderError (see RunPod's create-pod retry table). */
+/**
+ * Map one RunPod HTTP error to a ProviderError (see RunPod's create-pod retry table). The
+ * provider's response text is read only to recognise a capacity refusal and is never kept: it
+ * can echo request values such as the boot token. Messages hold only the status and our kind.
+ */
 export function runpodError(status: number, body: string, retryAfter: string | null): ProviderError {
-  const detail = errorDetail(body);
   const kind: ProviderErrorKind =
     status === 400
-      ? NO_CAPACITY.test(detail) ? "no_capacity" : "unplaceable"
+      ? NO_CAPACITY.test(errorDetail(body)) ? "no_capacity" : "unplaceable"
       : status === 401
         ? "auth"
         : status === 402
@@ -63,26 +66,21 @@ export function runpodError(status: number, body: string, retryAfter: string | n
   return new ProviderError(
     "runpod",
     kind,
-    `RunPod ${status}: ${detail}`,
+    `RunPod HTTP ${status} (${kind})`,
     status,
     status === 429 ? retryAfterSeconds(retryAfter) : null,
   );
 }
 
+/** The `detail` of a problem+json body (or the raw text), for classification only. */
 function errorDetail(body: string): string {
-  let detail = body;
   try {
     const parsed: unknown = JSON.parse(body);
-    if (isObject(parsed)) {
-      const d = parsed["detail"];
-      const errs = parsed["errors"];
-      detail = typeof d === "string" ? d : body;
-      if (Array.isArray(errs) && errs.length > 0) detail += ` (${errs.filter((e) => typeof e === "string").join("; ")})`;
-    }
+    if (isObject(parsed) && typeof parsed["detail"] === "string") return parsed["detail"].slice(0, 1000);
   } catch {
-    // not JSON: keep the raw text
+    // not JSON
   }
-  return detail.slice(0, 300);
+  return body.slice(0, 1000);
 }
 
 function isObject(x: unknown): x is Record<string, unknown> {
@@ -106,32 +104,63 @@ const STOCK: Readonly<Record<string, StockLevel>> = {
   NONE: "none",
 };
 
-function strings(x: unknown): string[] {
-  return Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : [];
+/**
+ * The value that stands for a field RunPod sent malformed or not at all. It never equals an
+ * expected value, so specDrift reports the field and the machine is terminated.
+ */
+export const UNREADABLE = "<unreadable>";
+
+/** An array of strings, or null when `x` is anything else (including an array with a non-string). */
+function stringArray(x: unknown): string[] | null {
+  return Array.isArray(x) && x.every((s) => typeof s === "string") ? [...x] : null;
 }
 
-function num(x: unknown, fallback: number): number {
-  return typeof x === "number" && Number.isFinite(x) ? x : fallback;
+/** A non-negative integer, or NaN (which never equals an expected number). */
+function count(x: unknown): number {
+  return typeof x === "number" && Number.isSafeInteger(x) && x >= 0 ? x : Number.NaN;
 }
 
-/** A RunPod Pod object as our ProviderMachineStatus. Unknown or missing values stay visible. */
+const MOUNT_KEYS = new Set(["persistent", "network", "global"]);
+
+/**
+ * GB of volume attached, from a Pod's `mounts`: 0 for `{}`, the size of a persistent mount,
+ * Infinity for any network or global volume (never expected), NaN when unreadable.
+ */
+function volumeGb(mounts: unknown): number {
+  if (!isObject(mounts) || Object.keys(mounts).some((k) => !MOUNT_KEYS.has(k))) return Number.NaN;
+  let gb = 0;
+  const persistent = mounts["persistent"];
+  if (persistent !== undefined && persistent !== null) {
+    if (!isObject(persistent)) return Number.NaN;
+    gb += count(persistent["size"]);
+  }
+  for (const k of ["network", "global"]) {
+    const v = mounts[k];
+    if (v === undefined || v === null) continue;
+    if (!Array.isArray(v)) return Number.NaN;
+    if (v.length > 0) gb = Number.POSITIVE_INFINITY;
+  }
+  return gb;
+}
+
+/**
+ * A RunPod Pod object as our ProviderMachineStatus. Only a missing id throws: every other field
+ * that is missing or malformed is kept as an unreadable value, so the drift check fails closed
+ * on it (and a fresh pod with such a field is terminated, not left running).
+ */
 export function podStatus(pod: unknown, observedAt: string): ProviderMachineStatus {
-  if (!isObject(pod) || typeof pod["id"] !== "string") {
+  if (!isObject(pod) || typeof pod["id"] !== "string" || pod["id"] === "") {
     throw new ProviderError("runpod", "unknown", "RunPod returned a pod without an id");
   }
   const gpu = isObject(pod["gpu"]) ? pod["gpu"] : {};
-  const mounts = isObject(pod["mounts"]) ? pod["mounts"] : {};
-  const persistent = isObject(mounts["persistent"]) ? mounts["persistent"] : {};
-  const network = Array.isArray(mounts["network"]) ? mounts["network"].length : 0;
-  const globalVolumes = Array.isArray(mounts["global"]) ? mounts["global"].length : 0;
-  const env = isObject(pod["env"]) ? Object.keys(pod["env"]) : [];
+  const env = pod["env"];
+  const envNames =
+    isObject(env) && Object.values(env).every((v) => typeof v === "string") ? Object.keys(env) : [UNREADABLE];
   const rawStatus = typeof pod["status"] === "string" ? pod["status"] : "";
-  const entrypoint = strings(pod["entrypoint"]);
-  const cmd = strings(pod["cmd"]);
-  const args = typeof pod["args"] === "string" ? pod["args"] : "";
-  // RunPod returns both forms; if only the raw string is there, keep it so it can't match an argv.
-  const command =
-    pod["entrypoint"] === undefined && pod["cmd"] === undefined && args !== "" ? [`args:${args}`] : [...entrypoint, ...cmd];
+  // RunPod returns both forms (args, and entrypoint + cmd); we read entrypoint + cmd.
+  const entrypoint = stringArray(pod["entrypoint"]);
+  const cmd = pod["cmd"] === undefined || pod["cmd"] === null ? [] : stringArray(pod["cmd"]);
+  const command = entrypoint !== null && cmd !== null ? [...entrypoint, ...cmd] : [UNREADABLE];
   const cost = pod["cost"];
   return {
     provider: "runpod",
@@ -140,14 +169,13 @@ export function podStatus(pod: unknown, observedAt: string): ProviderMachineStat
     state: STATES[rawStatus] ?? "unknown",
     rawStatus,
     gpuType: typeof gpu["id"] === "string" ? gpuFromRunPod(gpu["id"]) : null,
-    gpuCount: num(gpu["count"], 0),
+    gpuCount: count(gpu["count"]),
     dataCenter: typeof pod["dataCenterId"] === "string" ? pod["dataCenterId"] : null,
-    image: typeof pod["image"] === "string" ? pod["image"] : "",
-    diskGb: num(pod["disk"], 0),
-    // Any network or global volume counts as a volume of unknown size: never expected.
-    volumeGb: num(persistent["size"], 0) + (network + globalVolumes > 0 ? Number.POSITIVE_INFINITY : 0),
-    envNames: env,
-    exposedPorts: strings(pod["ports"]),
+    image: typeof pod["image"] === "string" ? pod["image"] : UNREADABLE,
+    diskGb: count(pod["disk"]),
+    volumeGb: volumeGb(pod["mounts"]),
+    envNames,
+    exposedPorts: stringArray(pod["ports"]) ?? [UNREADABLE],
     command,
     providerCostPerHour: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? usdToMicros(cost) : null,
     observedAt,
@@ -213,7 +241,10 @@ export class RunPodAdapter implements ProviderAdapter {
     if (!Number.isInteger(query.gpuCount) || query.gpuCount < 1) throw new RangeError("gpuCount must be a positive integer");
     const qs = new URLSearchParams({ include: "AVAILABILITY", product: "POD", cloud: "SECURE", count: String(query.gpuCount) });
     const { json } = await this.#call("GET", `/v2/catalog/gpus?${qs}`);
-    const gpus = isObject(json) && Array.isArray(json["gpus"]) ? json["gpus"] : [];
+    if (!isObject(json) || !Array.isArray(json["gpus"])) {
+      throw new ProviderError("runpod", "unknown", "RunPod GPU catalog is malformed");
+    }
+    const gpus = json["gpus"];
     const observedAt = this.#observedAt();
     const offers: Offer[] = [];
     for (const g of gpus) {
@@ -282,22 +313,35 @@ export class RunPodAdapter implements ProviderAdapter {
       }
       return this.#accept(spec, found[0]!);
     }
-    return this.#accept(spec, podStatus(json, this.#observedAt()));
+    let status: ProviderMachineStatus;
+    try {
+      status = podStatus(json, this.#observedAt());
+    } catch {
+      // Created, but we can't tell which pod: only a listing by name can find it.
+      throw new ProviderError("runpod", "outcome_unknown", "RunPod created a pod but its response has no id");
+    }
+    return this.#accept(spec, status);
   }
 
-  /** Check a fresh pod against the spec; anything wrong terminates it before it is used. */
-  async #accept(spec: LaunchSpec, status: ProviderMachineStatus): Promise<LaunchResult> {
+  /**
+   * Check a fresh pod against the spec. A pod that doesn't match is reported, not cleaned up
+   * here: the caller revokes its boot token first, then terminates it and confirms it is gone
+   * (placement's launchWithFallback does).
+   */
+  #accept(spec: LaunchSpec, status: ProviderMachineStatus): LaunchResult {
     // The scheduler may not have reported the data center yet; the watchdog checks it later.
     const drift = specDrift(expectedSpec(spec, this.info, status.providerMachineId), status).filter(
       (d) => !(d.field === "dataCenter" && status.dataCenter === null),
     );
     if (drift.length > 0) {
-      await this.terminate(status.providerMachineId);
       const priceOnly = drift.every((d) => d.field === "providerCostPerHour") && status.providerCostPerHour !== null;
       throw new ProviderError(
         "runpod",
-        priceOnly ? "price_above_cap" : "invalid_request",
-        `launched pod did not match the spec and was terminated: ${drift.map((d) => `${d.field} ${d.observed} (expected ${d.expected})`).join("; ")}`,
+        priceOnly ? "price_above_cap" : "spec_mismatch",
+        `launched pod does not match the spec in: ${drift.map((d) => d.field).join(", ")}`,
+        null,
+        null,
+        status.providerMachineId,
       );
     }
     return { providerMachineId: status.providerMachineId, status };
@@ -330,13 +374,19 @@ export class RunPodAdapter implements ProviderAdapter {
       if (cursor !== null) qs.set("cursor", cursor);
       const { json } = await this.#call("GET", `/v2/pods?${qs}`);
       const observedAt = this.#observedAt();
-      const pods = isObject(json) && Array.isArray(json["pods"]) ? json["pods"] : [];
-      for (const pod of pods) {
+      // A malformed page proves nothing: not that a machine is absent, nor that the list is complete.
+      if (!isObject(json) || !Array.isArray(json["pods"]) || !isObject(json["pagination"])) {
+        throw new ProviderError("runpod", "unknown", "RunPod pod list is malformed");
+      }
+      const pagination = json["pagination"];
+      if (typeof pagination["hasNextPage"] !== "boolean") {
+        throw new ProviderError("runpod", "unknown", "RunPod pod list has no hasNextPage");
+      }
+      for (const pod of json["pods"]) {
         const s = podStatus(pod, observedAt);
         if (s.machineId !== null) out.push(s);
       }
-      const pagination = isObject(json) && isObject(json["pagination"]) ? json["pagination"] : {};
-      if (pagination["hasNextPage"] !== true) return out;
+      if (!pagination["hasNextPage"]) return out;
       if (typeof pagination["nextCursor"] !== "string" || pagination["nextCursor"] === "") {
         throw new ProviderError("runpod", "unknown", "RunPod said there is another page but gave no cursor");
       }

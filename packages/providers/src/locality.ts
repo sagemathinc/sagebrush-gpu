@@ -15,7 +15,7 @@ export const EEA_NON_EU: readonly CountryCode[] = ["IS", "LI", "NO"];
 /** Countries per preset; "any" is every country, including unknown ones. */
 export const PRESET_COUNTRIES: Readonly<Record<Exclude<LocalityPreset, "any">, readonly CountryCode[]>> = {
   // "Europe" as decided for the pilot (Nov 16): the EU, the rest of the EEA, and the UK.
-  "eu-uk": [...EU_COUNTRIES, ...EEA_NON_EU, "GB"],
+  europe: [...EU_COUNTRIES, ...EEA_NON_EU, "GB"],
   eu: EU_COUNTRIES,
   uk: ["GB"],
   us: ["US"],

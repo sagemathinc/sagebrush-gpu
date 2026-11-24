@@ -36,7 +36,7 @@ test("machine names round-trip and reject anything else", () => {
   }
 });
 
-const EUROPE = PRESET_COUNTRIES["eu-uk"];
+const EUROPE = PRESET_COUNTRIES.europe;
 const EU_ONLY = PRESET_COUNTRIES.eu;
 
 test("locality presets", () => {
@@ -61,8 +61,8 @@ test("locality presets", () => {
 test("localityFor narrows a preset by the extra country list", () => {
   assert.equal(localityFor("any", null), "any");
   assert.deepEqual(localityFor("any", ["SE"]), ["SE"]);
-  assert.deepEqual(localityFor("eu-uk", null), EUROPE);
-  assert.deepEqual(localityFor("eu-uk", ["GB", "US", "SE"]), ["SE", "GB"]);
+  assert.deepEqual(localityFor("europe", null), EUROPE);
+  assert.deepEqual(localityFor("europe", ["GB", "US", "SE"]), ["SE", "GB"]);
   assert.deepEqual(localityFor("eu", ["GB"]), []);
   assert.deepEqual(localityFor("uk", []), []);
 });

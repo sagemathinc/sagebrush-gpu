@@ -6,7 +6,9 @@ import type { ProviderId } from "./types.ts";
  * - unplaceable: the provider refused this offer without saying why it was capacity (RunPod's
  *   400 covers both capacity and cross-field rule violations);
  * - forbidden: this account can't use this offer (e.g. a pool it has no access to);
- * - price_above_cap: the provider billed above the spec's cap; the adapter has terminated it;
+ * - price_above_cap: a machine was created but bills above the spec's cap (it exists:
+ *   providerMachineId is set, and the caller must revoke its boot token and terminate it);
+ * - spec_mismatch: a machine was created but doesn't match the spec in another way (likewise);
  * - rate_limited, transient: retry the same offer after a wait;
  * - invalid_request: our request is wrong; no offer will work;
  * - insufficient_funds, auth: the provider account can't launch anything;
@@ -20,6 +22,7 @@ export type ProviderErrorKind =
   | "unplaceable"
   | "forbidden"
   | "price_above_cap"
+  | "spec_mismatch"
   | "rate_limited"
   | "transient"
   | "invalid_request"
@@ -34,6 +37,8 @@ export class ProviderError extends Error {
   readonly provider: ProviderId;
   readonly httpStatus: number | null;
   readonly retryAfterSeconds: number | null;
+  /** Set when the failed call left a machine behind that the caller must clean up. */
+  readonly providerMachineId: string | null;
 
   constructor(
     provider: ProviderId,
@@ -41,6 +46,7 @@ export class ProviderError extends Error {
     message: string,
     httpStatus: number | null = null,
     retryAfterSeconds: number | null = null,
+    providerMachineId: string | null = null,
   ) {
     super(message);
     this.name = "ProviderError";
@@ -48,6 +54,7 @@ export class ProviderError extends Error {
     this.kind = kind;
     this.httpStatus = httpStatus;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.providerMachineId = providerMachineId;
   }
 }
 
@@ -64,6 +71,7 @@ export function launchErrorAction(kind: ProviderErrorKind): LaunchErrorAction {
     case "rate_limited":
     case "transient":
       return "retry";
+    case "spec_mismatch":
     case "invalid_request":
     case "insufficient_funds":
     case "auth":

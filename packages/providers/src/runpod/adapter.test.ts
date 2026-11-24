@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
 import type { Fetch, HttpRequest } from "../http.ts";
 import type { LaunchSpec } from "../types.ts";
-import { podStatus, runpodError, RunPodAdapter } from "./adapter.ts";
+import { expectedSpec, specDrift } from "../drift.ts";
+import { podStatus, runpodError, RunPodAdapter, UNREADABLE } from "./adapter.ts";
 import { gpuFromRunPod, gpuToRunPod, RUNPOD_GPUS, runpodCountry } from "./catalog.ts";
 
 const fixture = (name: string): string => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -136,6 +137,12 @@ test("listOffers skips what it can't offer safely", async () => {
   await assert.rejects(a.listOffers({ gpuCount: 1.5 }), RangeError);
 });
 
+test("listOffers rejects a malformed catalog rather than reporting no offers", async () => {
+  for (const body of [{}, { gpus: "x" }, [], "<html>"]) {
+    await assert.rejects(adapter([{ status: 200, body }]).a.listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
+  }
+});
+
 // ---------------------------------------------------------------- launch
 
 test("the create body is exactly our launch shape", () => {
@@ -181,27 +188,83 @@ test("launch accepts a pod whose data center isn't assigned yet", async () => {
   assert.equal(r.status.dataCenter, null);
 });
 
+// A fresh pod that doesn't match the spec is reported with its id (the caller revokes, then
+// terminates and confirms; see placement.test.ts). The adapter itself makes no further call.
 const badPods: Array<[string, Record<string, unknown>, string]> = [
-  ["ports", { ports: ["22/tcp"] }, "invalid_request"],
-  ["a volume", { mounts: { persistent: { size: 20, path: "/workspace" } } }, "invalid_request"],
-  ["a network volume", { mounts: { network: [{ id: "v" }] } }, "invalid_request"],
-  ["extra env", { env: { SBGPU_BOOT_TOKEN: "t", PUBLIC_KEY: "k" } }, "invalid_request"],
-  ["another data center", { dataCenterId: "US-TX-3" }, "invalid_request"],
-  ["another image", { image: "other:latest" }, "invalid_request"],
-  ["another command", { entrypoint: ["/start.sh"] }, "invalid_request"],
+  ["ports", { ports: ["22/tcp"] }, "spec_mismatch"],
+  ["a volume", { mounts: { persistent: { size: 20, path: "/workspace" } } }, "spec_mismatch"],
+  ["a network volume", { mounts: { network: [{ id: "v" }] } }, "spec_mismatch"],
+  ["a global volume", { mounts: { global: [{ id: "g" }] } }, "spec_mismatch"],
+  ["extra env", { env: { SBGPU_BOOT_TOKEN: "t", PUBLIC_KEY: "k" } }, "spec_mismatch"],
+  ["another data center", { dataCenterId: "US-TX-3" }, "spec_mismatch"],
+  ["another image", { image: "other:latest" }, "spec_mismatch"],
+  ["another command", { entrypoint: ["/start.sh"] }, "spec_mismatch"],
+  ["another disk", { disk: 41 }, "spec_mismatch"],
+  ["another GPU", { gpu: { id: "NVIDIA RTX A6000", count: 1 } }, "spec_mismatch"],
   ["a higher rate", { cost: 0.71 }, "price_above_cap"],
-  ["no rate", { cost: null }, "invalid_request"],
+  ["no rate", { cost: null }, "spec_mismatch"],
+  ["a higher rate and ports", { cost: 0.71, ports: ["22/tcp"] }, "spec_mismatch"],
+];
+
+// Missing or malformed security-relevant fields: never read as the safe value.
+const malformed: Array<[string, Record<string, unknown>]> = [
+  ["missing ports", { ports: undefined }],
+  ["ports as a string", { ports: "22/tcp" }],
+  ["ports as numbers", { ports: [22] }],
+  ["ports as objects", { ports: [{ port: 22 }] }],
+  ["ports null", { ports: null }],
+  ["missing mounts", { mounts: undefined }],
+  ["mounts null", { mounts: null }],
+  ["mounts as an array", { mounts: [] }],
+  ["network volumes not an array", { mounts: { network: "unknown" } }],
+  ["network volume as an object", { mounts: { network: { id: "v" } } }],
+  ["global volumes not an array", { mounts: { global: { id: "g" } } }],
+  ["a persistent size as a string", { mounts: { persistent: { size: "20" } } }],
+  ["a persistent mount not an object", { mounts: { persistent: 20 } }],
+  ["an unknown mount kind", { mounts: { shared: [] } }],
+  ["missing env", { env: undefined }],
+  ["env as an array", { env: ["SBGPU_BOOT_TOKEN"] }],
+  ["an env value not a string", { env: { SBGPU_BOOT_TOKEN: 5 } }],
+  ["missing entrypoint", { entrypoint: undefined }],
+  ["an entrypoint with a non-string", { entrypoint: ["/bin/sh", 5, "launcher-script"] }],
+  ["cmd not an array", { cmd: "x" }],
+  ["missing image", { image: undefined }],
+  ["missing disk", { disk: undefined }],
+  ["disk as a string", { disk: "40" }],
+  ["missing gpu", { gpu: undefined }],
+  ["a GPU count as a string", { gpu: { id: "NVIDIA L4", count: "1" } }],
 ];
 
 for (const [what, change, kind] of badPods) {
-  test(`launch terminates a new pod with ${what}`, async () => {
-    const { a, calls } = adapter([{ status: 201, body: { ...POD, ...change } }, { status: 204 }]);
-    await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === kind);
-    assert.equal(calls.length, 2);
-    assert.equal(calls[1]!.init.method, "DELETE");
-    assert.equal(calls[1]!.url, "https://api.runpod.io/v2/pods/7h9k2m4n6p");
+  test(`launch reports a new pod with ${what} as ${kind}, with its id`, async () => {
+    const { a, calls } = adapter([{ status: 201, body: { ...POD, ...change } }]);
+    await assert.rejects(
+      a.launch(spec),
+      (e: unknown) => e instanceof ProviderError && e.kind === kind && e.providerMachineId === "7h9k2m4n6p",
+    );
+    assert.deepEqual(calls.map((c) => c.init.method), ["POST"]);
   });
 }
+
+for (const [what, change] of malformed) {
+  test(`a pod with ${what} is never accepted, and drifts when polled`, async () => {
+    const pod = { ...POD, ...change };
+    const { a } = adapter([{ status: 201, body: pod }, { status: 200, body: pod }]);
+    await assert.rejects(
+      a.launch(spec),
+      (e: unknown) => e instanceof ProviderError && e.kind === "spec_mismatch" && e.providerMachineId === "7h9k2m4n6p",
+    );
+    const drift = specDrift(expectedSpec(spec, a.info, "7h9k2m4n6p"), await a.status("7h9k2m4n6p"));
+    assert.ok(drift.length > 0);
+  });
+}
+
+test("a created pod whose response has no id is outcome_unknown", async () => {
+  for (const body of [{ ...POD, id: undefined }, { ...POD, id: "" }, "[]", ""]) {
+    const { a } = adapter([{ status: 201, body }]);
+    await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown", JSON.stringify(body));
+  }
+});
 
 test("a rate at the cap is accepted", async () => {
   const { a } = adapter([{ status: 201, body: { ...POD, cost: 0.7 } }]);
@@ -248,6 +311,31 @@ test("launch after a 5xx with no pod found is transient; with the list unreadabl
   await assert.rejects(b.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
 });
 
+const invalidLists: Array<[string, Reply]> = [
+  ["{}", { status: 200, body: {} }],
+  ["pods not an array", { status: 200, body: { pods: "invalid", pagination: { nextCursor: null, hasNextPage: false } } }],
+  ["no pagination", { status: 200, body: { pods: [] } }],
+  ["pagination without hasNextPage", { status: 200, body: { pods: [], pagination: { nextCursor: null } } }],
+  ["hasNextPage not a boolean", { status: 200, body: { pods: [], pagination: { nextCursor: null, hasNextPage: "false" } } }],
+  ["a next page without a cursor", { status: 200, body: { pods: [], pagination: { nextCursor: null, hasNextPage: true } } }],
+  ["a next page with an empty cursor", { status: 200, body: { pods: [], pagination: { nextCursor: "", hasNextPage: true } } }],
+  ["a pod row without an id", { status: 200, body: { pods: [{ name: "x" }], pagination: { nextCursor: null, hasNextPage: false } } }],
+  ["a pod row that isn't an object", { status: 200, body: { pods: [7], pagination: { nextCursor: null, hasNextPage: false } } }],
+  ["not JSON", { status: 200, body: "<html>" }],
+  ["an empty body", { status: 200 }],
+];
+
+for (const [what, reply] of invalidLists) {
+  test(`listMachines rejects ${what}`, async () => {
+    await assert.rejects(adapter([reply]).a.listMachines(), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
+  });
+  test(`launch after a 503 with discovery returning ${what} is outcome_unknown`, async () => {
+    const { a, calls } = adapter([{ status: 503, body: "" }, reply]);
+    await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
+    assert.deepEqual(calls.map((c) => c.init.method), ["POST", "GET"]);
+  });
+}
+
 test("launch refuses to pick between two pods of one machine", async () => {
   const { a } = adapter([new TypeError("fetch failed"), listReply([POD, { ...POD, id: "other" }])]);
   await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && /2 pods/.test(e.message));
@@ -257,6 +345,19 @@ test("launch doesn't look for the pod after a definite refusal", async () => {
   const { a, calls } = adapter([{ status: 400, body: fixture("error-no-capacity.json") }]);
   await assert.rejects(a.launch(spec));
   assert.equal(calls.length, 1);
+});
+
+test("errors never carry provider text, which can echo the boot token", async () => {
+  const echo = { title: "Unprocessable", status: 422, detail: "bad SBGPU_BOOT_TOKEN=test-token-not-a-secret", errors: ["env: test-token-not-a-secret"] };
+  for (const reply of [
+    { status: 422, body: echo },
+    { status: 400, body: { ...echo, status: 400 } },
+    { status: 400, body: "no capacity for SBGPU_BOOT_TOKEN=test-token-not-a-secret" },
+    { status: 500, body: "test-token-not-a-secret" },
+  ]) {
+    const { a } = adapter([reply, listReply([])]);
+    await assert.rejects(a.launch(spec), (e: unknown) => e instanceof Error && !e.message.includes("test-token") && !e.message.includes("SBGPU"));
+  }
 });
 
 test("errors never carry the API key", async () => {
@@ -364,26 +465,38 @@ test("podStatus reads the fixture pod", () => {
 
 test("podStatus keeps unknowns visible", () => {
   const s = podStatus({ id: "p", args: "python serve.py", gpu: { id: "Some New GPU", count: 1 }, cost: -1, mounts: { global: [{}] } }, "t");
-  assert.deepEqual(s.command, ["args:python serve.py"]);
+  assert.deepEqual(s.command, [UNREADABLE]);
+  assert.deepEqual(s.envNames, [UNREADABLE]);
+  assert.deepEqual(s.exposedPorts, [UNREADABLE]);
+  assert.equal(s.image, UNREADABLE);
+  assert.ok(Number.isNaN(s.diskGb));
   assert.equal(s.gpuType, null);
   assert.equal(s.providerCostPerHour, null);
   assert.equal(s.volumeGb, Number.POSITIVE_INFINITY);
   assert.equal(s.machineId, null);
   assert.equal(s.state, "unknown");
   assert.equal(podStatus({ id: "p", cost: "0.5" }, "t").providerCostPerHour, null);
+  assert.ok(Number.isNaN(podStatus({ id: "p", mounts: { persistent: { size: -1 } } }, "t").volumeGb));
+  assert.equal(podStatus({ id: "p", mounts: { persistent: { size: 10 }, network: [] } }, "t").volumeGb, 10);
+  assert.equal(podStatus({ id: "p", mounts: { persistent: null, network: null, global: null } }, "t").volumeGb, 0);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: null }, "t").command, ["a"]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"] }, "t").command, ["a"]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: ["b"] }, "t").command, ["a", "b"]);
   assert.throws(() => podStatus({ name: "x" }, "t"), ProviderError);
   assert.throws(() => podStatus(null, "t"), ProviderError);
 });
 
-test("runpodError keeps the detail short and reads Retry-After only for 429", () => {
+test("runpodError classifies without keeping provider text, and reads Retry-After only for 429", () => {
   const e = runpodError(400, JSON.stringify({ detail: "x".repeat(1000) }), "5");
-  assert.equal(e.message.length, "RunPod 400: ".length + 300);
+  assert.equal(e.message, "RunPod HTTP 400 (unplaceable)");
   assert.equal(e.retryAfterSeconds, null);
+  assert.equal(runpodError(429, "", "5").retryAfterSeconds, 5);
   assert.equal(runpodError(418, "teapot", null).kind, "unknown");
   assert.equal(runpodError(599, "", null).kind, "transient");
   assert.equal(runpodError(600, "", null).kind, "unknown");
   assert.equal(runpodError(413, "", null).kind, "invalid_request");
   assert.equal(runpodError(404, "", null).kind, "not_found");
   assert.equal(runpodError(400, JSON.stringify({ detail: "No GPU capacity in EU-SE-1" }), null).kind, "no_capacity");
-  assert.equal(runpodError(400, "not json", null).message, "RunPod 400: not json");
+  assert.equal(runpodError(400, "There are no longer any instances available", null).kind, "no_capacity");
+  assert.equal(runpodError(400, JSON.stringify({ title: "no capacity", detail: "rule" }), null).kind, "unplaceable");
 });

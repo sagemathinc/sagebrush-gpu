@@ -4,13 +4,7 @@
 // ProviderAdapter interface and LaunchSpec belong to this package: only the control plane
 // calls launch.
 
-import type {
-  GpuTypeId,
-  Micros,
-  Offer,
-  ProviderId,
-  ProviderMachineStatus as ContractMachineStatus,
-} from "@sbgpu/api";
+import type { GpuTypeId, Micros, Offer, ProviderId, ProviderMachineStatus } from "@sbgpu/api";
 
 export type {
   CountryCode,
@@ -19,21 +13,9 @@ export type {
   Offer,
   ProviderId,
   ProviderMachineState as MachineState,
+  ProviderMachineStatus,
   StockLevel,
 } from "@sbgpu/api";
-
-/**
- * The contract's ProviderMachineStatus plus three fields the drift check needs (proposed for
- * the contract; this becomes a plain re-export once it has them).
- */
-export interface ProviderMachineStatus extends ContractMachineStatus {
-  /** Persistent volume attached to the machine, GB (0 when none). */
-  volumeGb: number;
-  /** Ports the provider exposes publicly or through its proxy. */
-  exposedPorts: string[];
-  /** The start command as an argv (entrypoint then arguments), as the provider reports it. */
-  command: string[];
-}
 
 /** Everything the control plane asks a provider to launch. There is no free-form environment. */
 export interface LaunchSpec {
@@ -79,7 +61,11 @@ export interface ProviderAdapter {
   readonly info: AdapterInfo;
   /** Current offers: GPU types we map, per data center, with the provider's list price. */
   listOffers(query: OfferQuery): Promise<Offer[]>;
-  /** Launch one machine. Throws ProviderError; kind "outcome_unknown" means a machine may exist. */
+  /**
+   * Launch one machine. Throws ProviderError: kind "outcome_unknown" means a machine may exist;
+   * an error with providerMachineId set means a machine exists that was rejected (it doesn't
+   * match the spec), and the caller must revoke its boot token and terminate it.
+   */
   launch(spec: LaunchSpec): Promise<LaunchResult>;
   /** A machine the provider no longer knows reports state "terminated". */
   status(providerMachineId: string): Promise<ProviderMachineStatus>;
