@@ -503,5 +503,113 @@
   "old": "!Number.isFinite(dirtyBytes) || ",
   "new": "",
   "note": "reserve: NaN and infinities accepted"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "if (token.length > TOKEN_MAX_CHARS) return fail(\"too long\");",
+  "new": "if (token.length > TOKEN_MAX_CHARS + 1) return fail(\"too long\");",
+  "note": "jws: size: one over the cap"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "if (token.length > TOKEN_MAX_CHARS) return fail(\"too long\");",
+  "new": "if (token.length >= TOKEN_MAX_CHARS) return fail(\"too long\");",
+  "note": "jws: size: the cap itself refused"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "if (parts.length !== 3) return fail(\"shape\");",
+  "new": "if (parts.length < 3) return fail(\"shape\");",
+  "note": "jws: shape: four parts"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "return b64urlEncode(out) === s ? out : null;",
+  "new": "return out;",
+  "note": "jws: base64url: trailing bits"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "const kidMatch = /^\\{\"alg\":\"EdDSA\",\"kid\":\"([A-Za-z0-9_-]{1,64})\"\\}$/.exec(ht);",
+  "new": "const kidMatch = /^\\{\"alg\":\"EdDSA\",\"kid\":\"([A-Za-z0-9_-]{1,64})\"(?:,\"typ\":\"JWT\")?\\}$/.exec(ht);",
+  "note": "jws: header: an extra typ"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "const kidMatch = /^\\{\"alg\":\"EdDSA\",\"kid\"",
+  "new": "const kidMatch = /^\\{\"alg\":\"[A-Za-z0-9]+\",\"kid\"",
+  "note": "jws: header: any alg"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "if (!(keys instanceof Map) || !keys.has(kid)) return fail(\"unknown kid\");",
+  "new": "if (!(keys instanceof Map)) return fail(\"unknown kid\");",
+  "note": "jws: kid: unknown accepted"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "if (!(keys instanceof Map) || !keys.has(kid))",
+  "new": "if (!keys.has(kid))",
+  "note": "jws: keys: any has()"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "typeof key === \"object\" && key !== null && (key as Key).type === type &&",
+  "new": "typeof key === \"object\" && key !== null &&",
+  "note": "jws: key: a private key accepted to verify"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "    (key as Key).algorithm?.name === \"Ed25519\"",
+  "new": "    true",
+  "note": "jws: key: any algorithm"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "if (!sb || sb.length !== 64) return fail(\"signature encoding\");",
+  "new": "if (!sb) return fail(\"signature encoding\");",
+  "note": "jws: signature: any length"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "  if (!good) return fail(\"signature\");\n",
+  "new": "",
+  "note": "jws: signature: not checked"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "good = await crypto.subtle.verify(\"Ed25519\", key, sb, enc.encode(`${h}.${p}`));",
+  "new": "good = await crypto.subtle.verify(\"Ed25519\", key, sb, enc.encode(p));",
+  "note": "jws: signature: over the payload only"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "  if (JSON.stringify(claims) !== pt) return fail(\"payload not canonical\");\n",
+  "new": "",
+  "note": "jws: payload: not canonical accepted"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "  return validateClaims(claims, kind, nowSeconds);\n}",
+  "new": "  return { ok: true, claims: claims as ClaimsOf<K> };\n}",
+  "note": "jws: claims: not validated"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "  if (!check.ok) throw new Error(`invalid claims: ${check.reason}`);\n",
+  "new": "",
+  "note": "jws: sign: invalid claims signed"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "  if (!KID_PATTERN.test(kid)) throw new Error(\"bad kid\");\n",
+  "new": "",
+  "note": "jws: sign: any kid"
+ },
+ {
+  "file": "src/jws.ts",
+  "old": "  if (!isEd25519(privateKey, \"private\")) throw new Error(\"not an Ed25519 private key\");\n",
+  "new": "",
+  "note": "jws: sign: any key"
  }
 ]
