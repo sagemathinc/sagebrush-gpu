@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { isId, isPriceSplit, addSplits, type Machine } from "@sbgpu/api";
 import { ApiError, createClient, type Client } from "../client.ts";
 import { mockFetch } from "./fetch.ts";
-import { seedDemo, type Demo } from "./seed.ts";
-import { SAVE_BYTES } from "./backend.ts";
+import { demoOffers, seedDemo, type Demo } from "./seed.ts";
+import { MockBackend, SAVE_BYTES } from "./backend.ts";
 
 const MIN = 60_000;
 
@@ -646,4 +646,160 @@ test("each start of a machine is a new incarnation", async () => {
   await c.call("stopMachine", { params: { machineId: m.id }, body: {} });
   d.backend.advance(MIN);
   assert.equal((await c.call("restartMachine", { params: { machineId: m.id }, body: {} })).incarnation, 2);
+});
+
+/** Stop and start one machine three times inside 09:00, 16 s each time. */
+async function sameMinuteRestarts(d: ReturnType<typeof setup>, providerCost: number, marginBps: number) {
+  d.backend.orgs.get(d.orgId)!.marginBps = marginBps;
+  d.backend.offers = d.backend.offers.map((o) => (o.gpuType === "L4" && o.provider === "runpod" ? { ...o, providerCostPerHour: providerCost } : o));
+  const c = await d.as(d.emails.member);
+  const m = await startL4(c, d.projectId);
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) await c.call("restartMachine", { params: { machineId: m.id }, body: {} });
+    d.backend.advance(1000);
+    await c.call("stopMachine", { params: { machineId: m.id }, body: {} }); // while starting: no save
+    d.backend.advance(15_000);
+  }
+  return { c, m };
+}
+
+function computeEntries(d: ReturnType<typeof setup>) {
+  return d.backend.ledger.filter((e) => e.kind === "compute");
+}
+
+test("ledger: restarts within a minute share that minute's one entry, rounded once", async () => {
+  const d = setup();
+  const { c, m } = await sameMinuteRestarts(d, 120, 0);
+  const entries = computeEntries(d);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.periodStart, "2027-02-01T09:00:00.000Z");
+  assert.equal(entries[0]?.seconds, 48);
+  // entrySplit(120, 48, 0): 1.6 micros, rounded once to 2 (three 16-second rows made 3).
+  assert.deepEqual(entries[0]?.amount, { providerCost: 2, margin: 0, total: 2 });
+  assert.deepEqual((await c.call("getMachine", { params: { machineId: m.id } })).spent, entries[0]?.amount);
+  const meter = (await c.call("getSpend", { params: { projectId: d.projectId } })).meters.find((x) => x.allocationId === m.allocationId);
+  assert.equal(meter?.spent.total, 2);
+});
+
+test("ledger: same-minute restart with a margin rounds the merged minute once", async () => {
+  const d = setup();
+  d.backend.orgs.get(d.orgId)!.marginBps = 3000;
+  d.backend.offers = d.backend.offers.map((o) => (o.gpuType === "L4" && o.provider === "runpod" ? { ...o, providerCostPerHour: 120 } : o));
+  const c = await d.as(d.emails.member);
+  const m = await startL4(c, d.projectId);
+  await c.call("stopMachine", { params: { machineId: m.id }, body: {} }); // 0 s running, stops at 15 s
+  d.backend.advance(15_000);
+  await c.call("restartMachine", { params: { machineId: m.id }, body: {} });
+  await c.call("stopMachine", { params: { machineId: m.id }, body: {} });
+  d.backend.advance(15_000);
+  const entries = computeEntries(d);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.seconds, 30);
+  assert.deepEqual(entries[0]?.amount, { providerCost: 1, margin: 0, total: 1 }); // two 15-second rows made 2
+});
+
+test("ledger: a same-minute restart at a higher price charges the minute at the higher rate", async () => {
+  const d = setup();
+  const c = await d.as(d.emails.member);
+  const m = await startL4(c, d.projectId);
+  d.backend.advance(5000);
+  await c.call("stopMachine", { params: { machineId: m.id }, body: {} });
+  d.backend.advance(15_000); // 20 s at $0.48
+  d.backend.offers = d.backend.offers.map((o) => (o.gpuType === "L4" ? { ...o, providerCostPerHour: 720_000 } : o));
+  await c.call("restartMachine", { params: { machineId: m.id }, body: {} });
+  d.backend.advance(40_000); // the minute's last 40 s at $0.72
+  const [first, second] = computeEntries(d);
+  assert.equal(first?.seconds, 60);
+  assert.equal(first?.providerCostPerHour, 720_000);
+  assert.deepEqual(first?.amount, { providerCost: 12_000, margin: 3600, total: 15_600 }); // entrySplit(720000, 60, 3000)
+  assert.equal(second, undefined);
+});
+
+test("ledger: one entry per (machine, minute), and the seconds add up to the time accruing", async () => {
+  const d = setup();
+  const ada = await d.as(d.emails.member);
+  const a = await startL4(ada, d.projectId);
+  const alan = await d.as(d.emails.teamMember);
+  const b = await startL4(alan, d.projectId);
+  d.backend.advance(150_000);
+  await alan.call("stopMachine", { params: { machineId: b.id }, body: {} }); // running: save 6 s, stop 15 s
+  d.backend.advance(30_000);
+  await alan.call("restartMachine", { params: { machineId: b.id }, body: {} });
+  d.backend.advance(200_000);
+  const keys = computeEntries(d).map((e) => `${e.machineId}|${e.periodStart}`);
+  assert.equal(new Set(keys).size, keys.length);
+  const secondsOf = (id: string) => computeEntries(d).filter((e) => e.machineId === id).reduce((s, e) => s + e.seconds, 0);
+  // At 09:06:20 the ledger is billed to the 09:06:00 check.
+  assert.equal(secondsOf(a.id), 360);
+  // b: 150 s, then a 6 s save and a 15 s stop (stopped at 171 s); again from 180 s to 360 s.
+  assert.equal(secondsOf(b.id), 171 + 180);
+});
+
+test("the clock: a start off the whole second is refused; off the minute, checks still run", async () => {
+  assert.throws(() => new MockBackend({ startMs: Date.parse("2027-02-01T09:00:00.001Z") }), RangeError);
+  assert.throws(() => new MockBackend({ startMs: Number.NaN }), RangeError);
+  assert.throws(() => new MockBackend({ startMs: Date.parse("not a date") }), RangeError);
+  assert.throws(() => new MockBackend({ startMs: 1e20 }), RangeError); // whole seconds, but past exact integers
+  const b = new MockBackend({ startMs: Date.parse("2027-02-01T09:00:30.000Z") });
+  const org = b.addOrg("O", 0, 1_000_000_000);
+  const user = b.addUser("u@example.org");
+  const project = b.addProject(org.id, {
+    name: "P",
+    budget: 100_000_000,
+    startsAt: "2027-02-01T00:00:00.000Z",
+    endsAt: "2027-02-01T09:02:00.000Z",
+    policy: { allowedGpuTypes: ["L4"], allowedProviders: ["runpod"] },
+  });
+  b.addMember(project.id, { email: user.email, allocation: 10_000_000, userId: user.id });
+  b.offers = demoOffers("2027-02-01T09:00:00.000Z");
+  b.currentUserId = user.id;
+  const c = createClient({ fetch: mockFetch(b) });
+  const m = await startL4(c, project.id);
+  b.advance(30_000); // the 09:01 check bills the first 30 s
+  assert.deepEqual(computeEntries({ backend: b } as Demo & { as: never }).map((e) => [e.periodStart, e.seconds]), [["2027-02-01T09:00:00.000Z", 30]]);
+  b.advance(60_000); // the 09:02 check: the project has ended
+  const ended = await c.call("getMachine", { params: { machineId: m.id } });
+  assert.equal(ended.stopReason, "projectEnded");
+  assert.notEqual(ended.state, "running");
+});
+
+test("invites: a retry at the budget boundary and duplicates in a batch take budget once", async () => {
+  const d = setup();
+  const p = { projectId: d.projectId };
+  const manager = await d.as(d.emails.manager);
+  const project = await manager.call("getProject", { params: p });
+  const rest = project.budget - project.allocated;
+  const first = await manager.call("inviteMembers", { params: p, body: { members: [{ email: "new@example.org", allocation: rest }] } });
+  const again = await manager.call("inviteMembers", { params: p, body: { members: [{ email: "new@example.org", allocation: rest }] } });
+  assert.equal(again.members[0]?.id, first.members[0]?.id);
+  assert.equal((await manager.call("getProject", { params: p })).allocated, project.budget);
+  await rejects(manager.call("inviteMembers", { params: p, body: { members: [{ email: "other@example.org", allocation: 1 }] } }), "conflict");
+
+  const d2 = setup();
+  const m2 = await d2.as(d2.emails.manager);
+  const pr2 = await m2.call("getProject", { params: { projectId: d2.projectId } });
+  const rest2 = pr2.budget - pr2.allocated;
+  const batch = await m2.call("inviteMembers", {
+    params: { projectId: d2.projectId },
+    body: { members: [{ email: "dup@example.org", allocation: rest2 }, { email: "DUP@example.org", allocation: rest2 }] },
+  });
+  assert.equal(batch.members[0]?.id, batch.members[1]?.id);
+  assert.equal((await m2.call("getProject", { params: { projectId: d2.projectId } })).allocated, pr2.budget);
+});
+
+test("ledger: a same-minute restart at a lower price keeps the minute's higher rate", async () => {
+  const d = setup();
+  d.backend.offers = d.backend.offers.map((o) => (o.gpuType === "L4" && o.provider === "runpod" ? { ...o, providerCostPerHour: 720_000 } : o));
+  const c = await d.as(d.emails.member);
+  const m = await c.call("startMachine", { params: { projectId: d.projectId }, body: { gpuType: "L4" } }); // hyperstack $0.55 is cheapest now
+  d.backend.advance(5000);
+  await c.call("stopMachine", { params: { machineId: m.id }, body: {} });
+  d.backend.advance(15_000);
+  d.backend.offers = d.backend.offers.map((o) => (o.gpuType === "L4" ? { ...o, providerCostPerHour: 360_000 } : o));
+  await c.call("restartMachine", { params: { machineId: m.id }, body: {} });
+  d.backend.advance(40_000);
+  const entries = computeEntries(d);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.providerCostPerHour, 550_000);
+  assert.deepEqual(entries[0]?.amount, { providerCost: 9167, margin: 2750, total: 11_917 }); // entrySplit(550000, 60, 3000)
 });

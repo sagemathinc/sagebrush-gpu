@@ -326,7 +326,7 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "this.#checkAllocatable(params.projectId, body.members.reduce((sum, inv) => sum + (inv.allocation ?? 0), 0));",
+  "old": "      this.#checkAllocatable(params.projectId, adding);\n",
   "new": ""
  },
  {
@@ -408,5 +408,60 @@
   "file": "src/mock/backend.ts",
   "old": "if (body.allocation !== undefined && !isNonNegativeMicros(body.allocation)) throw new ApiFail(\"badRequest\", \"allocation must be non-negative micros\");\n      this.#checkAllocatable",
   "new": "this.#checkAllocatable"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (entry != null) {\n",
+  "new": "      if (false) {\n"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const rate = Math.max(entry.providerCostPerHour ?? 0, rec.m.pricePerHour.providerCost);",
+  "new": "const rate = rec.m.pricePerHour.providerCost;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const rate = Math.max(entry.providerCostPerHour ?? 0, rec.m.pricePerHour.providerCost);",
+  "new": "const rate = entry.providerCostPerHour ?? 0;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "          total: amount.total - entry.amount.total,",
+  "new": "          total: amount.total,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "          providerCost: amount.providerCost - entry.amount.providerCost,",
+  "new": "          providerCost: amount.providerCost,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.#minuteEntries.set(key, created);\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const total = entry.seconds + seconds;",
+  "new": "const total = seconds;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (!Number.isSafeInteger(start) || start % 1000 !== 0) {",
+  "new": "if (!Number.isSafeInteger(start)) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (!Number.isSafeInteger(start) || start % 1000 !== 0) {",
+  "new": "if (start % 1000 !== 0) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        if (present.has(email)) continue;\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        present.add(email);\n",
+  "new": ""
  }
 ]

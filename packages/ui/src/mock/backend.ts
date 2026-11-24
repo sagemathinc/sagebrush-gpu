@@ -158,7 +158,7 @@ type Handler<N extends EndpointName> = (req: {
 // ---------------------------------------------------------------- the backend
 
 export interface MockBackendOptions {
-  /** The fake clock's start, ms since the epoch; a whole minute keeps ledger entries whole. */
+  /** The fake clock's start, ms since the epoch: a whole second (any second of a minute). */
   startMs?: number;
 }
 
@@ -175,13 +175,21 @@ export class MockBackend {
   readonly allocations = new Map<string, Allocation>();
   readonly machines = new Map<string, MachineRec>();
   readonly ledger: LedgerEntry[] = [];
+  /** The ledger's compute entries by "machineId|periodStart": one per (machine, minute). */
+  readonly #minuteEntries = new Map<string, LedgerEntry>();
   readonly storageUsed = new Map<string, number>();
   offers: Offer[] = [];
   /** The signed-in user; the mock's stand-in for the session cookie. */
   currentUserId: string | null = null;
 
   constructor(options: MockBackendOptions = {}) {
-    this.#now = options.startMs ?? Date.parse("2027-02-01T09:00:00.000Z");
+    const start = options.startMs ?? Date.parse("2027-02-01T09:00:00.000Z");
+    // A whole second, so that one-second steps land exactly on every UTC minute boundary,
+    // where the metering check runs and ledger minutes end.
+    if (!Number.isSafeInteger(start) || start % 1000 !== 0) {
+      throw new RangeError(`startMs must be a whole second in ms since the epoch, got ${start}`);
+    }
+    this.#now = start;
   }
 
   // ---------------------------------------------------------------- clock
@@ -621,10 +629,31 @@ export class MockBackend {
     while (rec.accruedUntil != null && rec.accruedUntil < until) {
       const from = rec.accruedUntil;
       const to = Math.min(minuteStart(from) + 60_000, until);
-      const seconds = Math.ceil((to - from) / 1000);
+      const seconds = (to - from) / 1000; // whole: the clock moves in whole seconds
+      const periodStart = toIso(minuteStart(from));
+      const key = `${rec.m.id}|${periodStart}`;
+      const entry = this.#minuteEntries.get(key);
+      if (entry != null) {
+        // The machine already ran in this minute (stopped and started again): one entry
+        // per (machine, minute), so the minute is recomputed and rounded once, at the
+        // higher of the two rates, and only the difference is charged.
+        const total = entry.seconds + seconds;
+        if (total > 60) throw new RangeError(`${key} would have ${total} seconds`);
+        const rate = Math.max(entry.providerCostPerHour ?? 0, rec.m.pricePerHour.providerCost);
+        const amount = entrySplit(rate, total, entry.marginBps);
+        const delta = {
+          providerCost: amount.providerCost - entry.amount.providerCost,
+          margin: amount.margin - entry.amount.margin,
+          total: amount.total - entry.amount.total,
+        };
+        Object.assign(entry, { seconds: total, providerCostPerHour: rate, amount });
+        rec.m.spent = addSplits(rec.m.spent, delta);
+        rec.accruedUntil = to;
+        continue;
+      }
       const amount = entrySplit(rec.m.pricePerHour.providerCost, seconds, rec.marginBps);
       const project = this.#project(rec.m.projectId);
-      this.ledger.push({
+      const created: LedgerEntry = {
         id: this.newId("ledgerEntry"),
         orgId: project.orgId,
         projectId: project.id,
@@ -632,14 +661,16 @@ export class MockBackend {
         kind: "compute",
         machineId: rec.m.id,
         provider: rec.m.provider,
-        periodStart: toIso(minuteStart(from)),
+        periodStart,
         seconds,
         providerCostPerHour: rec.m.pricePerHour.providerCost,
         marginBps: rec.marginBps,
         amount,
         note: null,
         createdAt: toIso(this.#now),
-      });
+      };
+      this.ledger.push(created);
+      this.#minuteEntries.set(key, created);
       rec.m.spent = addSplits(rec.m.spent, amount);
       rec.accruedUntil = to;
     }
@@ -884,7 +915,17 @@ export class MockBackend {
         enforce(canInvite(this.#actor(params.projectId, user), inv.role ?? "member"), "invite");
         if (inv.teamId !== undefined) this.#team(params.projectId, inv.teamId);
       }
-      this.#checkAllocatable(params.projectId, body.members.reduce((sum, inv) => sum + (inv.allocation ?? 0), 0));
+      // Only addresses that are new to the project, once each, take up budget: a retried or
+      // repeated invite returns the existing member.
+      const present = new Set([...this.members.values()].filter((m) => m.projectId === params.projectId && m.status !== "removed").map((m) => m.email));
+      let adding = 0;
+      for (const inv of body.members) {
+        const email = inv.email.toLowerCase();
+        if (present.has(email)) continue;
+        present.add(email);
+        adding += inv.allocation ?? 0;
+      }
+      this.#checkAllocatable(params.projectId, adding);
       const out: Member[] = [];
       for (const inv of body.members) {
         const email = inv.email.toLowerCase();
