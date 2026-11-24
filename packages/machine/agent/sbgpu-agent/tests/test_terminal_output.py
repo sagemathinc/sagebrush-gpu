@@ -18,6 +18,7 @@ import asyncio
 import base64
 import hashlib
 import os
+import signal
 import sys
 import time
 
@@ -108,6 +109,13 @@ TAIL = script("tail.py", """import os
 os.write(1, b"".join(b"%012d\\n" % i for i in range(30000)) + b"LAST-BYTES\\n")
 """)
 TAILEXIT = shell("tailexit.sh", "stty -opost -echo\n%s -I -S %s\nexit 5\n" % (PY, TAIL))
+# (a "shell" that is the flooder itself, no sh in between: sh resets the signal mask at startup, so only this shows
+# what the session itself starts with)
+YESSHELL = os.path.join(TMP, "yesshell.py")
+with open(YESSHELL, "w") as _f:
+    _f.write("#!%s -I\nimport os\nwith open(%r, 'w') as f:\n    f.write(str(os.getpid()))\nwhile True:\n"
+             "    os.write(1, b'y' * 4096)\n" % (PY, FLOODPID))
+os.chmod(YESSHELL, 0o700)
 NOREAD = shell("noread.sh", "stty raw -echo\nwhile :; do sleep 0.05; done\n")
 
 
@@ -248,7 +256,26 @@ async def test_bad_input_frames_close_the_page():
 
 @aio
 async def test_ctrl_c_while_output_paused():
-    t = await Run().start(sh=INTFLOOD)
+    await ctrl_c_while_output_paused()
+
+
+def test_ctrl_c_with_sigint_ignored_or_blocked_in_the_agent():
+    # (an agent started with SIGINT ignored or blocked, as nohup or a background job leaves it: its sessions still
+    # start with the default disposition and an empty mask, so Ctrl-C works)
+    old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        asyncio.run(ctrl_c_while_output_paused(YESSHELL))
+    finally:
+        signal.signal(signal.SIGINT, old)
+    old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+    try:
+        asyncio.run(ctrl_c_while_output_paused(YESSHELL))
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+
+
+async def ctrl_c_while_output_paused(sh=INTFLOOD):
+    t = await Run().start(sh=sh)
     try:
         if os.path.exists(FLOODPID):
             os.unlink(FLOODPID)

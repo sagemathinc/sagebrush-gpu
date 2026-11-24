@@ -76,8 +76,20 @@ TERMINAL_LIMITS = {
 }
 _SID_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
 # (the PTY's slave becomes the shell's controlling terminal: start_new_session gives the child its own session,
-# then this sets the terminal and execs the shell, so no preexec_fn runs)
-_CTTY = "import fcntl,os,sys,termios;fcntl.ioctl(0,termios.TIOCSCTTY,0);os.execvp(sys.argv[1],sys.argv[1:])"
+# then this sets the terminal and execs the shell, so no preexec_fn runs.  It first gives every signal its default
+# disposition and unblocks them all: exec keeps ignored signals and the mask, so an agent started with SIGINT ignored
+# (nohup, a background job, some supervisors) would otherwise leave Ctrl-C dead in every terminal)
+_CTTY = """import fcntl, os, signal, sys, termios
+for n in signal.valid_signals():
+    if n not in (signal.SIGKILL, signal.SIGSTOP):
+        try:
+            signal.signal(n, signal.SIG_DFL)
+        except (OSError, ValueError):
+            pass
+signal.pthread_sigmask(signal.SIG_SETMASK, ())
+fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+os.execvp(sys.argv[1], sys.argv[1:])
+"""
 
 
 def new_session_id():

@@ -946,5 +946,17 @@
   "old": "os.set_inheritable(3, False)  # the shell and its children must not hold the control pipe open",
   "new": "",
   "note": "mock hang: the shell inherits the control pipe"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "            signal.signal(n, signal.SIG_DFL)",
+  "new": "            pass",
+  "note": "terminal: a session inherits the agent's ignored signals"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/terminal.py",
+  "old": "signal.pthread_sigmask(signal.SIG_SETMASK, ())\n",
+  "new": "",
+  "note": "terminal: a session inherits the agent's blocked signals"
  }
 ]
