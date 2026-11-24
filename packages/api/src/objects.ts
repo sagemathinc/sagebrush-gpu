@@ -394,12 +394,15 @@ export interface MachineSession {
 export const AGENT_MODES = ["container", "vm"] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
 
+/**
+ * The machine asserts no provider: control knows it from the boot token's record (the
+ * launch bound it), and the launcher can't know it.
+ */
 export interface AgentEnrollRequest {
   bootToken: string;
   agentVersion: string;
   /** Lowercase hex SHA-256 of the agent; must equal the pin control put in this launch. */
   agentSha256: string;
-  provider: ProviderId;
   /** What the machine says its provider instance id is; must equal the bound one. */
   providerMachineId: string | null;
   mode: AgentMode;
