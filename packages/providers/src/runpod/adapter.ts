@@ -155,6 +155,8 @@ function unexpectedSettings(pod: Record<string, unknown>): string[] {
   const ssh = pod["ssh"];
   if (!isObject(ssh)) out.push(`ssh:${UNREADABLE}`);
   else {
+    // Both known endpoints must be reported, and null; any other endpoint kind must be null.
+    for (const k of ["proxy", "direct"]) if (!Object.hasOwn(ssh, k)) out.push(`ssh:${k}:${UNREADABLE}`);
     for (const k of Object.keys(ssh)) if (ssh[k] !== null) out.push(`ssh:${k}`);
   }
   if (pod["template"] !== null) out.push(`template:${typeof pod["template"] === "string" ? pod["template"] : UNREADABLE}`);

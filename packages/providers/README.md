@@ -53,7 +53,8 @@ or `cmd` entries, missing or malformed `mounts` (an unknown mount kind, a non-ar
 global list, a non-integer or zero size: any persistent mount is a volume), a missing `cmd`, a
 non-integer disk or GPU count, a missing image. Provider settings outside our launch shape are
 listed in `unexpectedSettings` (expected empty): on RunPod, a cloud other than `SECURE`, any
-non-null SSH endpoint (`ssh.proxy`, `ssh.direct`, or an unknown kind), a non-null `template`,
+non-null SSH endpoint (`ssh.proxy`, `ssh.direct`, or an unknown kind; `proxy` and `direct` must
+both be reported, as null), a non-null `template`,
 and global networking not explicitly disabled; a missing or malformed value is listed as
 unreadable. A list or
 catalog response that doesn't match RunPod's schema (`pods` array, `pagination.hasNextPage`

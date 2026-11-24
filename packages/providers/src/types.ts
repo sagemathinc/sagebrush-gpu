@@ -4,13 +4,7 @@
 // ProviderAdapter interface and LaunchSpec belong to this package: only the control plane
 // calls launch.
 
-import type {
-  GpuTypeId,
-  Micros,
-  Offer,
-  ProviderId,
-  ProviderMachineStatus as ContractMachineStatus,
-} from "@sbgpu/api";
+import type { GpuTypeId, Micros, Offer, ProviderId, ProviderMachineStatus } from "@sbgpu/api";
 
 export type {
   CountryCode,
@@ -19,20 +13,9 @@ export type {
   Offer,
   ProviderId,
   ProviderMachineState as MachineState,
+  ProviderMachineStatus,
   StockLevel,
 } from "@sbgpu/api";
-
-/**
- * The contract's ProviderMachineStatus plus `unexpectedSettings` (proposed for the contract;
- * this becomes a plain re-export once it has it).
- */
-export interface ProviderMachineStatus extends ContractMachineStatus {
-  /**
-   * Provider settings outside our launch shape, as "name:value" (e.g. "cloud:COMMUNITY",
-   * "ssh:proxy"), including settings the provider reported unreadably. Expected empty.
-   */
-  unexpectedSettings: string[];
-}
 
 /** Everything the control plane asks a provider to launch. There is no free-form environment. */
 export interface LaunchSpec {

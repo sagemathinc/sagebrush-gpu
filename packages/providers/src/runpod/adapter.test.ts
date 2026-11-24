@@ -242,6 +242,9 @@ const malformed: Array<[string, Record<string, unknown>]> = [
   ["direct SSH", { ssh: { proxy: null, direct: { host: "1.2.3.4", port: 22 } } }],
   ["an unknown SSH endpoint kind", { ssh: { proxy: null, direct: null, web: {} } }],
   ["no ssh block", { ssh: undefined }],
+  ["an empty ssh block", { ssh: {} }],
+  ["an ssh block without direct", { ssh: { proxy: null } }],
+  ["an ssh block without proxy", { ssh: { direct: null } }],
   ["a template", { template: "9x4m2p7v" }],
   ["no template field", { template: undefined }],
   ["global networking", { globalNetworking: { enabled: true } }],
@@ -419,6 +422,10 @@ test("unexpected settings are named", () => {
     `cloud:${UNREADABLE}`, `ssh:${UNREADABLE}`, `template:${UNREADABLE}`, `globalNetworking:${UNREADABLE}`,
   ]);
   assert.deepEqual(podStatus(POD, "t").unexpectedSettings, []);
+  assert.deepEqual(podStatus({ ...POD, ssh: {} }, "t").unexpectedSettings, [`ssh:proxy:${UNREADABLE}`, `ssh:direct:${UNREADABLE}`]);
+  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: null } }, "t").unexpectedSettings, [`ssh:direct:${UNREADABLE}`]);
+  assert.deepEqual(podStatus({ ...POD, ssh: { direct: null, proxy: { host: "h" } } }, "t").unexpectedSettings, ["ssh:proxy"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: null, direct: null, other: null } }, "t").unexpectedSettings, []);
 });
 
 test("status escapes the pod id", async () => {

@@ -716,5 +716,28 @@
   "file": "src/runpod/adapter.ts",
   "old": "  const cmd = stringArray(pod[\"cmd\"]);",
   "new": "  const cmd = pod[\"cmd\"] === undefined || pod[\"cmd\"] === null ? [] : stringArray(pod[\"cmd\"]);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of [\"proxy\", \"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "new": "for (const k of [\"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "note": "SEC r3 H2: proxy presence"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of [\"proxy\", \"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "new": "for (const k of [\"proxy\"]) if (!Object.hasOwn(ssh, k))",
+  "note": "SEC r3 H2: direct presence"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "for (const k of [\"proxy\", \"direct\"]) if (!Object.hasOwn(ssh, k))",
+  "new": "for (const k of [] as string[]) if (!Object.hasOwn(ssh, k))",
+  "note": "SEC r3 H2: both presence checks"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (!Object.hasOwn(ssh, k)) out.push",
+  "new": "if (ssh[k] === undefined && false) out.push"
  }
 ]
