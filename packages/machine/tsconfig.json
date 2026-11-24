@@ -1,5 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src"], "references": [{ "path": "../api" }]
+  "include": ["src"], "exclude": ["src/relay/relay.ts", "src/relay/test-entry.ts"],
+  "references": [{ "path": "../api" }, { "path": "../testing" }]
 }

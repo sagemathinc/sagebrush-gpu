@@ -3,14 +3,19 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "typecheck": "tsc -b",
     "test": "node --test --test-reporter=dot \"packages/*/src/**/*.test.ts\"",
     "check": "bash scripts/check.sh"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "4.20260702.1",
     "@types/node": "^24.0.0",
+    "esbuild": "0.25.12",
+    "miniflare": "4.20260730.0",
     "typescript": "^5.9.0"
   }
 }

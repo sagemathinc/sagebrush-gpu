@@ -1,0 +1,8 @@
+{
+  "name": "@sbgpu/testing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Test helpers shared by the packages: Workers, Durable Objects and D1 in Miniflare.",
+  "exports": { "./worker": "./src/worker.ts" }
+}
