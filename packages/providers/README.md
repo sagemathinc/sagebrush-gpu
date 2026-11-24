@@ -177,6 +177,36 @@ To confirm in the probe (all fail closed today, through the drift check at launc
 returned lists only what we set; how RunPod reports `entrypoint`/`cmd` back; and that a pod
 launched with `startSsh: false` reports `ssh: {proxy: null, direct: null}`.
 
+## The eradication probe (`src/probes/`)
+
+The provider side of SEC's release gate for RunPod (the in-pod side is the probe agent in
+`packages/machine`). **It costs money and needs William's approval to run; it has not been run.**
+
+- `eradication.ts`, the driver:
+  - **Launch:** one pod, exactly as production does (`RunPodAdapter`). The launcher argv comes from
+    `@sbgpu/machine`'s `renderBootCommand` pointed at the pinned probe agent, so the unchanged
+    production launcher execs the probe. The boot token is random; nothing exchanges it.
+  - **Results:** read from the container log (`SBGPU-PROBE {v, boot, check, pass, paths,
+    detail}` lines). `judgeStage` passes a stage only if it holds exactly one run of pid1, environ,
+    files, metadata, history and done, in that order, all passing and in one boot, and no log line
+    contains the key's name or a key-shaped string.
+  - **Restart paths:** three stages: first boot, after a restart, and after a stop followed by a
+    start (RunPod's v2 API has no separate reset).
+  - **Every poll:** a drift check against the launch spec, a spend cap (rate cap times elapsed
+    time, checked one poll ahead), a lifetime cap and a per-stage timeout.
+  - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing
+    aborted and the pod is confirmed gone; `fail` if the probe found something; otherwise
+    `aborted` (inconclusive).
+  - **No exec API:** it never uses RunPod's exec API. Exec'd processes get the container's
+    configured environment, key included, which would plant the key in `/proc` and spoil the probe.
+    The exec API and the web terminal are provider-side paths into the pod that bypass the launcher.
+    They need the account key, not anything inside the pod, so they're outside the probe; SEC's
+    write-up should name them.
+- `cli.ts`, the command line: a **dry run by default**. It prints the plan and the exact create
+  body, with the token masked. `--execute` needs `--approval "<who and where>"`, the API key in the
+  `RUNPOD_API_KEY` environment variable, and a spend cap of at most $10 (default $3). The pod's rate
+  cap is the spend cap spread over the lifetime, so a pricier placement is refused at launch.
+
 ## Not yet
 
 - The second adapter after the Dec 12 provider decision: Shadeform, or Hyperstack/Nebius.

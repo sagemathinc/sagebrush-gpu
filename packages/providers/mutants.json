@@ -1025,5 +1025,155 @@
   "file": "src/runpod/adapter.ts",
   "old": "  const x = parseIsoUtc(a);\n  return x !== null && x === parseIsoUtc(b);",
   "new": "  return typeof a === \"string\" && Date.parse(a) === Date.parse(b);"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const KEY_SHAPES = [/rpa_[A-Za-z0-9_-]{16,}/, /RUNPOD_API_KEY\\s*[=:]\\s*\\S/];",
+  "new": "const KEY_SHAPES = [/RUNPOD_API_KEY\\s*[=:]\\s*\\S/];"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const KEY_SHAPES = [/rpa_[A-Za-z0-9_-]{16,}/, /RUNPOD_API_KEY\\s*[=:]\\s*\\S/];",
+  "new": "const KEY_SHAPES = [/rpa_[A-Za-z0-9_-]{16,}/];"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (KEY_SHAPES.some((re) => re.test(line))) failures.push(\"key-shaped-string-in-log\");",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (line.includes(KEY_NAME)) failures.push(\"key-name-in-log\");",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (keys !== \"boot,check,detail,pass,paths,v\") throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (o[\"v\"] !== 1) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "paths.length > 20 ||",
+  "new": "paths.length > 21 ||"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "new TextEncoder().encode(p).length <= 256",
+  "new": "p.length <= 1000"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const DETAIL = /^[a-z0-9-]{0,32}$/;",
+  "new": "const DETAIL = /^.{0,64}$/;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const complete = order === PROBE_CHECKS.join(\",\");",
+  "new": "const complete = order.endsWith(\"done\");"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (new Set(probe.map((p) => p.boot)).size > 1) failures.push",
+  "new": "if (false) failures.push"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (failedChecks.length > 0) failures.push(\"check-failed\");",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (plan.stageMinutes * STAGES.length > plan.maxMinutes) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (!/^[A-Za-z0-9_-]{43}$/.test(plan.spec.bootToken)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "intIn(\"maxSpendMicros\", plan.maxSpendMicros, 1, MAX_PROBE_SPEND_MICROS);",
+  "new": "intIn(\"maxSpendMicros\", plan.maxSpendMicros, 1, 2 * MAX_PROBE_SPEND_MICROS);"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (typeof plan.approval !== \"string\" || plan.approval.trim().length < 8) {",
+  "new": "if (typeof plan.approval !== \"string\") {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (clock.now() - t0 > plan.maxMinutes * 60_000) return \"lifetime\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (Math.ceil((rate * (clock.now() - t0 + plan.pollSeconds * 1000)) / 3_600_000) > plan.maxSpendMicros) return \"spend-cap\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (Math.ceil((rate * (clock.now() - t0 + plan.pollSeconds * 1000)) / 3_600_000) > plan.maxSpendMicros) return \"spend-cap\";",
+  "new": "if (Math.ceil((rate * (clock.now() - t0)) / 3_600_000) > plan.maxSpendMicros) return \"spend-cap\";"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (drift.length > 0) return `drift:${drift[0]!.field}`;",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, 10, 3000);\n    report.estimatedSpendMicros = spend();\n  }",
+  "new": "    report.estimatedSpendMicros = spend();\n  }"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (typeof left === \"string\") {",
+  "new": "    if (false) {"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      ok = await waitState(\"failed\", \"EXITED\");",
+  "new": "      ok = true;"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (r.stages.some((s) => s.result !== null && !s.result.pass && s.result.complete)) return \"fail\";",
+  "new": ""
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (r.stages.every((s) => s.result?.pass === true) && r.aborts.length === 0 && r.terminatedConfirmed) return \"pass\";",
+  "new": "if (r.stages.every((s) => s.result?.pass === true) && r.aborts.length === 0) return \"pass\";"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (r.stages.every((s) => s.result?.pass === true) && r.aborts.length === 0 && r.terminatedConfirmed) return \"pass\";",
+  "new": "if (r.stages.some((s) => s.result?.pass === true) && r.aborts.length === 0 && r.terminatedConfirmed) return \"pass\";"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      throw new ProbeFormatError(\"a log event has no line\");",
+  "new": "      continue;"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "if (o.execute && o.approval.trim().length < 8) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "maxProviderCostPerHour: Math.floor((maxSpendMicros * 60) / o.maxMinutes),",
+  "new": "maxProviderCostPerHour: maxSpendMicros * 60,"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "execute: false,",
+  "new": "execute: true,"
  }
 ]
