@@ -88,6 +88,8 @@ The probe never sees, hashes or reports the key's value (the Nov 16 ruling). It 
 5. **Restart paths** (the driver): restart, and stop then start; every check runs again at each boot. The boot count is kept in `/opt/sbgpu/probe-boots` and cross-checked against the driver's count of `pid1` lines.
 6. **history:** shell histories and the files from step 3 under `/root` and `/home`. The driver checks the logs themselves.
 
+The probe agent is `packages/machine/probe/sbgpu-agent` (stdlib Python, no control plane), built into its pinned tarball by `scripts/build-tarball.py`, which gives the same bytes and so the same sha256 every time. Its file scan skips `/proc`, `/sys`, `/dev` and virtual mounts, follows no links, reads every regular file (a file it can't read fails the check), and stops at 10 minutes with `timeout`. The variable's name and the key shapes are assembled at run time from pieces, so the probe's own files can't match its own scan. After `done` it stays PID 1 (reaping orphans) until SIGTERM, so the driver decides when the container stops.
+
 It passes only if every step passes. Then it's a release gate for every change to RunPod images or templates, or to our launcher. Its cost: a few pod-hours on the cheapest RunPod GPU, a few dollars, once approved.
 
 ## 2. Tokens

@@ -574,5 +574,125 @@
   "old": "    end = clock() + STOP_LIMITS[\"termWaitS\"]\n    while clock() < end:",
   "new": "    end = clock()\n    while clock() < end:",
   "note": "terminal: stop_everything: no wait after SIGTERM"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "    if KEY_NAME in data:\n        return \"found-name\"\n",
+  "new": "",
+  "note": "probe: found: the name ignored"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "    if any(r.search(data) for r in KEY_SHAPES):\n        return \"found-shape\"\n",
+  "new": "",
+  "note": "probe: found: shapes ignored"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "OVERLAP = 128",
+  "new": "OVERLAP = 1",
+  "note": "probe: files: a 1-byte overlap between chunks (0 would be x[-0:], the whole buffer)"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "    if KEY_NAME.decode() in out:\n        out = out.replace(KEY_NAME.decode(), \"<name>\")\n",
+  "new": "",
+  "note": "probe: show: the name printed in a path"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "    if pid != 1:\n        return False, [], \"not-pid1\"\n",
+  "new": "",
+  "note": "probe: pid1: any pid"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "    if others:\n        return False",
+  "new": "    if False:\n        return False",
+  "note": "probe: pid1: other processes allowed"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "not argv[-1].rstrip(b\"/\").endswith(entry_suffix.encode())",
+  "new": "False",
+  "note": "probe: pid1: any program"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "            files += [\"%s/%s/task/%s/environ\" % (proc, d, t) for t in sorted(os.listdir(\"%s/%s/task\" % (proc, d)))]",
+  "new": "            pass",
+  "note": "probe: environ: threads not read"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "            except OSError:\n                f.add(path, \"unreadable\")\n                continue",
+  "new": "            except OSError:\n                continue",
+  "note": "probe: environ: unreadable passes"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "skip = {mp for mp, fs in mounts(proc) if fs in VIRTUAL_FS}",
+  "new": "skip = set()",
+  "note": "probe: files: virtual mounts walked"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "os.walk(root, followlinks=False)",
+  "new": "os.walk(root, followlinks=True)",
+  "note": "probe: files: directory links followed"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "                if not os.path.isfile(path) or os.path.islink(path):",
+  "new": "                if not os.path.isfile(path):",
+  "note": "probe: files: file links followed"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "            if deadline is not None and clock() > deadline:\n                return False, f.paths, \"timeout\"\n",
+  "new": "",
+  "note": "probe: files: no time limit"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "    if f.detail is None and unreadable:",
+  "new": "    if False:",
+  "note": "probe: files: unreadable passes"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "        what = found(body)\n        if what:\n            f.add(url, what)",
+  "new": "        what = None\n        if what:\n            f.add(url, what)",
+  "note": "probe: metadata: bodies not scanned"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "        homes += [base + \"/home/\" + h for h in sorted(os.listdir(base + \"/home\"))]",
+  "new": "        pass",
+  "note": "probe: history: /home not read"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/main.py",
+  "old": "    n += 1\n",
+  "new": "",
+  "note": "probe: boots: not counted"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/main.py",
+  "old": "        except Exception:\n            ok, paths, detail = False, [], \"error\"",
+  "new": "        except Exception:\n            ok, paths, detail = True, [], \"error\"",
+  "note": "probe: run: an error passes"
+ },
+ {
+  "file": "scripts/build-tarball.py",
+  "old": "SKIP_DIRS = {\"tests\", \"__pycache__\"}",
+  "new": "SKIP_DIRS = {\"__pycache__\"}",
+  "note": "probe: tarball: tests packed"
+ },
+ {
+  "file": "scripts/build-tarball.py",
+  "old": "            info.mtime = 0",
+  "new": "            info.mtime = int(__import__(\"time\").time() * 1000) % 1000003",
+  "note": "probe: tarball: times vary"
  }
 ]
