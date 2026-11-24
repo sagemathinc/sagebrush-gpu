@@ -493,5 +493,290 @@
   "file": "src/mock/backend.ts",
   "old": "        running.reduce((sum, r) => sum + this.#pinDelta(r.m.id, metered(r)), 0) +",
   "new": "        0 +"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "for (let d = subCent ? 4 : 2; d < 6; d++)",
+  "new": "for (let d = 2; d < 6; d++)"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "for (let d = subCent ? 4 : 2; d < 6; d++)",
+  "new": "for (let d = subCent ? 4 : 2; d < 5; d++)"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "const shown = (x: number) => x === 0 || round(x) !== 0;",
+  "new": "const shown = (x: number) => true;"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "const round = (x: number) => Math.sign(x) * roundAbs(x, d);",
+  "new": "const round = (x: number) => roundAbs(x, d);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "const subCent = [provider, margin].some((x) => x !== 0 && Math.abs(x) < 10_000);",
+  "new": "const subCent = [provider, margin].some((x) => Math.abs(x) < 10_000);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "    total: formatUsd(providerPerHour + marginPerHour, d) + \"/h\",",
+  "new": "    total: formatUsd(providerPerHour + marginPerHour) + \"/h\","
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  return `provider ${rate(providerPerHour)} + service ${rate(marginPerHour)} = ${rate(providerPerHour + marginPerHour)}`;",
+  "new": "  return `provider ${rate(providerPerHour)} + service ${rate(marginPerHour)} = ${formatUsd(providerPerHour + marginPerHour)}/h`;"
+ },
+ {
+  "file": "src/labels.ts",
+  "old": "if (typeof word === \"string\" && word.trim() !== \"\") out[key] = word.trim();",
+  "new": "if (typeof word === \"string\") out[key] = word;"
+ },
+ {
+  "file": "src/labels.ts",
+  "old": "return `${/^[aeiou]/i.test(word) ? \"an\" : \"a\"} ${word}`;",
+  "new": "return `${/^[aeiou]/.test(word) ? \"an\" : \"a\"} ${word}`;"
+ },
+ {
+  "file": "src/labels.ts",
+  "old": "if (/(s|x|z|ch|sh)$/i.test(word)) return word + \"es\";",
+  "new": "if (/(s|x|z)$/i.test(word)) return word + \"es\";"
+ },
+ {
+  "file": "src/labels.ts",
+  "old": "if (/[^aeiou]y$/i.test(word)) return word.slice(0, -1) + \"ies\";",
+  "new": ""
+ },
+ {
+  "file": "src/view.ts",
+  "old": "return m.save.state === \"saving\" ? \"Running, saving\" : \"Running\";",
+  "new": "return \"Running\";"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "openTerminal: running && m.terminalAvailable,",
+  "new": "openTerminal: m.terminalAvailable,"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "openJupyter: running && m.jupyterAvailable,",
+  "new": "openJupyter: m.jupyterAvailable,"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "save: running && m.save.state !== \"saving\",",
+  "new": "save: running,"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "stop: m.state === \"starting\" || running || m.state === \"failed\",",
+  "new": "stop: m.state === \"starting\" || running,"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "delete: m.state === \"stopped\" || m.state === \"failed\",",
+  "new": "delete: m.state === \"stopped\","
+ },
+ {
+  "file": "src/view.ts",
+  "old": "if (p.bytesTotal <= 0) return 100;",
+  "new": ""
+ },
+ {
+  "file": "src/view.ts",
+  "old": "return Math.max(0, Math.min(100, Math.floor((p.bytesDone * 100) / p.bytesTotal)));",
+  "new": "return Math.min(100, Math.round((p.bytesDone * 100) / p.bytesTotal));"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "while (value >= 1024 && unit < BYTE_UNITS.length - 1) {",
+  "new": "while (value >= 1024) {"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "if (!(bytes >= 0)) return \"0 B\";",
+  "new": ""
+ },
+ {
+  "file": "src/view.ts",
+  "old": "reserved: meter.reserved > 0 ? formatUsd(meter.reserved) : null,",
+  "new": "reserved: meter.reserved >= 0 ? formatUsd(meter.reserved) : null,"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "const running = rate.total > 0;",
+  "new": "const running = true;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "usedPercent: Math.round((1 - m.fractionLeft) * 100),",
+  "new": "usedPercent: Math.floor((1 - m.fractionLeft) * 100),"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "if (!(seconds >= 60)) return \"just now\";",
+  "new": "if (!(seconds > 60)) return \"just now\";"
+ },
+ {
+  "file": "src/app/router.ts",
+  "old": "if (parts.length === 2 && parts[0] === \"p\" && SEGMENT.test(parts[1] as string)) {",
+  "new": "if (parts.length >= 2 && parts[0] === \"p\") {"
+ },
+ {
+  "file": "src/app/router.ts",
+  "old": "return `/p/${encodeURIComponent(route.projectId)}`;",
+  "new": "return `/p${route.projectId}`;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "return m.state === \"starting\" || m.state === \"saving\" || m.state === \"stopping\" || m.save.state === \"saving\";",
+  "new": "return m.state === \"starting\" || m.state === \"saving\" || m.state === \"stopping\";"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "return this.machines.value.some(isChanging) ? FAST_POLL_MS : SLOW_POLL_MS;",
+  "new": "return FAST_POLL_MS;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "if (this.busy.value.has(key)) return null;",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"unauthenticated\") {\n        batch(",
+  "new": "      if (false) {\n        batch("
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.error.value = null;\n      return result;",
+  "new": "      return result;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { gpuType, gpuCount: quote.gpuCount, maxPricePerHour: shown },",
+  "new": "body: { gpuType, gpuCount: quote.gpuCount },"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "this.role.value === \"member\" ? (this.meters.value.find((m) => m.holder.kind === \"team\") ?? null) : null,",
+  "new": "(this.meters.value.find((m) => m.holder.kind === \"team\") ?? null),"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "return this.meters.value.find((m) => m.holder.kind === \"member\" && m.holder.memberId === memberId) ?? null;",
+  "new": "return this.meters.value.find((m) => m.holder.kind === \"member\") ?? null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.meters.value = [];\n        this.machines.value = [];",
+  "new": "        this.machines.value = [];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.projectId.value = null;\n      this.project.value = null;",
+  "new": "      this.project.value = null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "if (projectId == null || quote == null || shown == null) return false;",
+  "new": "if (projectId == null || quote == null) return false;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "<td><button disabled=${!canStart || store.isBusy(key)}",
+  "new": "<td><button disabled=${store.isBusy(key)}"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const href = routePath(to) + nav.search;",
+  "new": "const href = routePath(to);"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${v.reserved ? html`<div><dt>Held for the final save</dt><dd>${v.reserved}</dd></div>` : null}",
+  "new": ""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "      : v.band === \"critical\" || v.band === \"low\"\n",
+  "new": "      : v.band === \"critical\"\n"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  if (message == null) return null;\n",
+  "new": "  if (message == null) return html`<div role=\"alert\"></div>`;\n"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${demoAccounts && demoAccounts.length > 0",
+  "new": "${demoAccounts"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${m.finalSaveIncomplete ? html`",
+  "new": "${false ? html`"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${m.error ? html`<p class=\"warn small\">${m.error}</p>` : null}",
+  "new": ""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${m.stopReason && (m.state === \"stopped\" || m.state === \"saving\" || m.state === \"stopping\")",
+  "new": "${m.stopReason && (m.state === \"stopped\")"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${actions.openJupyter ? html`",
+  "new": "${actions.save ? html`"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${actions.restart ? html`",
+  "new": "${actions.delete ? html`"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "? html`<p><label>Saving workspace: ${pct}%",
+  "new": "? html`<p><label>Saving: ${pct}%"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${m.startedAt && m.state === \"running\" ? html` · started ${ago(m.startedAt, now)}` : null}",
+  "new": ""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "if (!store.meLoaded.value) page = html`<main><p class=\"muted\">Loading…</p></main>`;\n  else if",
+  "new": "if"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "? html`<strong>${priceText(price.providerCost, price.margin).total}</strong>",
+  "new": "? html`<strong>${formatUsd(price.total)}/h</strong>"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const price = quote?.offers[0]?.pricePerHour ?? item.pricePerHour;",
+  "new": "const price = item.pricePerHour;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "? refusalText(quote.reason, labels) : item.stock === \"low\" ? \"Few left\" : \"\"",
+  "new": "? refusalText(quote.reason, labels) : \"\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`}",
+  "new": "${false ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`}"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "return role === \"member\" ? labels.member : role === \"assistant\" ? labels.assistant : labels.manager;",
+  "new": "return role === \"member\" ? labels.member : labels.manager;"
  }
 ]

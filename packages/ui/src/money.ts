@@ -13,17 +13,21 @@ function groupThousands(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+// |micro| rounded half up to `decimals` places, in micro-USD. Integer arithmetic: exact.
+function roundAbs(micro: number, decimals: number): number {
+  const abs = Math.abs(micro);
+  const step = 10 ** (6 - decimals);
+  const remainder = abs % step;
+  return abs - remainder + (remainder * 2 >= step ? step : 0);
+}
+
 // Format micro-USD as "$1,234.56" with `decimals` places (0..6), rounding half away from zero.
 export function formatUsd(micro: number, decimals = 2): string {
   assertMicro(micro);
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 6) {
     throw new RangeError(`decimals must be 0..6: ${decimals}`);
   }
-  const abs = Math.abs(micro);
-  const step = 10 ** (6 - decimals);
-  // Integer arithmetic: abs is a safe integer, so (abs - remainder) is exact.
-  const remainder = abs % step;
-  const rounded = abs - remainder + (remainder * 2 >= step ? step : 0);
+  const rounded = roundAbs(micro, decimals);
   const whole = Math.floor(rounded / MICRO_PER_USD);
   const frac = rounded % MICRO_PER_USD;
   let text = "$" + groupThousands(String(whole));
@@ -41,12 +45,42 @@ export function formatRate(microPerHour: number): string {
   return formatUsd(microPerHour, decimals) + "/h";
 }
 
-// "provider $0.48/h + service $0.14/h = $0.62/h"
+// The fewest decimals (2, or 4 for a sub-cent part, up to 6) at which the rounded
+// provider price and margin add up to the rounded total and no nonzero part shows as
+// zero, so a shown sum is never wrong.
+export function splitDecimals(provider: number, margin: number): number {
+  assertMicro(provider);
+  assertMicro(margin);
+  const subCent = [provider, margin].some((x) => x !== 0 && Math.abs(x) < 10_000);
+  for (let d = subCent ? 4 : 2; d < 6; d++) {
+    const round = (x: number) => Math.sign(x) * roundAbs(x, d);
+    const shown = (x: number) => x === 0 || round(x) !== 0;
+    if (shown(provider) && shown(margin) && round(provider) + round(margin) === round(provider + margin)) return d;
+  }
+  return 6;
+}
+
+export interface PriceText {
+  /** "$0.62/h" */
+  total: string;
+  /** "provider $0.48 + service $0.14" */
+  parts: string;
+}
+
+// A price per hour as its total and its two parts, rounded alike so the parts add up.
+export function priceText(providerPerHour: number, marginPerHour: number): PriceText {
+  const d = splitDecimals(providerPerHour, marginPerHour);
+  return {
+    total: formatUsd(providerPerHour + marginPerHour, d) + "/h",
+    parts: `provider ${formatUsd(providerPerHour, d)} + service ${formatUsd(marginPerHour, d)}`,
+  };
+}
+
+// "provider $0.48/h + service $0.14/h = $0.62/h", with parts that add up.
 export function formatPriceSplit(providerPerHour: number, marginPerHour: number): string {
-  return (
-    `provider ${formatRate(providerPerHour)} + service ${formatRate(marginPerHour)}` +
-    ` = ${formatRate(providerPerHour + marginPerHour)}`
-  );
+  const d = splitDecimals(providerPerHour, marginPerHour);
+  const rate = (x: number) => formatUsd(x, d) + "/h";
+  return `provider ${rate(providerPerHour)} + service ${rate(marginPerHour)} = ${rate(providerPerHour + marginPerHour)}`;
 }
 
 // Parse a dollar amount typed by a manager ("12", "$1,234.5", "0.000001") into micro-USD.

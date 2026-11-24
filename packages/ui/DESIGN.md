@@ -72,14 +72,30 @@ cookie sessions). It uses only the public API, the same API Sagebrush uses.
 - The routes are hash-free paths (`/p/:projectId`, `/p/:projectId/members`, `/o/:orgId`). The
   Worker serves `index.html` for unknown UI paths.
 
+## Code layout
+
+- `src/app/`: the web app. `store.ts` holds the state (signals) and the actions; `components.ts`
+  holds the screens, written with htm tagged templates, so they run in Node with no JSX build and
+  are tested by rendering them to HTML; `router.ts` holds the paths; `main.ts` is the browser
+  entry point.
+- `src/view.ts`: what each screen shows and allows (state labels, stop reasons, refusal texts,
+  which machine buttons, the meter's figures), as pure functions.
+- `build.mjs`: esbuild. `node build.mjs` writes `dist/web/` (production: the mock is compiled
+  out); `node build.mjs --mock` writes `dist/web-mock/`, where `?mock=1` runs the whole API in
+  the page on a fake clock (`&speed=N` fake seconds per real second, default 10).
+- `serve.mjs`: a local static server with the app-path fallback, for development:
+  `node serve.mjs --mock 5180`, then open `http://127.0.0.1:5180/?mock=1`.
+
 ## Pure modules (tested under `node --test`)
 
-- `money.ts`: format micro-USD, parse a manager's dollar input into micro-USD (exact, no floats).
+- `money.ts`: format micro-USD, parse a manager's dollar input into micro-USD (exact, no floats);
+  price splits are rounded alike, so the provider price and the service margin shown always
+  add up to the total shown.
 - `meter.ts`: remaining, the band, and time left at the current rate.
 - `csv.ts`: RFC 4180 escaping, with spreadsheet formula-injection neutralising. It is shared
   with the server's CSV export.
 - `emails.ts`: parse and validate an invite list.
-- `labels.ts`: display labels.
+- `labels.ts`: display labels, with articles and plurals for role words.
 
 ## Terminal and Jupyter (agreed with gpu3)
 

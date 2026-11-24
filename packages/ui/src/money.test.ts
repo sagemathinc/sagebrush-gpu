@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatPriceSplit, formatRate, formatUsd, parseUsd } from "./money.ts";
+import { formatPriceSplit, formatRate, formatUsd, parseUsd, priceText, splitDecimals } from "./money.ts";
 
 test("formatUsd formats and groups", () => {
   assert.equal(formatUsd(0), "$0.00");
@@ -66,4 +66,24 @@ test("parseUsd rejects everything else", () => {
   ]) {
     assert.equal(parseUsd(bad), null, bad);
   }
+});
+
+test("price splits are rounded alike so the parts add up", () => {
+  assert.equal(splitDecimals(480_000, 144_000), 2);
+  assert.equal(splitDecimals(125_000, 125_000), 3); // $0.13 + $0.13 != $0.25
+  assert.equal(formatPriceSplit(125_000, 125_000), "provider $0.125/h + service $0.125/h = $0.250/h");
+  assert.equal(splitDecimals(5_000, 1_500), 4);
+  assert.equal(splitDecimals(1, 1), 6);
+  assert.equal(splitDecimals(0, 0), 2);
+  assert.equal(splitDecimals(4_995, 4_995), 4); // sub-cent parts start at 4 places
+  assert.equal(splitDecimals(125_500, 125_500), 4); // .126 + .126 != .251
+  assert.equal(splitDecimals(1_234_567, 370_371), 2);
+  assert.equal(splitDecimals(10_000, 40), 5); // $0.0000 would hide the margin
+  assert.equal(splitDecimals(-480_000, 144_000), 2); // refunds round symmetrically: -0.48 + 0.14 = -0.34
+  assert.equal(splitDecimals(-125_000, -125_000), 3);
+  assert.equal(splitDecimals(-480_000, 0), 2);
+  assert.deepEqual(priceText(480_000, 144_000), { total: "$0.62/h", parts: "provider $0.48 + service $0.14" });
+  assert.deepEqual(priceText(1_890_000, 567_000), { total: "$2.46/h", parts: "provider $1.89 + service $0.57" });
+  assert.deepEqual(priceText(125_000, 125_000), { total: "$0.250/h", parts: "provider $0.125 + service $0.125" });
+  assert.throws(() => splitDecimals(0.5, 1), RangeError);
 });

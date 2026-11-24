@@ -4,5 +4,21 @@
   "private": true,
   "type": "module",
   "description": "The manager and member web UI.",
-  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:mock": "node build.mjs --mock"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.4",
+    "@sbgpu/api": "workspace:*",
+    "htm": "^3.1.1",
+    "preact": "^10.29.8"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "preact-render-to-string": "^6.8.3"
+  }
 }
