@@ -1,5 +1,123 @@
 # @sbgpu/providers
 
-The provider interface and its adapters (quote, launch, stop, delete, status, availability), and placement.
+The provider interface, its adapters, placement and the drift check. Lane: providers.
 
-Lane: providers.
+Everything here runs in a Cloudflare Worker: the only I/O is an injected `fetch`, so tests never
+reach a provider. Provider API keys come from the control plane's secrets and are only ever sent
+in an `Authorization` header; error messages never include a request.
+
+## The interface (`types.ts`)
+
+`ProviderAdapter`, one per provider:
+
+| Method | Does |
+|---|---|
+| `listOffers({gpuCount})` | Current `Offer`s: one per GPU type we map and data center, with the provider's list price (no margin) and its stock label. |
+| `launch(spec)` | Launch one machine; returns the provider id and its first status. |
+| `status(id)` | A `ProviderMachineStatus`. A machine the provider no longer knows is `terminated`. |
+| `terminate(id)` | Idempotent. There is no provider "stop": a stop is always a terminate (workspaces live in R2), and a restart is a new launch plus a restore. |
+| `listMachines()` | Every machine of ours the provider knows, for the watchdog and for orphan recovery. A partial list is an error, never a result. |
+
+`info` says which environment variable carries the boot token and how a machine learns its own
+provider id (`selfIdentity`, a cross-check at enrollment only: user code can read and fake it).
+
+Quotes are not an adapter method: an `Offer` is the provider's price, and the control plane adds
+the margin (`priceSplit` in `@sbgpu/api`).
+
+**Names.** A machine's provider-side name is `sbg-<machineId>` (`machine-name.ts`). Anything that
+doesn't parse as one of our machine ids isn't ours.
+
+## Launch spec
+
+`LaunchSpec` has no free-form environment. The provider-side environment is provider metadata
+(the provider's API returns it), so it carries exactly one value: the one-time boot token. The
+launcher argv comes from `@sbgpu/machine` and becomes the container's entrypoint, so our code is
+PID 1 and runs before any access.
+
+On RunPod the create body is fixed (`RunPodAdapter.createBody`): Secure Cloud, one data center,
+`entrypoint` = the launcher, `cmd: []`, `ports: []`, `startSsh: false`, `startJupyter: false`,
+`mounts: {}`, no template, `env` = `{SBGPU_BOOT_TOKEN}` only. RunPod's own `/start.sh` (nginx,
+sshd, Jupyter) never runs.
+
+**After every launch** the adapter checks the returned pod against the spec (the drift check
+below, except a data center the scheduler hasn't reported yet). Any difference terminates the pod
+at once: a higher rate is `price_above_cap` (placement tries the next offer), anything else is
+`invalid_request` (placement stops).
+
+## Errors (`errors.ts`)
+
+Every adapter error is a `ProviderError` with a `kind`, and `launchErrorAction(kind)` says what a
+launch loop does next:
+
+| Action | Kinds |
+|---|---|
+| next offer | `no_capacity`, `unplaceable`, `forbidden`, `price_above_cap` |
+| retry the same offer, with backoff | `rate_limited` (honours `Retry-After`), `transient` |
+| stop | `invalid_request`, `insufficient_funds`, `auth`, `not_found`, `outcome_unknown`, `unknown` |
+
+`outcome_unknown` means the request may have reached the provider (no response, a timeout): a
+machine may exist. On a launch, the adapter first lists our machines by name; if it finds exactly
+one, that is the launch's result. Otherwise the error stands, and nothing launches elsewhere, so a
+lost response can't make two machines. A 5xx with no machine found stays `transient` and is
+retried under the same name; the watchdog treats two machines with one machine id as an alarm.
+
+RunPod (v2 REST API): 400 is either capacity or a rule violation and has no machine-readable
+code, so a 400 whose detail says capacity is `no_capacity`, any other 400 is `unplaceable`; 401
+`auth`, 402 `insufficient_funds`, 403 `forbidden`, 404 `not_found`, 409/413/422
+`invalid_request`, 429 `rate_limited`, 5xx `transient`. This follows RunPod's own retry table.
+
+## Placement (`placement.ts`)
+
+- `placementPolicy(projectPolicy, marginBps)`: the project policy as placement reads it. The
+  policy's price cap is the total with margin; the provider cap is the largest provider cost whose
+  `priceSplit` total fits (`providerCapForTotal`, exact under the contract's rounding).
+- `rankOffers(offers, policy, request)`: the requested GPU type (if the policy allows it) and
+  count, allowed providers, allowed countries, provider cost at most the cap, and stock other than
+  `none`; cheapest first, then the better stock label, then provider and data center, so the same
+  inputs always give the same order. Stock labels only order offers of equal price: a "low" or
+  even "high" offer can still refuse a launch.
+- `launchWithFallback(...)`: tries the ranked offers in order, following `launchErrorAction`, at
+  most `maxAttempts` launch calls in all (default 6) and `maxRetriesPerOffer` retries per offer
+  (default 2), backing off 1 s, 2 s, 4 s ... (at most 30 s) or as `Retry-After` says.
+
+**Locality** (`locality.ts`): presets are country sets. `eu-uk` is the EU, the rest of the EEA
+(Iceland, Liechtenstein, Norway) and the UK; `eu` the 27 EU states; `uk`, `us`, `ca` one country
+each; `any` everything. The project's `allowedCountries` narrows a preset further. A data center
+whose country we can't determine is never offered (RunPod: `US-DE-1` is Delaware, not Germany, so
+countries come from an explicit rule per id prefix, not from the id's letters).
+
+## Drift (`drift.ts`)
+
+`expectedSpec(spec, info, id)` is the immutable expected specification recorded at launch;
+`specDrift(expected, observed)` lists every difference: provider, ids, GPU type and count, data
+center, image, disk, any volume, env names (as a set), exposed ports, the command, and a rate that
+is unknown or above the cap. Unknown values count as drift. The watchdog polls status and
+terminates on any drift, revoking the machine's tokens first. This is a secondary control: it
+does not contain a provider credential readable inside the machine (see below).
+
+## RunPod status
+
+SEC (Nov 24): RunPod stays blocked for real use, because RunPod injects a pod-scoped API key that
+code in the pod can read and use to change its own pod. The one conditional path is pre-access
+eradication: our launcher as PID 1, an allowlisted replacement environment, and a paid adversarial
+probe showing root can't recover the key or a replacement, on every restart path. The launch shape
+above is built for that path. Until the probe passes, the adapter is for development and tests.
+
+To confirm in the probe (all fail closed today, through the drift check at launch): that
+`mounts: {}` gives a pod with no volume; that `ports: []` is accepted; that the pod's `env` as
+returned lists only what we set; and how RunPod reports `entrypoint`/`cmd` back.
+
+## Not yet
+
+- Reconciliation helpers (RunPod's billing records come in hourly buckets; the pod's `cost` is the
+  live signal).
+- The second adapter after the Dec 12 provider decision: Shadeform, or Hyperstack/Nebius.
+
+## Tests
+
+`bash scripts/check.sh` runs typecheck and every test. `python3 -I scripts/mutants-providers.py .`
+applies 93 mutants (flipped comparisons, dropped checks, wrong mappings) and expects every one to
+fail a test.
+
+Fixtures (`src/runpod/fixtures/`) are recorded RunPod responses and RunPod's documented examples,
+with no credentials or account identifiers; their README says where each comes from.
