@@ -79,7 +79,7 @@ async function enrolled() {
   const a = await post("/v1/agent/announce", { machineId, nonce, bootScriptSha256: SCRIPT }, { "cf-connecting-ip": IP });
   assert.equal(a.status, 200);
   const e = await post("/v1/agent/enroll", {
-    bootToken: a.out.bootToken, agentVersion: "1.0.0", agentSha256: AGENT, providerMachineId: pid, mode: "vm",
+    bootToken: a.out.bootToken, agentVersion: "1.0.0", agentSha256: AGENT, mode: "vm",
     gpu: null, hostname: "vm", gate: { v: 1, pass: true, fail: [] },
   });
   assert.equal(e.status, 200, JSON.stringify(e.out));

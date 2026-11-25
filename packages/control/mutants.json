@@ -2680,18 +2680,6 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "    if (!sameText(req.providerMachineId, providerMachineId) || !sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();",
-  "new": "    if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();",
-  "note": "provider id claim unchecked"
- },
- {
-  "file": "src/enroll.ts",
-  "old": "    if (!sameText(req.providerMachineId, providerMachineId) || !sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();",
-  "new": "    if (!sameText(req.providerMachineId, providerMachineId)) throw REFUSED();",
-  "note": "agent pin unchecked"
- },
- {
-  "file": "src/enroll.ts",
   "old": "    if (!req.gate.pass) return definitiveFailure(ctx, r, \"gate-failed\", req.gate);",
   "new": "    if (!req.gate.pass) throw REFUSED();",
   "note": "failing gate retryable"
@@ -3787,5 +3775,17 @@
   "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
   "new": "WHEN NEW.machine_id IS NOT OLD.machine_id\n",
   "note": "incarnation mutable"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();",
+  "new": "    if (!sameText(req.agentSha256, r.agent_sha256) && false) throw REFUSED();",
+  "note": "agent pin unchecked"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  const base = [\"agentSha256\", \"agentVersion\", \"bootToken\", \"gate\", \"gpu\", \"hostname\", \"mode\"];",
+  "new": "  const base = [\"agentSha256\", \"agentVersion\", \"bootToken\", \"gate\", \"gpu\", \"hostname\", \"mode\", \"providerMachineId\"];",
+  "note": "a VM's provider id required again"
  }
 ]

@@ -446,7 +446,7 @@ test("the VM paths never touch a container launch: the VM watchdog, the heartbea
   const res = await w.app.fetch(new Request(`${ORIGIN}/v1/agent/enroll`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ bootToken, agentVersion: "1.0.0", agentSha256: H, providerMachineId: "pod-c", mode: "vm", gpu: null, hostname: "c", gate: { v: 1, pass: true, fail: [] } }),
+    body: JSON.stringify({ bootToken, agentVersion: "1.0.0", agentSha256: H, mode: "vm", gpu: null, hostname: "c", gate: { v: 1, pass: true, fail: [] } }),
   }));
   await Promise.all(w.pending.splice(0));
   assert.deepEqual([res.status, await res.json()], [403, { error: { code: "forbidden", message: "refused" } }]); // (as an unknown token)

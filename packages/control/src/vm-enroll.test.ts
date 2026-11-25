@@ -100,7 +100,6 @@ const body = (l: { bootToken: string; pid: string }, over: Record<string, unknow
   bootToken: l.bootToken,
   agentVersion: "1.0.0",
   agentSha256: AGENT,
-  providerMachineId: l.pid,
   mode: "vm",
   gpu: { name: "NVIDIA L4", count: 1, memoryMiB: 23034 },
   hostname: "vm-host",
@@ -250,9 +249,10 @@ test("refused, nothing changes: every malformed shape, an unknown token, and cla
     { agentSha256: AGENT.toUpperCase() },
     { agentVersion: "" },
     { agentVersion: "1 0" },
-    { providerMachineId: "has space" },
-    { providerMachineId: "vm-\u00e9" },
-    { providerMachineId: "" },
+    // (a VM sends no provider id: present at all is refused, even the launch's own)
+    { providerMachineId: l.pid },
+    { providerMachineId: null },
+    { providerMachineId: "vm-other" },
     { hostname: "" },
     { hostname: "a b" },
     { gpu: { name: "L4", count: 0, memoryMiB: 1 } },
@@ -261,14 +261,12 @@ test("refused, nothing changes: every malformed shape, an unknown token, and cla
     { agentSha256: Array.from({ length: 64 }, () => "a") }, // (not a string, though of the right length)
     { agentSha256: 64 },
   ];
-  shapes.push({ providerMachineId: Array.from({ length: l.pid.length }, () => "v") });
   for (const over of shapes) {
     const b = body(l, over);
     for (const [k, v] of Object.entries(over)) if (v === undefined) delete (b as Record<string, unknown>)[k];
     await refusedUnchanged(l.machineId, before, await enroll(b));
   }
   await refusedUnchanged(l.machineId, before, await enroll(body(l, { bootToken: randomBytes(32).toString("base64url") }))); // (an unknown token: never a termination)
-  await refusedUnchanged(l.machineId, before, await enroll(body(l, { providerMachineId: "vm-other" })));
   await refusedUnchanged(l.machineId, before, await enroll(body(l, { agentSha256: sha("another agent") })));
   assert.deepEqual([w.alerts, vm.terminated], [[], []]);
   assert.equal((await enroll(body(l))).status, 200); // (the token still works)

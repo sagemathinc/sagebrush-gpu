@@ -438,8 +438,12 @@ export interface AgentEnrollRequest {
   agentVersion: string;
   /** Lowercase hex SHA-256 of the agent; must equal the pin control put in this launch. */
   agentSha256: string;
-  /** What the machine says its provider instance id is; must equal the bound one. */
-  providerMachineId: string | null;
+  /**
+   * VM mode: absent. The VM can't know its provider instance id (its boot script is rendered
+   * before the create), so control uses the id bound to the boot token's launch, and refuses a
+   * request that carries one. Container mode: as the container design says.
+   */
+  providerMachineId?: string | null;
   mode: AgentMode;
   /**
    * The launcher's credential-eradication checks. In container mode, enroll is refused
