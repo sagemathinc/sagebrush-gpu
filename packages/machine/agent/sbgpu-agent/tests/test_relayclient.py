@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sbgpu_agent import main, relayclient as R  # noqa: E402
@@ -484,12 +485,38 @@ class StopPathsTest(unittest.TestCase):
                 await on_leg(leg)
         driver = asyncio.ensure_future(drive())
         try:
-            code = await asyncio.wait_for(main.serve(agent, relay.url, container, stop_everything=lambda: stops.append(1) or [],
-                                                     cwd=tmp, relay_sleep=no_sleep, heartbeat_wake=wake), 20)
+            try:
+                code = await asyncio.wait_for(main.serve(agent, relay.url, container, stop_everything=lambda: stops.append(1) or [],
+                                                         cwd=tmp, relay_sleep=no_sleep, heartbeat_wake=wake), 20)
+            except BaseException as e:  # (a cleanup failure or cancellation escaping serve: returned, to be asserted)
+                code = e
         finally:
             driver.cancel()
             await relay.stop()
         return code, stops
+
+    @aio
+    async def test_a_failure_or_cancellation_in_the_terminal_cleanup_still_stops_everything(self):
+        # (at each seam before the container-wide stop: an error, and a cancellation, escaping it; the stop is called
+        # once in container mode, never in VM mode, and the error still goes on)
+        async def fail(*a, **k):
+            raise RuntimeError("injected cleanup failure")
+
+        async def cancelled(*a, **k):
+            raise asyncio.CancelledError()
+
+        def fail_sync(*a, **k):
+            raise RuntimeError("injected cleanup failure")
+        for container in (True, False):
+            for name, target, attr, fn in (("stop_all", main.Terminals, "stop_all", fail_sync),
+                                           ("drain_sessions failing", main, "drain_sessions", fail),
+                                           ("drain_sessions cancelled", main, "drain_sessions", cancelled),
+                                           ("drain_groups failing", main.proctree, "drain_groups", fail),
+                                           ("drain_groups cancelled", main.proctree, "drain_groups", cancelled)):
+                with mock.patch.object(target, attr, fn):
+                    out, stops = await self.serve([(200, {"commands": [{"id": "c1", "op": "stop"}]})], container=container)
+                self.assertIsInstance(out, BaseException, (name, container))
+                self.assertEqual(stops, [1] if container else [], (name, container))
 
     @aio
     async def test_a_stop_command(self):

@@ -1243,14 +1243,14 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
-  "old": "        if container:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
-  "new": "        if True:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
+  "old": "            if container:\n                try:\n                    left = stop_everything()",
+  "new": "            if True:\n                try:\n                    left = stop_everything()",
   "note": "agent relay: serve: stop_everything in VM mode too"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
-  "old": "        if container:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
-  "new": "        if False:\n            try:\n                left = await asyncio.to_thread(stop_everything)",
+  "old": "            if container:\n                try:\n                    left = stop_everything()",
+  "new": "            if False:\n                try:\n                    left = stop_everything()",
   "note": "agent relay: serve: stop_everything never"
  },
  {
@@ -1306,5 +1306,11 @@
   "old": "            if not control and self.parts_len + n > RELAY_LIMITS[\"inbound\"]:",
   "new": "            if not control and n > RELAY_LIMITS[\"inbound\"]:",
   "note": "agent relay: relay client: the inbound cap per frame, not per message"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "        finally:\n            if container:\n                try:\n                    left = stop_everything()",
+  "new": "        except BaseException:\n            raise\n        if True:\n            if container:\n                try:\n                    left = stop_everything()",
+  "note": "agent relay: serve: a cleanup error or cancellation skips stop_everything"
  }
 ]

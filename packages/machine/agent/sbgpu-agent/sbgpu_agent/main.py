@@ -218,17 +218,21 @@ async def serve(agent, relay_url, container, stop_everything=proctree.stop_every
             loop.remove_signal_handler(signal.SIGTERM)
         except (NotImplementedError, RuntimeError, ValueError):
             pass
-        # (the machine's stop: the terminals' sessions by the tree rule, then, in container mode, everything else)
-        client.terms.stop_all()
-        await drain_sessions(3.0)
-        await proctree.drain_groups(3.0)
-        if container:
-            try:
-                left = await asyncio.to_thread(stop_everything)
-                if left:
-                    err("Processes still there after the stop: %d.\n" % len(left))
-            except RuntimeError as e:
-                err("stop_everything: %s\n" % e)
+        # (the machine's stop: the terminals' sessions by the tree rule, then, in container mode, everything else.  The
+        # container-wide stop runs whatever happens before it, a cleanup error or a cancellation included, and is
+        # called synchronously, so nothing can come between; only then does an earlier error go on)
+        try:
+            client.terms.stop_all()
+            await drain_sessions(3.0)
+            await proctree.drain_groups(3.0)
+        finally:
+            if container:
+                try:
+                    left = stop_everything()
+                    if left:
+                        err("Processes still there after the stop: %d.\n" % len(left))
+                except Exception as e:
+                    err("stop_everything: %s\n" % e)
     return code
 
 
