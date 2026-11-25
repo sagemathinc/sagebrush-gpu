@@ -2626,5 +2626,371 @@
   "old": "    return sorted(out)  # (in pid order, whatever order the directory lists them)",
   "new": "    return out",
   "note": "neutralise: user pids in listing order"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/boottime.py",
+  "old": "time.clock_gettime_ns(time.CLOCK_BOOTTIME) // 1_000_000",
+  "new": "time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000",
+  "note": "PR C: wrong clock: MONOTONIC"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/boottime.py",
+  "old": "time.clock_gettime_ns(time.CLOCK_BOOTTIME) // 1_000_000",
+  "new": "time.monotonic_ns() // 1_000_000",
+  "note": "PR C: wrong clock: time.monotonic"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/boottime.py",
+  "old": "time.clock_gettime_ns(time.CLOCK_BOOTTIME) // 1_000_000",
+  "new": "time.time_ns() // 1_000_000",
+  "note": "PR C: wrong clock: time.time"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    if boottime.boottime_ms() >= deadline:\n        raise Late()",
+  "new": "    if boottime.boottime_ms() > deadline:\n        raise Late()",
+  "note": "PR C: exactly D is not late"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    check(deadline)\n    fd = OPS.open(tmp, d)",
+  "new": "    fd = OPS.open(tmp, d)",
+  "note": "PR C: writer: no check before open"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        check(deadline)\n        OPS.write(fd, data)",
+  "new": "        OPS.write(fd, data)",
+  "note": "PR C: writer: no check after open"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        OPS.write(fd, data)\n        check(deadline)",
+  "new": "        OPS.write(fd, data)",
+  "note": "PR C: writer: no check after write"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        OPS.fsync(fd)\n        check(deadline)",
+  "new": "        OPS.fsync(fd)",
+  "note": "PR C: writer: no check after fsync"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    OPS.rename(tmp, name, d)\n    check(deadline)",
+  "new": "    OPS.rename(tmp, name, d)",
+  "note": "PR C: writer: no check after rename"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    OPS.fsync(d)\n    check(deadline)",
+  "new": "    OPS.fsync(d)",
+  "note": "PR C: writer: no check after the directory fsync"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "ENROLL_BY_MS = 80_000",
+  "new": "ENROLL_BY_MS = 90_000",
+  "note": "PR C: D later"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "ANNOUNCE_BUDGET_MS = 30_000",
+  "new": "ANNOUNCE_BUDGET_MS = 45_000",
+  "note": "PR C: announce budget"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "LIFE_MIN_S, LIFE_MAX_S = 90, 130",
+  "new": "LIFE_MIN_S, LIFE_MAX_S = 89, 130",
+  "note": "PR C: lifetime min"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "LIFE_MIN_S, LIFE_MAX_S = 90, 130",
+  "new": "LIFE_MIN_S, LIFE_MAX_S = 90, 131",
+  "note": "PR C: lifetime max"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    deadline = received + ENROLL_BY_MS",
+  "new": "    deadline = start + ENROLL_BY_MS",
+  "note": "PR C: D from the start, not receipt"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    if status != 200 or len(data) > RESPONSE_MAX:",
+  "new": "    if not 200 <= status < 300 or len(data) > RESPONSE_MAX:",
+  "note": "PR C: any 2xx"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    if not isinstance(obj, dict) or sorted(obj) != [\"bootToken\", \"expiresAt\"]:",
+  "new": "    if not isinstance(obj, dict):",
+  "note": "PR C: extra keys"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "TOKEN_RE = re.compile(r\"[A-Za-z0-9_-]{43}\")",
+  "new": "TOKEN_RE = re.compile(r\"[A-Za-z0-9_=-]{43}\")",
+  "note": "PR C: padded token"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z\")",
+  "new": "[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3,6}Z\")",
+  "note": "PR C: expiresAt with microseconds"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        obj = json.loads(data.decode(\"utf-8\"), object_pairs_hook=_no_dups)",
+  "new": "        obj = json.loads(data.decode(\"utf-8\"))",
+  "note": "PR C: duplicate keys in the response"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        obj = json.loads(report, object_pairs_hook=_no_dups)",
+  "new": "        obj = json.loads(report)",
+  "note": "PR C: duplicate keys in the gate line"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    return top == (want, b\"tmpfs\")",
+  "new": "    return top is not None",
+  "note": "PR C: any /run"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        if fields[4] == b\"/run\":\n",
+  "new": "        if fields[4] == b\"/run\" and top is None:\n",
+  "note": "PR C: the first /run mount, not the top one"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        os.mkdir(\"sbgpu\", 0o700, dir_fd=run)\n",
+  "new": "        os.makedirs(prefix + \"/run/sbgpu\", 0o700, exist_ok=True)\n",
+  "note": "PR C: an existing /run/sbgpu accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            or st.st_dev != run_st.st_dev):",
+  "new": "            ):",
+  "note": "PR C: a mount at /run/sbgpu"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "stat.S_IMODE(st.st_mode) != 0o700\n            or st.st_dev",
+  "new": "False\n            or st.st_dev",
+  "note": "PR C: made directory's mode"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC",
+  "new": "DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC",
+  "note": "PR C: links followed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        undumpable()\n        nonce",
+  "new": "        nonce",
+  "note": "PR C: no PR_SET_DUMPABLE"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    if libc.prctl(4, 0, 0, 0, 0) != 0 or libc.prctl(3, 0, 0, 0, 0) != 0:",
+  "new": "    if libc.prctl(3, 0, 0, 0, 0) != 0:",
+  "note": "PR C: dumpable never set"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        scrub_fd(d)\n        return EXIT_LOCAL",
+  "new": "        return EXIT_LOCAL",
+  "note": "PR C: boot.json left after a refusal"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        for name in (\"gate.json\", \".gate.json.tmp\"):",
+  "new": "        for name in ():",
+  "note": "PR C: gate.json left after a refusal"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "obj != {\"v\": 1, \"pass\": True, \"fail\": []} or type",
+  "new": "obj.get(\"pass\") is not True or type",
+  "note": "PR C: a pass with words"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": " or type(obj[\"v\"]) is not int\n",
+  "new": "\n",
+  "note": "PR C: v true"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "                or type(obj[\"pass\"]) is not bool):",
+  "new": "                ):",
+  "note": "PR C: pass 1"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    secs = (deadline - margin_s * 1000 - boottime.boottime_ms()) // 1000\n    if secs <= 0:",
+  "new": "    secs = (deadline - margin_s * 1000 - boottime.boottime_ms()) // 1000\n    if secs < 0:",
+  "note": "PR C: 0 s left runs"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    secs = (deadline - margin_s * 1000",
+  "new": "    secs = (deadline - 0 * margin_s * 1000",
+  "note": "PR C: no margin"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    if ((st.st_dev, st.st_ino) != (dev, ino) or",
+  "new": "    if (st.st_dev != dev or",
+  "note": "PR C: another directory's inode"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "NAMES = (\"boot.json\", \"gate.json\", \".boot.json.tmp\", \".gate.json.tmp\")",
+  "new": "NAMES = (\"boot.json\", \"gate.json\", \".gate.json.tmp\")",
+  "note": "PR C: a temp file left"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            conn.sock.settimeout(timeout())\n            chunk",
+  "new": "            chunk",
+  "note": "PR C: reads unbounded"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "{\"machineId\": machine_id, \"nonce\": nonce, \"bootScriptSha256\": script_sha}",
+  "new": "{\"nonce\": nonce, \"machineId\": machine_id, \"bootScriptSha256\": script_sha}",
+  "note": "PR C: key order"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "STDIN_MAX = 64",
+  "new": "STDIN_MAX = 65",
+  "note": "PR C: stdin cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "NONCE_RE = re.compile(r\"[A-Za-z0-9_-]{22}\")",
+  "new": "NONCE_RE = re.compile(r\"[A-Za-z0-9_-]{21,22}\")",
+  "note": "PR C: short nonce"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "START_MIN_MS = 20_000",
+  "new": "START_MIN_MS = 19_999",
+  "note": "PR C: start bound"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if deadline - boottime.boottime_ms() < START_MIN_MS:",
+  "new": "    if deadline - boottime.boottime_ms() <= START_MIN_MS:",
+  "note": "PR C: exactly 20 s refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if deadline - boottime.boottime_ms() < START_MIN_MS:\n        return vm_failed(\"enroll-late\", err)\n",
+  "new": "",
+  "note": "PR C: no start check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "REQUEST_MIN_MS = 2_000",
+  "new": "REQUEST_MIN_MS = 1_999",
+  "note": "PR C: request bound"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if left < REQUEST_MIN_MS:",
+  "new": "    if left <= REQUEST_MIN_MS:",
+  "note": "PR C: exactly 2 s refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if left < REQUEST_MIN_MS:\n        return vm_failed(\"enroll-late\", err)\n",
+  "new": "",
+  "note": "PR C: no pre-request check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    left = deadline - boottime.boottime_ms()\n    if left",
+  "new": "    left = START_MIN_MS\n    if left",
+  "note": "PR C: a stale read before the request"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "timeout=min(ENROLL_TIMEOUT_MAX_S, (left - 1000) / 1000)",
+  "new": "timeout=min(ENROLL_TIMEOUT_MAX_S, left / 1000)",
+  "note": "PR C: no 1 s margin"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "ENROLL_TIMEOUT_MAX_S = 20",
+  "new": "ENROLL_TIMEOUT_MAX_S = 30",
+  "note": "PR C: timeout cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "                    os.unlink(name, dir_fd=d)",
+  "new": "                    pass",
+  "note": "PR C: files left"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": " or stat.S_IMODE(st.st_mode) != 0o600:",
+  "new": ":",
+  "note": "PR C: a file's mode"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or stat.S_IMODE",
+  "new": "        if not stat.S_ISREG(st.st_mode) or stat.S_IMODE",
+  "note": "PR C: a file's owner"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": " or stat.S_IMODE(st.st_mode) != 0o700:\n            raise BootError(\"/run/sbgpu\")",
+  "new": ":\n            raise BootError(\"/run/sbgpu\")",
+  "note": "PR C: the directory's mode"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if sorted(boot) != VM_BOOT_KEYS or boot[\"mode\"] != \"vm\":",
+  "new": "    if boot.get(\"mode\") != \"vm\":",
+  "note": "PR C: a providerMachineId accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if gate != {\"v\": 1, \"pass\": True, \"fail\": []} or type",
+  "new": "    if gate.get(\"pass\") is not True or type",
+  "note": "PR C: a gate with words"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "\"mode\": \"vm\", \"gate\": gate,",
+  "new": "\"mode\": \"vm\", \"providerMachineId\": None, \"gate\": gate,",
+  "note": "PR C: providerMachineId sent"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "    if sys.argv[1:] == [\"vm\"]:",
+  "new": "    if \"vm\" in sys.argv:",
+  "note": "PR C: vm by any argv"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
+  "old": "boottime.boottime_ms() + int(timeout * 1000), RESPONSE_MAX)",
+  "new": "boottime.boottime_ms() + 20_000, RESPONSE_MAX)",
+  "note": "PR C: transport ignores its timeout"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/control.py",
+  "old": "status, data = self.transport(\"POST\", self.base + path, headers, body, timeout)",
+  "new": "status, data = self.transport(\"POST\", self.base + path, headers, body, TIMEOUT_S)",
+  "note": "PR C: timeout not passed"
  }
 ]
