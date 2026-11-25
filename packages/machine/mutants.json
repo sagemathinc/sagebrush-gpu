@@ -1792,5 +1792,269 @@
   "old": "            if path + \"/\" + name not in pinned and (path + \"/\" + name in mounts or st.st_dev != dev):",
   "new": "            if path not in pinned and (path + \"/\" + name in mounts or st.st_dev != dev):",
   "note": "vm gate: key file pinned by its directory"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if any(not _locked(r[1]) for r in _rows(os.path.join(root, \"etc/shadow\"), SHADOW_MAX, 9)):",
+  "new": "    if False:",
+  "note": "vm gate neutralised: password: shadow unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return field != \"\" and field[0] in \"!*\"",
+  "new": "    return field == \"\" or field[0] in \"!*\"",
+  "note": "vm gate neutralised: password: an empty field taken as locked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return field != \"\" and field[0] in \"!*\"",
+  "new": "    return field != \"\" and field[0] in \"!\"",
+  "note": "vm gate neutralised: password: \"*\" not taken as locked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if any(r[1] != \"x\" and not _locked(r[1]) for r in _rows(os.path.join(root, \"etc/passwd\"), PASSWD_MAX, 7)):",
+  "new": "    if False:",
+  "note": "vm gate neutralised: password: a hash in passwd unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if len(parts) != fields:\n            raise Unreadable(path)",
+  "new": "        if len(parts) < fields:\n            raise Unreadable(path)",
+  "note": "vm gate neutralised: rows: a short row refused only"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if any(g[0] in SUDO_GROUPS and g[3] != \"\" for g in groups):",
+  "new": "    if False:",
+  "note": "vm gate neutralised: sudo: group members unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if any(r[3] in gids for r in _rows(os.path.join(root, \"etc/passwd\"), PASSWD_MAX, 7)):",
+  "new": "    if False:",
+  "note": "vm gate neutralised: sudo: primary groups unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if allow[\"sudoers\"].get(f) != hashlib.sha256(data).hexdigest():",
+  "new": "        if f not in allow[\"sudoers\"]:",
+  "note": "vm gate neutralised: sudo: sudoers bytes unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            out.add(\"sudo\")  # (a sudoers path that isn't a regular file, or too big)\n            continue",
+  "new": "            continue",
+  "note": "vm gate neutralised: sudo: an unreadable sudoers file skipped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        files += [\"/etc/sudoers.d/\" + n for n in _entries(os.path.join(root, \"etc/sudoers.d\"), SUDOERS_D_MAX)]",
+  "new": "        pass",
+  "note": "vm gate neutralised: sudo: sudoers.d unread"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    for n in set(CONSOLE_UNITS) | {n for n in names if n.startswith(templates)}:",
+  "new": "    for n in set(CONSOLE_UNITS):",
+  "note": "vm gate neutralised: console: instances unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if any(p[\"comm\"] in CONSOLE_PROCS or os.path.basename(p[\"exe\"]) in CONSOLE_PROCS for p in procs.values()):",
+  "new": "    if False:",
+  "note": "vm gate neutralised: console: running getty unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if any(unit_state(root, n) != \"masked\" for n in own) or unit_state(root, unit + \".service\") == \"present\":",
+  "new": "        if unit_state(root, unit + \".service\") == \"present\":",
+  "note": "vm gate neutralised: agents: activation units unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if any(unit_state(root, n) != \"masked\" for n in own) or unit_state(root, unit + \".service\") == \"present\":",
+  "new": "        if any(unit_state(root, n) == \"present\" for n in own):",
+  "note": "vm gate neutralised: agents: an absent-or-masked unit taken as masked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "               or n.startswith(unit + \"@\")}",
+  "new": "               }",
+  "note": "vm gate neutralised: agents: @ units missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if any(p[\"comm\"] == a[\"process\"][:15] or os.path.basename(p[\"exe\"]) == a[\"process\"] for p in procs.values()):",
+  "new": "        if any(p[\"comm\"] == a[\"process\"][:15] for p in procs.values()):",
+  "note": "vm gate neutralised: agents: by exe name missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    allowed = set(allow[\"processes\"]) | set(allow[\"providerReader2\"])",
+  "new": "    allowed = set(allow[\"processes\"])",
+  "note": "vm gate neutralised: reader2: the label ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return {\"user-session\"} if any(max(p[\"uids\"]) >= USER_UID_MIN for p in procs.values()) else set()",
+  "new": "    return {\"user-session\"} if any(p[\"uids\"][0] >= USER_UID_MIN for p in procs.values()) else set()",
+  "note": "vm gate neutralised: sessions: only the real uid"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return {\"user-session\"} if any(max(p[\"uids\"]) >= USER_UID_MIN for p in procs.values()) else set()",
+  "new": "    return {\"user-session\"} if any(max(p[\"uids\"]) > USER_UID_MIN for p in procs.values()) else set()",
+  "note": "vm gate neutralised: sessions: uid 1000 itself missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if not uids or len(uids) != 4:\n            raise Unreadable(base)",
+  "new": "        if not uids:\n            uids = [0]",
+  "note": "vm gate neutralised: sessions: no Uid line taken as root"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return {\"container-runtime\"} if any(os.path.lexists(os.path.join(root, s)) for s in CONTAINER_SOCKETS) else set()",
+  "new": "    return set()",
+  "note": "vm gate neutralised: containers unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if other or len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):",
+  "new": "    if other or len(chains) != 1:",
+  "note": "vm gate neutralised: imds: the chain unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if other or len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):",
+  "new": "    if len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):",
+  "note": "vm gate neutralised: imds: other objects allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return None not in rules and len(rules) == len(META_RULES) and set(rules) == META_RULES",
+  "new": "    return None not in rules and set(rules) == META_RULES",
+  "note": "vm gate neutralised: imds: a duplicate rule allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return None not in rules and len(rules) == len(META_RULES) and set(rules) == META_RULES",
+  "new": "    return None not in rules and set(rules) >= META_RULES",
+  "note": "vm gate neutralised: imds: extra rules allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if not (isinstance(expr, list) and len(expr) == 2 and expr[1] == {\"reject\": None}):",
+  "new": "    if not (isinstance(expr, list) and len(expr) == 2):",
+  "note": "vm gate neutralised: imds: any verdict taken as reject"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        exact = False  # (no table of ours, or a listing that doesn't parse: the rules aren't in place)",
+  "new": "        exact = True",
+  "note": "vm gate neutralised: imds: a missing table passes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        return e.errno in REJECTED  # (a timeout carries no such errno: it fails)",
+  "new": "        return True",
+  "note": "vm gate neutralised: imds: any error taken as refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    s.close()\n    return False\n",
+  "new": "    s.close()\n    return True\n",
+  "note": "vm gate neutralised: imds: an answer taken as refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    targets += [(socket.AF_INET6, (META_V6[0], 80, 0, idx)) for _, idx in interfaces(root)]",
+  "new": "    targets += [(socket.AF_INET6, (META_V6[0], 80, 0, idx)) for _, idx in interfaces(root)][:1]",
+  "note": "vm gate neutralised: imds: only the first interface probed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    targets = [(socket.AF_INET, META_V4), (socket.AF_INET6, (META_V6[1], 80, 0, 0))]",
+  "new": "    targets = [(socket.AF_INET, META_V4)]",
+  "note": "vm gate neutralised: imds: the IPv6 alias not probed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if net.overlaps(ipaddress.ip_network(\"169.254.0.0/16\")) and mask >= 16 and not _covered(\"ip\", dest):",
+  "new": "        if False:",
+  "note": "vm gate neutralised: imds: IPv4 routes unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if dest in META_V6 and not _covered(\"ip6\", dest):",
+  "new": "        if False:",
+  "note": "vm gate neutralised: imds: IPv6 routes unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if not _covered(\"ip\", ip):\n            return True",
+  "new": "        pass",
+  "note": "vm gate neutralised: imds: local addresses unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return any(f == family and a in ipaddress.ip_network(\"%s/%d\" % (addr, n)) for f, addr, n in META_RULES)",
+  "new": "    return True",
+  "note": "vm gate neutralised: imds: everything taken as covered"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return any(f == family and a in ipaddress.ip_network(\"%s/%d\" % (addr, n)) for f, addr, n in META_RULES)",
+  "new": "    return False",
+  "note": "vm gate neutralised: imds: nothing taken as covered"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if name == \"lo\":\n            continue",
+  "new": "        pass",
+  "note": "vm gate neutralised: imds: loopback probed as an interface"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                    return \"ok\" if seen[key] == home or home in pinned else \"mount\"",
+  "new": "                    return \"ok\"",
+  "note": "vm gate neutralised: keys: an alias taken as the same home"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                    return \"ok\" if seen[key] == home or home in pinned else \"mount\"",
+  "new": "                    return \"ok\" if seen[key] == home else \"mount\"",
+  "note": "vm gate neutralised: keys: a pinned alias refused"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                seen[key] = home",
+  "new": "                pass",
+  "note": "vm gate neutralised: keys: homes not remembered"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "          and all(isinstance(x, str) and x.startswith(\"/\") and x not in allow[\"processes\"] for x in allow[\"providerReader2\"])",
+  "new": "          and all(isinstance(x, str) and x.startswith(\"/\") for x in allow[\"providerReader2\"])",
+  "note": "vm gate neutralised: allowlist: a reader-2 exe also in processes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                  and all(os.path.basename(x) != a[\"process\"] for x in allow[\"providerReader2\"])",
+  "new": "                  and True",
+  "note": "vm gate neutralised: allowlist: an agent both neutralised and kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                  and a[\"unit\"] not in PROVIDER_AGENTS and a[\"process\"] not in PROVIDER_AGENTS",
+  "new": "                  and True",
+  "note": "vm gate neutralised: allowlist: a provider agent neutralised"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return {\"config-drive\"} if any(n.lower() in CONFIG_DRIVE_LABELS for n in names) else set()",
+  "new": "    return {\"config-drive\"} if any(n in CONFIG_DRIVE_LABELS for n in names) else set()",
+  "note": "vm gate neutralised: config drive: case-sensitive labels"
  }
 ]

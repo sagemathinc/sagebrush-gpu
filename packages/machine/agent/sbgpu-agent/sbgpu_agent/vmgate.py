@@ -12,9 +12,19 @@ root after locking the VM down (sshd masked, keys removed); the gate only checks
   processes  every process (kernel threads aside) runs an executable on the image allowlist
   secrets    no process's environment or command line holds a credential shape (a closed list), or a known value (the
              launch nonce; after issuance, the boot token), matched by digest so the value itself never reaches the gate
-  provider   no provider guest agent: no hyperstack-agent unit, user, process or install directory
-  imds       nothing answers on the link-local metadata address and no config drive is attached: until the provider's
-             exact contents are reviewed, any answer fails closed
+  provider   no provider guest agent: no hyperstack-agent unit, user, process or install directory; each agent the
+             boot script neutralised (the image allowlist's list, e.g. grafana-agent) has every unit masked and no
+             process, though its inert files may stay; a provider channel kept on purpose (reader (2), e.g. qemu-ga
+             until it is shown safe to mask) is allowed only by exact executable under its own label
+  logins     every password is locked (shadow and passwd fields); the sudo, admin and wheel groups have no member and
+             no user's primary group is one of them, and every sudoers file matches the image allowlist by sha256;
+             every console login unit (getty, serial-getty, autovt, console-getty, container-getty, instances
+             included) is masked or absent and no agetty or login runs; no process runs as a uid >= 1000 (the
+             provider's leftover sessions); no container runtime socket
+  imds       our metadata reject rules are exactly in place (nft, both families), and a connection to every metadata
+             address (IPv4, and IPv6 on each interface) fails at once with the reject's error: an answer, a timeout or
+             any other error fails; no address or route reaches the metadata addresses outside those rules; no config
+             drive is attached: until the provider's exact contents are reviewed, any of these fails closed
 
 The image allowlist is data, reviewed per image.  Known values come on stdin as JSON, {"known": [{"sha256", "bytes"}]}:
 digests and lengths only.  Every read is bounded; anything unreadable, malformed or vanishing fails the gate unless the
@@ -26,12 +36,15 @@ and only the words kept.  The gate prints one line, `SBGPU-GATE {"v":1,"pass":bo
 vocabulary only (never a path, name, address or value), and exits 0 only when every check passed.
 """
 
+import errno
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import socket
 import stat
+import subprocess
 import sys
 
 WORDS = (
@@ -39,6 +52,7 @@ WORDS = (
     "listener-22", "listener-public", "listener-loopback",
     "process", "process-churn", "credential-shape", "known-value",
     "provider-agent", "imds", "config-drive", "gate-budget", "mount-crossing", "unreadable",
+    "password", "sudo", "console-login", "agent-active", "container-runtime", "user-session",
 )
 
 # ---- limits
@@ -64,11 +78,31 @@ SSHD_NAMES = ("sshd", "sshd-session", "sshd-auth")  # (OpenSSH 9.8+ splits sshd 
 PROVIDER_AGENTS = ("hyperstack-agent",)
 PROVIDER_DIRS = ("opt/hyperstack-agent",)
 PF_KTHREAD = 0x00200000
-IMDS_ADDRESS = ("169.254.169.254", 80)
 IMDS_TIMEOUT_S = 2.0
-CONFIG_DRIVE_LABELS = ("config-2", "CONFIG-2", "cidata", "CIDATA")
+CONFIG_DRIVE_LABELS = ("config-2", "cidata")  # (matched in any case: config-2, CONFIG-2, Config-2, CiData...)
 NO_HOMES_UNDER = ("/proc", "/sys", "/dev", "/run")
 MOUNTINFO_MAX = 1024 * 1024
+SHADOW_MAX = 1024 * 1024
+GROUP_MAX = 1024 * 1024
+SUDOERS_MAX = 64 * 1024          # (bytes of each sudoers file)
+SUDOERS_D_MAX = 64               # (entries in /etc/sudoers.d)
+STATUS_MAX = 8192                # (bytes of a process's status)
+NET_IF_MAX = 64                  # (network interfaces probed)
+NFT_MAX = 64 * 1024              # (bytes of nft's JSON listing of our table)
+NFT_TIMEOUT_S = 5.0
+SUDO_GROUPS = ("sudo", "admin", "wheel")
+USER_UID_MIN = 1000              # (a process at or above this uid is a user session: the provider's, left over)
+CONSOLE_UNITS = ("getty@.service", "serial-getty@.service", "autovt@.service", "console-getty.service",
+                 "container-getty@.service")
+CONSOLE_PROCS = ("agetty", "login")
+CONTAINER_SOCKETS = ("run/docker.sock", "run/containerd/containerd.sock")
+# Our metadata reject rules (the boot script's N9): table inet sbgpu_meta, one output chain, exactly these rejects.
+META_TABLE = "sbgpu_meta"
+META_CHAIN = {"type": "filter", "hook": "output", "prio": -300, "policy": "accept"}
+META_RULES = frozenset({("ip", "169.254.0.0", 16), ("ip6", "fe80::a9fe:a9fe", 128), ("ip6", "fd00:ec2::254", 128)})
+META_V4 = ("169.254.169.254", 80)
+META_V6 = ("fe80::a9fe:a9fe", "fd00:ec2::254")  # (link-local on every interface; the EC2-style alias)
+REJECTED = (errno.ECONNREFUSED, errno.EACCES, errno.EPERM, errno.ENETUNREACH)  # (a prompt local refusal, or no route)
 
 # Credential shapes: a closed list, matched on raw environ/cmdline bytes.
 CREDENTIAL_SHAPES = (
@@ -195,10 +229,13 @@ def mount_points(proc="/proc"):
     return out
 
 
-def _keys_state(root, home, mounts, pinned):
+def _keys_state(root, home, mounts, pinned, seen=None):
     """"ok" (absent or empty regular files), "keys", or "mount": each component of home/.ssh is opened without
     following any link, and the walk refuses to cross into another mount (a mount point at a component or at a key
-    file, or a device change from the directory before) unless the image allowlist pins that exact path."""
+    file, or a device change from the directory before) unless the image allowlist pins that exact path.  `seen` maps
+    each home directory already scanned, by (st_dev, st_ino), to its path: the same directory is scanned once, and a
+    second path reaching it (a bind alias) is "mount" unless that path is pinned."""
+    seen = {} if seen is None else seen
     fds = []
     try:
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
@@ -218,10 +255,16 @@ def _keys_state(root, home, mounts, pinned):
                     return "keys"
                 raise Unreadable(home)
             fds.append(fd)
-            here = os.fstat(fd).st_dev
+            st = os.fstat(fd)
+            here = st.st_dev
             if path not in pinned and (path in mounts or here != dev):
                 return "mount"
             dev = here
+            if path == home:
+                key = (st.st_dev, st.st_ino)
+                if key in seen:
+                    return "ok" if seen[key] == home or home in pinned else "mount"
+                seen[key] = home
         for name in ("authorized_keys", "authorized_keys2"):
             try:
                 st = os.stat(name, dir_fd=fd, follow_symlinks=False)
@@ -246,8 +289,9 @@ def check_ssh(root, procs, proc="/proc", pinned=()):
         if p["comm"] in SSHD_NAMES or os.path.basename(p["exe"]) in SSHD_NAMES:
             out.add("ssh-running")
     mounts = mount_points(proc)
+    seen = {}
     for home in _homes(root):
-        state = _keys_state(root, home, mounts, set(pinned))
+        state = _keys_state(root, home, mounts, set(pinned), seen)
         if state == "keys":
             out.add("authorized-keys")
         elif state == "mount":
@@ -355,6 +399,12 @@ def _one(proc, pid, by_len, budget):
             return {"kthread": True}
         comm = _read_bounded(os.path.join(base, "comm"), COMM_MAX, regular=False).strip().decode("utf-8", "replace")
         exe = os.readlink(os.path.join(base, "exe"))
+        uids = None
+        for ln in _read_bounded(os.path.join(base, "status"), STATUS_MAX, regular=False).split(b"\n"):
+            if ln.startswith(b"Uid:"):
+                uids = [int(x) for x in ln.split()[1:]]
+        if not uids or len(uids) != 4:
+            raise Unreadable(base)
         secrets = set()
         for name in ("environ", "cmdline"):
             secrets |= _secrets(_read_bounded(os.path.join(base, name), ARGS_MAX, regular=False), by_len, budget)
@@ -371,7 +421,7 @@ def _one(proc, pid, by_len, budget):
         if not os.path.exists(base):
             return None  # (exited)
         raise Unreadable(base)
-    return {"kthread": False, "comm": comm, "exe": exe, "secrets": secrets, "sockets": socks}
+    return {"kthread": False, "comm": comm, "exe": exe, "uids": uids, "secrets": secrets, "sockets": socks}
 
 
 def _pids(proc):
@@ -405,7 +455,7 @@ class Churn(Exception):
 
 
 def check_processes(procs, allow):
-    allowed = set(allow["processes"])
+    allowed = set(allow["processes"]) | set(allow["providerReader2"])  # (reader (2) channels: exact, labelled)
     return {"process"} if any(p["exe"] not in allowed for p in procs.values()) else set()
 
 
@@ -457,20 +507,27 @@ def check_listeners(found, procs, allow):
 
 
 # ---- provider agents
-def check_provider(root, procs):
+def unit_names(root):
+    """Every unit file name in the unit search path (each directory enumerated with a cap)."""
     out = set()
-    data = _read_bounded(os.path.join(root, "etc/passwd"), PASSWD_MAX)
-    users = {line.split(b":")[0] for line in data.splitlines()}
     for d in UNIT_PATH:
         try:
-            names = _entries(os.path.join(root, d), UNIT_DIR_MAX)
+            out.update(_entries(os.path.join(root, d), UNIT_DIR_MAX))
         except FileNotFoundError:
             continue
         except OSError:
             raise Unreadable(d)
-        for agent in PROVIDER_AGENTS:
-            if any(n == agent or n.startswith(agent + ".") or n.startswith(agent + "@") for n in names):
-                out.add("provider-agent")
+    return out
+
+
+def check_provider(root, procs, names=None):
+    out = set()
+    data = _read_bounded(os.path.join(root, "etc/passwd"), PASSWD_MAX)
+    users = {line.split(b":")[0] for line in data.splitlines()}
+    names = unit_names(root) if names is None else names
+    for agent in PROVIDER_AGENTS:
+        if any(n == agent or n.startswith(agent + ".") or n.startswith(agent + "@") for n in names):
+            out.add("provider-agent")
     for agent in PROVIDER_AGENTS:
         if agent.encode() in users:
             out.add("provider-agent")
@@ -483,17 +540,236 @@ def check_provider(root, procs):
     return out
 
 
-# ---- metadata service and config drive
-def check_imds(connect=None):
-    """Anything accepting a connection on the metadata address fails (fail closed until its exact contents are
-    reviewed)."""
-    connect = connect or (lambda: socket.create_connection(IMDS_ADDRESS, timeout=IMDS_TIMEOUT_S))
+def check_neutralised(root, procs, allow, names):
+    """Each agent the boot script neutralised: every one of its units (service, socket, timer, path, @ instances and
+    templates) masked, its .service masked or absent, and no process by its name.  Its inert files may stay."""
+    out = set()
+    for a in allow["neutralisedAgents"]:
+        unit = a["unit"]
+        own = {n for n in names if n in (unit + ".service", unit + ".socket", unit + ".timer", unit + ".path")
+               or n.startswith(unit + "@")}
+        if any(unit_state(root, n) != "masked" for n in own) or unit_state(root, unit + ".service") == "present":
+            out.add("agent-active")
+        if any(p["comm"] == a["process"][:15] or os.path.basename(p["exe"]) == a["process"] for p in procs.values()):
+            out.add("agent-active")
+    return out
+
+
+# ---- logins: passwords, sudo, consoles, user sessions, container runtimes
+def _rows(path, limit, fields):
+    """The rows of a bounded, regular colon file, each exactly `fields` fields of strict UTF-8 (else Unreadable)."""
+    out = []
+    for line in _read_bounded(path, limit).split(b"\n"):
+        if not line:
+            continue
+        parts = line.split(b":")
+        if len(parts) != fields:
+            raise Unreadable(path)
+        try:
+            out.append([x.decode("utf-8", "strict") for x in parts])
+        except UnicodeDecodeError:
+            raise Unreadable(path)
+    return out
+
+
+def _locked(field):
+    return field != "" and field[0] in "!*"
+
+
+def check_passwords(root):
+    """Every shadow password locked ("!" or "*" first; an empty one is a password-less login), and no hash in passwd."""
+    out = set()
+    if any(not _locked(r[1]) for r in _rows(os.path.join(root, "etc/shadow"), SHADOW_MAX, 9)):
+        out.add("password")
+    if any(r[1] != "x" and not _locked(r[1]) for r in _rows(os.path.join(root, "etc/passwd"), PASSWD_MAX, 7)):
+        out.add("password")
+    return out
+
+
+def check_sudo(root, allow):
+    """No member of a sudo group, nobody's primary group one, and every sudoers file exactly as the image allowlist
+    has it (by sha256; one not on it, or not a regular file, fails)."""
+    out = set()
+    groups = _rows(os.path.join(root, "etc/group"), GROUP_MAX, 4)
+    gids = {g[2] for g in groups if g[0] in SUDO_GROUPS}
+    if any(g[0] in SUDO_GROUPS and g[3] != "" for g in groups):
+        out.add("sudo")
+    if any(r[3] in gids for r in _rows(os.path.join(root, "etc/passwd"), PASSWD_MAX, 7)):
+        out.add("sudo")
+    files = ["/etc/sudoers"]
     try:
-        s = connect()
-    except OSError:
-        return set()
+        files += ["/etc/sudoers.d/" + n for n in _entries(os.path.join(root, "etc/sudoers.d"), SUDOERS_D_MAX)]
+    except FileNotFoundError:
+        pass
+    for f in files:
+        try:
+            data = _read_bounded(os.path.join(root, f[1:]), SUDOERS_MAX)
+        except FileNotFoundError:
+            continue
+        except Unreadable:
+            out.add("sudo")  # (a sudoers path that isn't a regular file, or too big)
+            continue
+        if allow["sudoers"].get(f) != hashlib.sha256(data).hexdigest():
+            out.add("sudo")
+    return out
+
+
+def check_consoles(root, procs, names):
+    """Every console login unit, and every instance of one, masked or absent; no agetty or login running."""
+    out = set()
+    templates = tuple(u.split("@")[0] + "@" for u in CONSOLE_UNITS if "@" in u)
+    for n in set(CONSOLE_UNITS) | {n for n in names if n.startswith(templates)}:
+        if unit_state(root, n) == "present":
+            out.add("console-login")
+    if any(p["comm"] in CONSOLE_PROCS or os.path.basename(p["exe"]) in CONSOLE_PROCS for p in procs.values()):
+        out.add("console-login")
+    return out
+
+
+def check_sessions(procs):
+    return {"user-session"} if any(max(p["uids"]) >= USER_UID_MIN for p in procs.values()) else set()
+
+
+def check_containers(root):
+    return {"container-runtime"} if any(os.path.lexists(os.path.join(root, s)) for s in CONTAINER_SOCKETS) else set()
+
+
+# ---- metadata service and config drive
+def _nft_listing():
+    r = subprocess.run(["nft", "-j", "list", "table", "inet", META_TABLE], stdin=subprocess.DEVNULL,
+                       capture_output=True, timeout=NFT_TIMEOUT_S, check=False)
+    if r.returncode != 0 or len(r.stdout) > NFT_MAX:
+        raise Unreadable("nft")
+    return r.stdout
+
+
+def _meta_rule(expr):
+    """A rule's expressions as (family, address, prefix length) when it is exactly "<ip|ip6> daddr X reject"."""
+    if not (isinstance(expr, list) and len(expr) == 2 and expr[1] == {"reject": None}):
+        return None
+    m = expr[0].get("match") if isinstance(expr[0], dict) else None
+    if not (isinstance(m, dict) and m.get("op") == "==" and isinstance(m.get("left"), dict)):
+        return None
+    pl = m["left"].get("payload")
+    if not (isinstance(pl, dict) and pl.get("field") == "daddr" and pl.get("protocol") in ("ip", "ip6")):
+        return None
+    right = m.get("right")
+    if isinstance(right, str):
+        return (pl["protocol"], right, 32 if pl["protocol"] == "ip" else 128)
+    pre = right.get("prefix") if isinstance(right, dict) else None
+    if isinstance(pre, dict) and isinstance(pre.get("addr"), str) and type(pre.get("len")) is int:
+        return (pl["protocol"], pre["addr"], pre["len"])
+    return None
+
+
+def meta_rules_exact(listing):
+    """Whether nft's JSON listing of our table is exactly the one output chain with exactly META_RULES."""
+    try:
+        objs = json.loads(listing)["nftables"]
+    except (ValueError, KeyError, TypeError):
+        raise Unreadable("nft")
+    chains, rules, other = [], [], 0
+    for o in objs if isinstance(objs, list) else []:
+        kind = next(iter(o), None) if isinstance(o, dict) and len(o) == 1 else None
+        if kind == "chain":
+            chains.append(o["chain"])
+        elif kind == "rule":
+            rules.append(_meta_rule(o["rule"].get("expr")) if isinstance(o["rule"], dict) else None)
+        elif kind not in ("metainfo", "table"):
+            other += 1
+    if other or len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):
+        return False
+    return None not in rules and len(rules) == len(META_RULES) and set(rules) == META_RULES
+
+
+def _probe(connect, family, address):
+    """Whether one metadata address is refused at once (the reject's error, or no route at all)."""
+    try:
+        s = connect(family, address)
+    except OSError as e:
+        return e.errno in REJECTED  # (a timeout carries no such errno: it fails)
     s.close()
-    return {"imds"}
+    return False
+
+
+def _connect(family, address):
+    s = socket.socket(family, socket.SOCK_STREAM)
+    s.settimeout(IMDS_TIMEOUT_S)
+    try:
+        s.connect(address)
+    except BaseException:
+        s.close()
+        raise
+    return s
+
+
+def _covered(family, ip):
+    """Whether an address is inside one of our metadata reject rules."""
+    a = ipaddress.ip_address(ip)
+    return any(f == family and a in ipaddress.ip_network("%s/%d" % (addr, n)) for f, addr, n in META_RULES)
+
+
+def _meta_reachable(proc):
+    """Routes (IPv4 and IPv6) and local IPv4 addresses that reach a metadata address outside our rules."""
+    for line in _read_bounded(os.path.join(proc, "net", "route"), NET_MAX, regular=False).split(b"\n")[1:]:
+        f = line.split()
+        if not f:
+            continue
+        if len(f) < 8:
+            raise Unreadable("route")
+        dest = _addr(f[1])
+        mask = bin(int(f[7], 16)).count("1")
+        net = ipaddress.ip_network("%s/%d" % (dest, mask), strict=False)
+        if net.overlaps(ipaddress.ip_network("169.254.0.0/16")) and mask >= 16 and not _covered("ip", dest):
+            return True
+    for line in _read_bounded(os.path.join(proc, "net", "ipv6_route"), NET_MAX, regular=False).split(b"\n"):
+        f = line.split()
+        if not f:
+            continue
+        if len(f) != 10 or len(f[0]) != 32:
+            raise Unreadable("ipv6_route")
+        dest = str(ipaddress.ip_address(bytes.fromhex(f[0].decode("ascii"))))
+        if dest in META_V6 and not _covered("ip6", dest):
+            return True
+    trie = _read_bounded(os.path.join(proc, "net", "fib_trie"), NET_MAX, regular=False).decode("ascii", "replace")
+    for ip in re.findall(r"\|-- (169\.254\.\d+\.\d+)\n\s+/32 host LOCAL", trie):
+        if not _covered("ip", ip):
+            return True
+    return False
+
+
+def interfaces(root):
+    """Every network interface but loopback, with its index (/sys/class/net, capped)."""
+    out = []
+    for name in sorted(_entries(os.path.join(root, "sys/class/net"), NET_IF_MAX)):
+        if name == "lo":
+            continue
+        idx = _read_bounded(os.path.join(root, "sys/class/net", name, "ifindex"), 32, regular=False).strip()
+        if not idx.isdigit():
+            raise Unreadable("ifindex")
+        out.append((name, int(idx)))
+    return out
+
+
+def check_imds(root="/", proc="/proc", connect=None, nft=None):
+    """Our reject rules exactly in place; every metadata address refused at once (IPv4, the IPv6 alias, and IPv6
+    link-local on each interface: an answer, a timeout or any other error fails); and nothing reaching a metadata
+    address outside the rules.  Any of these failing is "imds" (fail closed until the exact contents are reviewed)."""
+    connect = connect or _connect
+    out = set()
+    try:
+        exact = meta_rules_exact((nft or _nft_listing)())
+    except Unreadable:
+        exact = False  # (no table of ours, or a listing that doesn't parse: the rules aren't in place)
+    if not exact:
+        out.add("imds")
+    targets = [(socket.AF_INET, META_V4), (socket.AF_INET6, (META_V6[1], 80, 0, 0))]
+    targets += [(socket.AF_INET6, (META_V6[0], 80, 0, idx)) for _, idx in interfaces(root)]
+    if not all(_probe(connect, fam, addr) for fam, addr in targets):
+        out.add("imds")
+    if _meta_reachable(proc):
+        out.add("imds")
+    return out
 
 
 def check_config_drive(root):
@@ -503,7 +779,7 @@ def check_config_drive(root):
         return set()
     except OSError:
         raise Unreadable("by-label")
-    return {"config-drive"} if any(n in CONFIG_DRIVE_LABELS for n in names) else set()
+    return {"config-drive"} if any(n.lower() in CONFIG_DRIVE_LABELS for n in names) else set()
 
 
 # ---- inputs
@@ -516,7 +792,18 @@ def load_allowlist(path):
           and isinstance(allow.get("loopback"), list)
           and all(isinstance(a, dict) and set(a) == {"process", "proto", "address", "port"} and a["proto"] in ("tcp", "udp")
                   and _loopback(str(a["address"])) and type(a["port"]) is int and 0 < a["port"] < 65536 and a["port"] != 22
-                  for a in allow["loopback"]))
+                  for a in allow["loopback"])
+          and isinstance(allow.get("providerReader2"), list)
+          and all(isinstance(x, str) and x.startswith("/") and x not in allow["processes"] for x in allow["providerReader2"])
+          and isinstance(allow.get("neutralisedAgents"), list)
+          and all(isinstance(a, dict) and set(a) == {"unit", "process"} and all(
+                  isinstance(a[k], str) and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", a[k]) for k in a)
+                  and a["unit"] not in PROVIDER_AGENTS and a["process"] not in PROVIDER_AGENTS
+                  and all(os.path.basename(x) != a["process"] for x in allow["providerReader2"])
+                  for a in allow["neutralisedAgents"])
+          and isinstance(allow.get("sudoers"), dict)
+          and all(re.fullmatch(r"/etc/sudoers(\.d/[^/\x00]+)?", k) and isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v)
+                  for k, v in allow["sudoers"].items()))
     if not ok:
         raise ValueError("not an image allowlist")
     return allow
@@ -536,7 +823,7 @@ def load_known(data):
 
 
 # ---- the gate
-def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None):
+def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None, nft=None):
     """(pass, sorted failure words)."""
     fails = set()
     try:
@@ -550,11 +837,19 @@ def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None):
     except (Unreadable, OSError):
         procs = None
         fails.add("unreadable")
-    checks = [lambda: check_imds(connect), lambda: check_config_drive(root)]
+    checks = [lambda: check_imds(root, proc, connect, nft), lambda: check_config_drive(root),
+              lambda: check_passwords(root), lambda: check_sudo(root, allow), lambda: check_containers(root)]
     if procs is not None:
+        names = {}
+
+        def units():
+            if "n" not in names:
+                names["n"] = unit_names(root)
+            return names["n"]
         checks = [lambda: check_ssh(root, procs, proc, allow["mounts"]), lambda: check_processes(procs, allow),
                   lambda: check_secrets(procs, known), lambda: check_listeners(sockets(proc), procs, allow),
-                  lambda: check_provider(root, procs)] + checks
+                  lambda: check_provider(root, procs, units()), lambda: check_neutralised(root, procs, allow, units()),
+                  lambda: check_consoles(root, procs, units()), lambda: check_sessions(procs)] + checks
     else:
         fails.add("process")  # (without a complete process scan nothing below it can pass)
     for check in checks:
