@@ -2104,5 +2104,11 @@
   "old": "    if other or len(tables) != 1 or len(chains) != 1:",
   "new": "    if other or len(chains) != 1:",
   "note": "vm gate neutralised: imds: any number of tables"
+ },
+ {
+  "file": "src/gate-words.ts",
+  "old": "  return JSON.stringify(VM_GATE_WORDS) + \"\\n\";",
+  "new": "  return JSON.stringify(VM_GATE_WORDS);",
+  "note": "no final newline"
  }
 ]

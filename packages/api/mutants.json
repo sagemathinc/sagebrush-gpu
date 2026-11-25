@@ -798,5 +798,47 @@
   "file": "src/objects.ts",
   "old": "return typeof x === \"string\" && (BILLING_MODES as readonly string[]).includes(x);",
   "new": "return typeof x === \"string\";"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  if (Object.keys(o).sort().join(\",\") !== \"fail,pass,v\") return null;\n",
+  "new": "",
+  "note": "extra or missing keys"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  if (o.v !== 1 || typeof o.pass",
+  "new": "  if (typeof o.pass",
+  "note": "another version"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "    if (typeof w !== \"string\" || !(VM_GATE_WORDS as readonly string[]).includes(w)) return null;",
+  "new": "    if (typeof w !== \"string\") return null;",
+  "note": "an unknown word"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "    if (i > 0 && !((fail[i - 1] as string) < w)) return null;",
+  "new": "    if (i > 0 && (fail[i - 1] as string) > w) return null;",
+  "note": "duplicates allowed"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "    if (i > 0 && !((fail[i - 1] as string) < w)) return null;\n",
+  "new": "",
+  "note": "unsorted allowed"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  if (o.pass !== (fail.length === 0)) return null;\n",
+  "new": "",
+  "note": "pass disagrees with fail"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  return { v: 1, pass: o.pass, fail: [...fail] as VmGateWord[] };",
+  "new": "  return { v: 1, pass: o.pass, fail: fail as VmGateWord[] };",
+  "note": "not a copy"
  }
 ]
