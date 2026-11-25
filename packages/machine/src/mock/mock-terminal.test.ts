@@ -123,7 +123,9 @@ test("the relay's page side: ready after the hello, receipts acked, ping answere
   b.send({ t: "hello", token: "dev" });
   b.send({ t: "open", rows: 24, cols: 80 });
   await b.until(() => b.msgs.some((m) => m.t === "live"));
-  b.type("head -c 3000000 /dev/zero | tr '\\0' y\n");
+  // (output until the page is closed: the mock drops what passes a page's terminal credit, so a bounded burst could
+  // be produced faster than the acks free credit and never fill the window; this fills it however fast the machine)
+  b.type("while :; do head -c 65536 /dev/zero | tr '\\0' y; done\n");
   // (the page's own ack keeps the terminal credit going; only relay receipts go unacked)
   const acker = setInterval(() => {
     const sent = b.msgs.filter((m) => m.t === "out").reduce((n, m) => n + Buffer.from(m.b as string, "base64").length, 0);
@@ -135,6 +137,25 @@ test("the relay's page side: ready after the hello, receipts acked, ping answere
     clearInterval(acker);
   }
   assert.equal(b.closed!.code, 1013);
+  // (its session, still producing, is ended from a page that takes it over)
+  const sid = b.msgs.find((m) => m.t === "opened")!.session as string;
+  const k = new Client(server.port);
+  await k.opened();
+  k.send({ t: "hello", token: "dev" });
+  k.send({ t: "open", session: sid, rows: 24, cols: 80 });
+  await k.until(() => k.msgs.some((m) => m.t === "opened"));
+  k.send({ t: "kill", session: sid });
+  // (it acks its terminal output too: the exit comes after the output the page has credit for)
+  const kAcker = setInterval(() => {
+    const got = k.msgs.filter((m) => m.t === "out").reduce((n, m) => n + Buffer.from(m.b as string, "base64").length, 0);
+    if (k.closed === null) k.send({ t: "ack", upto: got });
+  }, 20);
+  try {
+    await k.until(() => k.msgs.some((m) => m.t === "exit"), 20_000);
+  } finally {
+    clearInterval(kAcker);
+  }
+  k.ws.close();
 });
 
 test("a bad hello closes 4403; errors and closes as the agent's protocol has them", TIMEOUT, async () => {
