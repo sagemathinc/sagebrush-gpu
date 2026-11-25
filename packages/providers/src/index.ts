@@ -12,3 +12,4 @@ export type { Fetch, HttpRequest, HttpResponse } from "./http.ts";
 export { RunPodAdapter, type RunPodOptions } from "./runpod/adapter.ts";
 export { ShadeformAdapter, type ShadeformOptions } from "./shadeform/adapter.ts";
 export { HyperstackAdapter, type HyperstackOptions, type InstanceFacts } from "./hyperstack/adapter.ts";
+export { VastAdapter, type VastOptions } from "./vast/adapter.ts";

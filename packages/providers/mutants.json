@@ -4149,5 +4149,280 @@
   "file": "src/http.ts",
   "old": "timer = setTimeout(() => ok(timeout), Math.max(0, deadline - Date.now()));",
   "new": "timer = setTimeout(() => ok(timeout), 60_000);"
+ },
+ {
+  "file": "src/vast/catalog.ts",
+  "old": "return gpuRamMb >= type.vramGb * 1000 * MIN_RAM_SHARE ? ours : null;",
+  "new": "return ours;"
+ },
+ {
+  "file": "src/vast/catalog.ts",
+  "old": "const m = /,\\s*([A-Z]{2})$/.exec(geolocation);",
+  "new": "const m = /([A-Z]{2})/.exec(geolocation);"
+ },
+ {
+  "file": "src/vast/catalog.ts",
+  "old": "machineId > 0 ? `machine-${machineId}` : null;",
+  "new": "machineId >= 0 ? `machine-${machineId}` : null;"
+ },
+ {
+  "file": "src/vast/catalog.ts",
+  "old": "const m = /^machine-([1-9][0-9]{0,15})$/.exec(dataCenter);",
+  "new": "const m = /machine-([0-9]+)/.exec(dataCenter);"
+ },
+ {
+  "file": "src/vast/catalog.ts",
+  "old": "return vastName.replaceAll(\" \", \"_\");",
+  "new": "return vastName;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "? call === \"offers\" ? \"auth\" : call === \"create\" ? \"no_capacity\" : \"not_found\"",
+  "new": "? call === \"create\" ? \"no_capacity\" : \"not_found\""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": ": status === 410 && call === \"create\"",
+  "new": ": status === 410"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (intended === \"stopped\" || actual === \"stopped\") return \"failed\";",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (actual === \"exited\" || actual === \"unknown\" || actual === \"offline\") return \"failed\";",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (intended !== \"running\") return \"unknown\";",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (rt !== \"args\") out.push",
+  "new": "if (rt !== \"args\" && rt !== \"ssh\") out.push"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (inst[\"is_bid\"] !== false) out.push",
+  "new": "if (inst[\"is_bid\"] === true) out.push"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (onstart !== null && onstart !== undefined && onstart !== \"\") out.push",
+  "new": "if (typeof onstart === \"number\") out.push"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (jt !== null && jt !== undefined && jt !== \"\") out.push",
+  "new": "if (false) out.push"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (ver !== \"verified\") out.push",
+  "new": "if (ver === \"unverified\") out.push"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "volumeGb: vol === null || vol === undefined ? 0 : Number.POSITIVE_INFINITY,",
+  "new": "volumeGb: 0,"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "exposedPorts: ports === null || ports === undefined ? [] : isObject(ports) ? Object.keys(ports).sort() : [UNREADABLE],",
+  "new": "exposedPorts: [],"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (typeof name !== \"string\" || !ENV_NAME.test(name) || (typeof e === \"string\" && !e.includes(\"=\"))) return [UNREADABLE];",
+  "new": "if (typeof name !== \"string\") return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (!Array.isArray(extraEnv)) return [UNREADABLE];",
+  "new": "if (!Array.isArray(extraEnv)) return [];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "command: Array.isArray(args) && args.every((a) => typeof a === \"string\") ? [...args] : [UNREADABLE],",
+  "new": "command: Array.isArray(args) ? [...args] : [UNREADABLE],"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "providerCostPerHour: typeof cost === \"number\" && Number.isFinite(cost) && cost >= 0 ? usdToMicros(cost) : null,",
+  "new": "providerCostPerHour: typeof cost === \"number\" ? usdToMicros(Math.abs(cost)) : null,"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (o[\"num_gpus\"] !== gpuCount || o[\"rentable\"] !== true",
+  "new": "if (o[\"rentable\"] !== true"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "|| o[\"rented\"] === true ",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "|| o[\"is_bid\"] !== false ",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "|| o[\"verification\"] !== \"verified\") return null;",
+  "new": ") return null;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (typeof reliability !== \"number\" || !(reliability >= MIN_RELIABILITY)) return null;",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (typeof usd !== \"number\" || !Number.isFinite(usd) || !(usd > 0)) return null;",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (prev !== undefined && prev.providerCostPerHour <= cost) continue;",
+  "new": "if (prev !== undefined) continue;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      datacenter: { eq: true },\n",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      type: \"ondemand\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      rented: { eq: false },\n",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "const BOOT_TOKEN = /^[A-Za-z0-9_-]{16,256}$/;",
+  "new": "const BOOT_TOKEN = /^\\S{16,256}$/;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "const IMAGE_NAME = /^[a-z0-9][a-z0-9._/:@-]{0,255}$/;",
+  "new": "const IMAGE_NAME = /^.{1,256}$/;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      cancel_unavail: true,\n",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      runtype: \"args\",\n",
+  "new": "      runtype: \"ssh\",\n"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (usdToMicros(ask.usdPerHour) > spec.maxProviderCostPerHour) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "const ask = offers.find((o) => o.gpuType === spec.gpuType && o.dataCenter === spec.dataCenter);",
+  "new": "const ask = offers[0];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (!(e instanceof ProviderError) || (e.kind !== \"outcome_unknown\" && e.kind !== \"transient\")) throw e;",
+  "new": "if (!(e instanceof ProviderError) || e.kind !== \"outcome_unknown\") throw e;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (found.length === 0) throw cause;",
+  "new": "if (found.length === 0) return \"0\";"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (found.length > 1) {",
+  "new": "if (found.length > 99) {"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (label !== undefined && machineName(s.machineId) !== label) continue;",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (s.providerMachineId !== id) throw new ProviderError(\"vast\", \"unknown\", \"Vast answered an instance query with another instance\");",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (e instanceof ProviderError && e.kind === \"not_found\") return goneStatus(providerMachineId, this.#observedAt());",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (!isObject(json) || json[\"success\"] !== true) {",
+  "new": "if (!isObject(json)) {"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (next === null) return out;",
+  "new": "if (next === null || next === undefined) return out;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "throw new ProviderError(\"vast\", \"unknown\", `Vast instance list has more than ${MAX_PAGES} pages`);",
+  "new": "return out;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (shouldStop?.() === true) throw new ProviderError(\"vast\", \"outcome_unknown\", `${where}: stopped at the caller's deadline`);",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "redirect: \"manual\",\n    };",
+  "new": "redirect: \"follow\" as \"manual\",\n    };"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "const id = isObject(json) && json[\"success\"] === true ? intId(json[\"new_contract\"]) : null;",
+  "new": "const id = isObject(json) ? intId(json[\"new_contract\"]) ?? 1 : null;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "throw new ProviderError(\"vast\", \"outcome_unknown\", `stopped at the caller's deadline after creating instance ${id}`, null, null, id);",
+  "new": "throw new ProviderError(\"vast\", \"outcome_unknown\", \"stopped\");"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "throw new ProviderError(\"vast\", \"unknown\", `Vast instance ${id} could not be read back`, null, null, id);",
+  "new": "throw new ProviderError(\"vast\", \"unknown\", \"not read back\");"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (!/^[1-9][0-9]{0,15}$/.test(providerMachineId)) throw new ProviderError(\"vast\", \"invalid_request\", \"not a Vast instance id\");\n    try {",
+  "new": "try {"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "const priceOnly = drift.every((d) => d.field === \"providerCostPerHour\") && status.providerCostPerHour !== null;",
+  "new": "const priceOnly = false;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (vastMachineId(spec.dataCenter) === null) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (spec.launcher.length === 0) throw",
+  "new": "if (false) throw"
  }
 ]
