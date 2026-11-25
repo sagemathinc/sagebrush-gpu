@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "description": "The machine side: boot script, agent, storage gateway Worker and ws-sync.",
-  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }
+  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }, "devDependencies": { "@sbgpu/testing": "workspace:*" }
 }

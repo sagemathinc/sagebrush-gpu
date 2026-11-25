@@ -2,9 +2,11 @@
   "files": [],
   "references": [
     { "path": "packages/api" },
+    { "path": "packages/testing" },
     { "path": "packages/control" },
     { "path": "packages/providers" },
     { "path": "packages/machine" },
+    { "path": "packages/machine/tsconfig.worker.json" },
     { "path": "packages/ui" }
   ]
 }

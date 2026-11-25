@@ -156,14 +156,35 @@ A training run with no terminal attached keeps the GPU busy, so the machine isn'
 
 ## 4. The relay
 
-Adapted from Sagebrush's relay (a Durable Object per remote: one peer leg and its page legs, generation-prefixed text frames, per-receiver windows proved by receipts, a caps table). The copy is our own code and is noted as such in its file header; there's no dependency on that repository. What changes:
+The relay is part of the control Worker: the Worker's routes (`src/relay/routes.ts`) hand each connection to the machine's Durable Object, `MachineRelay` (`src/relay/relay.ts`), one per machine. It is adapted from Sagebrush's relay, our own code, noted as such in its header, with no dependency on that repository. From the original it keeps: one peer leg (the agent) and its page legs, generation-prefixed text frames, the strict control grammar, per-receiver windows proved by receipts, per-leg rates, dead-leg alarms, and peer replacement. What's different here is authentication (SEC ruling, Nov 24), the per-machine bounds (LIMITS ruling, Nov 24), and no byte leases.
 
-- **Naming:** one Durable Object per machine (`mch_…`).
-- **Peer auth:** the agent's leg authenticates with its `agent` token (current incarnation; the machine running). A newer leg of the same machine replaces the older one (4009).
-- **Page auth:** a page sends `{"t":"hello","token":"<page token>"}` as its first message (never in the URL). The Worker swaps the single-use token, checks member and machine, and only then joins the leg. Before the hello, at most 1 KiB and 10 s.
-- **Channels:** `terminal` (below), `jupyter` (4.2) and `control` (the peer only: commands pushed from the control plane).
-- **Text only** (binary closes 1003), as in the original. PTY bytes travel base64.
-- **Close codes:** 4001 the machine's agent went away (the page shows "reconnecting" and retries with a fresh page token, backing off 1, 2, 4 … 30 s), 4009 replaced, 4403 revoked or machine stopped (no retry), 1009 message too big, 1013 receiver not reading.
+**Routes.** `wss://<api>/api/relay/v1/peer?machine=<mch>` for the agent, and `wss://<api>/api/relay/v1/page?machine=<mch>&chan=terminal` for a page. Exactly these parameters are accepted, so no token ever rides in a URL. The Worker passes the object nothing but the upgrade and the machine id.
+
+**Authentication, in the object, by each leg's first message:** `{"t":"hello","token":"<compact JWS>"}`, exactly those keys in that order, at most 4,608 bytes, within 10 s. Nothing is forwarded to or from a leg before it authenticates, and a token never appears in a log, a URL or a close reason.
+- **The agent:** an `agent` token for this machine. The object keeps the accepted incarnation and, separately, `revokedThrough`, both durable. A token at or below `revokedThrough`, or below the accepted incarnation, is refused (4403). A higher one advances the accepted incarnation and closes every leg of a lower one. A newer agent leg of the same incarnation replaces the older (4009), and the pages paired with the older end (4001) and reconnect with fresh tokens. The relay answers `{"relay":"ready","inc":n}`.
+- **A page:** a `page` token for this machine and its accepted incarnation, on an allowlisted channel (`terminal`). Its `jti` is consumed by one atomic insert into the object's used set, before anything is paired. It stays consumed whatever happens next (the agent missing, the socket closing), and across restarts. A storage failure refuses the page (1011). Used entries are pruned only after their own expiry. The agent is told `page-open {conn, chan, gen, mbr}`, and the page `{"relay":"ready","gen":n}`. **The page sends nothing before its `ready`.**
+- **Revoke** (control, at a stop or a restart): `revokedThrough` is raised and written durably *before* the acknowledgement; then every leg at or below it is closed (4403, the agent told `{"relay":"revoked"}` first). Control treats only an acknowledgement as done: anything else leaves the stop pending and retried, and control mints no page token meanwhile (`revokeMachine` in routes.ts; control's side).
+
+**On the wire after the hello:** the agent's messages are controls (`close {gen}`, `ack {r}`, `ping`) or application messages prefixed `"<gen>\n"`. A page's messages are controls (`ack {r}`, `ping`) or application payloads, which the relay prefixes with the page's generation. The relay sends receipts `{"relay":"receipt","r":…,"upto":n}` behind what it forwards; `upto` counts every byte charged to that receiver before the receipt, earlier receipts included. **Every receiver acks each receipt** (`{"relay":"ack","r":…}`) and **pings every 15 s** (`{"relay":"ping"}`, answered `pong`).
+
+**The caps** (`src/relay/caps.ts`, one table), all enforced per machine:
+
+| what | cap | over it |
+|---|---|---|
+| page legs | 4 per channel (`terminal`), 4 in all; a fifth replaces the oldest | 4009 to the oldest |
+| unauthenticated legs at once | 4 | upgrade refused 429 |
+| upgrade attempts | 30 a minute, burst 30, a stored bucket (a reconnect or restart doesn't refill it) | upgrade refused 429 |
+| hello | 4,608 bytes, within 10 s, one message | 1008; 4403 at the deadline |
+| a message | 65,536 bytes each way on `terminal`; controls 256 bytes | 1009 / 1008 |
+| a receiver's unacknowledged bytes | 1 MiB per page, 8 MiB for the agent; 16 receipts out | sender closed 1013, nothing queued |
+| messages per leg | 120/s, burst 200 | 4008 |
+| **bytes through the machine** | **4 MiB/s, burst 16 MiB, every frame to every receiver (data, controls, receipts and the revoke notice, each with 256 bytes of overhead)**. One bucket; credit leaves it in reservations (250 ms of the rate, or what one frame needs) that are stored before any of it is spent, so a restart can lose credit but never regain it. A receipt is admitted together with the frame that makes it due. | sender closed 4429 (a revoke notice without room isn't sent; the close still is) |
+| a dead leg | no ping for 40 s | 1001 (page), 4001 (agent) |
+| page tokens in the used set | 10,000 unexpired | hello refused 4429 |
+
+The relay forwards at once or closes: there is no queue behind a slow leg. Jupyter (4.2) will use the same accounting.
+
+**Close codes:** 1001 dead page, 1003 binary, 1008 malformed, 1009 too big, 1011 storage failure at a hello, 1013 receiver not reading, 4000 closed by the agent, 4001 the agent is gone (the page shows "reconnecting" and retries with a fresh page token, backing off 1, 2, 4 … 30 s), 4008 message rate, 4009 replaced, 4403 refused or revoked (no retry with the same token), 4429 the machine's byte rate or token set.
 
 ### 4.1 Terminal protocol (agreed with ui, Nov 24)
 

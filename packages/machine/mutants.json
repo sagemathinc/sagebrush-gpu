@@ -958,5 +958,197 @@
   "old": "signal.pthread_sigmask(signal.SIG_SETMASK, ())\n",
   "new": "",
   "note": "terminal: a session inherits the agent's blocked signals"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "if (Object.keys(o).join() !== \"t,token\" || o.t !== \"hello\" || typeof o.token !== \"string\") return null;",
+  "new": "if (o.t !== \"hello\" || typeof o.token !== \"string\") return null;",
+  "note": "relay: hello: any keys"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "  if (bytes(text) > RELAY_LIMITS.helloBytes) return null;",
+  "new": "  if (false) return null;",
+  "note": "relay: hello: no size cap"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "if (!r.ok || r.claims.mch !== mch) return this.close(ws, CLOSE.forbidden, \"refused\");",
+  "new": "if (!r.ok) return this.close(ws, CLOSE.forbidden, \"refused\");",
+  "note": "relay: hello: another machine's token"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (inc <= this.revokedThrough()) return this.close(ws, CLOSE.forbidden, \"refused\");\n    const floor",
+  "new": "    if (inc < this.revokedThrough()) return this.close(ws, CLOSE.forbidden, \"refused\");\n    const floor",
+  "note": "relay: agent: the revoked incarnation itself"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (inc < floor) return this.close(ws, CLOSE.forbidden, \"refused\");",
+  "new": "    if (inc < floor - 1) return this.close(ws, CLOSE.forbidden, \"refused\");",
+  "note": "relay: agent: one lower incarnation"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "if (inc <= this.revokedThrough() || inc !== this.accepted()) return this.close(ws, CLOSE.forbidden, \"refused\");",
+  "new": "if (inc <= this.revokedThrough()) return this.close(ws, CLOSE.forbidden, \"refused\");",
+  "note": "relay: page: any incarnation"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "return made.length === 1 ? \"consumed\" : \"used\";",
+  "new": "return \"consumed\";",
+  "note": "relay: jti: reuse accepted"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "this.ctx.storage.sql.exec(\"DELETE FROM used_jti WHERE exp <= ?\", nowS);",
+  "new": "this.ctx.storage.sql.exec(\"DELETE FROM used_jti WHERE exp <= ?\", nowS + 3600);",
+  "note": "relay: jti: unexpired pruned"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    this.put(\"revokedThrough\", through);\n",
+  "new": "",
+  "note": "relay: revoke: not stored"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "      } else if (a.inc <= through) {",
+  "new": "      } else if (a.inc < through) {",
+  "note": "relay: revoke: the revoked incarnation's legs kept"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "const through = Math.max(this.revokedThrough(), inc as number);",
+  "new": "const through = inc as number;",
+  "note": "relay: revoke: lowered"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "if (this.pending().length >= RELAY_LIMITS.pending) return no(429, \"too many unauthenticated connections\");",
+  "new": "",
+  "note": "relay: limits: pending legs uncapped"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (t < 1) return false;\n    this.put(\"attempts\"",
+  "new": "    this.put(\"attempts\"",
+  "note": "relay: limits: attempts unlimited"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (t < need) return false;",
+  "new": "    if (false) return false;",
+  "note": "relay: limits: no machine bucket"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (rx.sent - rx.acked + w + rw > window) {",
+  "new": "    if (false) {",
+  "note": "relay: window: not checked"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (t < 1) return this.close(ws, CLOSE.rate, \"rate\");",
+  "new": "",
+  "note": "relay: leg rate: none"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (same.length >= caps.legs) {",
+  "new": "    if (same.length > caps.legs) {",
+  "note": "relay: pages: a fifth not replacing"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (i < 0) return this.close(ws, 1008, \"an unknown receipt\");",
+  "new": "    if (i < 0) return;",
+  "note": "relay: ack: unknown receipt ignored"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "  return JSON.stringify(o) === text ? o : null;\n}\nexport const PEER_OPS",
+  "new": "  return o;\n}\nexport const PEER_OPS",
+  "note": "relay: controls: not canonical accepted"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "      } else if (now - a.ping >= RELAY_LIMITS.deadMs) {",
+  "new": "      } else if (false) {",
+  "note": "relay: dead legs: kept"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "        if (now - a.at >= RELAY_LIMITS.helloMs) this.close(w, CLOSE.forbidden, \"no hello\");",
+  "new": "",
+  "note": "relay: hello: no deadline"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (n > caps.peerToPage) return this.close(ws, 1009, \"a message over its channel's cap\");",
+  "new": "",
+  "note": "relay: caps: agent to page uncapped"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (n > CHANNEL_CAPS[a.chan].pageToPeer) return this.close(ws, 1009, \"a message over its channel's cap\");",
+  "new": "",
+  "note": "relay: caps: page to agent uncapped"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (!r.ok || r.claims.mch",
+  "new": "    if (false || r.claims.mch",
+  "note": "relay: hello: an unverified token"
+ },
+ {
+  "file": "src/relay/routes.ts",
+  "old": "  if (keys.length !== want.length || !want.every((k) => url.searchParams.getAll(k).length === 1)) return json(400, \"bad request\");",
+  "new": "",
+  "note": "relay: routes: other parameters allowed"
+ },
+ {
+  "file": "src/relay/routes.ts",
+  "old": "    return body.ok === true && typeof body.revokedThrough === \"number\" && body.revokedThrough >= inc;",
+  "new": "    return body.ok === true;",
+  "note": "relay: revokeMachine: any acknowledgement"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    this.put(\"machineBucket\", JSON.stringify(next)); // (stored first: a failure here throws, nothing granted)\n",
+  "new": "",
+  "note": "relay: bucket: a reservation not stored (a restart gives it back)"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    const t = Math.min(burst - this.reserved,",
+  "new": "    const t = Math.min(burst,",
+  "note": "relay: bucket: stored and reserved together past the burst"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (!this.machineTake(w + rw)) {",
+  "new": "    if (!this.machineTake(w)) {",
+  "note": "relay: receipts: not admitted with their frame"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "      rx.sent += rw;\n",
+  "new": "",
+  "note": "relay: receipts: their bytes not in the receiver's window"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "upto: rx.sent + w });",
+  "new": "upto: rx.sent });",
+  "note": "relay: receipts: upto short of the frame"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "          if (this.machineTake(bytes(REVOKED) + RELAY_LIMITS.overhead)) this.send(w, REVOKED);",
+  "new": "          this.send(w, REVOKED);",
+  "note": "relay: revoke: the notice outside the bucket"
  }
 ]

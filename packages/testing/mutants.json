@@ -1,0 +1,32 @@
+[
+ {
+  "file": "src/worker.ts",
+  "old": "    if (c === \";\" && !body) {",
+  "new": "    if (c === \";\") {",
+  "note": "splitSql: splits inside a trigger body"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "        if (cases > 0) cases--;\n        else body = false;",
+  "new": "        body = false;",
+  "note": "splitSql: CASE ... END not nested"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "    if (c === \"-\" && sql[i + 1] === \"-\") {",
+  "new": "    if (false) {",
+  "note": "splitSql: line comments kept"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "        if (statements.length) await db.batch(statements.map((s) => db.prepare(s))); // (one file, one transaction)",
+  "new": "",
+  "note": "startWorker: migrations not applied"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "    await mf.dispose().catch(() => {});",
+  "new": "    void 0;",
+  "note": "harness: a failed start leaves Miniflare running"
+ }
+]
