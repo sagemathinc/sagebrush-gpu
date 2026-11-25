@@ -126,10 +126,24 @@ Every token carries a `kind` claim and is refused anywhere else. Signed tokens u
     - every process runs an allowlisted executable;
     - no environment or command line holds a credential shape (a closed list) or a known value (matched by digest);
     - no provider agent: no hyperstack-agent unit, user, process or install directory;
-    - nothing answers on 169.254.169.254, and no config drive (both fail closed until the provider's contents are reviewed).
+    - the boot script's neutralise step held (SEC-cleared design, Nov 25; the gate checks each result itself):
+      - every password is locked;
+      - no one is in the sudo, admin or wheel group, and every sudoers file is as the image allowlist has it;
+      - every console login unit (getty, serial-getty and the rest, instances included) is masked or absent, and no getty or login runs;
+      - every neutralised agent (the allowlist's list, e.g. grafana-agent) has all its units masked and no process. Its inert files may stay;
+      - no process runs as a uid of 1000 or more, and no container runtime socket exists;
+    - a provider channel kept on purpose (reader (2): qemu-guest-agent, until a run shows it can be masked) is allowed only by exact executable, under its own allowlist label;
+    - one real home directory is scanned once, and a second path to it (a bind alias) fails unless pinned;
+    - the metadata service:
+      - our reject rules are exactly in place (both families);
+      - every metadata address (IPv4, the IPv6 alias, and IPv6 link-local on each interface) is refused at once, where an answer, a timeout or any other error fails;
+      - no route or address reaches it outside the rules;
+    - no config drive. It's refused until a probe's evidence about it is reviewed.
+    - The gate's words claim only in-guest state at gate time. The hypervisor, the console device and anything the provider did before our script are the provider's (reader (2)).
   - **How the gate reads and reports:** every read is bounded and read to EOF, and the whole scan has a work budget (processes, directory entries, fds, bytes hashed; running out fails the gate). Every directory is enumerated one entry at a time against a cap (`/proc`, each process's fds, each unit directory, `/dev/disk/by-label`), never listed whole first. Unreadable, malformed or vanishing data fails the gate unless the process exited, and the listing repeats until stable. It prints `SBGPU-GATE {"v":1,"pass":…,"fail":[fixed words]}`. The image allowlist is data, reviewed per image.
   - **Still to come before VM mode is reachable:**
     - the files, logs, cloud-init, systemd-credential and keyring checks;
+    - the boot script's neutralise step itself (N1-N9);
     - the launcher's lockdown, announce and tmpfs boot file;
     - the agent's bounded poweroff;
     - the VM probe stages.

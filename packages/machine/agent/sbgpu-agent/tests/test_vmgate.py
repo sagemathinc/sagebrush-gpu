@@ -1,6 +1,7 @@
 """The VM gate (sbgpu_agent/vmgate.py) against fake root and /proc trees: a locked-down VM passes, and each way a VM
 can fail does, with its fixed word only."""
 
+import errno
 import hashlib
 import io
 import json
@@ -16,9 +17,30 @@ from sbgpu_agent import vmgate as G  # noqa: E402
 
 NET_HEAD = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
 SYSTEMD, RESOLVED, PY = "/usr/lib/systemd/systemd", "/usr/lib/systemd/systemd-resolved", "/usr/bin/python3.12"
+SUDOERS = "Defaults env_reset\nroot ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n"
 ALLOW = {"v": 1, "processes": [SYSTEMD, RESOLVED, PY], "mounts": [],
          "loopback": [{"process": RESOLVED, "proto": "udp", "address": "127.0.0.53", "port": 53},
-                      {"process": RESOLVED, "proto": "tcp", "address": "127.0.0.53", "port": 53}]}
+                      {"process": RESOLVED, "proto": "tcp", "address": "127.0.0.53", "port": 53}],
+         "providerReader2": [], "neutralisedAgents": [{"unit": "grafana-agent", "process": "grafana-agent"}],
+         "sudoers": {"/etc/sudoers": hashlib.sha256(SUDOERS.encode()).hexdigest()}}
+
+
+def nft_rule(proto, addr, n):
+    right = addr if n == (32 if proto == "ip" else 128) else {"prefix": {"addr": addr, "len": n}}
+    return {"rule": {"family": "inet", "table": "sbgpu_meta", "chain": "out", "handle": 3, "expr": [
+        {"match": {"op": "==", "left": {"payload": {"protocol": proto, "field": "daddr"}}, "right": right}},
+        {"reject": None}]}}
+
+
+NFT_CHAIN = {"chain": {"family": "inet", "table": "sbgpu_meta", "name": "out", "handle": 1, "type": "filter",
+                       "hook": "output", "prio": -300, "policy": "accept"}}
+NFT_OBJS = [{"metainfo": {"version": "1.0.9", "json_schema_version": 1}},
+            {"table": {"family": "inet", "name": "sbgpu_meta", "handle": 7}}, NFT_CHAIN,
+            nft_rule("ip", "169.254.0.0", 16), nft_rule("ip6", "fe80::a9fe:a9fe", 128), nft_rule("ip6", "fd00:ec2::254", 128)]
+
+
+def nft_json(objs=None):
+    return json.dumps({"nftables": NFT_OBJS if objs is None else objs}).encode()
 
 
 def hex4(ip):
@@ -50,6 +72,18 @@ class VM:
             self.write("lib/systemd/system/" + unit, "[Unit]\n")
             self.link("etc/systemd/system/" + unit, "/dev/null")
         self.link("etc/systemd/system/sshd.service", "/lib/systemd/system/ssh.service")  # (the alias Ubuntu ships)
+        self.write("etc/shadow", "root:*:19000:0:99999:7:::\nubuntu:!:19000:0:99999:7:::\nnobody:*:19000:0:99999:7:::\n")
+        self.write("etc/group", "root:x:0:\nsudo:x:27:\nubuntu:x:1000:\nnogroup:x:65534:\n")
+        self.write("etc/sudoers", SUDOERS)
+        os.makedirs(self.path("etc/sudoers.d"))
+        for i, name in enumerate(("lo", "eth0")):
+            self.write("sys/class/net/%s/ifindex" % name, "%d\n" % (i + 1))
+        self.write("proc/net/route", "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+                                     "eth0\t00000000\t0100000A\t0003\t0\t0\t100\t00000000\t0\t0\t0\n")
+        self.write("proc/net/ipv6_route", "")
+        self.write("proc/net/fib_trie", "Main:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 10.0.0.5\n        /32 host LOCAL\n")
+        self.nft = nft_json()
+        self.probe = {}  # (address -> what a connection to it does; default: refused at once)
         self.mountinfo("/")
         self.process(1, "systemd", SYSTEMD)
         self.process(300, "systemd-resolve", RESOLVED, sockets=(7001, 7002))
@@ -72,10 +106,11 @@ class VM:
             os.unlink(p)
         os.symlink(target, p)
 
-    def process(self, pid, comm, exe, env=b"PATH=/usr/bin\0", cmd=None, sockets=(), kthread=False):
+    def process(self, pid, comm, exe, env=b"PATH=/usr/bin\0", cmd=None, sockets=(), kthread=False, uid=0):
         base = "proc/%d/" % pid
         flags = G.PF_KTHREAD if kthread else 0x400100
         self.write(base + "stat", "%d (%s) S 0 %d %d 0 -1 %d 0 0 0 0\n" % (pid, comm, pid, pid, flags))
+        self.write(base + "status", "Name:\t%s\nUid:\t%d\t%d\t%d\t%d\nGid:\t0\t0\t0\t0\n" % (comm, uid, uid, uid, uid))
         self.write(base + "comm", comm + "\n")
         if not kthread:
             self.link(base + "exe", exe)  # (a kernel thread has none)
@@ -94,14 +129,18 @@ class VM:
             self.write("proc/net/" + name, NET_HEAD + "".join(rows))
 
     def run(self, allow=ALLOW, known=(), imds=False):
-        def connect():
-            if imds:
+        def connect(family, address):
+            what = "accept" if imds else self.probe.get(address, errno.ECONNREFUSED)
+            if what == "accept":
                 class S:
                     def close(self):
                         pass
                 return S()
-            raise ConnectionRefusedError()
-        return G.run(allow, known, root=self.root, proc=self.proc, connect=connect, self_pid=999999)
+            if what == "timeout":
+                raise socket.timeout("timed out")
+            raise OSError(what, os.strerror(what))
+        return G.run(allow, known, root=self.root, proc=self.proc, connect=connect, self_pid=999999,
+                     nft=lambda: self.nft)
 
     def close(self):
         shutil.rmtree(self.root)
@@ -477,7 +516,8 @@ class BudgetTest(Base):
         def over(*a, **k):
             raise G.OverBudget("forced")
         for name in ("check_ssh", "check_processes", "check_secrets", "check_listeners", "check_provider",
-                     "check_imds", "check_config_drive", "sockets"):
+                     "check_imds", "check_config_drive", "sockets", "check_passwords", "check_sudo", "check_consoles",
+                     "check_neutralised", "check_sessions", "check_containers", "unit_names"):
             real = getattr(G, name)
             setattr(G, name, over)
             try:
@@ -491,7 +531,7 @@ class BudgetTest(Base):
         v.process(901, "python3", PY, env=b"K=-----BEGIN RSA PRIVATE KEY-----\0")
         procs = G.processes(v.proc, self_pid=999999)
         for p in procs.values():
-            self.assertEqual(set(p) - {"kthread", "comm", "exe", "secrets", "sockets"}, set())
+            self.assertEqual(set(p) - {"kthread", "comm", "exe", "uids", "secrets", "sockets"}, set())
         self.assertEqual(procs[901]["secrets"], {"credential-shape"})
 
 
@@ -581,6 +621,327 @@ class RepairTest(Base):
             self.assertEqual(v.run(), (False, ["listener-22"]), tables)
 
 
+class NeutralisedTest(Base):
+    """What the boot script's neutralise step leaves, checked independently (SEC-cleared design, revision 3): locked
+    passwords, no sudo grant, no console login, neutralised agents, no user session, no container runtime, and the
+    metadata reject rules in place in both families."""
+
+    def limits(self, **kw):
+        saved = {k: getattr(G, k) for k in kw}
+        for k, val in kw.items():
+            setattr(G, k, val)
+        self.addCleanup(lambda: [setattr(G, k, val) for k, val in saved.items()])
+
+    def test_every_password_locked(self):
+        for field in ("!", "*", "!*", "!$6$salt$hash"):
+            v = self.vm()
+            v.write("etc/shadow", "root:%s:19000:0:99999:7:::\n" % field)
+            self.assertEqual(v.run(), (True, []), field)
+        for field in ("", "$6$salt$hash", "x"):
+            v = self.vm()
+            v.write("etc/shadow", "root:*:19000:0:99999:7:::\nshadeform:%s:19000:0:99999:7:::\n" % field)
+            self.assertEqual(v.run(), (False, ["password"]), field)
+        v = self.vm()
+        v.write("etc/passwd", "root:$6$salt$hash:0:0:root:/root:/bin/bash\n")  # (a hash in passwd itself)
+        self.assertEqual(v.run(), (False, ["password"]))
+        v = self.vm()
+        v.write("etc/passwd", "root:*:0:0:root:/root:/bin/bash\n")
+        self.assertEqual(v.run(), (True, []))
+        for bad in ("root:*:19000:0:99999:7::\n", "root:*:19000:0:99999:7::::\n", "root:\xff:19000:0:99999:7:::\n"):  # (8, 10 fields; not UTF-8)
+            v = self.vm()
+            v.write("etc/shadow", bad.encode("latin-1"))
+            self.assertEqual(v.run(), (False, ["unreadable"]), bad)
+        v = self.vm()
+        os.unlink(v.path("etc/shadow"))
+        self.assertEqual(v.run(), (False, ["unreadable"]))
+        v = self.vm()
+        self.limits(SHADOW_MAX=len(open(v.path("etc/shadow"), "rb").read()))
+        self.assertEqual(v.run(), (True, []))
+        self.limits(SHADOW_MAX=G.SHADOW_MAX - 1)
+        self.assertEqual(v.run(), (False, ["unreadable"]))
+
+    def test_no_sudo_grant(self):
+        for group in ("sudo:x:27:shadeform\n", "admin:x:115:ubuntu\n", "wheel:x:10:ubuntu,shadeform\n"):
+            v = self.vm()
+            v.write("etc/group", "root:x:0:\n" + group)
+            self.assertEqual(v.run(), (False, ["sudo"]), group)
+        v = self.vm()
+        v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:27::/home/shadeform:/bin/bash\n")
+        self.assertEqual(v.run(), (False, ["sudo"]))  # (sudo as a primary group)
+        for group_gid, user_gid in (("27", "27"), ("027", "27"), ("27", "027"), ("027", "0027")):
+            v = self.vm()  # (group ids compare as numbers, as libc reads them)
+            v.write("etc/group", "root:x:0:\nsudo:x:%s:\n" % group_gid)
+            v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:%s::/home/shadeform:/bin/bash\n" % user_gid)
+            self.assertEqual(v.run(), (False, ["sudo"]), (group_gid, user_gid))
+        v = self.vm()
+        v.write("etc/group", "root:x:0:\nsudo:x:27:\n")
+        v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:270::/home/shadeform:/bin/bash\n")
+        self.assertEqual(v.run(), (True, []))  # (270 isn't 27)
+        for group_gid, user_gid in (("+27", "27"), ("27", " 27"), ("2a", "27"), ("27", ""), ("", "27"), ("27", "12345678901")):
+            v = self.vm()  # (anything but plain decimal digits is unreadable, never compared as text)
+            v.write("etc/group", "root:x:0:\nsudo:x:%s:\n" % group_gid)
+            v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:%s::/home/shadeform:/bin/bash\n" % user_gid)
+            self.assertEqual(v.run(), (False, ["unreadable"]), (group_gid, user_gid))
+        v = self.vm()
+        v.write("etc/group", "root:x:0:\nusers:x:100:ubuntu\n")  # (a member of an ordinary group: fine)
+        self.assertEqual(v.run(), (True, []))
+        v = self.vm()
+        v.write("etc/sudoers.d/90-cloud-init-users", "ubuntu ALL=(ALL) NOPASSWD:ALL\n")
+        self.assertEqual(v.run(), (False, ["sudo"]))
+        readme = "# a README\n"
+        allow = dict(ALLOW, sudoers=dict(ALLOW["sudoers"], **{"/etc/sudoers.d/README": hashlib.sha256(readme.encode()).hexdigest()}))
+        v.write("etc/sudoers.d/90-cloud-init-users", readme)
+        self.assertEqual(v.run(allow), (False, ["sudo"]))  # (the right bytes under another name)
+        os.unlink(v.path("etc/sudoers.d/90-cloud-init-users"))
+        v.write("etc/sudoers.d/README", readme)
+        self.assertEqual(v.run(allow), (True, []))
+        v.write("etc/sudoers", SUDOERS + "shadeform ALL=(ALL) NOPASSWD:ALL\n")
+        self.assertEqual(v.run(allow), (False, ["sudo"]))
+        v = self.vm()
+        v.link("etc/sudoers.d/README", "/tmp/elsewhere")  # (a link: not read through)
+        self.assertEqual(v.run(allow), (False, ["sudo"]))
+        v = self.vm()
+        os.unlink(v.path("etc/sudoers"))
+        self.assertEqual(v.run(), (True, []))  # (no sudoers at all grants nothing)
+        v = self.vm()
+        for i in range(3):
+            v.write("etc/sudoers.d/f%d" % i, readme)
+        many = dict(ALLOW, sudoers=dict(ALLOW["sudoers"], **{"/etc/sudoers.d/f%d" % i: hashlib.sha256(readme.encode()).hexdigest() for i in range(3)}))
+        self.limits(SUDOERS_D_MAX=3)
+        self.assertEqual(v.run(many), (True, []))
+        self.limits(SUDOERS_D_MAX=2)
+        self.assertEqual(v.run(many), (False, ["gate-budget"]))
+        self.limits(SUDOERS_D_MAX=64, SUDOERS_MAX=len(SUDOERS) - 1)
+        self.assertEqual(v.run(many), (False, ["sudo"]))  # (an over-long sudoers file)
+
+    def test_no_console_login(self):
+        for unit in G.CONSOLE_UNITS:
+            v = self.vm()
+            v.write("lib/systemd/system/" + unit, "[Unit]\n")
+            self.assertEqual(v.run(), (False, ["console-login"]), unit)
+            v.link("etc/systemd/system/" + unit, "/dev/null")
+            self.assertEqual(v.run(), (True, []), unit)  # (masked)
+        v = self.vm()
+        v.write("lib/systemd/system/getty@.service", "[Unit]\n")
+        v.link("etc/systemd/system/getty@.service", "/dev/null")
+        v.write("etc/systemd/system/getty@tty1.service", "[Unit]\n")  # (an instance of its own)
+        self.assertEqual(v.run(), (False, ["console-login"]))
+        v.link("etc/systemd/system/getty@tty1.service", "/dev/null")
+        self.assertEqual(v.run(), (True, []))
+        v.write("run/systemd/system/serial-getty@ttyS0.service", "[Unit]\n")
+        self.assertEqual(v.run(), (False, ["console-login"]))
+        for name in G.CONSOLE_PROCS:
+            v = self.vm()
+            v.process(700, name, "/sbin/" + name)
+            self.assertEqual(v.run(dict(ALLOW, processes=ALLOW["processes"] + ["/sbin/" + name])), (False, ["console-login"]), name)
+
+    def test_neutralised_agents_masked_and_not_running(self):
+        v = self.vm()
+        v.write("usr/bin/grafana-agent", "binary")  # (inert files may stay: binary, config, its user)
+        v.write("etc/grafana-agent.yaml", "server: {}\n")
+        v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\ngrafana-agent:x:998:998::/var/lib/grafana-agent:/usr/sbin/nologin\n")
+        v.write("lib/systemd/system/grafana-agent.service", "[Unit]\n")
+        self.assertEqual(v.run(), (False, ["agent-active"]))
+        v.link("etc/systemd/system/grafana-agent.service", "/dev/null")
+        self.assertEqual(v.run(), (True, []))
+        for other in ("grafana-agent.socket", "grafana-agent.timer", "grafana-agent.path", "grafana-agent@x.service", "grafana-agent@.service"):
+            v.write("lib/systemd/system/" + other, "[Unit]\n")
+            self.assertEqual(v.run(), (False, ["agent-active"]), other)
+            v.link("etc/systemd/system/" + other, "/dev/null")
+            self.assertEqual(v.run(), (True, []), other)
+        v.link("etc/systemd/system/grafana-agent.timer", "grafana-agent-gone.timer")  # (a dangling alias: not a mask)
+        self.assertEqual(v.run(), (False, ["agent-active"]))
+        v.link("etc/systemd/system/grafana-agent.timer", "/dev/null")
+        v.write("lib/systemd/system/grafana-agent-helper.service", "[Unit]\n")  # (another unit's name: not its own)
+        self.assertEqual(v.run(), (True, []))
+        v.process(710, "grafana-agent", "/usr/bin/grafana-agent")
+        self.assertEqual(v.run(dict(ALLOW, processes=ALLOW["processes"] + ["/usr/bin/grafana-agent"])), (False, ["agent-active"]))
+        v = self.vm()
+        v.process(711, "agent", "/opt/x/grafana-agent")  # (by its executable's name too)
+        self.assertEqual(v.run(dict(ALLOW, processes=ALLOW["processes"] + ["/opt/x/grafana-agent"])), (False, ["agent-active"]))
+        self.assertEqual(self.vm().run(), (True, []))  # (not installed at all: nothing to neutralise)
+
+    def test_a_provider_channel_kept_on_purpose_is_exact_and_labelled(self):
+        qga = "/usr/sbin/qemu-ga"
+        v = self.vm()
+        v.process(720, "qemu-ga", qga)
+        self.assertEqual(v.run(), (False, ["process"]))
+        self.assertEqual(v.run(dict(ALLOW, providerReader2=[qga])), (True, []))  # (reader (2), until r8)
+        neutral = dict(ALLOW, neutralisedAgents=ALLOW["neutralisedAgents"] + [{"unit": "qemu-guest-agent", "process": "qemu-ga"}],
+                       processes=ALLOW["processes"] + [qga])
+        self.assertEqual(v.run(neutral), (False, ["agent-active"]))  # (after r8: masked, and no process)
+        v = self.vm()
+        v.write("lib/systemd/system/hyperstack-agent.service", "[Unit]\n")
+        v.link("etc/systemd/system/hyperstack-agent.service", "/dev/null")
+        self.assertEqual(v.run(), (False, ["provider-agent"]))  # (masked or not, a provider agent fails)
+
+    def test_no_user_session_and_no_container_runtime(self):
+        for uid in (1000, 1001, 65534):
+            v = self.vm()
+            v.process(730, "bash", PY, uid=uid)
+            self.assertEqual(v.run(), (False, ["user-session"]), uid)
+        v = self.vm()
+        v.process(730, "bash", PY, uid=999)
+        self.assertEqual(v.run(), (True, []))
+        v.write("proc/730/status", "Uid:\t0\t1000\t0\t0\n")  # (any one of the four)
+        self.assertEqual(v.run(), (False, ["user-session"]))
+        v.write("proc/730/status", "Name:\tbash\n")  # (no Uid line: unreadable, not skipped)
+        self.assertEqual(v.run(), (False, ["process", "unreadable"]))
+        for sock in G.CONTAINER_SOCKETS:
+            v = self.vm()
+            v.write(sock, "")
+            self.assertEqual(v.run(), (False, ["container-runtime"]), sock)
+
+    def test_metadata_rules_exactly_ours(self):
+        changed = [
+            NFT_OBJS[:-1],                                                     # (a rule missing)
+            NFT_OBJS + [nft_rule("ip", "10.0.0.1", 32)],                       # (one more)
+            NFT_OBJS[:3] + [nft_rule("ip", "169.254.169.0", 24)] + NFT_OBJS[4:],  # (a narrower prefix)
+            NFT_OBJS + [NFT_CHAIN],                                            # (a second chain)
+            NFT_OBJS + [{"set": {"name": "x"}}],                               # (anything else in the table)
+            NFT_OBJS + [NFT_OBJS[3]],                                          # (a rule twice)
+        ]
+        drop = json.loads(json.dumps(NFT_OBJS))
+        drop[3]["rule"]["expr"][1] = {"drop": None}
+        changed.append(drop)
+        for key, val in (("prio", -200), ("hook", "input"), ("policy", "drop"), ("type", "nat")):
+            c = json.loads(json.dumps(NFT_OBJS))
+            c[2]["chain"][key] = val
+            changed.append(c)
+        # (the rules must sit in our one output chain of inet sbgpu_meta: a reject anywhere else does nothing)
+        def moved(**ident):
+            c = json.loads(json.dumps(NFT_OBJS))
+            for r in c[3:]:
+                r["rule"].update(ident)
+            return c
+        dead = {"chain": {"family": "inet", "table": "sbgpu_meta", "name": "dead", "handle": 2}}
+        changed += [
+            NFT_OBJS[:2] + [NFT_CHAIN] + moved(chain="dead")[3:],               # (the rules in a chain not listed)
+            NFT_OBJS[:3] + [dead] + moved(chain="dead")[3:],                    # (an inert second chain: two chains)
+            moved(table="other"), moved(family="ip"),
+            [o if "rule" not in o else {"rule": {k: x for k, x in o["rule"].items() if k != "chain"}} for o in NFT_OBJS],
+            [o if "table" not in o else {"table": dict(o["table"], name="other")} for o in NFT_OBJS],
+            [o if "table" not in o else {"table": dict(o["table"], family="ip")} for o in NFT_OBJS],
+            [o for o in NFT_OBJS if "table" not in o],                          # (no table object)
+            NFT_OBJS + [{"table": {"family": "inet", "name": "sbgpu_meta", "handle": 8}}],  # (two)
+            [o if "chain" not in o else {"chain": dict(o["chain"], table="other")} for o in NFT_OBJS],
+            [o if "chain" not in o else {"chain": dict(o["chain"], family="ip")} for o in NFT_OBJS],
+        ]
+        for objs in changed:
+            v = self.vm()
+            v.nft = nft_json(objs)
+            self.assertEqual(v.run(), (False, ["imds"]), objs)
+        renamed = [o if "chain" not in o else {"chain": dict(o["chain"], name="meta")} for o in moved(chain="meta")]
+        v = self.vm()
+        v.nft = nft_json(renamed)
+        self.assertEqual(v.run(), (True, []))  # (the control: any name, as long as rules and chain agree)
+        for raw in (b"", b"{", b'{"other": []}'):
+            v = self.vm()
+            v.nft = raw
+            self.assertEqual(v.run(), (False, ["imds"]), raw)
+        v = self.vm()
+
+        def missing():
+            raise G.Unreadable("nft")
+        v.nft = None
+        self.assertEqual(G.run(ALLOW, (), root=v.root, proc=v.proc, self_pid=999999, nft=missing,
+                               connect=lambda f, a: (_ for _ in ()).throw(ConnectionRefusedError(errno.ECONNREFUSED, "x"))),
+                         (False, ["imds"]))
+        self.assertTrue(G.meta_rules_exact(nft_json()))
+
+    def test_every_metadata_address_refused_at_once(self):
+        v4 = G.META_V4
+        v6alias = (G.META_V6[1], 80, 0, 0)
+        ll = (G.META_V6[0], 80, 0, 2)  # (eth0's index)
+        for addr in (v4, v6alias, ll):
+            for what in ("accept", "timeout", errno.EHOSTUNREACH, errno.ETIMEDOUT):
+                v = self.vm()
+                v.probe[addr] = what
+                self.assertEqual(v.run(), (False, ["imds"]), (addr, what))
+            for what in (errno.ECONNREFUSED, errno.EACCES, errno.EPERM, errno.ENETUNREACH):
+                v = self.vm()
+                v.probe[addr] = what
+                self.assertEqual(v.run(), (True, []), (addr, what))
+        v = self.vm()
+        v.probe[(G.META_V6[0], 80, 0, 1)] = "accept"  # (loopback isn't an interface to the metadata service)
+        self.assertEqual(v.run(), (True, []))
+        v = self.vm()
+        v.write("sys/class/net/eth1/ifindex", "3\n")  # (each interface is probed)
+        v.probe[(G.META_V6[0], 80, 0, 3)] = "accept"
+        self.assertEqual(v.run(), (False, ["imds"]))
+        v.write("sys/class/net/eth1/ifindex", "three\n")
+        self.assertEqual(v.run(), (False, ["unreadable"]))
+        v = self.vm()
+        self.limits(NET_IF_MAX=2)
+        self.assertEqual(v.run(), (True, []))
+        self.limits(NET_IF_MAX=1)
+        self.assertEqual(v.run(), (False, ["gate-budget"]))
+
+    def test_nothing_reaches_metadata_outside_the_rules(self):
+        route = "eth0\t%s\t0100000A\t0007\t0\t0\t100\tFFFFFFFF\t0\t0\t0\n"
+        v = self.vm()
+        v.write("proc/net/route", open(v.path("proc/net/route")).read() + route % hex4("169.254.169.254"))
+        self.assertEqual(v.run(), (True, []))  # (OpenStack's DHCP host route to the metadata address: covered)
+        # (narrower rules, as a later rule set might have: a route, address or IPv6 route outside them fails)
+        narrow = frozenset({("ip", "169.254.169.254", 32), ("ip6", "fe80::a9fe:a9fe", 128)})
+        objs = NFT_OBJS[:3] + [nft_rule("ip", "169.254.169.254", 32), nft_rule("ip6", "fe80::a9fe:a9fe", 128)]
+        self.limits(META_RULES=narrow)
+        v.nft = nft_json(objs)
+        self.assertEqual(v.run(), (True, []))
+        v.write("proc/net/route", open(v.path("proc/net/route")).read() + route % hex4("169.254.170.2"))
+        self.assertEqual(v.run(), (False, ["imds"]))
+        v = self.vm()
+        v.nft = nft_json(objs)
+        v.write("proc/net/fib_trie", open(v.path("proc/net/fib_trie")).read() + "     |-- 169.254.3.4\n        /32 host LOCAL\n")
+        self.assertEqual(v.run(), (False, ["imds"]))
+        v = self.vm()
+        v.nft = nft_json(objs)
+        r6 = socket.inet_pton(socket.AF_INET6, "fd00:ec2::254").hex()
+        v.write("proc/net/ipv6_route", "%s 80 %s 00 %s 00000400 00000001 00000000 00000001     eth0\n" % (r6, "0" * 32, "0" * 32))
+        self.assertEqual(v.run(), (False, ["imds"]))
+        self.limits(META_RULES=G.META_RULES | {("ip6", "fd00:ec2::254", 128)})
+        v.nft = nft_json(objs + [nft_rule("ip6", "fd00:ec2::254", 128)])
+        self.assertEqual(v.run(), (True, []))
+        v.write("proc/net/ipv6_route", "garbage\n")
+        self.assertEqual(v.run(), (False, ["unreadable"]))
+        v = self.vm()
+        v.write("proc/net/route", "Iface\tDestination\neth0\t00000000\n")
+        self.assertEqual(v.run(), (False, ["unreadable"]))
+
+    def test_one_real_home_scanned_once_and_aliases_refused_unless_pinned(self):
+        v = self.vm()
+        v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\na:x:1000:1000::/home/a:/bin/bash\nb:x:1001:1001::/home/a:/bin/bash\n")
+        v.write("home/a/.ssh/authorized_keys", "")
+        calls = []
+        real = G._keys_state
+        G._keys_state = lambda *a, **k: calls.append(a[1]) or real(*a, **k)
+        try:
+            self.assertEqual(v.run(), (True, []))
+        finally:
+            G._keys_state = real
+        self.assertEqual(sorted(calls), ["/home/a", "/root"])  # (two users, one home: scanned once)
+        # (two paths to one real directory, as a bind mount gives; the walk sees the same (st_dev, st_ino) twice)
+        v = self.vm()
+        v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\na:x:1000:1000::/home/a:/bin/bash\nb:x:1001:1001::/home/b:/bin/bash\n")
+        for h in ("home/a", "home/b"):
+            os.makedirs(v.path(h))
+        a_ino = os.stat(v.path("home/a"))
+        real_fstat = os.fstat
+
+        def fstat(fd):
+            st = real_fstat(fd)
+            if st.st_ino == os.stat(v.path("home/b")).st_ino:
+                return os.stat_result((st.st_mode, a_ino.st_ino, a_ino.st_dev) + tuple(st)[3:])
+            return st
+        G.os.fstat = fstat
+        try:
+            self.assertEqual(v.run(), (False, ["mount-crossing"]))
+            self.assertEqual(v.run(dict(ALLOW, mounts=["/home/b"])), (True, []))  # (the alias pinned by the image)
+        finally:
+            G.os.fstat = real_fstat
+        self.assertEqual(v.run(), (True, []))  # (the control: two different directories)
+
+
 class ProviderTest(Base):
     def test_no_hyperstack_agent_of_any_kind(self):
         for how in ("unit", "unit@", "user", "process", "dir"):
@@ -610,6 +971,18 @@ class ImdsTest(Base):
         self.assertEqual(v.run(), (True, []))
 
 
+class ConfigDriveTest(Base):
+    def test_a_config_drive_label_in_any_case(self):
+        for label in ("config-2", "CONFIG-2", "Config-2", "cidata", "CIDATA", "CiData"):
+            v = self.vm()
+            v.link("dev/disk/by-label/" + label, "../../vdb")
+            self.assertEqual(v.run(), (False, ["config-drive"]), label)
+        for label in ("config-22", "my-cidata", "cloudimg-rootfs"):
+            v = self.vm()
+            v.link("dev/disk/by-label/" + label, "../../vdb")
+            self.assertEqual(v.run(), (True, []), label)
+
+
 class InputTest(Base):
     def test_the_allowlist_is_strict(self):
         v = self.vm()
@@ -619,9 +992,21 @@ class InputTest(Base):
                     dict(ALLOW, loopback=[{"process": RESOLVED, "proto": "tcp", "address": "0.0.0.0", "port": 53}]),
                     dict(ALLOW, loopback=[{"process": RESOLVED, "proto": "tcp", "address": "127.0.0.1", "port": 22}]),
                     dict(ALLOW, loopback=[{"process": RESOLVED, "proto": "sctp", "address": "127.0.0.1", "port": 53}]),
-                    dict(ALLOW, mounts=["/"]), dict(ALLOW, mounts=["home"]), dict(ALLOW, mounts=["/home/../root"])):
+                    dict(ALLOW, mounts=["/"]), dict(ALLOW, mounts=["home"]), dict(ALLOW, mounts=["/home/../root"]),
+                    dict(ALLOW, providerReader2=["qemu-ga"]),                      # (not an absolute path)
+                    dict(ALLOW, providerReader2=[PY]),                             # (also an ordinary process: no label)
+                    dict(ALLOW, providerReader2=["/usr/sbin/grafana-agent"]),      # (both kept and neutralised)
+                    dict(ALLOW, neutralisedAgents=[{"unit": "hyperstack-agent", "process": "x"}]),  # (a provider agent)
+                    dict(ALLOW, neutralisedAgents=[{"unit": "x", "process": "hyperstack-agent"}]),
+                    dict(ALLOW, neutralisedAgents=[{"unit": "Bad Name", "process": "x"}]),
+                    dict(ALLOW, neutralisedAgents=[{"unit": "x"}]),
+                    dict(ALLOW, sudoers={"/etc/passwd": "0" * 64}), dict(ALLOW, sudoers={"/etc/sudoers": "zz"}),
+                    dict(ALLOW, sudoers={"/etc/sudoers.d/../shadow": "0" * 64}),
+                    {k: x for k, x in ALLOW.items() if k != "sudoers"}):
             with self.assertRaises(ValueError, msg=bad):
                 G.load_allowlist(v.write("bad.json", json.dumps(bad)))
+        ok = dict(ALLOW, providerReader2=["/usr/sbin/qemu-ga"], sudoers=dict(ALLOW["sudoers"], **{"/etc/sudoers.d/README": "0" * 64}))
+        self.assertEqual(G.load_allowlist(v.write("ok.json", json.dumps(ok))), ok)
 
     def test_main_fails_closed_on_bad_input(self):
         out = io.StringIO()
