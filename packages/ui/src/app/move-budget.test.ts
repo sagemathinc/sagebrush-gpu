@@ -229,3 +229,34 @@ test("...and if the new organization's load fails, that failure is what's shown"
   assert.equal(t.store.error.value, "new page failed");
   assert.equal(t.store.org.value, null);
 });
+
+test("two moves crossing: the newer refresh failing stays shown when the older one succeeds last", async () => {
+  const t = await controllable(EMAILS.owner);
+  await t.store.openOrg(t.demo.orgId);
+  const orgPath = new RegExp(`^GET /v1/orgs/${t.demo.orgId}$`);
+  // A's move lands; its refresh of the organization is held.
+  const aRefreshAnswers = t.gate(orgPath);
+  const first = t.store.moveProjectBudget(t.demo.projectId, 1_000_000);
+  await ticks();
+  // B's move lands; its (newer) refresh fails.
+  t.respondOnce(orgPath, () => Response.json({ error: { code: "internal", message: "refresh failed" } }, { status: 500 }));
+  assert.equal(await t.store.moveProjectBudget(t.otherId, 2_000_000), false);
+  assert.equal(t.store.error.value, "refresh failed");
+  // A's older refresh answers last, successfully: it's dropped, and must not clear B's error.
+  aRefreshAnswers();
+  assert.equal(await first, true); // A's move itself was done
+  assert.equal(t.store.error.value, "refresh failed");
+  // Neither refresh's figures were published: the page still shows the figures from before both moves.
+  assert.equal(t.store.org.value?.unassignedCredit, 2_900_000_000);
+  assert.equal(t.demo.backend.orgs.get(t.demo.orgId)!.unassignedCredit, 2_897_000_000);
+});
+
+test("a refusal's message goes once a later move is done and its figures are shown", async () => {
+  const t = await controllable(EMAILS.owner);
+  await t.store.openOrg(t.demo.orgId);
+  assert.equal(await t.store.moveProjectBudget(t.demo.projectId, 5_000_000_000), false); // more than is unassigned
+  assert.match(t.store.error.value ?? "", /doesn't have that much unassigned credit/);
+  assert.equal(await t.store.moveProjectBudget(t.demo.projectId, 1_000_000), true);
+  assert.equal(t.store.error.value, null);
+  assert.equal(t.store.org.value?.unassignedCredit, 2_899_000_000);
+});

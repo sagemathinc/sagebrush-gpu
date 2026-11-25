@@ -121,7 +121,7 @@ export class Store {
   // ---------------------------------------------------------------- errors and busy keys
 
   /** Run an action: mark it busy, record its error, and clear a session that has ended. */
-  async #act<T>(key: string, fn: () => Promise<T>): Promise<T | null> {
+  async #act<T>(key: string, fn: () => Promise<T>, clearsError: (result: T) => boolean = () => true): Promise<T | null> {
     if (this.busy.value.has(key)) return null;
     const session = this.#sessionGeneration;
     const generation = this.#generation;
@@ -132,7 +132,9 @@ export class Store {
       // returns nothing (no link to open, no result to show) and leaves the banner alone.
       // (Every session change is also a navigation, so the one counter covers both.)
       if (generation !== this.#generation) return null;
-      this.error.value = null;
+      // (unless the success says it published nothing: an older refresh, superseded by
+      // a newer one whose error must stay shown)
+      if (clearsError(result)) this.error.value = null;
       return result;
     } catch (err) {
       // An answer for a session that has since been replaced (sign-out, sign-in) is moot:
@@ -221,16 +223,19 @@ export class Store {
       });
     }
     const generation = ++this.#generation;
-    await this.#act(`load:${generation}`, () => this.#loadOrg(orgId, generation));
+    await this.#act(`load:${generation}`, () => this.#loadOrg(orgId, generation), (published) => published);
   }
 
-  /** The organization and every page of its projects, unless the page has moved on meanwhile. */
-  async #loadOrg(orgId: string, generation: number): Promise<void> {
+  /**
+   * The organization and every page of its projects, unless the page has moved on meanwhile
+   * or a newer load was asked: true when this load's figures were the ones published.
+   */
+  async #loadOrg(orgId: string, generation: number): Promise<boolean> {
     // Loads can overlap (two moves on different projects each read the figures again):
     // only the latest one asked may publish, so an older answer arriving last can't
     // overwrite newer figures. A load for a page that has since moved on (a move whose
     // answer came after a navigation) takes no number: it mustn't outrank the new page's.
-    if (generation !== this.#generation) return;
+    if (generation !== this.#generation) return false;
     const load = ++this.#orgLoad;
     try {
       const params = { orgId };
@@ -238,7 +243,7 @@ export class Store {
         this.client.call("getOrg", { params }),
         this.#allPages((cursor) => this.client.call("listProjects", { params, query: cursor === undefined ? {} : { cursor } })),
       ]);
-      if (generation !== this.#generation || load !== this.#orgLoad) return;
+      if (generation !== this.#generation || load !== this.#orgLoad) return false;
       batch(() => {
         this.org.value = org;
         this.orgProjects.value = projects.items;
@@ -247,8 +252,10 @@ export class Store {
         else cut.delete("orgProjects");
         this.truncated.value = cut;
       });
+      return true;
     } catch (err) {
       if (generation === this.#generation && load === this.#orgLoad) throw err;
+      return false;
     }
   }
 
@@ -261,12 +268,17 @@ export class Store {
     const orgId = this.orgId.value;
     if (orgId == null) return false;
     const generation = this.#generation;
-    const done = await this.#act(`move:${projectId}`, async () => {
-      await this.client.call("moveProjectBudget", { params: { projectId }, body: { amount } });
-      await this.#loadOrg(orgId, generation);
-      return true;
-    });
-    return done === true;
+    // The move is done once the server says so; whether its refresh is the one shown (and
+    // so may clear an error) is the refresh's own business.
+    const published = await this.#act(
+      `move:${projectId}`,
+      async () => {
+        await this.client.call("moveProjectBudget", { params: { projectId }, body: { amount } });
+        return this.#loadOrg(orgId, generation);
+      },
+      (shown) => shown,
+    );
+    return published !== null;
   }
 
   // ---------------------------------------------------------------- project

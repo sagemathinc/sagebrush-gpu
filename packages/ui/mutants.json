@@ -626,7 +626,7 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.error.value = null;\n      return result;",
+  "old": "      if (clearsError(result)) this.error.value = null;\n      return result;",
   "new": "      return result;"
  },
  {
@@ -771,8 +771,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      return true;\n    } catch (err) {",
-  "new": "      return false;\n    } catch (err) {"
+  "old": "      this.#pollError = null;\n      return true;\n    } catch (err) {",
+  "new": "      this.#pollError = null;\n      return false;\n    } catch (err) {"
  },
  {
   "file": "src/app/polling.ts",
@@ -1181,8 +1181,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      if (generation !== this.#generation) return null;\n      this.error.value = null;",
-  "new": "      this.error.value = null;"
+  "old": "      if (generation !== this.#generation) return null;\n      // (unless the success says it published nothing",
+  "new": "      // (unless the success says it published nothing"
  },
  {
   "file": "src/app/store.ts",
@@ -2436,7 +2436,7 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      if (generation !== this.#generation || load !== this.#orgLoad) return;\n      batch(() => {\n        this.org.value = org;",
+  "old": "      if (generation !== this.#generation || load !== this.#orgLoad) return false;\n      batch(() => {\n        this.org.value = org;",
   "new": "      batch(() => {\n        this.org.value = org;"
  },
  {
@@ -2531,13 +2531,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.truncated.value = cut;\n      });\n    } catch (err) {\n      if (generation === this.#generation && load === this.#orgLoad) throw err;",
-  "new": "        this.truncated.value = cut;\n      });\n    } catch (err) {\n      throw err;"
+  "old": "      return true;\n    } catch (err) {\n      if (generation === this.#generation && load === this.#orgLoad) throw err;",
+  "new": "      return true;\n    } catch (err) {\n      throw err;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "    const generation = ++this.#generation;\n    await this.#act(`load:${generation}`, () => this.#loadOrg(orgId, generation));",
-  "new": "    const generation = ++this.#generation;\n    await this.#act(\"load\", () => this.#loadOrg(orgId, generation));"
+  "old": "    await this.#act(`load:${generation}`, () => this.#loadOrg(orgId, generation), (published) => published);",
+  "new": "    await this.#act(\"load\", () => this.#loadOrg(orgId, generation), (published) => published);"
  },
  {
   "file": "src/billing.ts",
@@ -2862,8 +2862,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      await this.#loadOrg(orgId, generation);\n      return true;",
-  "new": "      return true;"
+  "old": "        return this.#loadOrg(orgId, generation);\n      },",
+  "new": "        return true;\n      },"
  },
  {
   "file": "src/app/org-page.ts",
@@ -2912,8 +2912,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "if (generation !== this.#generation || load !== this.#orgLoad) return;",
-  "new": "if (generation !== this.#generation) return;"
+  "old": "if (generation !== this.#generation || load !== this.#orgLoad) return false;",
+  "new": "if (generation !== this.#generation) return false;"
  },
  {
   "file": "src/app/store.ts",
@@ -2927,7 +2927,32 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    if (generation !== this.#generation) return;\n    const load = ++this.#orgLoad;",
+  "old": "    if (generation !== this.#generation) return false;\n    const load = ++this.#orgLoad;",
   "new": "    const load = ++this.#orgLoad;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (clearsError(result)) this.error.value = null;",
+  "new": "      this.error.value = null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      (shown) => shown,\n    );",
+  "new": "      () => true,\n    );"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "clearsError: (result: T) => boolean = () => true",
+  "new": "clearsError: (result: T) => boolean = () => false"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.truncated.value = cut;\n      });\n      return true;",
+  "new": "        this.truncated.value = cut;\n      });\n      return false;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    return published !== null;",
+  "new": "    return published === true;"
  }
 ]
