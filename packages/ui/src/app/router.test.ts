@@ -16,6 +16,11 @@ test("parseRoute", () => {
   assert.deepEqual(parseRoute("/p/a%2Fb"), { name: "notFound" });
   assert.deepEqual(parseRoute("/q/prj_abc"), { name: "notFound" });
   assert.deepEqual(parseRoute("/x"), { name: "notFound" });
+  assert.deepEqual(parseRoute("/o/org_abc"), { name: "org", orgId: "org_abc" });
+  assert.deepEqual(parseRoute("/o/org_abc/"), { name: "org", orgId: "org_abc" });
+  assert.deepEqual(parseRoute("/o/"), { name: "notFound" });
+  assert.deepEqual(parseRoute("/o/org_abc/projects"), { name: "notFound" });
+  assert.deepEqual(parseRoute("/o/a%2Fb"), { name: "notFound" });
 });
 
 test("routePath round-trips", () => {
@@ -25,4 +30,6 @@ test("routePath round-trips", () => {
   assert.deepEqual(parseRoute(routePath({ name: "project", projectId: "prj_abc" })), { name: "project", projectId: "prj_abc" });
   assert.equal(routePath({ name: "manage", projectId: "prj_abc" }), "/p/prj_abc/manage");
   assert.deepEqual(parseRoute(routePath({ name: "manage", projectId: "prj_abc" })), { name: "manage", projectId: "prj_abc" });
+  assert.equal(routePath({ name: "org", orgId: "org_abc" }), "/o/org_abc");
+  assert.deepEqual(parseRoute(routePath({ name: "org", orgId: "org_abc" })), { name: "org", orgId: "org_abc" });
 });
