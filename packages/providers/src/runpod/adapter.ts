@@ -4,7 +4,7 @@
 // container entrypoint (PID 1); no ports, no RunPod SSH or Jupyter, no template, no volume; the
 // only environment variable is the boot token. Secure Cloud only.
 
-import { driftMarkers, specDrift, expectedSpec } from "../drift.ts";
+import { commandShape, driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
 import { machineName, parseMachineName } from "../machine-name.ts";
@@ -432,7 +432,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
       // Created, but we can't tell which pod: only a listing by name can find it.
       throw new ProviderError("runpod", "outcome_unknown", "RunPod created a pod but its response has no id");
     }
-    return this.#accept(spec, status);
+    return this.#accept(spec, status, isObject(json) ? json : null);
   }
 
   /**
@@ -440,7 +440,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
    * here: the caller revokes its boot token first, then terminates it and confirms it is gone
    * (placement's launchWithFallback does).
    */
-  #accept(spec: LaunchSpec, status: ProviderMachineStatus): LaunchResult {
+  #accept(spec: LaunchSpec, status: ProviderMachineStatus, record: Record<string, unknown> | null = null): LaunchResult {
     // The scheduler may not have reported the data center yet; the watchdog checks it later.
     const drift = specDrift(expectedSpec(spec, this.info, status.providerMachineId), status).filter(
       (d) => !(d.field === "dataCenter" && status.dataCenter === null),
@@ -455,6 +455,8 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
         null,
         status.providerMachineId,
         driftMarkers(drift, status),
+        // How RunPod reported the command, when that drifted and the create reply is at hand.
+        record !== null && drift.some((d) => d.field === "command") ? commandShape(record, spec.launcher) : null,
       );
     }
     return { providerMachineId: status.providerMachineId, status };

@@ -1,3 +1,4 @@
+import type { CommandShape } from "./drift.ts";
 import type { ProviderId } from "./types.ts";
 
 /**
@@ -41,6 +42,8 @@ export class ProviderError extends Error {
   readonly providerMachineId: string | null;
   /** For a machine that didn't match its spec: where, as drift.ts's driftMarkers (fixed words only). */
   readonly drift: readonly string[] | null;
+  /** For a machine whose command drifted: how the provider reported it (drift.ts's commandShape, no text). */
+  readonly commandShape: CommandShape | null;
 
   constructor(
     provider: ProviderId,
@@ -50,6 +53,7 @@ export class ProviderError extends Error {
     retryAfterSeconds: number | null = null,
     providerMachineId: string | null = null,
     drift: readonly string[] | null = null,
+    commandShape: CommandShape | null = null,
   ) {
     super(message);
     this.name = "ProviderError";
@@ -59,6 +63,7 @@ export class ProviderError extends Error {
     this.retryAfterSeconds = retryAfterSeconds;
     this.providerMachineId = providerMachineId;
     this.drift = drift === null ? null : Object.freeze([...drift]);
+    this.commandShape = commandShape;
   }
 }
 

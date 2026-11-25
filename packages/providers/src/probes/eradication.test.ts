@@ -20,6 +20,7 @@ import {
   checkPlan,
   judgeStage,
   judgeStageWithDigest,
+  reportableCommandShape,
   reportableDrift,
   validShape,
   launcherSha256,
@@ -587,8 +588,8 @@ test("a launch that leaves a pod behind is cleaned up; one that doesn't isn't", 
   assert.deepEqual(none.log, ["launch"]);
   assert.equal(r2.outcome, "aborted");
   assert.equal(r2.providerMachineId, null);
-  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: null });
-  assert.deepEqual(r2.launchError, { kind: "no_capacity", httpStatus: null, drift: null });
+  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: null, commandShape: null });
+  assert.deepEqual(r2.launchError, { kind: "no_capacity", httpStatus: null, drift: null, commandShape: null });
 });
 
 test("a rejected pod's drift markers reach the report; only fixed-word markers, at most 32", async () => {
@@ -601,7 +602,7 @@ test("a rejected pod's drift markers reach the report; only fixed-word markers, 
   };
   const h = harness(w);
   const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
-  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: markers });
+  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: markers, commandShape: null });
   assert.deepEqual(w.log, ["launch", "terminate"]);
   assert.equal(r.terminatedConfirmed, true);
   // Anything that isn't a fixed-word marker is dropped.
@@ -629,14 +630,14 @@ test("a refused launch reports its kind and HTTP status, never the error's text"
   const w: World = { log: [], stages: [], launchError: new ProviderError("runpod", "unplaceable", "RunPod HTTP 400 (unplaceable) MARKER", 400) };
   const h = harness(w);
   const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
-  assert.deepEqual(r.launchError, { kind: "unplaceable", httpStatus: 400, drift: null });
+  assert.deepEqual(r.launchError, { kind: "unplaceable", httpStatus: 400, drift: null, commandShape: null });
   assert.deepEqual([r.terminatedConfirmed, r.exposure, r.aborts], [true, null, ["launch-failed"]]);
   assert.ok(!JSON.stringify(r).includes("MARKER"));
   // Anything that isn't a ProviderError is a driver error, and may have left a pod.
   const odd: World = { log: [], stages: [], launchError: Object.assign(new Error("MARKER"), { name: "MARKER" }) };
   const h2 = harness(odd);
   const r2 = await runEradicationProbe(plan, h2.adapter, h2.api, h2.clock);
-  assert.deepEqual(r2.launchError, { kind: "driver-error", httpStatus: null, drift: null });
+  assert.deepEqual(r2.launchError, { kind: "driver-error", httpStatus: null, drift: null, commandShape: null });
   assert.equal(r2.terminatedConfirmed, false);
   assert.ok(!JSON.stringify(r2).includes("MARKER"));
 });
@@ -1040,4 +1041,49 @@ test("finishRun: a confirmed fail exits 1 even with the spend settled; the outpu
     (e: unknown) => e instanceof Error && /contains the key/.test(e.message) && !e.message.includes("KEYVALUE"),
   );
   assert.deepEqual(written, []);
+});
+
+test("reportableCommandShape rebuilds a shape from fixed kinds, counts and booleans, or gives null", () => {
+  const f = (kind: string, length: number | null = null) => ({ kind, length });
+  const good = {
+    entrypoint: f("array", 3), cmd: f("absent"), args: f("string", 12),
+    entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }, { length: 2, matches: true, commonPrefix: 2 }, { length: 900, matches: false, commonPrefix: 41 }],
+    entrypointCmdMatches: false, joinedMatches: false,
+  };
+  assert.deepEqual(reportableCommandShape(good), good);
+  // Extra fields are dropped, never copied: the result is rebuilt.
+  const extra = { ...good, text: "MARKER", entrypoint: { ...f("array", 3), value: "MARKER" } };
+  assert.ok(!JSON.stringify(reportableCommandShape(extra)).includes("MARKER"));
+  assert.deepEqual(reportableCommandShape(extra), good);
+  // Counts out of range or not whole read null; bad kinds, flags or items make the whole shape null.
+  assert.equal(reportableCommandShape({ ...good, args: f("string", 1.5) })!.args.length, null);
+  assert.equal(reportableCommandShape({ ...good, args: f("string", 1_000_001) })!.args.length, null);
+  assert.equal(reportableCommandShape({ ...good, args: f("string", 1_000_000) })!.args.length, 1_000_000);
+  for (const bad of [
+    null, "x", [], { ...good, entrypoint: f("MARKER") }, { ...good, cmd: null }, { ...good, args: "string" },
+    { ...good, entrypointCmdMatches: "true" }, { ...good, joinedMatches: 1 }, { ...good, entrypointItems: "x" },
+    { ...good, entrypointItems: Array.from({ length: 9 }, () => ({ length: 1, matches: true, commonPrefix: 1 })) },
+    { ...good, entrypointItems: [{ length: 1, matches: "yes", commonPrefix: 1 }] },
+    { ...good, entrypointItems: [{ length: 1, matches: true, commonPrefix: -1 }] },
+    { ...good, entrypointItems: [null] }, { ...good, entrypoint: f("toString") },
+  ]) {
+    assert.equal(reportableCommandShape(bad), null, JSON.stringify(bad));
+  }
+  assert.equal(reportableCommandShape({ ...good, entrypointItems: Array.from({ length: 8 }, () => ({ length: 1, matches: true, commonPrefix: 1 })) })!.entrypointItems.length, 8);
+});
+
+test("a command drift's shape reaches the report, checked again at the boundary", async () => {
+  const shape = {
+    entrypoint: { kind: "array", length: 3 }, cmd: { kind: "null", length: null }, args: { kind: "absent", length: null },
+    entrypointItems: [], entrypointCmdMatches: false, joinedMatches: false, MARKER: "MARKER",
+  };
+  const w: World = {
+    log: [], stages: [],
+    launchError: new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX", ["command"], shape as never),
+  };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  const { MARKER: _m, ...clean } = shape;
+  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: ["command"], commandShape: clean });
+  assert.ok(!JSON.stringify(r).includes("MARKER"));
 });

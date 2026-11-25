@@ -19,7 +19,7 @@
 // CLI (cli.ts) is a dry run unless given --execute and that reference.
 
 import { BOOT_TOKEN_ENV, renderBootScript, renderProbePrologue } from "@sbgpu/machine";
-import { isDriftMarker, specDrift, expectedSpec } from "../drift.ts";
+import { isDriftMarker, specDrift, expectedSpec, type CommandShape, type FieldShape } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { machineName } from "../machine-name.ts";
 import { terminateAndConfirm } from "../placement.ts";
@@ -349,7 +349,12 @@ export interface ProbeReport {
    * Why the launch failed, as our own fixed words: the ProviderError's kind and HTTP status, or
    * "driver-error" for anything else. Never the provider's text. null when the launch succeeded.
    */
-  launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null; drift: string[] | null } | null;
+  launchError: {
+    kind: ProviderErrorKind | "driver-error";
+    httpStatus: number | null;
+    drift: string[] | null;
+    commandShape: CommandShape | null;
+  } | null;
 }
 
 /**
@@ -359,6 +364,46 @@ export interface ProbeReport {
 export function reportableDrift(drift: readonly unknown[] | null): string[] | null {
   if (!Array.isArray(drift)) return null;
   return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));
+}
+
+const FIELD_KINDS: ReadonlySet<string> = new Set(["absent", "null", "string", "array", "object", "number", "boolean"]);
+const SHAPE_NUMBER_MAX = 1_000_000;
+
+/** A count fit for the report: a whole number from 0 to a million, else null. */
+function count(x: unknown): number | null {
+  return typeof x === "number" && Number.isSafeInteger(x) && x >= 0 && x <= SHAPE_NUMBER_MAX ? x : null;
+}
+
+function fieldShapeOf(x: unknown): FieldShape | null {
+  if (typeof x !== "object" || x === null) return null;
+  const r = x as Record<string, unknown>;
+  const kind = r["kind"];
+  if (typeof kind !== "string" || !FIELD_KINDS.has(kind)) return null;
+  return { kind: kind as FieldShape["kind"], length: count(r["length"]) };
+}
+
+/**
+ * A command shape fit for the report, rebuilt field by field from fixed kinds, counts and
+ * booleans (at most 8 items); anything else makes it null. Never text.
+ */
+export function reportableCommandShape(shape: unknown): CommandShape | null {
+  if (typeof shape !== "object" || shape === null) return null;
+  const s = shape as Record<string, unknown>;
+  const entrypoint = fieldShapeOf(s["entrypoint"]);
+  const cmd = fieldShapeOf(s["cmd"]);
+  const args = fieldShapeOf(s["args"]);
+  const items = s["entrypointItems"];
+  if (entrypoint === null || cmd === null || args === null || !Array.isArray(items) || items.length > 8) return null;
+  if (typeof s["entrypointCmdMatches"] !== "boolean" || typeof s["joinedMatches"] !== "boolean") return null;
+  const entrypointItems: CommandShape["entrypointItems"] = [];
+  for (const it of items) {
+    if (typeof it !== "object" || it === null) return null;
+    const r = it as Record<string, unknown>;
+    const prefix = count(r["commonPrefix"]);
+    if (typeof r["matches"] !== "boolean" || prefix === null) return null;
+    entrypointItems.push({ length: count(r["length"]), matches: r["matches"], commonPrefix: prefix });
+  }
+  return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: s["entrypointCmdMatches"], joinedMatches: s["joinedMatches"] };
 }
 
 /**
@@ -436,8 +481,8 @@ export async function runEradicationProbe(
     report.aborts.push("launch-failed");
     report.launchError =
       e instanceof ProviderError
-        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift) }
-        : { kind: "driver-error", httpStatus: null, drift: null };
+        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift), commandShape: reportableCommandShape(e.commandShape) }
+        : { kind: "driver-error", httpStatus: null, drift: null, commandShape: null };
     // A failed launch may still have left a pod. With its id: clean it up.
     const left = e instanceof ProviderError ? e.providerMachineId : null;
     if (left !== null) {

@@ -184,7 +184,10 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
 approved run (Nov 24 2026) created no pod: RunPod refused the launch (RTX A4000 in EU-SE-1,
 which the catalog didn't list), and the spend rate settled at 0. The second (A40 in EU-SE-1)
 created a pod that the launch's drift check rejected (`spec_mismatch`); it was terminated within
-seconds and confirmed gone, with the spend rate back at 0. `launchError.drift` now says where.
+seconds and confirmed gone, with the spend rate back at 0. The third, with `launchError.drift`,
+gave `unexpectedSettings:ssh:proxy` and `command`: RunPod reports an SSH proxy route even with SSH
+off (SEC: blocking until the command is proven exact and the probe checks that no port-22 listener
+exists), and a command that doesn't read back as sent.
 
 - `eradication.ts`, the driver:
   - **Launch:** one pod, exactly as production does (`RunPodAdapter`), with one probe-only
@@ -232,6 +235,11 @@ seconds and confirmed gone, with the spend rate back at 0. `launchError.drift` n
     says where a pod differed and never what RunPod reported. The report checks that again on its
     own: of the first 32 entries it keeps only markers `driftMarkers` can produce (`isDriftMarker`:
     exact field names, the exact setting vocabulary, at most three words after `unexpectedSettings`).
+    When the command drifted, `launchError.commandShape` says how RunPod reported it, never its
+    text: the form and size of `entrypoint`, `cmd` and `args`, for the first 8 entrypoint items
+    their length, whether each equals the launcher's item and how many leading characters agree,
+    and whether entrypoint followed by cmd (or a space-joined string) equals the launcher. The
+    report rebuilds it from fixed kinds, counts and booleans (`reportableCommandShape`).
   - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
     the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.
   - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing
