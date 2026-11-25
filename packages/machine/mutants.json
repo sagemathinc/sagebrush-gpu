@@ -2122,5 +2122,41 @@
   "old": "    \"password\", \"sudo\", \"console-login\", \"agent-active\", \"container-runtime\", \"user-session\",\n)",
   "new": "    \"password\", \"sudo\", \"console-login\", \"agent-active\", \"container-runtime\", \"user-session\", \"files\",\n)",
   "note": "gate words: a word control doesn't know"
+ },
+ {
+  "file": "src/mock/mock-terminal.ts",
+  "old": "  if (p && !p.exited && p.paused) stdout.pause();",
+  "new": "  if (false) stdout.pause();",
+  "note": "credit: output beyond credit is read, so it goes to the ring only"
+ },
+ {
+  "file": "src/mock/mock-terminal.ts",
+  "old": "  else stdout.resume();\n",
+  "new": "",
+  "note": "credit: a paused helper is never read again"
+ },
+ {
+  "file": "src/mock/mock-terminal.ts",
+  "old": "  pump(p);\n  flow(s);\n}\n\nfunction newSession",
+  "new": "  pump(p);\n}\n\nfunction newSession",
+  "note": "credit: output doesn't pause the helper"
+ },
+ {
+  "file": "src/mock/mock-terminal.ts",
+  "old": "      return flow(s);",
+  "new": "      return;",
+  "note": "credit: acks don't resume the helper"
+ },
+ {
+  "file": "src/mock/mock-terminal.ts",
+  "old": "    page.session.page = null;\n    flow(page.session);",
+  "new": "    page.session.page = null;",
+  "note": "credit: a page that goes while paused leaves the helper unread"
+ },
+ {
+  "file": "src/mock/mock-terminal.ts",
+  "old": "    if (page.session?.page !== page) return;\n",
+  "new": "",
+  "note": "detach: a page taken over detaches its successor"
  }
 ]
