@@ -236,14 +236,14 @@ test("the watchdog: a creating launch past its create deadline is terminated by 
 test("schema: the state matrix", async () => {
   const l = await intent();
   const upd = (set: string, ...p: Array<string | number | null>) => w.db.batch([stmt(`UPDATE launches SET ${set} WHERE machine_id = ?`, ...p, l.machineId)]);
-  await assert.rejects(upd(`ipv4 = ?, first_active_ms = ?`, IP, T0), /CHECK/); // (creating has no ACTIVE facts)
+  await assert.rejects(upd(`ipv4 = ?, first_active_ms = ?`, IP, T0), /ACTIVE facts are fixed/); // (set only by the ACTIVE transition; creating has none: CHECK, in launches-schema)
   await assert.rejects(upd(`outcome = 'launched'`), /CHECK/); // (launched needs the id and both facts)
   await assert.rejects(upd(`outcome = 'launched', provider_machine_id = 'v', ipv4 = ?`, IP), /CHECK/); // (facts together)
   await assert.rejects(upd(`outcome = 'launched', ipv4 = ?, first_active_ms = ?`, IP, T0), /CHECK/); // (and the id)
-  await assert.rejects(upd(`outcome = 'terminate', terminate_reason = 'create-failed', ipv4 = ?`, IP), /CHECK/); // (facts together, whatever the outcome)
+  await assert.rejects(upd(`outcome = 'terminate', terminate_reason = 'create-failed', ipv4 = ?`, IP), /ACTIVE facts are fixed/); // (only the ACTIVE transition sets them)
   await upd(`outcome = 'terminate', terminate_reason = 'create-failed'`); // (a failure before ACTIVE: no id, no facts)
   await upd(`outcome = 'terminated', terminated_ms = ?, next_ms = NULL`, T0);
-  await assert.rejects(upd(`provider = 'runpod'`), /CHECK/);
+  await assert.rejects(upd(`provider = 'runpod'`), /provider is fixed/); // (fixed from the intent: refused before its CHECK)
 });
 
 test("the migration refuses to rebuild over existing launches, before changing anything", () => {
@@ -330,7 +330,7 @@ test("the 0012 rebuild refuses existing launches, before changing anything", () 
 test("schema (0012): every bounded text counts stored bytes and holds no NUL", async () => {
   const l = await intent();
   const NUL = String.fromCharCode(0);
-  const upd = (col: string, v: string) => w.db.batch([stmt(`UPDATE launches SET ${col} = ? WHERE machine_id = ?`, v, l.machineId)]);
+  const upd = (col: string, v: string) => w.db.batch([stmt(`UPDATE launches SET ${col} = ? WHERE machine_id = ? AND incarnation = 1`, v, l.machineId)]);
   // the hashes: exactly 64 bytes, no NUL, lowercase hex
   const badHashes = [
     AGENT + NUL + "x".repeat(100_000), // (64 hex, then a NUL and a long tail)
@@ -342,9 +342,18 @@ test("schema (0012): every bounded text counts stored bytes and holds no NUL", a
     AGENT.slice(1), // (63 hex characters)
     AGENT + "0", // (65 hex characters)
   ];
+  // (a launch's hashes are fixed from its intent, so each value is tried as a new intent: another incarnation)
+  let inc = 10;
+  const intentWith = (col: string, v: string) => {
+    const vals: Record<string, string> = { nonce_sha256: AGENT, boot_script_sha256: AGENT, agent_sha256: AGENT, [col]: v };
+    return w.db.batch([stmt(
+      `INSERT INTO launches (machine_id, incarnation, mode, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms) VALUES (?, ?, 'vm', 'shadeform', ?, ?, ?, 'creating', ?, ?)`,
+      l.machineId, inc++, vals.nonce_sha256!, vals.boot_script_sha256!, vals.agent_sha256!, T0, T0,
+    )]);
+  };
   for (const col of ["nonce_sha256", "boot_script_sha256", "agent_sha256"]) {
-    for (const bad of badHashes) await assert.rejects(upd(col, bad), /CHECK/, `${col} ${JSON.stringify(bad.slice(0, 70))}`);
-    await upd(col, AGENT);
+    for (const bad of badHashes) await assert.rejects(intentWith(col, bad), /CHECK/, `${col} ${JSON.stringify(bad.slice(0, 70))}`);
+    await intentWith(col, AGENT);
   }
   // the provider id: 1 to 64 bytes of ASCII, no NUL
   await assert.rejects(upd("provider_machine_id", "vm" + NUL + "x".repeat(100)), /CHECK/);
@@ -353,7 +362,7 @@ test("schema (0012): every bounded text counts stored bytes and holds no NUL", a
   await assert.rejects(upd("provider_machine_id", "v".repeat(65)), /CHECK/);
   await upd("provider_machine_id", "v".repeat(64));
   // the IPv4 (with the id, as the state matrix wants for a launched row)
-  const active = (ip: string) => w.db.batch([stmt(`UPDATE launches SET outcome = 'launched', ipv4 = ?, first_active_ms = ? WHERE machine_id = ?`, ip, T0, l.machineId)]);
+  const active = (ip: string) => w.db.batch([stmt(`UPDATE launches SET outcome = 'launched', ipv4 = ?, first_active_ms = ? WHERE machine_id = ? AND incarnation = 1`, ip, T0, l.machineId)]);
   await assert.rejects(active(IP + NUL + "x".repeat(1000)), /CHECK/);
   await assert.rejects(active("203.0.113" + NUL), /CHECK/);
   await assert.rejects(active("203.0.113.\u00e9"), /CHECK/);

@@ -3,8 +3,9 @@
 -- - the VM matrix and every VM bound carry over unchanged, now for mode = 'vm' only;
 -- - a container goes creating -> issued -> enrolled (no announce, so never 'launched'), plus
 --   terminate -> terminated, and carries first_running_ms, max_end_ms and credential_kind;
--- - mode, credential_kind and a set max_end_ms are fixed, and a set first_running_ms only ever
---   moves earlier (triggers below);
+-- - the intent's pins (mode, provider, created_ms and the hashes) and credential_kind are fixed;
+--   a provider id, the ACTIVE facts and max_end_ms are fixed once set (the ACTIVE facts only by
+--   the ACTIVE transition); a set first_running_ms only ever moves earlier (triggers below);
 -- - boot_tokens carries the launch's mode (a composite key to the launch), and once its
 --   provider id is set it must equal the launch's (a composite key, enforced by the database);
 --   a VM token keeps today's rule exactly; a container token may be pending (no window yet);
@@ -110,6 +111,43 @@ CREATE TRIGGER launches_mode_fixed BEFORE UPDATE OF mode ON launches
 WHEN NEW.mode IS NOT OLD.mode
 BEGIN
   SELECT RAISE(ABORT, 'a launch''s mode is fixed');
+END;
+
+-- the provider, from the intent on: a provider id, a boot token and a rate are all read as that
+-- provider's, so it never changes under them
+CREATE TRIGGER launches_provider_fixed BEFORE UPDATE OF provider ON launches
+WHEN NEW.provider IS NOT OLD.provider
+BEGIN
+  SELECT RAISE(ABORT, 'a launch''s provider is fixed');
+END;
+
+-- the rest of the intent's pins: when it was recorded (a container's accrual starts there) and
+-- the hashes enroll and announce check against
+CREATE TRIGGER launches_intent_fixed BEFORE UPDATE OF created_ms, agent_sha256, nonce_sha256, boot_script_sha256 ON launches
+WHEN NEW.created_ms IS NOT OLD.created_ms
+  OR NEW.agent_sha256 IS NOT OLD.agent_sha256
+  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256
+  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256
+BEGIN
+  SELECT RAISE(ABORT, 'a launch''s intent is fixed');
+END;
+
+-- the provider's id, once recorded, is the launch's external identity: never replaced or cleared
+CREATE TRIGGER launches_provider_id_fixed BEFORE UPDATE OF provider_machine_id ON launches
+WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id
+BEGIN
+  SELECT RAISE(ABORT, 'a launch''s provider id is fixed');
+END;
+
+-- the ACTIVE facts (a VM's address and when it was first seen ACTIVE; a VM's accrual starts
+-- there) are set only by the ACTIVE transition, creating -> launched, and then never change
+CREATE TRIGGER launches_active_facts_fixed BEFORE UPDATE OF ipv4, first_active_ms ON launches
+WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)
+  OR (OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)
+  OR (((OLD.ipv4 IS NULL AND NEW.ipv4 IS NOT NULL) OR (OLD.first_active_ms IS NULL AND NEW.first_active_ms IS NOT NULL))
+      AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))
+BEGIN
+  SELECT RAISE(ABORT, 'a launch''s ACTIVE facts are fixed');
 END;
 
 CREATE TRIGGER launches_credential_fixed BEFORE UPDATE OF credential_kind ON launches
