@@ -165,7 +165,7 @@ The relay is part of the control Worker: the Worker's routes (`src/relay/routes.
 - **A page:** a `page` token for this machine and its accepted incarnation, on an allowlisted channel (`terminal`). Its `jti` is consumed by one atomic insert into the object's used set, before anything is paired. It stays consumed whatever happens next (the agent missing, the socket closing), and across restarts. A storage failure refuses the page (1011). Used entries are pruned only after their own expiry. The agent is told `page-open {conn, chan, gen, mbr}`, and the page `{"relay":"ready","gen":n}`. **The page sends nothing before its `ready`.**
 - **Revoke** (control, at a stop or a restart): `revokedThrough` is raised and written durably *before* the acknowledgement; then every leg at or below it is closed (4403, the agent told `{"relay":"revoked"}` first). Control treats only an acknowledgement as done: anything else leaves the stop pending and retried, and control mints no page token meanwhile (`revokeMachine` in routes.ts; control's side).
 
-**On the wire after the hello:** the agent's messages are controls (`close {gen}`, `ack {r}`, `ping`) or application messages prefixed `"<gen>\n"`. A page's messages are controls (`ack {r}`, `ping`) or application payloads, which the relay prefixes with the page's generation. The relay sends receipts `{"relay":"receipt","r":…,"upto":n}` behind what it forwards. **Every receiver acks each receipt** (`{"relay":"ack","r":…}`) and **pings every 15 s** (`{"relay":"ping"}`, answered `pong`).
+**On the wire after the hello:** the agent's messages are controls (`close {gen}`, `ack {r}`, `ping`) or application messages prefixed `"<gen>\n"`. A page's messages are controls (`ack {r}`, `ping`) or application payloads, which the relay prefixes with the page's generation. The relay sends receipts `{"relay":"receipt","r":…,"upto":n}` behind what it forwards; `upto` counts every byte charged to that receiver before the receipt, earlier receipts included. **Every receiver acks each receipt** (`{"relay":"ack","r":…}`) and **pings every 15 s** (`{"relay":"ping"}`, answered `pong`).
 
 **The caps** (`src/relay/caps.ts`, one table), all enforced per machine:
 
@@ -178,7 +178,7 @@ The relay is part of the control Worker: the Worker's routes (`src/relay/routes.
 | a message | 65,536 bytes each way on `terminal`; controls 256 bytes | 1009 / 1008 |
 | a receiver's unacknowledged bytes | 1 MiB per page, 8 MiB for the agent; 16 receipts out | sender closed 1013, nothing queued |
 | messages per leg | 120/s, burst 200 | 4008 |
-| **bytes through the machine** | **4 MiB/s, burst 16 MiB, every message to every receiver (data, controls, receipts, each with 256 bytes of overhead)**, one bucket stored at least once a second | sender closed 4429 |
+| **bytes through the machine** | **4 MiB/s, burst 16 MiB, every frame to every receiver (data, controls, receipts and the revoke notice, each with 256 bytes of overhead)**. One bucket; credit leaves it in reservations (250 ms of the rate, or what one frame needs) that are stored before any of it is spent, so a restart can lose credit but never regain it. A receipt is admitted together with the frame that makes it due. | sender closed 4429 (a revoke notice without room isn't sent; the close still is) |
 | a dead leg | no ping for 40 s | 1001 (page), 4001 (agent) |
 | page tokens in the used set | 10,000 unexpired | hello refused 4429 |
 

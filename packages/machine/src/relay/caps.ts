@@ -43,13 +43,16 @@ export const RELAY_LIMITS = Object.freeze({
   legRate: 120,
   /** ... with this burst. */
   legBurst: 200,
-  /** Bytes per second through the whole machine (every message to every receiver, data and controls alike, each
-   * counted with its overhead): one machine-wide bucket, which reconnecting doesn't refill, ... */
+  /** Bytes per second through the whole machine (every message to every receiver: data, controls, receipts and the
+   * revoke notice, each counted with its overhead): one machine-wide bucket, which neither a reconnect nor a restart
+   * refills, ... */
   machineBytesPerSecond: 4 * 1024 * 1024,
   /** ... with this burst. */
   machineBytesBurst: 16 * 1024 * 1024,
-  /** The machine-wide bucket is written to storage at most this often (it is also read back after an eviction). */
-  bucketPersistMs: 1000,
+  /** Credit moves from the stored bucket to memory in reservations of this many ms of the rate (or what one message
+   * needs, if more): each is written to storage before any of it is spent, so a restart can only lose credit (the
+   * reservation's unspent rest, at most 1 MiB), never get it back.  At most about 4 writes a second at full rate. */
+  machineReserveMs: 250,
   // ---- liveness and single use
   /** A leg with no valid ping for this long is closed. */
   deadMs: 40_000,

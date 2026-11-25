@@ -37,6 +37,7 @@ const enc = new TextEncoder();
 const CONTROL = '{"relay":"';
 const PREFIX = /^([1-9][0-9]{0,15})\n/;
 const PONG = '{"relay":"pong"}';
+const REVOKED = '{"relay":"revoked"}';
 const bytes = (s: string) => enc.encode(s).length;
 const b64url = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
@@ -108,10 +109,10 @@ export interface RelayEnv {
 
 export class MachineRelay extends DurableObject<RelayEnv> {
   private keysCache: Map<string, Key> | null = null;
-  // (the machine-wide byte bucket, in memory, written to storage at most every bucketPersistMs; read back after an
-  // eviction, so neither a reconnect nor an eviction refills it beyond what time would)
-  private machine: Bucket | null = null;
-  private machineSavedAt = 0;
+  // (the machine-wide byte bucket: `machine` is the stored bucket, always as stored; `reserved` is credit already
+  // taken from it and stored as taken, spent from memory.  An eviction loses `reserved`; it never recreates credit.)
+  protected machine: Bucket | null = null;
+  protected reserved = 0;
 
   constructor(ctx: DurableObjectState, env: RelayEnv) {
     super(ctx, env);
@@ -241,25 +242,29 @@ export class MachineRelay extends DurableObject<RelayEnv> {
     this.put("attempts", JSON.stringify({ t: t - 1, at: now }));
     return true;
   }
-  /** Take n bytes from the machine-wide bucket: false if it hasn't them (nothing taken). */
-  private machineTake(n: number): boolean {
+  /** Take n bytes from the machine-wide bucket: false if it hasn't them (nothing taken).  Spent from the reservation
+   * in memory; when that is short, a new reservation (at least machineReserveMs of the rate) is taken from the stored
+   * bucket and stored before any of it is used. */
+  protected machineTake(n: number): boolean {
+    if (this.reserved >= n) {
+      this.reserved -= n;
+      return true;
+    }
     const now = this.now();
     const { perSecond, burst } = this.machineRate();
     if (!this.machine) {
       const b = this.get<string>("machineBucket");
       this.machine = b ? (JSON.parse(b) as Bucket) : { t: burst, at: now };
     }
-    const m = this.machine;
-    const t = Math.min(burst, m.t + (Math.max(0, now - m.at) * perSecond) / 1000);
-    if (t < n) {
-      this.machine = { t, at: now };
-      return false;
-    }
-    this.machine = { t: t - n, at: now };
-    if (now - this.machineSavedAt >= RELAY_LIMITS.bucketPersistMs) {
-      this.machineSavedAt = now;
-      this.put("machineBucket", JSON.stringify(this.machine));
-    }
+    // (refilled by time up to the burst, less what is reserved: the two together never pass the burst)
+    const t = Math.min(burst - this.reserved, this.machine.t + (Math.max(0, now - this.machine.at) * perSecond) / 1000);
+    const need = n - this.reserved;
+    if (t < need) return false;
+    const grant = Math.min(t, Math.max(need, (perSecond * RELAY_LIMITS.machineReserveMs) / 1000));
+    const next = { t: t - grant, at: now };
+    this.put("machineBucket", JSON.stringify(next)); // (stored first: a failure here throws, nothing granted)
+    this.machine = next;
+    this.reserved += grant - n;
     return true;
   }
 
@@ -310,7 +315,8 @@ export class MachineRelay extends DurableObject<RelayEnv> {
         this.close(w, CLOSE.forbidden, "revoked");
       } else if (a.inc <= through) {
         if (a.leg === "peer") {
-          this.send(w, '{"relay":"revoked"}');
+          // (the notice is charged like any message; without room it isn't sent, and the close (4403) says it)
+          if (this.machineTake(bytes(REVOKED) + RELAY_LIMITS.overhead)) this.send(w, REVOKED);
           this.endPeer(w, CLOSE.forbidden, "revoked");
         } else {
           this.endPage(w, CLOSE.forbidden, "revoked", false);
@@ -481,51 +487,50 @@ export class MachineRelay extends DurableObject<RelayEnv> {
    * plus this message would pass its window (or every receipt token is out); 4429 if the machine's byte bucket hasn't
    * room.  Nothing is ever queued: the relay forwards at once or closes. */
   private forward(from: WebSocket, to: WebSocket, ta: PeerAtt | PageAtt, text: string, n: number, window: number): boolean {
-    const w = n + RELAY_LIMITS.overhead;
-    if (ta.rx.sent - ta.rx.acked + w > window || ta.rx.tokens.length >= RELAY_LIMITS.tokens) {
+    if (ta.rx.tokens.length >= RELAY_LIMITS.tokens) {
       this.close(from, 1013, "the receiver isn't reading");
       return false;
     }
-    if (!this.machineTake(w)) {
-      this.close(from, CLOSE.machineRate, "the machine's relay rate");
-      return false;
-    }
-    return this.push(to, ta, text, w, window);
+    return this.deliver(from, to, ta, text, n + RELAY_LIMITS.overhead, window);
   }
 
-  /** Send, charge the receiver, and once receiptEvery (or a quarter of the window) has gone since the last receipt, a
-   * receipt behind it (charged too). */
-  private push(to: WebSocket, ta: PeerAtt | PageAtt, text: string, w: number, window: number): boolean {
-    const rx = ta.rx;
-    if (!this.send(to, text)) return false;
-    rx.sent += w;
-    rx.since += w;
-    if (rx.since >= Math.min(RELAY_LIMITS.receiptEvery, window / 4) && rx.tokens.length < RELAY_LIMITS.tokens) {
-      const r = b64url(crypto.getRandomValues(new Uint8Array(16)));
-      const receipt = JSON.stringify({ relay: "receipt", r, upto: rx.sent });
-      rx.tokens.push([r, rx.sent]);
-      rx.since = 0;
-      this.machineTake(bytes(receipt) + RELAY_LIMITS.overhead); // (counted; never refused: it is the relay's own)
-      this.send(to, receipt);
-    }
-    to.serializeAttachment(ta);
-    return true;
-  }
-
-  /** A control from the relay to a receiver, charged against its window and the machine's bucket like data; one that
-   * doesn't fit closes `offender` (whose action caused it), unsent. */
+  /** A control from the relay to a receiver: admitted, charged and receipted like data; one that doesn't fit closes
+   * `offender` (whose action caused it), unsent. */
   private sendControl(offender: WebSocket, to: WebSocket, ta: PeerAtt | PageAtt, text: string): boolean {
     const window = ta.leg === "page" ? CHANNEL_CAPS[ta.chan].window : RELAY_LIMITS.peerWindow;
-    const w = bytes(text) + RELAY_LIMITS.overhead;
-    if (ta.rx.sent - ta.rx.acked + w > window) {
+    return this.deliver(offender, to, ta, text, bytes(text) + RELAY_LIMITS.overhead, window);
+  }
+
+  /** Every frame to a receiver goes through here, with the receipt it makes due (once receiptEvery, or a quarter of
+   * the window, has gone since the last one): both admitted together against the receiver's window and the machine's
+   * bucket, both charged to both, or neither sent and `offender` closed (1013 for the window, 4429 for the bucket).
+   * A receipt's upto covers what precedes it; its own bytes are covered by the next one. */
+  private deliver(offender: WebSocket, to: WebSocket, ta: PeerAtt | PageAtt, text: string, w: number, window: number): boolean {
+    const rx = ta.rx;
+    let receipt: string | null = null;
+    let rw = 0;
+    if (rx.since + w >= Math.min(RELAY_LIMITS.receiptEvery, window / 4) && rx.tokens.length < RELAY_LIMITS.tokens) {
+      receipt = JSON.stringify({ relay: "receipt", r: b64url(crypto.getRandomValues(new Uint8Array(16))), upto: rx.sent + w });
+      rw = bytes(receipt) + RELAY_LIMITS.overhead;
+    }
+    if (rx.sent - rx.acked + w + rw > window) {
       this.close(offender, 1013, "the receiver isn't reading");
       return false;
     }
-    if (!this.machineTake(w)) {
+    if (!this.machineTake(w + rw)) {
       this.close(offender, CLOSE.machineRate, "the machine's relay rate");
       return false;
     }
-    return this.push(to, ta, text, w, window);
+    if (!this.send(to, text)) return false;
+    rx.sent += w;
+    rx.since += w;
+    if (receipt !== null && this.send(to, receipt)) {
+      rx.tokens.push([(JSON.parse(receipt) as { r: string }).r, rx.sent]);
+      rx.sent += rw;
+      rx.since = rw;
+    }
+    to.serializeAttachment(ta);
+    return true;
   }
 
   /** An ack: only a token issued to this very connection, still open; cumulative. */

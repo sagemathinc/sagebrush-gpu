@@ -37,6 +37,14 @@ before(async () => {
   await start();
 });
 after(async () => {
+  // (every leg closed first, so a run with a failed row still exits)
+  for (const l of LEGS) {
+    try {
+      l.ws.close(1000);
+    } catch {
+      // (closed)
+    }
+  }
   await w.dispose();
   rmSync(persist, { recursive: true, force: true });
 });
@@ -53,6 +61,8 @@ async function pageToken(mch: string, inc: number, o: { jti?: string; mbr?: stri
 }
 const MBR = newId("member");
 
+const LEGS: Leg[] = [];
+
 /** One leg: the WebSocket, what it received, and how it closed. */
 class Leg {
   msgs: string[] = [];
@@ -62,6 +72,7 @@ class Leg {
   ws: WebSocket;
   constructor(ws: WebSocket) {
     this.ws = ws;
+    LEGS.push(this);
     ws.addEventListener("message", (e) => {
       const m = String((e as MessageEvent).data);
       this.msgs.push(m);
@@ -136,6 +147,11 @@ async function revoke(mch: string, inc: number): Promise<boolean> {
 async function setClock(mch: string, offsetMs: number) {
   await doPost(mch, "__clock", String(offsetMs));
 }
+const freeze = (mch: string, at: number) => doPost(mch, "__freeze", String(at));
+const take = async (mch: string, n: number) => ((await doPost(mch, "__take", String(n))) as { ok: boolean }).ok;
+const stored = async (mch: string) => (JSON.parse((await state(mch)).kv.machineBucket as string) as { t: number }).t;
+/** Bytes as the relay charges a frame: its UTF-8 length plus the overhead. */
+const cost = (m: string) => Buffer.byteLength(m) + RELAY_LIMITS.overhead;
 
 // ================= routes
 
@@ -406,6 +422,12 @@ test("receipts and windows: a receiver that doesn't ack stops its sender 1013; a
   }
   assert.equal(p.closed, null);
   assert.ok(g.controls("receipt").length >= 10);
+  // (each receipt's upto is every byte charged to this page before it: data, controls and earlier receipts alike)
+  let charged = 0;
+  for (const m of g.msgs) {
+    if (m.startsWith('{"relay":"receipt"')) assert.equal((JSON.parse(m) as { upto: number }).upto, charged);
+    charged += cost(m);
+  }
   // (a page that never acks: the agent is closed 1013 at the window, and nothing past it is sent)
   const g2 = await page(mch, 1);
   g2.autoAck = false;
@@ -507,6 +529,7 @@ test("pages per channel are capped: a fifth replaces the oldest (4009), with its
 test("a leg over its message rate is closed 4008", async () => {
   const mch = newId("machine");
   const p = await peer(mch, 1);
+  await freeze(mch, Date.now()); // (no refill while the pings arrive, however slowly a loaded machine delivers them)
   for (let i = 0; i < RELAY_LIMITS.legBurst + 50 && p.closed === null; i++) p.send('{"relay":"ping"}');
   assert.equal(await p.closedWith(), 4008);
 });
@@ -542,4 +565,111 @@ test("the machine's byte bucket bounds all its traffic, whatever the legs: over 
   const g2 = await page(mch, 1);
   for (let i = 0; i < 4 && g2.closed === null; i++) g2.send(chunk);
   assert.equal(await g2.closedWith(), 4429);
+});
+
+test("the byte bucket across a restart: credit taken before it is never given back", async () => {
+  const T = Date.now();
+  const mch = newId("machine");
+  const other = newId("machine");
+  for (const m of [mch, other]) {
+    await freeze(m, T);
+    await doPost(m, "__machinerate", JSON.stringify({ perSecond: 0, burst: 1000 }));
+  }
+  assert.equal(await take(mch, 1), true);
+  assert.equal(await stored(mch), 999); // (stored before it is spent)
+  assert.equal(await take(mch, 999), true);
+  assert.equal(await stored(mch), 0);
+  assert.equal(await take(mch, 1), false);
+  await w.dispose();
+  await start();
+  for (const m of [mch, other]) {
+    await freeze(m, T);
+    await doPost(m, "__machinerate", JSON.stringify({ perSecond: 0, burst: 1000 }));
+  }
+  assert.equal(await take(mch, 1), false, "a restart gave spent credit back");
+  assert.equal(await take(mch, 999), false);
+  // (the control: a machine that spent nothing has its whole burst after the same restart)
+  assert.equal(await take(other, 999), true);
+  // (a reservation's unspent rest is lost at a restart, never regained: a rate of 4000/s reserves 1000 at once)
+  const r = newId("machine");
+  await freeze(r, T);
+  await doPost(r, "__machinerate", JSON.stringify({ perSecond: 4000, burst: 1000 }));
+  assert.equal(await take(r, 1), true);
+  assert.equal(await stored(r), 0);
+  await w.dispose();
+  await start();
+  await freeze(r, T);
+  await doPost(r, "__machinerate", JSON.stringify({ perSecond: 4000, burst: 1000 }));
+  assert.equal(await take(r, 1), false);
+});
+
+test("the byte bucket: what is stored and what is reserved together never pass the burst", async () => {
+  const T = Date.now();
+  const mch = newId("machine");
+  await freeze(mch, T);
+  await doPost(mch, "__machinerate", JSON.stringify({ perSecond: 4000, burst: 1000 }));
+  assert.equal(await take(mch, 1), true); // (reserves the whole 1000: 999 left in memory, 0 stored)
+  await freeze(mch, T + 1000); // (a second: the stored bucket may refill only to 1000 - 999)
+  assert.equal(await take(mch, 1000), true);
+  assert.equal(await take(mch, 1), false);
+});
+
+/** A peer and a page, then the bucket set to `budget` with time frozen and no refill, then the agent sends the message
+ * whose window-quarter crossing makes a receipt due.  Returns what each side got after the budget was set. */
+async function receiptAtTheBoundary(budget: (data: number, receipt: number) => number) {
+  const mch = newId("machine");
+  const p = await peer(mch, 1);
+  const g = await page(mch, 1);
+  const gen = p.controls("page-open")[0]!.gen as number;
+  const threshold = Math.min(RELAY_LIMITS.receiptEvery, CHANNEL_CAPS.terminal.window / 4);
+  const body = "d".repeat(60_000);
+  const w1 = Buffer.byteLength(body) + RELAY_LIMITS.overhead;
+  let sent = cost(g.msgs[0]!); // (the page's ready)
+  let k = 0;
+  while (sent + w1 < threshold) {
+    p.send(`${gen}\n${body}`);
+    k++;
+    assert.ok(await g.until(() => g.msgs.filter((m) => m === body).length === k));
+    sent += w1;
+  }
+  assert.equal(g.controls("receipt").length, 0);
+  await freeze(mch, Date.now());
+  await doPost(mch, "__machinerate", JSON.stringify({ perSecond: 0, burst: 16 * 1024 * 1024 }));
+  // (the receipt this message makes due: its upto is every byte through this one; r is 22 characters)
+  const receipt = JSON.stringify({ relay: "receipt", r: "R".repeat(22), upto: sent + w1 });
+  const b = budget(w1, cost(receipt));
+  await doPost(mch, "__bucket", String(b));
+  const pBefore = p.msgs.length;
+  const gBefore = g.msgs.length;
+  p.send(`${gen}\n${body}`);
+  await p.until(() => p.closed !== null || g.msgs.length > gBefore + 1, 3000);
+  await sleep(100);
+  const after = [...p.msgs.slice(pBefore), ...g.msgs.slice(gBefore)];
+  return { p, g, budget: b, after, charged: after.reduce((n, m) => n + cost(m), 0), mch };
+}
+
+test("receipts are admitted with the frame that makes them due: past the bucket, neither is sent (all output counted)", async () => {
+  // (one byte short of the data and its receipt: the agent is closed 4429, and nothing at all goes out)
+  const short = await receiptAtTheBoundary((d, r) => d + r - 1);
+  assert.equal(await short.p.closedWith(), 4429);
+  assert.deepEqual(short.after, []);
+  // (the control: exactly enough; both go, and every frame sent since the budget was set fits it exactly)
+  const exact = await receiptAtTheBoundary((d, r) => d + r);
+  assert.equal(exact.p.closed, null);
+  assert.equal(exact.g.controls("receipt").length, 1);
+  assert.equal(exact.charged, exact.budget);
+  assert.equal(await stored(exact.mch), 0);
+});
+
+test("the revoke notice is charged like any frame: with no room the agent is still closed 4403, without it", async () => {
+  for (const room of [0, 1_000_000]) {
+    const mch = newId("machine");
+    const p = await peer(mch, 7);
+    await freeze(mch, Date.now());
+    await doPost(mch, "__machinerate", JSON.stringify({ perSecond: 0, burst: 16 * 1024 * 1024 }));
+    await doPost(mch, "__bucket", String(room));
+    assert.equal(await revoke(mch, 7), true);
+    assert.equal(await p.closedWith(), 4403);
+    assert.equal(p.controls("revoked").length, room ? 1 : 0, String(room));
+  }
 });

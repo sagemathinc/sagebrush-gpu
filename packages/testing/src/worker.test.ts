@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
 import { splitSql, startWorker } from "./worker.ts";
 
 test("splitSql: statements on ; outside strings, identifiers, comments and trigger bodies", () => {
@@ -46,4 +49,13 @@ test("startWorker: a bundled entry, a Durable Object, and D1 migrations applied 
   } finally {
     await w.dispose();
   }
+});
+
+test("startWorker: a failed start (a bad migration) rejects and leaves nothing running, so the process exits", () => {
+  // (in a child process: it catches the rejection and lets its event loop run out; a leaked Miniflare keeps it alive)
+  const t0 = Date.now();
+  const child = fileURLToPath(new URL("../fixtures/start-fail.ts", import.meta.url)); // (from any working directory)
+  const out = execFileSync(process.execPath, [child], { encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
+  assert.equal(out.trim(), "rejected");
+  assert.ok(Date.now() - t0 < 30_000, `${Date.now() - t0} ms`);
 });

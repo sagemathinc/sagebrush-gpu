@@ -22,5 +22,11 @@
   "old": "        if (statements.length) await db.batch(statements.map((s) => db.prepare(s))); // (one file, one transaction)",
   "new": "",
   "note": "startWorker: migrations not applied"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "    await mf.dispose().catch(() => {});",
+  "new": "    void 0;",
+  "note": "harness: a failed start leaves Miniflare running"
  }
 ]

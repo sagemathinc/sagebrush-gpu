@@ -71,15 +71,21 @@ export async function startWorker(o: WorkerOptions): Promise<StartedWorker> {
     d1Databases: o.d1Databases ?? [],
     ...(o.persist ? { durableObjectsPersist: join(o.persist, "do"), d1Persist: join(o.persist, "d1") } : {}),
   });
-  await mf.ready;
-  for (const [binding, dirs] of Object.entries(o.migrations ?? {})) {
-    const db = await mf.getD1Database(binding);
-    for (const dir of dirs) {
-      for (const file of readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(".sql")).sort()) {
-        const statements = splitSql(readFileSync(join(ROOT, dir, file), "utf8"));
-        if (statements.length) await db.batch(statements.map((s) => db.prepare(s))); // (one file, one transaction)
+  try {
+    await mf.ready;
+    for (const [binding, dirs] of Object.entries(o.migrations ?? {})) {
+      const db = await mf.getD1Database(binding);
+      for (const dir of dirs) {
+        for (const file of readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(".sql")).sort()) {
+          const statements = splitSql(readFileSync(join(ROOT, dir, file), "utf8"));
+          if (statements.length) await db.batch(statements.map((s) => db.prepare(s))); // (one file, one transaction)
+        }
       }
     }
+  } catch (e) {
+    // (the caller gets no handle to dispose: this one is disposed here, or the process would never exit)
+    await mf.dispose().catch(() => {});
+    throw e;
   }
   return { mf, dispose: () => mf.dispose() };
 }

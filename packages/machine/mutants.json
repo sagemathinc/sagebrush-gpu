@@ -1039,14 +1039,14 @@
  },
  {
   "file": "src/relay/relay.ts",
-  "old": "    if (t < n) {\n      this.machine = { t, at: now };\n      return false;\n    }",
-  "new": "    if (false) {\n      this.machine = { t, at: now };\n      return false;\n    }",
+  "old": "    if (t < need) return false;",
+  "new": "    if (false) return false;",
   "note": "relay: limits: no machine bucket"
  },
  {
   "file": "src/relay/relay.ts",
-  "old": "if (ta.rx.sent - ta.rx.acked + w > window || ta.rx.tokens.length >= RELAY_LIMITS.tokens) {",
-  "new": "if (ta.rx.tokens.length >= RELAY_LIMITS.tokens) {",
+  "old": "    if (rx.sent - rx.acked + w + rw > window) {",
+  "new": "    if (false) {",
   "note": "relay: window: not checked"
  },
  {
@@ -1114,5 +1114,41 @@
   "old": "    return body.ok === true && typeof body.revokedThrough === \"number\" && body.revokedThrough >= inc;",
   "new": "    return body.ok === true;",
   "note": "relay: revokeMachine: any acknowledgement"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    this.put(\"machineBucket\", JSON.stringify(next)); // (stored first: a failure here throws, nothing granted)\n",
+  "new": "",
+  "note": "relay: bucket: a reservation not stored (a restart gives it back)"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    const t = Math.min(burst - this.reserved,",
+  "new": "    const t = Math.min(burst,",
+  "note": "relay: bucket: stored and reserved together past the burst"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "    if (!this.machineTake(w + rw)) {",
+  "new": "    if (!this.machineTake(w)) {",
+  "note": "relay: receipts: not admitted with their frame"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "      rx.sent += rw;\n",
+  "new": "",
+  "note": "relay: receipts: their bytes not in the receiver's window"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "upto: rx.sent + w });",
+  "new": "upto: rx.sent });",
+  "note": "relay: receipts: upto short of the frame"
+ },
+ {
+  "file": "src/relay/relay.ts",
+  "old": "          if (this.machineTake(bytes(REVOKED) + RELAY_LIMITS.overhead)) this.send(w, REVOKED);",
+  "new": "          this.send(w, REVOKED);",
+  "note": "relay: revoke: the notice outside the bucket"
  }
 ]
