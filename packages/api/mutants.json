@@ -1107,8 +1107,8 @@
  },
  {
   "file": "src/orphans.ts",
-  "old": "\"otherInstallation\", \"nameMismatch\", \"unbound\"] as const);",
-  "new": "\"otherInstallation\", \"unbound\"] as const);",
+  "old": "  \"nameMismatch\",\n  \"accountUnproven\",",
+  "new": "  \"accountUnproven\",",
   "note": "reportOnly: drops nameMismatch"
  },
  {
@@ -1134,5 +1134,17 @@
   "old": "    path: \"/v1/system/orphan-report\",\n    access: { auth: \"system\" },",
   "new": "    path: \"/v1/system/orphan-report\",\n    access: { auth: \"session\", scope: \"none\" },",
   "note": "getOrphanReport: any signed-in user"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "  \"accountUnproven\",\n  \"accountMismatch\",",
+  "new": "  \"accountMismatch\",",
+  "note": "reportOnly: drops accountUnproven"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "  \"accountMismatch\",\n  \"unbound\",",
+  "new": "  \"unbound\",",
+  "note": "reportOnly: drops accountMismatch"
  }
 ]

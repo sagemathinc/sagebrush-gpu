@@ -12,7 +12,7 @@ import {
 
 test("orphan report: the closed lists", () => {
   assert.deepEqual([...ORPHAN_BINDINGS], ["providerId", "launchIntent", "none"]);
-  assert.deepEqual([...ORPHAN_REPORT_ONLY_REASONS], ["unparsed", "otherInstallation", "nameMismatch", "unbound"]);
+  assert.deepEqual([...ORPHAN_REPORT_ONLY_REASONS], ["unparsed", "otherInstallation", "nameMismatch", "accountUnproven", "accountMismatch", "unbound"]);
   assert.deepEqual([...ORPHAN_TERMINATE_CAUSES], ["staleIncarnation", "launchTerminated"]);
   assert.deepEqual([...ORPHAN_FAILURES], ["credentialUnusable", "providerError", "timeout"]);
   for (const list of [LAUNCH_RECORD_OUTCOMES, ORPHAN_BINDINGS, ORPHAN_REPORT_ONLY_REASONS, ORPHAN_TERMINATE_CAUSES, ORPHAN_FAILURES]) {
@@ -74,6 +74,19 @@ test("a report of every kind of row type-checks against the contract", () => {
         sweep: { action: "reportOnly", reason: "unparsed" },
       },
       {
+        provider: "vast",
+        account: { kind: "org", orgId: "org_0123456789abcdefghjk" },
+        providerMachineId: "p1",
+        rawName: "sbg-dev1-0123456789abcdefghjk-2",
+        parsed: { installation: "dev1", machineId, incarnation: 2 },
+        binding: "none",
+        launch: null,
+        ledgerState: null,
+        firstSeenAt: at,
+        providerCostPerHour: null,
+        sweep: { action: "reportOnly", reason: "accountMismatch" },
+      },
+      {
         provider: "runpod",
         account: { kind: "platform" },
         providerMachineId: "p3",
@@ -88,5 +101,5 @@ test("a report of every kind of row type-checks against the contract", () => {
       },
     ],
   };
-  assert.equal(report.rows.length, 3);
+  assert.equal(report.rows.length, 4);
 });

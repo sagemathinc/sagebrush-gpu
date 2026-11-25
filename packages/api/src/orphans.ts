@@ -7,11 +7,16 @@
 // to a launch row by "providerId" (launches.(provider, provider_machine_id), unique) or,
 // failing that, by "launchIntent" (a launch row with no provider id yet, of the same
 // provider, machine and incarnation as the parsed name, which must be this
-// installation's). In this order, first match wins:
+// installation's). Either binding also needs the launch's account to equal the account
+// that listed the row: a launch made with our credential binds only to a platform listing,
+// one made with an organization's key only to that exact organization's listing. A
+// launch whose account can't be proven never binds. In this order, first match wins:
 //   1. unparsed name: reportOnly "unparsed", or "nameMismatch" when a providerId binds it
 //   2. another installation's: reportOnly "otherInstallation", or "nameMismatch" likewise
 //   3. a providerId binding whose machine or incarnation differs from the name: "nameMismatch"
-//   4. no binding: reportOnly "unbound"
+//   4. no binding: reportOnly "accountUnproven" when the same lookup without the account
+//      finds a launch whose account can't be proven, "accountMismatch" when it finds one
+//      in another account, and "unbound" otherwise
 //   5. bound to an incarnation below the machine's current one: terminate, "staleIncarnation"
 //   6. bound to a 'terminated' launch row: terminate, "launchTerminated"
 //   7. otherwise: kept "launchActive" (its watchdog owns it)
@@ -31,7 +36,14 @@ export type LaunchRecordOutcome = (typeof LAUNCH_RECORD_OUTCOMES)[number];
 export const ORPHAN_BINDINGS = Object.freeze(["providerId", "launchIntent", "none"] as const);
 export type OrphanBinding = (typeof ORPHAN_BINDINGS)[number];
 
-export const ORPHAN_REPORT_ONLY_REASONS = Object.freeze(["unparsed", "otherInstallation", "nameMismatch", "unbound"] as const);
+export const ORPHAN_REPORT_ONLY_REASONS = Object.freeze([
+  "unparsed",
+  "otherInstallation",
+  "nameMismatch",
+  "accountUnproven",
+  "accountMismatch",
+  "unbound",
+] as const);
 export type OrphanReportOnlyReason = (typeof ORPHAN_REPORT_ONLY_REASONS)[number];
 
 export const ORPHAN_TERMINATE_CAUSES = Object.freeze(["staleIncarnation", "launchTerminated"] as const);
@@ -41,7 +53,7 @@ export type OrphanTerminateCause = (typeof ORPHAN_TERMINATE_CAUSES)[number];
 export const ORPHAN_FAILURES = Object.freeze(["credentialUnusable", "providerError", "timeout"] as const);
 export type OrphanFailure = (typeof ORPHAN_FAILURES)[number];
 
-/** Whose provider account a machine was found in: ours, or an organization's own key. */
+/** Whose provider account a machine was found in (the credential that listed it): ours, or an organization's own key. */
 export type OrphanAccount = { kind: "platform" } | { kind: "org"; orgId: OrgId };
 
 export interface OrphanCoverage {
