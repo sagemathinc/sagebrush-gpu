@@ -56,9 +56,15 @@ export async function loadAgentSigner(privateJwk: unknown, kid: unknown, publicK
   if (typeof pinned !== "object" || pinned === null || Array.isArray(pinned)) return null;
   const kids = Object.keys(pinned);
   if (kids.length === 0 || kids.length > MAX_PINNED_KEYS || !kids.every((k) => KID_PATTERN.test(k))) return null;
-  if (!Object.hasOwn(pinned, kid)) return null;
-  const pub = closedObject((pinned as Record<string, unknown>)[kid], "crv,kty,x");
-  if (!pub || pub.kty !== "OKP" || pub.crv !== "Ed25519" || !ed25519Part(pub.x) || pub.x !== jwk.x) return null;
+  // (every pin is a closed public Ed25519 JWK, the one used or not)
+  const pins = new Map<string, Record<string, unknown>>();
+  for (const k of kids) {
+    const p = closedObject((pinned as Record<string, unknown>)[k], "crv,kty,x");
+    if (!p || p.kty !== "OKP" || p.crv !== "Ed25519" || !ed25519Part(p.x)) return null;
+    pins.set(k, p);
+  }
+  const pub = pins.get(kid);
+  if (!pub || pub.x !== jwk.x) return null;
   try {
     const privateKey = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", d: jwk.d, x: jwk.x }, "Ed25519", false, ["sign"]);
     const publicKey = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: pub.x }, "Ed25519", false, ["verify"]);

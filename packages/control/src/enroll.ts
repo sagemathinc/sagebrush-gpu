@@ -128,7 +128,12 @@ async function definitiveFailure(ctx: Ctx, r: TokenRow, reason: EnrollFailure, g
     params: [reason, now, r.machine_id, r.incarnation],
   });
   if (reason === "gate-failed" && gate) {
-    stmts.push({ sql: `INSERT INTO gate_reports (machine_id, incarnation, words, at_ms) VALUES (?, ?, ?, ?)`, params: [r.machine_id, r.incarnation, JSON.stringify(gate.fail), now] });
+    // (a report may already be there: another holder of this token enrolled meanwhile. The mark
+    // must hold all the same, so an existing report is kept rather than failing the batch.)
+    stmts.push({
+      sql: `INSERT INTO gate_reports (machine_id, incarnation, words, at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (machine_id, incarnation) DO NOTHING`,
+      params: [r.machine_id, r.incarnation, JSON.stringify(gate.fail), now],
+    });
   }
   try {
     await deps.db.batch(stmts);

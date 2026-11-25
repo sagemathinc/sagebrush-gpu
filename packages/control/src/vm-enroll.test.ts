@@ -159,6 +159,12 @@ test("signer readiness: only a closed Ed25519 JWK whose pair the deployment pins
   await no(signerText.jwk, "k1", JSON.stringify({ k1: { ...KP.pub, use: "sig" } }), "a pinned key with an extra field");
   await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, "bad kid": OTHER.pub }), "a malformed kid among the pins");
   await no(signerText.jwk, "k1", JSON.stringify([KP.pub]), "pins not a map");
+  // every pin is a closed public Ed25519 JWK, used or not
+  await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: "garbage" }), "an unused pin that isn't a key");
+  await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, d: KP.priv.d } }), "an unused pin with a private part");
+  await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, crv: "X25519" } }), "an unused pin of another curve");
+  await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, x: "!" } }), "an unused pin with a malformed x");
+  assert.ok(await loadAgentSigner(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: OTHER.pub })));
   const many = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i === 0 ? "k1" : `k${i + 1}`, i === 0 ? KP.pub : OTHER.pub]));
   await no(signerText.jwk, "k1", JSON.stringify(many), "too many pins");
   const eight = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [i === 0 ? "k1" : `k${i + 1}`, i === 0 ? KP.pub : OTHER.pub]));
@@ -489,5 +495,45 @@ test("race: the launch marked to terminate during the read without a claim (a se
   assert.equal(r.status, 403);
   const s = await state(l.machineId);
   assert.deepEqual([s.token.used_ms, s.machine.state, s.gate, s.launch.outcome, s.launch.terminate_reason], [null, "starting", [], "terminate", "second-announce"]);
+  await noUsedTokenOnIssued();
+});
+
+/** Runs `first` just before the next failure batch (one that records failing gate words) is written. */
+function beforeFailureBatch(first: () => Promise<void>) {
+  const realBatch = w.db.batch;
+  (w.db as { batch: Db["batch"] }).batch = async (stmts) => {
+    if (stmts.some((x) => x.sql.includes("INSERT INTO gate_reports") && x.params[2] !== "[]")) {
+      (w.db as { batch: Db["batch"] }).batch = realBatch;
+      await first();
+    }
+    return realBatch(stmts);
+  };
+}
+
+test("race: a failing gate paused before its failure batch while a passing exchange enrolls: the mark still lands, and the enrolled machine is terminated", async () => {
+  const l = await issued();
+  beforeFailureBatch(async () => {
+    const other = await w.app.fetch(new Request(`${ORIGIN}/v1/agent/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body(l)) }));
+    assert.equal(other.status, 200);
+  });
+  const r = await enroll(body(l, { gate: { v: 1, pass: false, fail: ["imds"] } }));
+  assert.equal(r.status, 403);
+  const s = await state(l.machineId);
+  assert.deepEqual([s.launch.outcome, s.launch.terminate_reason, s.gate], ["terminated", "gate-failed", ["[]"]]); // (the enroll's report kept; the mark held)
+  assert.deepEqual([w.alerts, vm.terminated], [["vm-enroll: gate-failed"], [l.pid]]);
+  await noUsedTokenOnIssued();
+});
+
+test("race: two failing gates for one token: both marks land on the same launch, the first report kept", async () => {
+  const l = await issued();
+  beforeFailureBatch(async () => {
+    const other = await w.app.fetch(new Request(`${ORIGIN}/v1/agent/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body(l, { gate: { v: 1, pass: false, fail: ["sudo"] } })) }));
+    assert.equal(other.status, 403);
+  });
+  const r = await enroll(body(l, { gate: { v: 1, pass: false, fail: ["imds"] } }));
+  assert.equal(r.status, 403);
+  const s = await state(l.machineId);
+  assert.deepEqual([s.launch.terminate_reason, s.gate, typeof s.token.used_ms], ["gate-failed", [JSON.stringify(["sudo"])], "number"]);
+  assert.deepEqual(w.alerts, ["vm-enroll: gate-failed", "vm-enroll: gate-failed"]);
   await noUsedTokenOnIssued();
 });

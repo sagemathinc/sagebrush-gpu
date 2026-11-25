@@ -2902,8 +2902,8 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "  if (reason === \"gate-failed\" && gate) {\n    stmts.push",
-  "new": "  if (false && gate) {\n    stmts.push",
+  "old": "  if (reason === \"gate-failed\" && gate) {",
+  "new": "  if (false && gate) {",
   "note": "gate words not recorded"
  },
  {
@@ -2968,8 +2968,8 @@
  },
  {
   "file": "src/signer.ts",
-  "old": "  const pub = closedObject((pinned as Record<string, unknown>)[kid], \"crv,kty,x\");",
-  "new": "  const pub = (pinned as Record<string, unknown>)[kid] as Record<string, unknown> | null;",
+  "old": "    const p = closedObject((pinned as Record<string, unknown>)[k], \"crv,kty,x\");",
+  "new": "    const p = (pinned as Record<string, unknown>)[k] as Record<string, unknown> | null;",
   "note": "pinned key not closed"
  },
  {
@@ -3001,5 +3001,23 @@
   "old": "  if (typeof b.agentSha256 !== \"string\") return null;",
   "new": "  if (b.agentSha256 === undefined) return null;",
   "note": "agent hash not a string"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": " ON CONFLICT (machine_id, incarnation) DO NOTHING`,",
+  "new": "`,",
+  "note": "an existing report fails the mark"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "    if (!p || p.kty !== \"OKP\" || p.crv !== \"Ed25519\" || !ed25519Part(p.x)) return null;",
+  "new": "    if (!p) return null;",
+  "note": "pins' form unchecked"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "    if (!p || p.kty !== \"OKP\" || p.crv !== \"Ed25519\" || !ed25519Part(p.x)) return null;",
+  "new": "    if (!p || p.kty !== \"OKP\" || !ed25519Part(p.x)) return null;",
+  "note": "pins' curve unchecked"
  }
 ]
