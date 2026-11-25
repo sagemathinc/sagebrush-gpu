@@ -386,11 +386,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "if (access.auth === \"agent\") throw new HttpError(\"unauthenticated\", \"agent tokens are not accepted yet\");",
-  "new": "if (access.auth === \"agent\") return;"
- },
- {
-  "file": "src/app.ts",
   "old": "if (!role) throw new HttpError(\"notFound\", \"no such organization\");",
   "new": "if (!role) throw new HttpError(\"forbidden\", \"no such organization\");"
  },
@@ -1522,26 +1517,6 @@
   "note": "a failing job stops the later ones"
  },
  {
-  "file": "src/jobs.ts",
-  "old": "WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)",
-  "new": "WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "      [nowMs, PRUNE_BATCH],",
-  "new": "      [nowMs + 3_600_001, PRUNE_BATCH],"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "      [nowMs, PRUNE_BATCH],",
-  "new": "      [nowMs, PRUNE_BATCH * 2],"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
-  "new": "Object.freeze([pruneAuthStates, vmWatchdog]);"
- },
- {
   "file": "migrations/0007_sessions.sql",
   "old": "DROP TABLE sign_in_links;",
   "new": ""
@@ -1921,11 +1896,6 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, vmWatchdog]);"
- },
- {
-  "file": "src/jobs.ts",
   "old": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,",
   "new": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,"
  },
@@ -1973,12 +1943,6 @@
   "file": "src/workos.ts",
   "old": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 400;",
   "new": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 307;"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates]);",
-  "note": "the VM watchdog left out of the cron"
  },
  {
   "file": "src/vm.ts",
@@ -2210,11 +2174,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES };",
-  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = {};"
- },
- {
-  "file": "src/app.ts",
   "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
   "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {"
  },
@@ -2317,11 +2276,6 @@
   "file": "src/vm.ts",
   "old": "export const CREATE_DEADLINE_MS = 10 * 60_000;",
   "new": "export const CREATE_DEADLINE_MS = 10 * 60_000 + 1;"
- },
- {
-  "file": "src/vm.ts",
-  "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
-  "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs, i.createdMs],"
  },
  {
   "file": "src/vm.ts",
@@ -2443,11 +2397,6 @@
   "file": "src/billing.ts",
   "old": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ?`",
   "new": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ? OR 1 ORDER BY o.billing_mode DESC`"
- },
- {
-  "file": "src/projects.ts",
-  "old": "    billingMode: r.billing_mode,\n",
-  "new": "    billingMode: \"resold\",\n"
  },
  {
   "file": "migrations/0011_billing_mode.sql",
@@ -3768,5 +3717,57 @@
   "old": "  const base = [\"agentSha256\", \"agentVersion\", \"bootToken\", \"gate\", \"gpu\", \"hostname\", \"mode\"];",
   "new": "  const base = [\"agentSha256\", \"agentVersion\", \"bootToken\", \"gate\", \"gpu\", \"hostname\", \"mode\", \"providerMachineId\"];",
   "note": "a VM's provider id required again"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs + 3_600_001, PRUNE_BATCH],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH * 2],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, vmWatchdog]);"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, vmWatchdog]);"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog]);",
+  "note": "the VM watchdog left out of the cron"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };",
+  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
+  "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs, i.createdMs],"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "    name: r.name,\n    billingMode: r.billing_mode,\n",
+  "new": "    name: r.name,\n    billingMode: \"resold\",\n"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "      orgId: r.org_id,\n      billingMode: r.billing_mode,\n",
+  "new": "      orgId: r.org_id,\n      billingMode: \"resold\",\n",
+  "note": "a project's billing mode not read from its row (the list)"
  }
 ]

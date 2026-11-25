@@ -18,7 +18,7 @@ from sbgpu_agent import vmgate as G  # noqa: E402
 NET_HEAD = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
 SYSTEMD, RESOLVED, PY = "/usr/lib/systemd/systemd", "/usr/lib/systemd/systemd-resolved", "/usr/bin/python3.12"
 SUDOERS = "Defaults env_reset\nroot ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n"
-ALLOW = {"v": 1, "processes": [SYSTEMD, RESOLVED, PY], "mounts": [],
+ALLOW = {"v": 1, "processes": [SYSTEMD, RESOLVED, PY], "mounts": [], "sentinelHomes": ["/nonexistent"],
          "loopback": [{"process": RESOLVED, "proto": "udp", "address": "127.0.0.53", "port": 53},
                       {"process": RESOLVED, "proto": "tcp", "address": "127.0.0.53", "port": 53}],
          "providerReader2": [], "neutralisedAgents": [{"unit": "grafana-agent", "process": "grafana-agent"}],
@@ -83,6 +83,7 @@ class VM:
         self.write("proc/net/ipv6_route", "")
         self.write("proc/net/fib_trie", "Main:\n  +-- 0.0.0.0/0 3 0 5\n     |-- 10.0.0.5\n        /32 host LOCAL\n")
         self.nft = nft_json()
+        self.loaded = b""  # (systemd's list of loaded units matching a neutralised agent: none)
         self.probe = {}  # (address -> what a connection to it does; default: refused at once)
         self.mountinfo("/")
         self.process(1, "systemd", SYSTEMD)
@@ -140,7 +141,7 @@ class VM:
                 raise socket.timeout("timed out")
             raise OSError(what, os.strerror(what))
         return G.run(allow, known, root=self.root, proc=self.proc, connect=connect, self_pid=999999,
-                     nft=lambda: self.nft)
+                     nft=lambda: self.nft, units=lambda patterns: self.loaded)
 
     def close(self):
         shutil.rmtree(self.root)
@@ -761,6 +762,81 @@ class NeutralisedTest(Base):
         self.assertEqual(v.run(dict(ALLOW, processes=ALLOW["processes"] + ["/opt/x/grafana-agent"])), (False, ["agent-active"]))
         self.assertEqual(self.vm().run(), (True, []))  # (not installed at all: nothing to neutralise)
 
+    def test_loaded_units_of_a_neutralised_agent_must_be_down(self):
+        for line, ok in (("grafana-agent.socket loaded active running x\n", False),
+                         ("grafana-agent.socket masked active running x\n", False),
+                         ("grafana-agent.socket loaded inactive dead x\n", False),   # (down, but it could start)
+                         ("grafana-agent.socket masked inactive dead x\n", True),
+                         ("grafana-agent@3.service not-found inactive dead x\n", True),
+                         ("grafana-agent.timer masked failed failed x\n", True),
+                         ("grafana-agent.timer not-found activating start x\n", False)):
+            v = self.vm()
+            v.loaded = line.encode()
+            self.assertEqual(v.run(), (True, []) if ok else (False, ["agent-active"]), line)
+        for bad in (b"garbage\n", b"bad/name loaded active running x\n", b"\xff loaded active running x\n"):
+            v = self.vm()
+            v.loaded = bad
+            self.assertEqual(v.run(), (False, ["unreadable"]), bad)
+        self.assertEqual(G.agent_patterns(ALLOW), ["grafana-agent.service", "grafana-agent.socket", "grafana-agent.timer",
+                                                   "grafana-agent.path", "grafana-agent@*"])
+
+    def test_only_the_agents_own_loaded_units_are_judged(self):
+        unrelated = b"cron.service loaded active running x\nmy-agent-other.service loaded active running x\n"
+        v = self.vm()
+        asked = []
+        v.loaded = unrelated
+        none = dict(ALLOW, neutralisedAgents=[])
+        res = G.run(none, (), root=v.root, proc=v.proc, self_pid=999999, nft=lambda: v.nft,
+                    units=lambda patterns: asked.append(patterns) or unrelated,
+                    connect=lambda f, a: (_ for _ in ()).throw(ConnectionRefusedError(errno.ECONNREFUSED, "x")))
+        self.assertEqual(res, (True, []))
+        self.assertEqual(asked, [])  # (no agents: systemd isn't asked, an empty pattern list would list everything)
+        v = self.vm()  # (an unrelated unit in the list, even an active one, isn't the agent's)
+        v.loaded = b"grafana-agent-other.service loaded active running x\ncron.service loaded active running x\n"
+        self.assertEqual(v.run(), (True, []))
+        v.loaded = b"grafana-agent.socket loaded active running x\n"
+        self.assertEqual(v.run(), (False, ["agent-active"]))  # (the control: its own unit still fails)
+
+    def test_the_gate_lists_loaded_units_through_the_bounded_runner(self):
+        calls = []
+
+        def runner(argv, limit, timeout, data=None):
+            calls.append((argv, limit, timeout))
+            return runner.answer
+        self.patch_attr(G, "run_bounded", runner)
+        runner.answer = (0, b"grafana-agent.socket masked inactive dead x\n")
+        self.assertEqual(G.loaded_units(G._list_units(["a@*"])), [("grafana-agent.socket", "masked", "inactive")])
+        self.assertEqual(calls[-1], (["systemctl", "list-units", "--all", "--plain", "--no-legend", "--full", "a@*"],
+                                     G.LIST_MAX, G.LIST_TIMEOUT_S))
+        runner.answer = (1, b"")
+        with self.assertRaises(G.Unreadable):
+            G._list_units(["a@*"])
+
+        def failing(argv, limit, timeout, data=None):
+            raise G.CommandFailed("overflow")
+        self.patch_attr(G, "run_bounded", failing)
+        with self.assertRaises(G.Unreadable):
+            G._list_units(["a@*"])
+        with self.assertRaises(G.Unreadable):
+            G._nft_listing()
+        self.patch_attr(G, "run_bounded", lambda argv, limit, timeout, data=None: (1, b"{}"))
+        with self.assertRaises(G.Unreadable):
+            G._nft_listing()
+        self.patch_attr(G, "run_bounded", lambda argv, limit, timeout, data=None: (0, b"{}") if limit == G.NFT_MAX else None)
+        self.assertEqual(G._nft_listing(), b"{}")
+
+    def test_lingering_users_fail(self):
+        v = self.vm()
+        v.write(G.LINGER_DIR + "/shadeform", "")
+        self.assertEqual(v.run(), (False, ["user-session"]))
+        os.unlink(v.path(G.LINGER_DIR + "/shadeform"))
+        self.assertEqual(v.run(), (True, []))  # (the directory there, and empty)
+
+    def patch_attr(self, obj, name, value):
+        old = getattr(obj, name)
+        setattr(obj, name, value)
+        self.addCleanup(setattr, obj, name, old)
+
     def test_a_provider_channel_kept_on_purpose_is_exact_and_labelled(self):
         qga = "/usr/sbin/qemu-ga"
         v = self.vm()
@@ -844,7 +920,7 @@ class NeutralisedTest(Base):
         def missing():
             raise G.Unreadable("nft")
         v.nft = None
-        self.assertEqual(G.run(ALLOW, (), root=v.root, proc=v.proc, self_pid=999999, nft=missing,
+        self.assertEqual(G.run(ALLOW, (), root=v.root, proc=v.proc, self_pid=999999, nft=missing, units=lambda p: b"",
                                connect=lambda f, a: (_ for _ in ()).throw(ConnectionRefusedError(errno.ECONNREFUSED, "x"))),
                          (False, ["imds"]))
         self.assertTrue(G.meta_rules_exact(nft_json()))
@@ -937,6 +1013,7 @@ class NeutralisedTest(Base):
         try:
             self.assertEqual(v.run(), (False, ["mount-crossing"]))
             self.assertEqual(v.run(dict(ALLOW, mounts=["/home/b"])), (True, []))  # (the alias pinned by the image)
+            self.assertEqual(v.run(dict(ALLOW, mounts=["/home/a"])), (True, []))  # (or the path it aliases)
         finally:
             G.os.fstat = real_fstat
         self.assertEqual(v.run(), (True, []))  # (the control: two different directories)
