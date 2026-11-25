@@ -235,13 +235,53 @@ test("the hard stop saves and stops before the allocation runs out", async () =>
   await rejects(c.call("restartMachine", { params: { machineId: m.id }, body: {} }), "allocationTooLow");
 });
 
+test("updateProject checks every field as the control plane does, and changes only what is sent", async () => {
+  const d = setup();
+  const p = { projectId: d.projectId };
+  const manager = await d.as(d.emails.manager);
+  const before = await manager.call("getProject", { params: p });
+  const bad = async (body: object, message: RegExp) => {
+    await assert.rejects(manager.call("updateProject", { params: p, body }), (err: unknown) => {
+      assert.ok(err instanceof ApiError, String(err));
+      assert.equal(err.code, "badRequest");
+      assert.match(err.message, message);
+      return true;
+    });
+  };
+  await bad({ name: "   " }, /1 to 200 characters/);
+  await bad({ name: "x".repeat(201) }, /1 to 200 characters/);
+  await bad({ name: 7 }, /a project name is a string/);
+  await bad({ endsAt: before.startsAt }, /endsAt must be after startsAt/);
+  await bad({ startsAt: "2030-01-01T00:00:00.000Z" }, /endsAt must be after startsAt/);
+  // A date that parses but isn't an ISO time is refused as such, whatever the order.
+  await bad({ endsAt: "2030-01-01" }, /endsAt must be an ISO time/);
+  await bad({ startsAt: "2020-01-01" }, /startsAt must be an ISO time/);
+  await bad({ policy: { idleStopMinutes: 4 } }, /idleStopMinutes must be a whole number from 5 to 1440/);
+  await bad({ policy: { colour: "red" } }, /unknown policy field: colour/);
+  await bad({ policy: { allowedProviders: ["runpod", "runpod"] } }, /allowedProviders/);
+  await bad({ labels: { project: "course" } }, /labels has exactly/);
+  await bad({ labels: { project: " course", member: "student", manager: "instructor", assistant: "TA", team: "team" } }, /labels.project/);
+  // Nothing was changed by the refusals.
+  assert.deepEqual(await manager.call("getProject", { params: p }), before);
+
+  const after = await manager.call("updateProject", { params: p, body: { name: "  Spring lab ", policy: { idleStopMinutes: 45 }, labels: null } });
+  assert.equal(after.name, "Spring lab");
+  assert.equal(after.labels, null);
+  assert.deepEqual(after.policy, { ...before.policy, idleStopMinutes: 45 });
+  assert.deepEqual([after.startsAt, after.endsAt], [before.startsAt, before.endsAt]);
+  assert.equal((await manager.call("updateProject", { params: p, body: { name: "x".repeat(200) } })).name.length, 200);
+  // Members can't change settings.
+  const member = await d.as(d.emails.member);
+  await rejects(member.call("updateProject", { params: p, body: { name: "Mine" } }), "forbidden", 403);
+});
+
 test("idle and max-session stops save first and say why", async () => {
   const d = setup();
   const manager = await d.as(d.emails.manager);
-  await manager.call("updateProject", { params: { projectId: d.projectId }, body: { policy: { maxSessionMinutes: 2 } } });
+  await manager.call("updateProject", { params: { projectId: d.projectId }, body: { policy: { maxSessionMinutes: 15 } } });
   const c = await d.as(d.emails.member);
   const m = await startL4(c, d.projectId);
-  d.backend.advance(90_000 + 2 * MIN - 1000);
+  d.backend.advance(90_000 + 15 * MIN - 1000);
   assert.equal((await c.call("getMachine", { params: { machineId: m.id } })).state, "running");
   d.backend.advance(1000);
   const ended = await c.call("getMachine", { params: { machineId: m.id } });

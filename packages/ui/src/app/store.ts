@@ -17,6 +17,7 @@ import {
   type Quote,
   type SignInOutcome,
   type SpendMeter,
+  type UpdateProjectRequest,
 } from "@sbgpu/api";
 import { ApiError, type Client } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
@@ -380,6 +381,18 @@ export class Store {
   // ---------------------------------------------------------------- managing (staff)
 
   /** Set one member's allocation. */
+  /** Change the project's settings (a manager's); the request carries only what changed. */
+  async updateProject(body: UpdateProjectRequest): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act("settings", async () => {
+      await this.client.call("updateProject", { params: { projectId }, body });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
   async setAllocation(memberId: string, amount: Micros): Promise<boolean> {
     const projectId = this.projectId.value;
     if (projectId == null) return false;
