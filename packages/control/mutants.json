@@ -3769,5 +3769,23 @@
   "old": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)",
   "new": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms <> OLD.first_active_ms)",
   "note": "first ACTIVE clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN 0\n",
+  "note": "identity mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN NEW.incarnation IS NOT OLD.incarnation\n",
+  "note": "machine mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN NEW.machine_id IS NOT OLD.machine_id\n",
+  "note": "incarnation mutable"
  }
 ]
