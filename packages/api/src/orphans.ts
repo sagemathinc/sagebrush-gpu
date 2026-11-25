@@ -9,8 +9,11 @@
 // provider, machine and incarnation as the parsed name, which must be this
 // installation's). Either binding also needs the launch's account to equal the account
 // that listed the row: a launch made with our credential binds only to a platform listing,
-// one made with an organization's key only to that exact organization's listing. A
-// launch whose account can't be proven never binds. In this order, first match wins:
+// one made with an organization's key only to that exact organization's listing. The
+// launch's account (its kind and exact org id) is pinned on the launch row at intent and
+// immutable after: it is never derived from the machine's or project's current owner,
+// since machines and projects can move. A launch with no pinned account can't be proven
+// and never binds. In this order, first match wins:
 //   1. unparsed name: reportOnly "unparsed", or "nameMismatch" when a providerId binds it
 //   2. another installation's: reportOnly "otherInstallation", or "nameMismatch" likewise
 //   3. a providerId binding whose machine or incarnation differs from the name: "nameMismatch"
