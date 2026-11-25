@@ -67,6 +67,7 @@ class FakeLeg:
         self.reader, self.writer, self.relay = reader, writer, relay
         self.msgs = []
         self.closed = None
+        self.reason = None
         self.got = asyncio.Event()
 
     async def read_loop(self):
@@ -85,6 +86,7 @@ class FakeLeg:
                 op = b0 & 0x0F
                 if op == 0x8:
                     self.closed = struct.unpack(">H", bytes(data[:2]))[0] if n >= 2 else 1005
+                    self.reason = bytes(data[2:]).decode()
                     self.got.set()
                     return
                 if op == 0x1:
@@ -172,7 +174,8 @@ class ParseTest(unittest.TestCase):
                     '{"relay":"page-open","conn":"c1","chan":"kernel","gen":3,"mbr":"%s"}' % MBR,
                     '{"relay":"page-open","conn":"c1","chan":"terminal","gen":0,"mbr":"%s"}' % MBR,
                     '{"relay":"page-open","conn":"c1","chan":"terminal","gen":3,"mbr":"x"}',
-                    '{"relay":"nope"}', '{"relay":"pong","relay":"pong"}', '{"relay":"receipt","r":"short","upto":1}'):
+                    '{"relay":"nope"}', '{"relay":"pong","relay":"pong"}', '{"relay":"receipt","r":"short","upto":1}',
+                    '{"relay":"pong" }', '{"relay":"ready", "inc":2}', '{"relay":"ready","inc":02}', '{"relay":"ready","inc":2}\n'):
             with self.assertRaises(R.ControlError, msg=bad):
                 R.parse_control(bad)
 
@@ -252,6 +255,8 @@ class ClientTest(unittest.TestCase):
 
     @aio
     async def test_violations_close_the_leg_1008(self):
+        # (each case: what the relay sends, and the reason the agent gives as it closes; a case that only some other
+        # rule would also refuse is told apart by its reason)
         cases = [
             ('1\n{"t":"x"}', "a page's message before ready"),
             ('{"relay":"pong"}', "a control before ready"),
@@ -260,8 +265,17 @@ class ClientTest(unittest.TestCase):
             (None, '{"relay":"ready","inc":1}|{"relay":"page-close","conn":"c9","gen":9}'),
             (None, '{"relay":"ready","inc":1}|{"relay":"page-open","conn":"c1","chan":"terminal","gen":2,"mbr":"%s"}|{"relay":"page-open","conn":"c2","chan":"terminal","gen":2,"mbr":"%s"}' % (MBR, MBR)),
             (None, '{"relay":"ready","inc":1}|{ "relay":"pong"}'),
+            # (a page-close naming a page this agent holds, but another connection's: refused)
+            (None, '{"relay":"ready","inc":1}|{"relay":"page-open","conn":"c1","chan":"terminal","gen":3,"mbr":"%s"}|{"relay":"page-close","conn":"c2","gen":3}' % MBR),
+            # (a control in another serialization than the relay's one)
+            (None, '{"relay":"ready","inc":1}|{"relay":"pong" }'),
         ]
-        for first, seq in cases:
+        reasons = {
+            0: "a page's message before ready",
+            7: "a page-close for no page this agent holds",
+            8: "a malformed relay control (not the one serialization)",
+        }
+        for i, (first, seq) in enumerate(cases):
             relay = await FakeRelay().start()
             c = client_for(relay)
             stop = asyncio.Event()
@@ -274,6 +288,8 @@ class ClientTest(unittest.TestCase):
                     leg.send(m)
                 self.assertTrue(await leg.until(lambda: leg.closed is not None), seq)
                 self.assertEqual(leg.closed, 1008, (first, seq))
+                if i in reasons:
+                    self.assertEqual(leg.reason, reasons[i], seq)
             finally:
                 stop.set()
                 await asyncio.wait_for(run, 5)
