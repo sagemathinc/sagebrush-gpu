@@ -1831,7 +1831,7 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    if any(r[3] in gids for r in _rows(os.path.join(root, \"etc/passwd\"), PASSWD_MAX, 7)):",
+  "old": "    if any(_gid(r[3]) in gids for r in _rows(os.path.join(root, \"etc/passwd\"), PASSWD_MAX, 7)):",
   "new": "    if False:",
   "note": "vm gate neutralised: sudo: primary groups unchecked"
  },
@@ -1921,26 +1921,26 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    if other or len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):",
-  "new": "    if other or len(chains) != 1:",
+  "old": "            and isinstance(chain.get(\"name\"), str) and all(chain.get(k) == v for k, v in META_CHAIN.items())):",
+  "new": "            and isinstance(chain.get(\"name\"), str)):",
   "note": "vm gate neutralised: imds: the chain unchecked"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    if other or len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):",
-  "new": "    if len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):",
+  "old": "    if other or len(tables) != 1 or len(chains) != 1:",
+  "new": "    if len(tables) != 1 or len(chains) != 1:",
   "note": "vm gate neutralised: imds: other objects allowed"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    return None not in rules and len(rules) == len(META_RULES) and set(rules) == META_RULES",
-  "new": "    return None not in rules and set(rules) == META_RULES",
+  "old": "    return None not in found and len(found) == len(META_RULES) and set(found) == META_RULES",
+  "new": "    return None not in found and set(found) == META_RULES",
   "note": "vm gate neutralised: imds: a duplicate rule allowed"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    return None not in rules and len(rules) == len(META_RULES) and set(rules) == META_RULES",
-  "new": "    return None not in rules and set(rules) >= META_RULES",
+  "old": "    return None not in found and len(found) == len(META_RULES) and set(found) == META_RULES",
+  "new": "    return None not in found and set(found) >= META_RULES",
   "note": "vm gate neutralised: imds: extra rules allowed"
  },
  {
@@ -2056,5 +2056,53 @@
   "old": "    return {\"config-drive\"} if any(n.lower() in CONFIG_DRIVE_LABELS for n in names) else set()",
   "new": "    return {\"config-drive\"} if any(n in CONFIG_DRIVE_LABELS for n in names) else set()",
   "note": "vm gate neutralised: config drive: case-sensitive labels"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return int(field)\n\n\ndef check_sudo(",
+  "new": "    return field\n\n\ndef check_sudo(",
+  "note": "vm gate neutralised: sudo: group ids compared as text"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if not re.fullmatch(r\"[0-9]{1,10}\", field):\n        raise Unreadable(\"gid\")",
+  "new": "    pass",
+  "note": "vm gate neutralised: sudo: any group id text accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                and r.get(\"chain\") == chain[\"name\"]):",
+  "new": "                ):",
+  "note": "vm gate neutralised: imds: a rule in another chain counted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if not (isinstance(r, dict) and r.get(\"family\") == \"inet\" and r.get(\"table\") == META_TABLE",
+  "new": "        if not (isinstance(r, dict) and r.get(\"family\") == \"inet\"",
+  "note": "vm gate neutralised: imds: a rule of another table counted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if not (isinstance(r, dict) and r.get(\"family\") == \"inet\" and r.get(\"table\") == META_TABLE",
+  "new": "        if not (isinstance(r, dict) and r.get(\"table\") == META_TABLE",
+  "note": "vm gate neutralised: imds: a rule of another family counted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if not (isinstance(table, dict) and table.get(\"family\") == \"inet\" and table.get(\"name\") == META_TABLE):\n        return False",
+  "new": "    pass",
+  "note": "vm gate neutralised: imds: the table unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if not (isinstance(chain, dict) and chain.get(\"family\") == \"inet\" and chain.get(\"table\") == META_TABLE",
+  "new": "    if not (isinstance(chain, dict)",
+  "note": "vm gate neutralised: imds: the chain's table unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if other or len(tables) != 1 or len(chains) != 1:",
+  "new": "    if other or len(chains) != 1:",
+  "note": "vm gate neutralised: imds: any number of tables"
  }
 ]

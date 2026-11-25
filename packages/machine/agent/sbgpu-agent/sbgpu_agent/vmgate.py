@@ -586,15 +586,23 @@ def check_passwords(root):
     return out
 
 
+def _gid(field):
+    """A group id as a number: decimal digits only (libc reads 27, 027 and 0027 alike, so the text can't be compared);
+    anything else is Unreadable."""
+    if not re.fullmatch(r"[0-9]{1,10}", field):
+        raise Unreadable("gid")
+    return int(field)
+
+
 def check_sudo(root, allow):
     """No member of a sudo group, nobody's primary group one, and every sudoers file exactly as the image allowlist
     has it (by sha256; one not on it, or not a regular file, fails)."""
     out = set()
     groups = _rows(os.path.join(root, "etc/group"), GROUP_MAX, 4)
-    gids = {g[2] for g in groups if g[0] in SUDO_GROUPS}
+    gids = {_gid(g[2]) for g in groups if g[0] in SUDO_GROUPS}
     if any(g[0] in SUDO_GROUPS and g[3] != "" for g in groups):
         out.add("sudo")
-    if any(r[3] in gids for r in _rows(os.path.join(root, "etc/passwd"), PASSWD_MAX, 7)):
+    if any(_gid(r[3]) in gids for r in _rows(os.path.join(root, "etc/passwd"), PASSWD_MAX, 7)):
         out.add("sudo")
     files = ["/etc/sudoers"]
     try:
@@ -663,23 +671,38 @@ def _meta_rule(expr):
 
 
 def meta_rules_exact(listing):
-    """Whether nft's JSON listing of our table is exactly the one output chain with exactly META_RULES."""
+    """Whether nft's JSON listing is exactly our table (inet sbgpu_meta), its one output chain, and exactly META_RULES
+    in that chain: every rule must name that family, table and chain (a reject in any other chain does nothing)."""
     try:
         objs = json.loads(listing)["nftables"]
     except (ValueError, KeyError, TypeError):
         raise Unreadable("nft")
-    chains, rules, other = [], [], 0
+    tables, chains, rules, other = [], [], [], 0
     for o in objs if isinstance(objs, list) else []:
         kind = next(iter(o), None) if isinstance(o, dict) and len(o) == 1 else None
-        if kind == "chain":
+        if kind == "table":
+            tables.append(o["table"])
+        elif kind == "chain":
             chains.append(o["chain"])
         elif kind == "rule":
-            rules.append(_meta_rule(o["rule"].get("expr")) if isinstance(o["rule"], dict) else None)
-        elif kind not in ("metainfo", "table"):
+            rules.append(o["rule"])
+        elif kind != "metainfo":
             other += 1
-    if other or len(chains) != 1 or any(chains[0].get(k) != v for k, v in META_CHAIN.items()):
+    if other or len(tables) != 1 or len(chains) != 1:
         return False
-    return None not in rules and len(rules) == len(META_RULES) and set(rules) == META_RULES
+    table, chain = tables[0], chains[0]
+    if not (isinstance(table, dict) and table.get("family") == "inet" and table.get("name") == META_TABLE):
+        return False
+    if not (isinstance(chain, dict) and chain.get("family") == "inet" and chain.get("table") == META_TABLE
+            and isinstance(chain.get("name"), str) and all(chain.get(k) == v for k, v in META_CHAIN.items())):
+        return False
+    found = []
+    for r in rules:
+        if not (isinstance(r, dict) and r.get("family") == "inet" and r.get("table") == META_TABLE
+                and r.get("chain") == chain["name"]):
+            return False  # (a rule elsewhere, or with no identity: not ours)
+        found.append(_meta_rule(r.get("expr")))
+    return None not in found and len(found) == len(META_RULES) and set(found) == META_RULES
 
 
 def _probe(connect, family, address):

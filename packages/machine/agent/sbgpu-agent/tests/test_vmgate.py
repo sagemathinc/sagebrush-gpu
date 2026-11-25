@@ -668,6 +668,20 @@ class NeutralisedTest(Base):
         v = self.vm()
         v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:27::/home/shadeform:/bin/bash\n")
         self.assertEqual(v.run(), (False, ["sudo"]))  # (sudo as a primary group)
+        for group_gid, user_gid in (("27", "27"), ("027", "27"), ("27", "027"), ("027", "0027")):
+            v = self.vm()  # (group ids compare as numbers, as libc reads them)
+            v.write("etc/group", "root:x:0:\nsudo:x:%s:\n" % group_gid)
+            v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:%s::/home/shadeform:/bin/bash\n" % user_gid)
+            self.assertEqual(v.run(), (False, ["sudo"]), (group_gid, user_gid))
+        v = self.vm()
+        v.write("etc/group", "root:x:0:\nsudo:x:27:\n")
+        v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:270::/home/shadeform:/bin/bash\n")
+        self.assertEqual(v.run(), (True, []))  # (270 isn't 27)
+        for group_gid, user_gid in (("+27", "27"), ("27", " 27"), ("2a", "27"), ("27", ""), ("", "27"), ("27", "12345678901")):
+            v = self.vm()  # (anything but plain decimal digits is unreadable, never compared as text)
+            v.write("etc/group", "root:x:0:\nsudo:x:%s:\n" % group_gid)
+            v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\nshadeform:x:1001:%s::/home/shadeform:/bin/bash\n" % user_gid)
+            self.assertEqual(v.run(), (False, ["unreadable"]), (group_gid, user_gid))
         v = self.vm()
         v.write("etc/group", "root:x:0:\nusers:x:100:ubuntu\n")  # (a member of an ordinary group: fine)
         self.assertEqual(v.run(), (True, []))
@@ -794,10 +808,33 @@ class NeutralisedTest(Base):
             c = json.loads(json.dumps(NFT_OBJS))
             c[2]["chain"][key] = val
             changed.append(c)
+        # (the rules must sit in our one output chain of inet sbgpu_meta: a reject anywhere else does nothing)
+        def moved(**ident):
+            c = json.loads(json.dumps(NFT_OBJS))
+            for r in c[3:]:
+                r["rule"].update(ident)
+            return c
+        dead = {"chain": {"family": "inet", "table": "sbgpu_meta", "name": "dead", "handle": 2}}
+        changed += [
+            NFT_OBJS[:2] + [NFT_CHAIN] + moved(chain="dead")[3:],               # (the rules in a chain not listed)
+            NFT_OBJS[:3] + [dead] + moved(chain="dead")[3:],                    # (an inert second chain: two chains)
+            moved(table="other"), moved(family="ip"),
+            [o if "rule" not in o else {"rule": {k: x for k, x in o["rule"].items() if k != "chain"}} for o in NFT_OBJS],
+            [o if "table" not in o else {"table": dict(o["table"], name="other")} for o in NFT_OBJS],
+            [o if "table" not in o else {"table": dict(o["table"], family="ip")} for o in NFT_OBJS],
+            [o for o in NFT_OBJS if "table" not in o],                          # (no table object)
+            NFT_OBJS + [{"table": {"family": "inet", "name": "sbgpu_meta", "handle": 8}}],  # (two)
+            [o if "chain" not in o else {"chain": dict(o["chain"], table="other")} for o in NFT_OBJS],
+            [o if "chain" not in o else {"chain": dict(o["chain"], family="ip")} for o in NFT_OBJS],
+        ]
         for objs in changed:
             v = self.vm()
             v.nft = nft_json(objs)
             self.assertEqual(v.run(), (False, ["imds"]), objs)
+        renamed = [o if "chain" not in o else {"chain": dict(o["chain"], name="meta")} for o in moved(chain="meta")]
+        v = self.vm()
+        v.nft = nft_json(renamed)
+        self.assertEqual(v.run(), (True, []))  # (the control: any name, as long as rules and chain agree)
         for raw in (b"", b"{", b'{"other": []}'):
             v = self.vm()
             v.nft = raw
