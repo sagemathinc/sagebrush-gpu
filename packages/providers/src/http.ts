@@ -21,3 +21,23 @@ export function retryAfterSeconds(value: string | null): number | null {
   if (value === null || !/^[0-9]{1,6}$/.test(value.trim())) return null;
   return Number(value.trim());
 }
+
+/** The exception names fetch and AbortSignal.timeout throw; any other name reads as "error". */
+const FAILURE_NAMES = new Set(["AbortError", "TimeoutError", "TypeError"]);
+
+/**
+ * A fetch failure's name for an error message: one of a fixed few, never the exception's own
+ * text, since a custom fetch (or anything below it) could put request values in its name.
+ */
+export function failureName(e: unknown): string {
+  try {
+    if (!(e instanceof Error)) return "error";
+    // Read the name once: a getter could answer differently on a second read.
+    const name: unknown = e.name;
+    // Return our own constant, never the value read.
+    for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;
+  } catch {
+    // A throwing getter (or a proxy that throws on instanceof) names nothing.
+  }
+  return "error";
+}

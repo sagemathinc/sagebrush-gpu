@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
-import type { Fetch, HttpRequest } from "../http.ts";
+import { failureName, type Fetch, type HttpRequest } from "../http.ts";
 import type { LaunchSpec } from "../types.ts";
 import { expectedSpec, specDrift } from "../drift.ts";
 import { podStatus, runpodError, RunPodAdapter, UNREADABLE } from "./adapter.ts";
@@ -380,6 +380,54 @@ test("errors never carry provider text, which can echo the boot token", async ()
 test("errors never carry the API key", async () => {
   const { a } = adapter([new TypeError(`connect failed Bearer ${KEY}`), { status: 500, body: "" }]);
   await assert.rejects(a.launch(spec), (e: unknown) => e instanceof Error && !e.message.includes(KEY));
+});
+
+test("a fetch failure is named by a fixed word, never by the exception's own name or text", async () => {
+  // A fetch that puts the key in both the name and the message.
+  const poisoned = Object.assign(new Error(`failed ${KEY}`), { name: `Bearer ${KEY}` });
+  const { a } = adapter([poisoned]);
+  await assert.rejects(
+    a.status("p"),
+    (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && !e.message.includes(KEY) && e.message.endsWith("no response (error)"),
+  );
+  for (const name of ["AbortError", "TimeoutError", "TypeError"]) {
+    const { a: b } = adapter([Object.assign(new Error(KEY), { name })]);
+    await assert.rejects(b.status("p"), (e: unknown) => e instanceof ProviderError && e.message.endsWith(`no response (${name})`) && !e.message.includes(KEY));
+  }
+  assert.equal(failureName("TypeError"), "error");
+  assert.equal(failureName(null), "error");
+  assert.equal(failureName(Object.assign(new Error("x"), { name: "SyntaxError" })), "error");
+});
+
+test("failureName reads the name once and returns only its own constant", () => {
+  // A getter that passes the check on its first read and carries a marker on any later read.
+  let reads = 0;
+  const twoFaced = new Error("x");
+  Object.defineProperty(twoFaced, "name", { get: () => (reads++ === 0 ? "TypeError" : `MARKER ${KEY}`) });
+  assert.equal(failureName(twoFaced), "TypeError");
+  assert.equal(reads, 1);
+  // The control: a getter that carries the marker from its first read.
+  const marked = new Error("x");
+  Object.defineProperty(marked, "name", { get: () => `MARKER ${KEY}` });
+  assert.equal(failureName(marked), "error");
+  // A throwing getter, and a proxy that throws on instanceof, give the fixed fallback.
+  const throwing = new Error("x");
+  Object.defineProperty(throwing, "name", { get: () => { throw new Error(KEY); } });
+  assert.equal(failureName(throwing), "error");
+  const proxy = new Proxy({}, { getPrototypeOf: () => { throw new Error(KEY); } });
+  assert.equal(failureName(proxy), "error");
+  // A String object that equals "TypeError" by value is not the constant.
+  const boxed = new Error("x");
+  Object.defineProperty(boxed, "name", { value: new String("TypeError") });
+  assert.equal(failureName(boxed), "error");
+});
+
+test("a two-faced error name never reaches a ProviderError message", async () => {
+  let reads = 0;
+  const twoFaced = new Error(KEY);
+  Object.defineProperty(twoFaced, "name", { get: () => (reads++ === 0 ? "TypeError" : `MARKER ${KEY}`) });
+  const { a } = adapter([twoFaced]);
+  await assert.rejects(a.status("p"), (e: unknown) => e instanceof ProviderError && e.message.endsWith("no response (TypeError)") && !e.message.includes(KEY));
 });
 
 test("a non-JSON success body is an error", async () => {

@@ -1795,5 +1795,65 @@
   "old": "return literal || byLength;",
   "new": "return literal;",
   "note": "pN reading"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "const FAILURE_NAMES = new Set([\"AbortError\", \"TimeoutError\", \"TypeError\"]);",
+  "new": "const FAILURE_NAMES = new Set([\"AbortError\", \"TimeoutError\"]);",
+  "note": "failureName: TypeError"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;",
+  "new": "if (typeof name === \"string\") return name;",
+  "note": "failureName: allowlist"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "if (!(e instanceof Error)) return \"error\";",
+  "new": "if (!(e instanceof Error)) return String(e);",
+  "note": "failureName: non-error"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const name = failureName(e);",
+  "new": "      const name = e instanceof Error ? e.name : \"error\";",
+  "note": "runpod: e.name verbatim"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    report.launchError = e instanceof ProviderError ? { kind: e.kind, httpStatus: e.httpStatus } : { kind: \"driver-error\", httpStatus: null };\n",
+  "new": "",
+  "note": "launchError recorded"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "{ kind: e.kind, httpStatus: e.httpStatus }",
+  "new": "{ kind: e.kind, httpStatus: null }",
+  "note": "launchError status"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": ": { kind: \"driver-error\", httpStatus: null };",
+  "new": ": null;",
+  "note": "launchError driver-error"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "    const name: unknown = e.name;\n    // Return our own constant, never the value read.\n    for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;",
+  "new": "    for (const fixed of FAILURE_NAMES) if (fixed === e.name) return e.name;",
+  "note": "failureName: read twice"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;",
+  "new": "for (const fixed of FAILURE_NAMES) if (fixed == name) return fixed;",
+  "note": "failureName: loose equality"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  } catch {\n    // A throwing getter (or a proxy that throws on instanceof) names nothing.\n  }\n  return \"error\";",
+  "new": "  } finally {\n  }\n  return \"error\";",
+  "note": "failureName: throwing getter"
  }
 ]

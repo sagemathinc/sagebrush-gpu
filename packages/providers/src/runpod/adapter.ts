@@ -6,7 +6,7 @@
 
 import { specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { retryAfterSeconds, type Fetch } from "../http.ts";
+import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
 import { machineName, parseMachineName } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
 import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
@@ -326,8 +326,8 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
       res = await this.#fetch(this.#base + path, init);
       text = await res.text();
     } catch (e) {
-      // Never include the request (it carries the key); the error's own name is enough.
-      const name = e instanceof Error ? e.name : "error";
+      // Never include the request (it carries the key), nor the exception's text: a fixed name.
+      const name = failureName(e);
       throw new ProviderError("runpod", "outcome_unknown", `RunPod ${method} ${path.split("?")[0]}: no response (${name})`);
     }
     if (res.status >= 300) throw runpodError(res.status, text, res.headers.get("Retry-After"));

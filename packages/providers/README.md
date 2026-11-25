@@ -180,7 +180,9 @@ launched with `startSsh: false` reports `ssh: {proxy: null, direct: null}`.
 ## The eradication probe (`src/probes/`)
 
 The provider side of SEC's release gate for RunPod (the in-pod side is the probe agent in
-`packages/machine`). **It costs money and needs William's approval to run; it has not been run.**
+`packages/machine`). **It costs money and needs William's approval for each run.** The first
+approved run (Nov 24 2026) created no pod: RunPod refused the launch (RTX A4000 in EU-SE-1,
+which the catalog didn't list), and the spend rate settled at 0.
 
 - `eradication.ts`, the driver:
   - **Launch:** one pod, exactly as production does (`RunPodAdapter`), with one probe-only
@@ -220,7 +222,9 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
     A launch whose outcome stays unknown (a lost response, a listing that failed, was malformed
     or didn't finish, two pods with one name, a create response without an id) may have left a
     pod: the report says `terminatedConfirmed: false` and an `exposure` with the machine name and
-    no provider id, never "nothing exists".
+    no provider id, never "nothing exists". A failed launch is reported as `launchError`: the
+    ProviderError's kind and HTTP status (our own fixed words, never the provider's text), or
+    `driver-error` for anything else.
   - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
     the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.
   - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing

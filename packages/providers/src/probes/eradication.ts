@@ -20,7 +20,7 @@
 
 import { BOOT_TOKEN_ENV, renderBootScript, renderProbePrologue } from "@sbgpu/machine";
 import { specDrift, expectedSpec } from "../drift.ts";
-import { ProviderError } from "../errors.ts";
+import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { machineName } from "../machine-name.ts";
 import { terminateAndConfirm } from "../placement.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
@@ -345,6 +345,11 @@ export interface ProbeReport {
    * machineName.
    */
   exposure: { providerMachineId: string | null; machineName: string; ratePerHour: number } | null;
+  /**
+   * Why the launch failed, as our own fixed words: the ProviderError's kind and HTTP status, or
+   * "driver-error" for anything else. Never the provider's text. null when the launch succeeded.
+   */
+  launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null } | null;
 }
 
 /**
@@ -379,6 +384,7 @@ export async function runEradicationProbe(
     withinCap: true,
     terminatedConfirmed: true,
     exposure: null,
+    launchError: null,
   };
   // Each stage's capture digest, compared across stages here and never reported.
   const digests: Array<string | null> = STAGES.map(() => null);
@@ -419,6 +425,7 @@ export async function runEradicationProbe(
     rate = Math.max(rate, launched.status.providerCostPerHour ?? rate);
   } catch (e) {
     report.aborts.push("launch-failed");
+    report.launchError = e instanceof ProviderError ? { kind: e.kind, httpStatus: e.httpStatus } : { kind: "driver-error", httpStatus: null };
     // A failed launch may still have left a pod. With its id: clean it up.
     const left = e instanceof ProviderError ? e.providerMachineId : null;
     if (left !== null) {

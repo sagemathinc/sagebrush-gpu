@@ -292,7 +292,7 @@ interface World {
   log: string[];
   stages: string[][];
   statusOver?: (n: number) => Partial<ProviderMachineStatus> | Error;
-  launchError?: ProviderError;
+  launchError?: Error;
   terminateFails?: boolean;
   /** Terminate takes this long. */
   terminateDelayMs?: number;
@@ -586,6 +586,24 @@ test("a launch that leaves a pod behind is cleaned up; one that doesn't isn't", 
   assert.deepEqual(none.log, ["launch"]);
   assert.equal(r2.outcome, "aborted");
   assert.equal(r2.providerMachineId, null);
+  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null });
+  assert.deepEqual(r2.launchError, { kind: "no_capacity", httpStatus: null });
+});
+
+test("a refused launch reports its kind and HTTP status, never the error's text", async () => {
+  const w: World = { log: [], stages: [], launchError: new ProviderError("runpod", "unplaceable", "RunPod HTTP 400 (unplaceable) MARKER", 400) };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.deepEqual(r.launchError, { kind: "unplaceable", httpStatus: 400 });
+  assert.deepEqual([r.terminatedConfirmed, r.exposure, r.aborts], [true, null, ["launch-failed"]]);
+  assert.ok(!JSON.stringify(r).includes("MARKER"));
+  // Anything that isn't a ProviderError is a driver error, and may have left a pod.
+  const odd: World = { log: [], stages: [], launchError: Object.assign(new Error("MARKER"), { name: "MARKER" }) };
+  const h2 = harness(odd);
+  const r2 = await runEradicationProbe(plan, h2.adapter, h2.api, h2.clock);
+  assert.deepEqual(r2.launchError, { kind: "driver-error", httpStatus: null });
+  assert.equal(r2.terminatedConfirmed, false);
+  assert.ok(!JSON.stringify(r2).includes("MARKER"));
 });
 
 test("an invalid plan never launches", async () => {
@@ -922,6 +940,7 @@ function finishReport(outcome: ProbeReport["outcome"], terminatedConfirmed: bool
     withinCap: true,
     terminatedConfirmed,
     exposure: terminatedConfirmed ? null : { providerMachineId: "pod1", machineName: "m", ratePerHour: 1 },
+    launchError: null,
   };
 }
 
