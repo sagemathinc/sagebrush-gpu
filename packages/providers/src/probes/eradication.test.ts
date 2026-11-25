@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
@@ -1309,4 +1314,69 @@ test("an eight-line transcript as the probe agent prints it passes; the old six-
   const old = judgeStage(six);
   assert.deepEqual([old.pass, old.complete], [false, false]);
   assert.deepEqual(old.failures, ["checks-incomplete-or-out-of-order"]);
+});
+
+// ---------------------------------------------------------------- the real agent, and the pinned bytes
+
+const AGENT_DIR = fileURLToPath(new URL("../../../machine/probe/sbgpu-agent", import.meta.url));
+
+/**
+ * One boot's transcript from the real probe agent (sbgpu_probe.main.run) against a fake root built
+ * with the agent's own test fixtures, with a real capture from the real prologue. `net` changes
+ * /proc/net before the run: "listener" puts a LISTEN socket on :22, "unreadable" removes tcp6.
+ */
+function realTranscript(net: "clean" | "listener" | "unreadable"): string[] {
+  const program = `
+import io, os, sys
+agent = sys.argv[1]
+sys.path[:0] = [agent, os.path.join(agent, "tests")]
+from sbgpu_probe import main
+import test_probe as tp
+from test_capture import random_key, run_prologue
+t = tp.Tree()
+try:
+    t.process(1)
+    r, _ = run_prologue(t.dir + "/opt/sbgpu", random_key("rpa"))
+    assert r.returncode == 0, r.stderr
+    if sys.argv[2] == "listener":
+        tp.write_net(t.proc, [tp.row4(0, "00000000", "0016", "0A")], [])
+    elif sys.argv[2] == "unreadable":
+        os.remove(t.proc + "/net/tcp6")
+    out = io.StringIO()
+    main.run(out=out, root=t.dir, proc=t.proc, pid=1, boots_file=t.dir + "/opt/sbgpu/probe-boots",
+             get=lambda *a: None, capture_file=t.dir + "/opt/sbgpu/probe-capture")
+    sys.stdout.write(out.getvalue())
+finally:
+    t.close()
+`;
+  return execFileSync("python3", ["-I", "-c", program, AGENT_DIR, net], { encoding: "utf8" }).split("\n").filter((l) => l !== "");
+}
+
+test("the real probe agent's transcript passes the judge; a real listener or unreadable table fails it", () => {
+  const clean = realTranscript("clean");
+  assert.equal(clean.length, PROBE_CHECKS.length);
+  const r = judgeStage(clean);
+  assert.deepEqual([r.pass, r.complete, r.failures], [true, true, []]);
+  assert.ok(r.shape !== null && validShape(r.shape));
+  for (const [net, detail] of [["listener", "listener"], ["unreadable", "unreadable"]] as const) {
+    const lines = realTranscript(net);
+    const f = judgeStage(lines);
+    assert.deepEqual([f.pass, f.complete, f.failures], [false, true, ["check-failed"]], net);
+    assert.deepEqual(f.failedChecks.map((c) => [c.check, c.detail, c.paths]), [["listen22-start", detail, []], ["listen22-end", detail, []]], net);
+  }
+});
+
+test("PINNED_PROBE_AGENT.sha256 is the sha256 of the probe tarball built from this repository's agent", () => {
+  // No network: the reproducible build (build-tarball.py) of the agent source, hashed here.
+  const dir = mkdtempSync(join(tmpdir(), "sbgpu-pin-"));
+  try {
+    const out = join(dir, "probe.tar.gz");
+    const script = fileURLToPath(new URL("../../../machine/scripts/build-tarball.py", import.meta.url));
+    execFileSync("python3", ["-I", script, AGENT_DIR, out], { stdio: ["ignore", "ignore", "inherit"] });
+    const bytes = readFileSync(out);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), PINNED_PROBE_AGENT.sha256);
+    assert.ok(PINNED_PROBE_AGENT.url.endsWith(`/probe-agent-${PINNED_PROBE_AGENT.sha256.slice(0, 12)}/sbgpu-probe-agent.tar.gz`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

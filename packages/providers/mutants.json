@@ -2725,5 +2725,17 @@
   "old": "  if (o.execute && (o.agentUrl !== PINNED_PROBE_AGENT.url",
   "new": "  if ((o.agentUrl !== PINNED_PROBE_AGENT.url",
   "note": "pin only for execute"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  sha256: \"8de3c4382a7d04c88cd5eb4217c6d89a9da03faa395e7c03df46dd7d7e434324\",",
+  "new": "  sha256: \"8de3c4382a7d04c88cd5eb4217c6d89a9da03faa395e7c03df46dd7d7e434325\",",
+  "note": "pin bytes: same prefix, wrong suffix"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  sha256: \"8de3c4382a7d04c88cd5eb4217c6d89a9da03faa395e7c03df46dd7d7e434324\",",
+  "new": "  sha256: \"a9269fd34b5d72f116e1ddfe67e4be034ec64f689e1c00f607b5606b12f7e686\",",
+  "note": "pin bytes: the old release"
  }
 ]
