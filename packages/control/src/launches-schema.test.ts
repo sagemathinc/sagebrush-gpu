@@ -102,6 +102,33 @@ test("launches: the provider is fixed from the intent, in both modes, and for a 
   await vmLaunch(n, { provider: "nebius", provider_machine_id: "same-id" });
 });
 
+test("launches: which launch a row is (machine, incarnation) never changes, in both modes, before and after its id and token", async () => {
+  const other = await machine();
+  const moves: Array<[string, string, ...SqlValue[]]> = [
+    ["another machine", `machine_id = ?`, other],
+    ["another incarnation", `incarnation = 2`],
+    ["both", `machine_id = ?, incarnation = 2`, other],
+  ];
+  const tryAll = async (m: string, when: string) => {
+    for (const [why, set, ...p] of moves) await assert.rejects(upd(m, set, ...p), /identity is fixed/, `${when}: ${why}`);
+    await upd(m, `machine_id = ?, incarnation = 1`, m); // (the same values)
+  };
+  const c = await machine();
+  await container(c);
+  await tryAll(c, "container, creating");
+  await upd(c, `provider_machine_id = 'pod-c'`);
+  await token(c, { provider_machine_id: "pod-c", issued_ms: T0, expires_ms: T0 + 120_000 });
+  await tryAll(c, "container, with its id and token");
+  const v = await machine("shadeform");
+  await vmLaunch(v);
+  await tryAll(v, "vm, creating");
+  await upd(v, `provider_machine_id = 'vm-v', outcome = 'launched', ipv4 = '203.0.113.7', first_active_ms = ?`, T0);
+  await token(v, { mode: "vm", provider_machine_id: "vm-v", nonce_sha256: H, issued_ms: T0, expires_ms: T0 + 1 });
+  await tryAll(v, "vm, with its id and token");
+  const rows = await w.db.all<{ machine_id: string; incarnation: number }>(`SELECT machine_id, incarnation FROM launches WHERE machine_id IN (?, ?) ORDER BY machine_id`, [c, v]);
+  assert.deepEqual(rows.map((r) => [r.machine_id, r.incarnation]).sort(), [[c, 1], [v, 1]].sort());
+});
+
 test("launches: the intent's pins never change, in both modes (the same value passes)", async () => {
   const c = await machine();
   await container(c);

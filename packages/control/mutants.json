@@ -1517,6 +1517,26 @@
   "note": "a failing job stops the later ones"
  },
  {
+  "file": "src/jobs.ts",
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs + 3_600_001, PRUNE_BATCH],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH * 2],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, vmWatchdog]);"
+ },
+ {
   "file": "migrations/0007_sessions.sql",
   "old": "DROP TABLE sign_in_links;",
   "new": ""
@@ -1896,6 +1916,11 @@
  },
  {
   "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, vmWatchdog]);"
+ },
+ {
+  "file": "src/jobs.ts",
   "old": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,",
   "new": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,"
  },
@@ -1943,6 +1968,12 @@
   "file": "src/workos.ts",
   "old": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 400;",
   "new": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 307;"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog]);",
+  "note": "the VM watchdog left out of the cron"
  },
  {
   "file": "src/vm.ts",
@@ -2174,6 +2205,11 @@
  },
  {
   "file": "src/app.ts",
+  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };",
+  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };"
+ },
+ {
+  "file": "src/app.ts",
   "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
   "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {"
  },
@@ -2276,6 +2312,11 @@
   "file": "src/vm.ts",
   "old": "export const CREATE_DEADLINE_MS = 10 * 60_000;",
   "new": "export const CREATE_DEADLINE_MS = 10 * 60_000 + 1;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
+  "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs, i.createdMs],"
  },
  {
   "file": "src/vm.ts",
@@ -2397,6 +2438,11 @@
   "file": "src/billing.ts",
   "old": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ?`",
   "new": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ? OR 1 ORDER BY o.billing_mode DESC`"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "    name: r.name,\n    billingMode: r.billing_mode,\n",
+  "new": "    name: r.name,\n    billingMode: \"resold\",\n"
  },
  {
   "file": "migrations/0011_billing_mode.sql",
@@ -3611,6 +3657,138 @@
   "note": "intent recorded as a container"
  },
  {
+  "file": "src/projects.ts",
+  "old": "      orgId: r.org_id,\n      billingMode: r.billing_mode,\n",
+  "new": "      orgId: r.org_id,\n      billingMode: \"resold\",\n",
+  "note": "a project's billing mode not read from its row (the list)"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.provider IS NOT OLD.provider\n",
+  "new": "WHEN 0\n",
+  "note": "provider mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.provider IS NOT OLD.provider\n",
+  "new": "WHEN NEW.provider <> OLD.provider AND OLD.mode = 'container'\n",
+  "note": "a VM's provider mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
+  "new": "WHEN 0\n",
+  "note": "intent mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR ",
+  "new": "WHEN ",
+  "note": "created_ms mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n",
+  "new": "",
+  "note": "agent pin mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n",
+  "new": "",
+  "note": "nonce pin mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
+  "new": "",
+  "note": "script pin mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "new": "WHEN 0\n",
+  "note": "provider id replaceable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "new": "WHEN NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "note": "provider id never recordable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "new": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id <> OLD.provider_machine_id\n",
+  "note": "provider id clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)\n  OR (OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)\n  OR (((OLD.ipv4 IS NULL AND NEW.ipv4 IS NOT NULL) OR (OLD.first_active_ms IS NULL AND NEW.first_active_ms IS NOT NULL))\n      AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))\n",
+  "new": "WHEN 0\n",
+  "note": "ACTIVE facts mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)\n  OR",
+  "new": "WHEN",
+  "note": "address changeable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR (OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)\n",
+  "new": "",
+  "note": "first ACTIVE changeable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR (((OLD.ipv4 IS NULL AND NEW.ipv4 IS NOT NULL) OR (OLD.first_active_ms IS NULL AND NEW.first_active_ms IS NOT NULL))\n      AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))\n",
+  "new": "",
+  "note": "ACTIVE facts set outside the ACTIVE transition"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched')",
+  "new": "NOT (NEW.outcome = 'launched')",
+  "note": "ACTIVE facts set from any state into launched"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched')",
+  "new": "NOT (OLD.outcome = 'creating')",
+  "note": "ACTIVE facts set leaving creating anyhow"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)",
+  "new": "(OLD.ipv4 IS NOT NULL AND NEW.ipv4 <> OLD.ipv4)",
+  "note": "address clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)",
+  "new": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms <> OLD.first_active_ms)",
+  "note": "first ACTIVE clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN 0\n",
+  "note": "identity mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN NEW.incarnation IS NOT OLD.incarnation\n",
+  "note": "machine mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN NEW.machine_id IS NOT OLD.machine_id\n",
+  "note": "incarnation mutable"
+ },
+ {
   "file": "src/container.ts",
   "old": "params: [i.machineId, i.incarnation, i.rate.providerCostPerHour, i.rate.marginBps],",
   "new": "params: [i.machineId, i.incarnation, i.rate.marginBps, i.rate.providerCostPerHour],",
@@ -3885,165 +4063,5 @@
   "old": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nBEGIN",
   "new": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nWHEN 0\nBEGIN",
   "note": "a rate deleted"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN NEW.provider IS NOT OLD.provider\n",
-  "new": "WHEN 0\n",
-  "note": "provider mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN NEW.provider IS NOT OLD.provider\n",
-  "new": "WHEN NEW.provider <> OLD.provider AND OLD.mode = 'container'\n",
-  "note": "a VM's provider mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
-  "new": "WHEN 0\n",
-  "note": "intent mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR ",
-  "new": "WHEN ",
-  "note": "created_ms mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n",
-  "new": "",
-  "note": "agent pin mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n",
-  "new": "",
-  "note": "nonce pin mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
-  "new": "",
-  "note": "script pin mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
-  "new": "WHEN 0\n",
-  "note": "provider id replaceable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
-  "new": "WHEN NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
-  "note": "provider id never recordable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
-  "new": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id <> OLD.provider_machine_id\n",
-  "note": "provider id clearable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)\n  OR (OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)\n  OR (((OLD.ipv4 IS NULL AND NEW.ipv4 IS NOT NULL) OR (OLD.first_active_ms IS NULL AND NEW.first_active_ms IS NOT NULL))\n      AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))\n",
-  "new": "WHEN 0\n",
-  "note": "ACTIVE facts mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)\n  OR",
-  "new": "WHEN",
-  "note": "address changeable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "  OR (OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)\n",
-  "new": "",
-  "note": "first ACTIVE changeable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "  OR (((OLD.ipv4 IS NULL AND NEW.ipv4 IS NOT NULL) OR (OLD.first_active_ms IS NULL AND NEW.first_active_ms IS NOT NULL))\n      AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))\n",
-  "new": "",
-  "note": "ACTIVE facts set outside the ACTIVE transition"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched')",
-  "new": "NOT (NEW.outcome = 'launched')",
-  "note": "ACTIVE facts set from any state into launched"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched')",
-  "new": "NOT (OLD.outcome = 'creating')",
-  "note": "ACTIVE facts set leaving creating anyhow"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "(OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)",
-  "new": "(OLD.ipv4 IS NOT NULL AND NEW.ipv4 <> OLD.ipv4)",
-  "note": "address clearable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)",
-  "new": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms <> OLD.first_active_ms)",
-  "note": "first ACTIVE clearable"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
-  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
-  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs + 3_600_001, PRUNE_BATCH],"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
-  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH * 2],"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
-  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, vmWatchdog]);"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, vmWatchdog]);"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog]);",
-  "note": "the VM watchdog left out of the cron"
- },
- {
-  "file": "src/app.ts",
-  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };",
-  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };"
- },
- {
-  "file": "src/vm.ts",
-  "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
-  "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs, i.createdMs],"
- },
- {
-  "file": "src/projects.ts",
-  "old": "    name: r.name,\n    billingMode: r.billing_mode,\n",
-  "new": "    name: r.name,\n    billingMode: \"resold\",\n"
- },
- {
-  "file": "src/projects.ts",
-  "old": "      orgId: r.org_id,\n      billingMode: r.billing_mode,\n",
-  "new": "      orgId: r.org_id,\n      billingMode: \"resold\",\n",
-  "note": "a project's billing mode not read from its row (the list)"
  }
 ]
