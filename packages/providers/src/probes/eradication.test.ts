@@ -1380,3 +1380,55 @@ test("PINNED_PROBE_AGENT.sha256 is the sha256 of the probe tarball built from th
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------- what actually runs (SEC, Nov 25)
+
+test("the in-pod pid1 check binds what actually runs: a failing pid1 at any stage fails the probe and terminates", async () => {
+  // RunPod's command echo is not trusted alone: the probe reads /proc/1/cmdline in the pod at every boot.
+  const notPid1 = RUN.map((l) => (l.includes('"pid1"') ? line("pid1", false, { detail: "not-pid1" }) : l));
+  for (const [stage, stages, log] of [
+    [0, [notPid1, RUN, RUN], ["launch", "terminate"]],
+    [1, [RUN, notPid1, RUN], ["launch", "restart", "terminate"]],
+    [2, [RUN, RUN, notPid1], ["launch", "restart", "stop", "start", "terminate"]],
+  ] as const) {
+    const w: World = { log: [], stages: stages.map((s) => [...s]) };
+    const h = harness(w);
+    const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+    assert.equal(r.outcome, "fail", String(stage));
+    assert.deepEqual(w.log, log, String(stage));
+    assert.equal(r.terminatedConfirmed, true);
+    const res = r.stages[stage]!.result!;
+    assert.equal(res.pass, false);
+    assert.deepEqual(res.failedChecks.map((c) => [c.check, c.detail]), [["pid1", "not-pid1"]]);
+    assert.equal(r.captureConsistent, null);
+  }
+});
+
+/**
+ * Positional-parameter reads outside function bodies, before the launcher's first top-level
+ * `set --`. `sh -c script a b` makes a $0 and b $1, so RunPod's display `args`, even if a runtime
+ * appended it, could only reach the launcher through these.
+ */
+function positionalReadsBeforeSetDashDash(script: string): string[] {
+  const top = script.replace(/^[A-Za-z_][A-Za-z0-9_]*\(\) \{\n[\s\S]*?\n\}\n/gm, "");
+  const at = top.search(/^set -- /m);
+  assert.ok(at > 0, "the launcher has a top-level set --");
+  const POSITIONAL = /\$(?:[@*#0-9])|\$\{(?:[@*0-9]|#[}@*])|\bshift\b|\bgetopts\b/g;
+  return [...top.slice(0, at).matchAll(POSITIONAL)].map((m) => m[0]);
+}
+
+test("inherited positional arguments can't change the launcher before its set --", () => {
+  const script = probeLauncher(agent, SALT)[2]!;
+  assert.deepEqual(positionalReadsBeforeSetDashDash(script), []);
+  // The function bodies (fail's own $1) don't count, and string lengths aren't positional.
+  assert.ok(script.includes('echo "sbgpu-boot: $1"') && script.includes("${#token}"));
+  // Controls: each of these, put before set --, is found.
+  const at = script.search(/^set -- /m);
+  for (const read of ['echo "$1"', "x=$0", 'y="$@"', "z=$*", "n=$#", "v=${1:-d}", "w=${#}", "shift", "getopts a o"]) {
+    const bad = script.slice(0, at) + read + "\n" + script.slice(at);
+    assert.notDeepEqual(positionalReadsBeforeSetDashDash(bad), [], read);
+  }
+  // ... but not after it.
+  const end = script.slice(0, at) + script.slice(at) + 'echo "$1"\n';
+  assert.deepEqual(positionalReadsBeforeSetDashDash(end), []);
+});

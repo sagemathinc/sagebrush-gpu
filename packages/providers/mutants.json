@@ -689,11 +689,6 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "for (const k of Object.keys(ssh)) if (ssh[k] !== null) out.push(`ssh:${k}`);",
-  "new": "for (const k of [\"proxy\"]) if (ssh[k]) out.push(`ssh:${k}`);"
- },
- {
-  "file": "src/runpod/adapter.ts",
   "old": "if (pod[\"template\"] !== null) out.push",
   "new": "if (typeof pod[\"template\"] === \"string\") out.push"
  },
@@ -706,11 +701,6 @@
   "file": "src/runpod/adapter.ts",
   "old": "gb += size > 0 ? size : Number.NaN;",
   "new": "gb += size;"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "  const cmd = stringArray(pod[\"cmd\"]);",
-  "new": "  const cmd = pod[\"cmd\"] === undefined || pod[\"cmd\"] === null ? [] : stringArray(pod[\"cmd\"]);"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -2737,5 +2727,63 @@
   "old": "  sha256: \"8de3c4382a7d04c88cd5eb4217c6d89a9da03faa395e7c03df46dd7d7e434324\",",
   "new": "  sha256: \"a9269fd34b5d72f116e1ddfe67e4be034ec64f689e1c00f607b5606b12f7e686\",",
   "note": "pin bytes: the old release"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;\n      out.push(`ssh:${k}`);",
+  "new": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  const cmd = pod[\"cmd\"] === undefined ? [] : stringArray(pod[\"cmd\"]);",
+  "new": "  const cmd = pod[\"cmd\"] === undefined ? [] : (stringArray(pod[\"cmd\"]) ?? []);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const cmd = pod[\"cmd\"] === undefined ? [] : stringArray(pod[\"cmd\"]);",
+  "new": "const cmd = stringArray(pod[\"cmd\"]);",
+  "note": "cmd absent reads []"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const cmd = pod[\"cmd\"] === undefined ? [] : stringArray(pod[\"cmd\"]);",
+  "new": "const cmd = pod[\"cmd\"] === undefined || pod[\"cmd\"] === null ? [] : stringArray(pod[\"cmd\"]);",
+  "note": "cmd null drifts"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;",
+  "new": "      if (ssh[k] === null) continue;",
+  "note": "proxy accepted"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;",
+  "new": "      if (ssh[k] === null || proxyOk) continue;",
+  "note": "only proxy accepted"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "ssh[\"direct\"] === null && Array.isArray(ports)",
+  "new": "Array.isArray(ports)",
+  "note": "proxy needs direct null"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "Array.isArray(ports) && ports.length === 0 &&",
+  "new": "Array.isArray(ports) &&",
+  "note": "proxy needs no ports"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "Array.isArray(ports) && ports.length === 0 && (pod[\"startSsh\"] === undefined || pod[\"startSsh\"] === false)",
+  "new": "Array.isArray(ports) && ports.length === 0",
+  "note": "proxy needs ssh not started"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "(pod[\"startSsh\"] === undefined || pod[\"startSsh\"] === false)",
+  "new": "(pod[\"startSsh\"] !== true)",
+  "note": "startSsh strict"
  }
 ]

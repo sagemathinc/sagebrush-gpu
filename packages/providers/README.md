@@ -164,6 +164,20 @@ up to the reported totals (to a micro per record), with every partial sum a safe
 arrive late (in hourly buckets), so a reconcile should only conclude on buckets well in the past;
 the live signal for a running machine is its rate (`cost` on the pod).
 
+## RunPod's echo of a pod (SEC, Nov 25)
+
+What a real create reply showed (the third, fourth and fifth probe attempts), and how it is read:
+- **Command.** RunPod echoes `entrypoint` byte for byte and omits an empty `cmd`. The command is
+  entrypoint + cmd: the entrypoint must equal our launcher argv item for item, and `cmd` may be
+  absent or `[]` (null, malformed or non-empty drifts). RunPod also reports `args`, its own rendered
+  string of the command: it is never read, matched or used, and it is not a fallback command. What
+  actually runs is checked inside the pod by the probe's pid1 check (`/proc/1/cmdline`) at every
+  boot, and the launcher reads no positional parameter before its own `set --`.
+- **SSH proxy.** RunPod reports a basic SSH proxy route for every pod. A non-null `ssh.proxy` is
+  accepted only with `ssh.direct` null, no exposed ports and `startSsh` not true. The route then
+  reaches no sshd: our launcher replaces the image's start script, and the probe checks that
+  nothing listens on port 22 at the start and end of every boot.
+
 ## RunPod status
 
 SEC (Nov 24): RunPod stays blocked for real use, because RunPod injects a pod-scoped API key that

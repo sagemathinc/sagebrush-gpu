@@ -233,12 +233,15 @@ const malformed: Array<[string, Record<string, unknown>]> = [
   ["disk as a string", { disk: "40" }],
   ["missing gpu", { gpu: undefined }],
   ["a GPU count as a string", { gpu: { id: "NVIDIA L4", count: "1" } }],
-  ["cmd omitted", { cmd: undefined }],
   ["cmd null", { cmd: null }],
+  ["cmd with an item", { cmd: ["x"] }],
+  ["cmd as an empty string", { cmd: "" }],
   ["a persistent mount of size 0", { mounts: { persistent: { size: 0, path: "/workspace" } } }],
   ["Community Cloud", { cloud: "COMMUNITY" }],
   ["no cloud", { cloud: undefined }],
-  ["an SSH proxy", { ssh: { proxy: { host: "ssh.runpod.io", port: 22 }, direct: null } }],
+  ["an SSH proxy with SSH started", { ssh: { proxy: { host: "ssh.runpod.io", port: 22 }, direct: null }, startSsh: true }],
+  ["an SSH proxy with startSsh unreadable", { ssh: { proxy: { host: "ssh.runpod.io", port: 22 }, direct: null }, startSsh: "false" }],
+  ["an SSH proxy with direct SSH too", { ssh: { proxy: { host: "ssh.runpod.io", port: 22 }, direct: { host: "1.2.3.4", port: 22 } } }],
   ["direct SSH", { ssh: { proxy: null, direct: { host: "1.2.3.4", port: 22 } } }],
   ["an unknown SSH endpoint kind", { ssh: { proxy: null, direct: null, web: {} } }],
   ["no ssh block", { ssh: undefined }],
@@ -271,7 +274,7 @@ test("a rejected pod's error says where it drifted, in fixed words, never with R
     [{ cloud: "COMMUNITY_MARKER" }, ["unexpectedSettings:cloud:other"]],
     [{ ssh: undefined }, ["unexpectedSettings:ssh:unreadable"]],
     [{ ssh: { proxy: null } }, ["unexpectedSettings:ssh:direct:unreadable"]],
-    [{ ssh: { proxy: "1.2.3.4:22", direct: null, MARKER: null } }, ["unexpectedSettings:ssh:proxy"]],
+    [{ ssh: { proxy: "1.2.3.4:22", direct: null, MARKER: null }, startSsh: true }, ["unexpectedSettings:ssh:proxy"]],
     [{ ssh: { proxy: null, direct: null, MARKER: "x" } }, ["unexpectedSettings:ssh:other"]],
     [{ template: "tmpl_MARKER" }, ["unexpectedSettings:template:other"]],
     [{ globalNetworking: { enabled: true } }, ["unexpectedSettings:globalNetworking:enabled"]],
@@ -507,7 +510,7 @@ test("status refuses an answer about another pod", async () => {
 });
 
 test("unexpected settings are named", () => {
-  const s = podStatus({ ...POD, cloud: "COMMUNITY", ssh: { proxy: {}, direct: null }, template: "t1", globalNetworking: { enabled: true } }, "t");
+  const s = podStatus({ ...POD, cloud: "COMMUNITY", ssh: { proxy: {}, direct: null }, startSsh: true, template: "t1", globalNetworking: { enabled: true } }, "t");
   assert.deepEqual(s.unexpectedSettings, ["cloud:COMMUNITY", "ssh:proxy", "template:t1", "globalNetworking:enabled"]);
   assert.deepEqual(podStatus({ id: "p" }, "t").unexpectedSettings, [
     `cloud:${UNREADABLE}`, `ssh:${UNREADABLE}`, `template:${UNREADABLE}`, `globalNetworking:${UNREADABLE}`,
@@ -515,7 +518,18 @@ test("unexpected settings are named", () => {
   assert.deepEqual(podStatus(POD, "t").unexpectedSettings, []);
   assert.deepEqual(podStatus({ ...POD, ssh: {} }, "t").unexpectedSettings, [`ssh:proxy:${UNREADABLE}`, `ssh:direct:${UNREADABLE}`]);
   assert.deepEqual(podStatus({ ...POD, ssh: { proxy: null } }, "t").unexpectedSettings, [`ssh:direct:${UNREADABLE}`]);
-  assert.deepEqual(podStatus({ ...POD, ssh: { direct: null, proxy: { host: "h" } } }, "t").unexpectedSettings, ["ssh:proxy"]);
+  // SEC (Nov 25): RunPod's proxy route is accepted only with direct null, no ports and SSH not started.
+  const proxy = { direct: null, proxy: { host: "h" } };
+  assert.deepEqual(podStatus({ ...POD, ssh: proxy }, "t").unexpectedSettings, []);
+  assert.deepEqual(podStatus({ ...POD, ssh: proxy, startSsh: false }, "t").unexpectedSettings, []);
+  assert.deepEqual(podStatus({ ...POD, ssh: proxy, startSsh: true }, "t").unexpectedSettings, ["ssh:proxy"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: proxy, startSsh: null }, "t").unexpectedSettings, ["ssh:proxy"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: proxy, ports: ["22/tcp"] }, "t").unexpectedSettings, ["ssh:proxy"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: proxy, ports: undefined }, "t").unexpectedSettings, ["ssh:proxy"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: proxy, ports: "" }, "t").unexpectedSettings, ["ssh:proxy"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: "x", direct: "y" } }, "t").unexpectedSettings, ["ssh:proxy", "ssh:direct"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: "x" } }, "t").unexpectedSettings, [`ssh:direct:${UNREADABLE}`, "ssh:proxy"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: "x", direct: null, web: "w" } }, "t").unexpectedSettings, ["ssh:web"]);
   assert.deepEqual(podStatus({ ...POD, ssh: { proxy: null, direct: null, other: null } }, "t").unexpectedSettings, []);
 });
 
@@ -607,7 +621,12 @@ test("podStatus keeps unknowns visible", () => {
   assert.equal(podStatus({ id: "p", mounts: { persistent: { size: 10 }, network: [] } }, "t").volumeGb, 10);
   assert.equal(podStatus({ id: "p", mounts: { persistent: null, network: null, global: null } }, "t").volumeGb, 0);
   assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: null }, "t").command, [UNREADABLE]);
-  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"] }, "t").command, [UNREADABLE]);
+  // RunPod omits an empty cmd from its reply: absent reads as []. args is never read (SEC, Nov 25).
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"] }, "t").command, ["a"]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], args: "python serve.py" }, "t").command, ["a"]);
+  assert.deepEqual(podStatus({ id: "p", args: "/bin/sh -c x" }, "t").command, [UNREADABLE]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: "" }, "t").command, [UNREADABLE]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: [1] }, "t").command, [UNREADABLE]);
   assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: [] }, "t").command, ["a"]);
   assert.ok(Number.isNaN(podStatus({ id: "p", mounts: { persistent: { size: 0 } } }, "t").volumeGb));
   assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: ["b"] }, "t").command, ["a", "b"]);
@@ -628,4 +647,26 @@ test("runpodError classifies without keeping provider text, and reads Retry-Afte
   assert.equal(runpodError(400, JSON.stringify({ detail: "No GPU capacity in EU-SE-1" }), null).kind, "no_capacity");
   assert.equal(runpodError(400, "There are no longer any instances available", null).kind, "no_capacity");
   assert.equal(runpodError(400, JSON.stringify({ title: "no capacity", detail: "rule" }), null).kind, "unplaceable");
+});
+
+test("RunPod's reply as run5 saw it (entrypoint echoed, cmd omitted, args a display string, an SSH proxy) is accepted", async () => {
+  const reply = { ...POD, cmd: undefined, args: "a display string MARKER", ssh: { proxy: { host: "ssh.runpod.io", port: 22 }, direct: null } };
+  delete (reply as Record<string, unknown>)["cmd"];
+  const { a } = adapter([{ status: 201, body: reply }]);
+  const r = await a.launch(spec);
+  assert.deepEqual(r.status.command, spec.launcher);
+  assert.deepEqual(r.status.unexpectedSettings, []);
+  assert.ok(!JSON.stringify(r.status).includes("MARKER"));
+  // The same reply with any one binding broken is rejected with the pod's id.
+  for (const [what, change] of [
+    ["an entrypoint byte", { entrypoint: ["/bin/sh", "-c", "launcher-scripT"] }],
+    ["a cmd item", { cmd: ["x"] }],
+    ["a null cmd", { cmd: null }],
+    ["a port", { ports: ["22/tcp"] }],
+    ["direct SSH", { ssh: { proxy: { host: "h" }, direct: { host: "1.2.3.4" } } }],
+    ["SSH started", { startSsh: true }],
+  ] as const) {
+    const b = adapter([{ status: 201, body: { ...reply, ...change } }]);
+    await assert.rejects(b.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "spec_mismatch" && e.providerMachineId === POD["id"], what);
+  }
 });
