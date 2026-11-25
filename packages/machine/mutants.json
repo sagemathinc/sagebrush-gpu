@@ -2992,5 +2992,239 @@
   "old": "status, data = self.transport(\"POST\", self.base + path, headers, body, timeout)",
   "new": "status, data = self.transport(\"POST\", self.base + path, headers, body, TIMEOUT_S)",
   "note": "PR C: timeout not passed"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "except FileExistsError:\n    sys.exit(4)",
+  "new": "except FileExistsError:\n    sys.exit(0)",
+  "note": "PR C: a rerun goes on"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "  4) fail once rerun 4 ;;",
+  "new": "  4) ;;",
+  "note": "PR C: rerun ignored"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": " or stat.S_IMODE(st.st_mode) != 0o700 or st.st_dev != lib_dev:",
+  "new": " or st.st_dev != lib_dev:",
+  "note": "PR C: marker directory's mode"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "d = os.open(\"sbgpu\", flags, dir_fd=lib)",
+  "new": "d = os.open(\"sbgpu\", os.O_RDONLY | os.O_DIRECTORY, dir_fd=lib)",
+  "note": "PR C: marker directory through a link"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "[ \"$SBGPU_MODE\" = vm ] || fail values values\n",
+  "new": "",
+  "note": "PR C: any mode"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "[ \"${#SBGPU_NONCE}\" -eq 22 ] || fail values values",
+  "new": "[ \"${#SBGPU_NONCE}\" -ge 21 ] || fail values values",
+  "note": "PR C: nonce length"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "case \"$SBGPU_NONCE\" in\n  *[!A-Za-z0-9_-]*) fail values values ;;",
+  "new": "case \"$SBGPU_NONCE\" in\n  *[!A-Za-z0-9_+-]*) fail values values ;;",
+  "note": "PR C: nonce alphabet"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "case \"$SBGPU_MACHINE_ID\" in\n  mch_*) ;;\n  *) fail values values ;;",
+  "new": "case \"$SBGPU_MACHINE_ID\" in\n  *) ;;",
+  "note": "PR C: machine id prefix"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "  *[!0123456789abcdefghjkmnpqrstvwxyz]*) fail values values ;;",
+  "new": "  *[!0123456789abcdefghijkmnpqrstvwxyz]*) fail values values ;;",
+  "note": "PR C: machine id alphabet"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "[ \"${#SBGPU_MACHINE_ID}\" -eq 24 ] || fail values values",
+  "new": "[ \"${#SBGPU_MACHINE_ID}\" -ge 24 ] || fail values values",
+  "note": "PR C: machine id length"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "case \"$SBGPU_CONTROL_URL\" in\n  https://*) ;;",
+  "new": "case \"$SBGPU_CONTROL_URL\" in\n  http*) ;;",
+  "note": "PR C: control over http"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": " or st.st_mode & 0o022:",
+  "new": " or st.st_mode & 0o020:",
+  "note": "PR C: other-writable script"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": " or st.st_mode & 0o022:",
+  "new": " or st.st_mode & 0o002:",
+  "note": "PR C: group-writable script"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)",
+  "new": "fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)",
+  "note": "PR C: script through a link"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "if len(data) > 65536:\n    sys.exit(1)",
+  "new": "if len(data) > 655360:\n    sys.exit(1)",
+  "note": "PR C: script size cap"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "mkdir \"$agentdir\" 2>/dev/null || fail agent agent",
+  "new": "mkdir -p \"$agentdir\" 2>/dev/null || fail agent agent",
+  "note": "PR C: agent directory reused"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "[ -f \"$agent/__main__.py\" ] && [ -f \"$agent/sbgpu_agent/vmboot.py\" ] || fail agent agent",
+  "new": "[ -f \"$agent/__main__.py\" ] || fail agent agent",
+  "note": "PR C: no vmboot"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "[ \"$sum\" = \"$SBGPU_AGENT_SHA256\" ] || fail agent agent",
+  "new": ":",
+  "note": "PR C: unpinned agent"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "    units | sessions | keys | passwords | sudo | metadata | unreadable) ;;",
+  "new": "    *) ;;",
+  "note": "PR C: any neutralise word"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "if [ \"$nrc\" -ne 0 ] || [ \"$nline\"",
+  "new": "if [ \"$nline\"",
+  "note": "PR C: neutralise's exit ignored"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "[ \"$g1\" = \"$pass1\" ] || fail gate1 gate1",
+  "new": ":",
+  "note": "PR C: gate 1's line ignored"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "vmgate \"$allow\" 2>/dev/null) ||\n  fail gate1 gate1",
+  "new": "vmgate \"$allow\" 2>/dev/null) ||\n  :",
+  "note": "PR C: gate 1's exit ignored"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "timeout -s KILL 45 \"$py\"",
+  "new": "\"$py\"",
+  "note": "PR C: announce unbounded"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "  2) late bootfile bootfile ;;",
+  "new": "  2) late announce announce 3 ;;",
+  "note": "PR C: bootfile reported as announce"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "  *) late announce announce 3 ;;",
+  "new": "  *) late announce announce 2 ;;",
+  "note": "PR C: announce's exit code"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "    \"$py\" -I -S -c \"$load\" \"$agent\" vmboot scrub",
+  "new": "    true",
+  "note": "PR C: no scrub"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "vmboot remaining \"$deadline\" 30 2>/dev/null",
+  "new": "vmboot remaining \"$deadline\" 0 2>/dev/null",
+  "note": "PR C: gate 2's margin"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "  timeout -s KILL \"$secs\" \"$py\" -I -S -c \"$load\" \"$agent\" vmgate",
+  "new": "  \"$py\" -I -S -c \"$load\" \"$agent\" vmgate",
+  "note": "PR C: gate 2 unbounded"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "printf '{\"known\":[{\"sha256\":\"%s\",\"bytes\":22},{\"sha256\":\"%s\",\"bytes\":43}]}' \"$noncesha\" \"$tokensha\"",
+  "new": "printf '{\"known\":[{\"sha256\":\"%s\",\"bytes\":22}]}' \"$noncesha\"",
+  "note": "PR C: gate 2 without the token"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "sed -n 's/^ok \\([0-9a-f]\\{64\\}\\) \\([0-9][0-9]*\\)$/\\1 \\2/p'",
+  "new": "sed -n 's/^ok \\([0-9a-f]\\{63\\}\\) \\([0-9][0-9]*\\)$/\\1 \\2/p'",
+  "note": "PR C: the ok line misparsed"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "  \"$deadline\" $dirid >/dev/null 2>&1 || late gate2 gate2",
+  "new": "  \"$deadline\" $dirid >/dev/null 2>&1 || :",
+  "note": "PR C: gate.json refusal ignored"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "\"HOME=/root\" \"LANG=C.UTF-8\" \\\n  \"SBGPU_PREFIX=$SBGPU_PREFIX\" \"$py\" -I -S \"$agent\" vm",
+  "new": "\"HOME=/root\" \"LANG=C.UTF-8\" \\\n  \"SBGPU_PREFIX=$SBGPU_PREFIX\" \"$py\" -I -S \"$agent\"",
+  "note": "PR C: the agent not told vm"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "exec env -i \"PATH=",
+  "new": "exec env \"PATH=",
+  "note": "PR C: environment inherited"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "  exit \"${3:-2}\"",
+  "new": "  exit 2",
+  "note": "PR C: exit codes"
+ },
+ {
+  "file": "src/boot/boot.ts",
+  "old": "    \"#!/bin/sh\\n\" +\n    (v.mode === \"vm\" ? VM_HEADER : \"\") +\n    `SBGPU_AGENT_URL='${v.agentUrl}'\\n` +",
+  "new": "    \"#!/bin/sh\\n\" +\n    `SBGPU_AGENT_URL='${v.agentUrl}'\\n` +\n    (v.mode === \"vm\" ? VM_HEADER : \"\") +",
+  "note": "PR C: the protections after a value line"
+ },
+ {
+  "file": "src/boot/boot.ts",
+  "old": "    (v.mode === \"vm\" ? VM_HEADER : \"\") +\n",
+  "new": "",
+  "note": "PR C: no protections"
+ },
+ {
+  "file": "src/boot/boot.ts",
+  "old": "`umask 077 && [ \"$(umask)\" = 0077 ] ||",
+  "new": "`umask 077 ||",
+  "note": "PR C: umask not read back"
+ },
+ {
+  "file": "src/boot/boot.ts",
+  "old": "`ulimit -c 0 && [ \"$(ulimit -c)\" = 0 ] ||",
+  "new": "`ulimit -c 0 ||",
+  "note": "PR C: core limit not read back"
+ },
+ {
+  "file": "src/boot/bootstrap.sh",
+  "old": "  vm) fail \"vm mode is not built yet\" ;;",
+  "new": "  vm) ;;",
+  "note": "PR C: VM mode reachable"
  }
 ]
