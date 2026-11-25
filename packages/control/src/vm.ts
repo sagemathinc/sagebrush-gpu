@@ -181,7 +181,7 @@ const PROVIDER_ID = /^[^\s]{1,64}$/;
 export async function recordProviderId(db: Db, machineId: string, incarnation: number, providerMachineId: string): Promise<"recorded" | "refused"> {
   if (!PROVIDER_ID.test(providerMachineId)) return "refused";
   const r = await db.run(
-    `UPDATE vm_launches SET provider_machine_id = ? WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'
+    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'
        AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,
     [providerMachineId, machineId, incarnation, providerMachineId],
   );
@@ -201,7 +201,8 @@ export async function recordActive(
 ): Promise<"launched" | "refused"> {
   if (!PROVIDER_ID.test(f.providerMachineId) || canonicalIpv4(f.ipv4) === null || !Number.isSafeInteger(f.firstActiveMs) || f.firstActiveMs < 0) return "refused";
   const r = await db.run(
-    `UPDATE vm_launches SET outcome = 'launched', provider_machine_id = ?, ipv4 = ?, first_active_ms = ?, next_ms = ?
+    `UPDATE vm_launches SET outcome = 'launched', provider_machine_id = ?, ipv4 = ?, first_active_ms = ?, next_ms = ?,
+       watchdog_version = watchdog_version + 1
      WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating' AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,
     [f.providerMachineId, f.ipv4, f.firstActiveMs, f.firstActiveMs + ANNOUNCE_DEADLINE_MS, machineId, incarnation, f.providerMachineId],
   );
@@ -211,21 +212,25 @@ export async function recordActive(
 /**
  * A launch that failed before its announce (the create failed, an id or ACTIVE write was
  * refused or failed, the VM never came up right): marked to terminate, and terminated now
- * with the id the caller holds, even if that id never reached the database. The durable
- * row stays the watchdog's until the provider confirms the VM absent.
+ * with the id the caller holds, even if that id never reached the database. The mark stores
+ * that id when the row has none, so the watchdog retries by it if this terminate fails (a row
+ * that already has an id keeps its own). The durable row stays the watchdog's until the
+ * provider confirms the VM absent.
  */
 export async function abandonLaunch(env: JobEnv, machineId: string, incarnation: number, providerMachineId: string | null): Promise<void> {
+  const known = providerMachineId !== null && PROVIDER_ID.test(providerMachineId) ? providerMachineId : null;
   try {
     await env.db.run(
-      `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, 'create-failed'), next_ms = MIN(COALESCE(next_ms, ?), ?)
+      `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, 'create-failed'), next_ms = MIN(COALESCE(next_ms, ?), ?),
+         provider_machine_id = COALESCE(provider_machine_id, ?), watchdog_version = watchdog_version + 1
        WHERE machine_id = ? AND incarnation = ? AND outcome IN ('creating', 'launched')`,
-      [env.now, env.now, machineId, incarnation],
+      [env.now, env.now, known, machineId, incarnation],
     );
   } catch {
     // (the row stays as it was: creating, due at its create deadline; the provider call below still goes)
   }
   const vm = env.vm;
-  if (vm && providerMachineId !== null && PROVIDER_ID.test(providerMachineId)) await withDeadline(() => vm.terminate(providerMachineId), undefined);
+  if (vm && known !== null) await withDeadline(() => vm.terminate(known), undefined);
 }
 
 export const VM_HANDLERS: Handlers = {

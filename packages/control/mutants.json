@@ -2290,8 +2290,8 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "`UPDATE vm_launches SET provider_machine_id = ? WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'\n",
-  "new": "`UPDATE vm_launches SET provider_machine_id = ? WHERE machine_id = ? AND incarnation = ? AND 1\n",
+  "old": "`UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'\n",
+  "new": "`UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND 1\n",
   "note": "past creating"
  },
  {
@@ -2326,7 +2326,7 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "  if (vm && providerMachineId !== null && PROVIDER_ID.test(providerMachineId)) await withDeadline(() => vm.terminate(providerMachineId), undefined);\n",
+  "old": "  if (vm && known !== null) await withDeadline(() => vm.terminate(known), undefined);\n",
   "new": "",
   "note": "no terminate with the id in hand"
  },
@@ -2365,5 +2365,41 @@
   "file": "src/vm.ts",
   "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
   "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs, i.createdMs],"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE",
+  "new": "    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version WHERE",
+  "note": "the id write leaves snapshots valid"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "next_ms = ?,\n       watchdog_version = watchdog_version + 1\n     WHERE",
+  "new": "next_ms = ?,\n       watchdog_version = watchdog_version\n     WHERE",
+  "note": "ACTIVE leaves snapshots valid"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "provider_machine_id = COALESCE(provider_machine_id, ?), watchdog_version = watchdog_version + 1",
+  "new": "provider_machine_id = COALESCE(provider_machine_id, ?), watchdog_version = watchdog_version",
+  "note": "abandon leaves snapshots valid"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "provider_machine_id = COALESCE(provider_machine_id, ?), watchdog",
+  "new": "provider_machine_id = COALESCE(?, provider_machine_id), watchdog",
+  "note": "abandon overrides the row's own id"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      [env.now, env.now, known, machineId, incarnation],",
+  "new": "      [env.now, env.now, null, machineId, incarnation],",
+  "note": "abandon doesn't store the known id"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const known = providerMachineId !== null && PROVIDER_ID.test(providerMachineId) ? providerMachineId : null;",
+  "new": "const known = providerMachineId;",
+  "note": "a malformed id stored and called"
  }
 ]

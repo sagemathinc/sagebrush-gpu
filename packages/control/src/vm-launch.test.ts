@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { newId } from "@sbgpu/api";
 import type { Db } from "./db.ts";
 import { stmt } from "./db.ts";
-import { ANNOUNCE_DEADLINE_MS, CREATE_DEADLINE_MS, abandonLaunch, recordActive, recordLaunchIntent, recordProviderId, runVmWatchdog, type InstanceFacts, type JobEnv, type VmProvider } from "./vm.ts";
+import { ANNOUNCE_DEADLINE_MS, CREATE_DEADLINE_MS, abandonLaunch, recordActive, recordLaunchIntent, recordProviderId, runVmWatchdog, terminateAttempt, type InstanceFacts, type JobEnv, type VmProvider } from "./vm.ts";
 import { sqliteDb } from "./testing/sqlite.ts";
 import { ORIGIN, T0, addMember, world, type World } from "./testing/world.ts";
 
@@ -16,12 +16,18 @@ class FakeVm implements VmProvider {
   facts = new Map<string, InstanceFacts>();
   terminated: string[] = [];
   factsCalls = 0;
+  /** How many terminate calls fail (throw) before they start working. */
+  failTerminates = 0;
   async instanceFacts(id: string): Promise<InstanceFacts> {
     this.factsCalls++;
     return this.facts.get(id) ?? "unavailable";
   }
   async terminate(id: string): Promise<void> {
     this.terminated.push(id);
+    if (this.failTerminates > 0) {
+      this.failTerminates--;
+      throw new Error("provider down");
+    }
     this.facts.set(id, { state: "absent", ipv4: null, exclusive: false });
   }
 }
@@ -144,6 +150,64 @@ test("abandoning with the id in hand: terminated at once even when the database 
   await abandonLaunch(env(), n.machineId, 1, null);
   assert.deepEqual(vm.terminated, []);
   assert.equal((await row(n.machineId)).outcome, "terminate");
+});
+
+test("abandoning after the id write failed: the mark stores the known id, so a failed terminate is retried by the watchdog", async () => {
+  const l = await intent();
+  const down: Db = { all: w.db.all, run: async () => { throw new Error("db down"); }, batch: async () => { throw new Error("db down"); } };
+  await assert.rejects(recordProviderId(down, l.machineId, 1, "vm-r")); // (the id write fails; the database then recovers)
+  vm.failTerminates = 1;
+  await abandonLaunch(env(), l.machineId, 1, "vm-r");
+  assert.deepEqual(vm.terminated, ["vm-r"]); // (tried, and failed)
+  const r = await row(l.machineId);
+  assert.deepEqual([r.outcome, r.provider_machine_id, r.terminate_reason, r.next_ms], ["terminate", "vm-r", "create-failed", T0]);
+  assert.equal(await runVmWatchdog(env()), 1);
+  assert.deepEqual(vm.terminated, ["vm-r", "vm-r"]);
+  assert.equal((await row(l.machineId)).outcome, "terminated");
+  // a row that already has an id keeps its own; the caller's (different) id is still terminated now
+  const k = await intent();
+  await recordProviderId(w.db, k.machineId, 1, "vm-own");
+  await abandonLaunch(env(), k.machineId, 1, "vm-other");
+  assert.equal((await row(k.machineId)).provider_machine_id, "vm-own");
+  assert.equal(vm.terminated.at(-1), "vm-other");
+  // a malformed id is neither stored nor called
+  const b = await intent();
+  vm.terminated = [];
+  await abandonLaunch(env(), b.machineId, 1, "has space");
+  assert.deepEqual([(await row(b.machineId)).provider_machine_id, vm.terminated], [null, []]);
+});
+
+test("the watchdog never acts on a stale snapshot: the id write, the move to ACTIVE and an abandon each invalidate it", async () => {
+  w.clock.t = T0 + CREATE_DEADLINE_MS; // (the create deadline: a creating row is due)
+  const stale = async (machineId: string) => {
+    const r = (await w.db.all<{ provider_machine_id: string | null; watchdog_version: number }>(`SELECT provider_machine_id, watchdog_version FROM vm_launches WHERE machine_id = ?`, [machineId]))[0]!;
+    return { machine_id: machineId, incarnation: 1, provider_machine_id: r.provider_machine_id, watchdog_version: r.watchdog_version };
+  };
+  // ACTIVE lands between the watchdog's read and its claim (late, but before any claim: accepted)
+  const a = await intent();
+  await recordProviderId(w.db, a.machineId, 1, "vm-a");
+  const snapA = await stale(a.machineId);
+  assert.equal(await recordActive(w.db, a.machineId, 1, { providerMachineId: "vm-a", ipv4: IP, firstActiveMs: w.clock.t }), "launched");
+  assert.equal(await terminateAttempt(env(), snapA, "create-deadline"), false);
+  const ra = await row(a.machineId);
+  assert.deepEqual([ra.outcome, ra.terminate_reason, ra.next_ms], ["launched", null, w.clock.t + ANNOUNCE_DEADLINE_MS]);
+  assert.deepEqual(vm.terminated, []);
+  // the id lands between read and claim: the stale (id-less) claim fails, and the next run terminates by the id
+  const b = await intent();
+  const snapB = await stale(b.machineId);
+  assert.equal(await recordProviderId(w.db, b.machineId, 1, "vm-b"), "recorded");
+  assert.equal(await terminateAttempt(env(), snapB, "create-deadline"), false);
+  assert.equal((await row(b.machineId)).outcome, "creating");
+  // an abandon lands between read and claim
+  const c = await intent();
+  const snapC = await stale(c.machineId);
+  await abandonLaunch(env(), c.machineId, 1, null);
+  assert.equal(await terminateAttempt(env(), snapC, "create-deadline"), false);
+  assert.equal((await row(c.machineId)).terminate_reason, "create-failed");
+  // the fresh run: b by its id, c claimed (no id); a not due
+  assert.equal(await runVmWatchdog(env()), 2);
+  assert.deepEqual(vm.terminated, ["vm-b"]);
+  assert.equal((await row(a.machineId)).outcome, "launched");
 });
 
 test("the watchdog: a creating launch past its create deadline is terminated by its id; without an id it's claimed and stays eligible", async () => {
