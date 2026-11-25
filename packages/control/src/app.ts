@@ -26,7 +26,7 @@ import type { Db } from "./db.ts";
 import { SIGN_IN_HANDLERS, authConfigFromEnv, revalidate, type AuthConfig, type SessionRow } from "./auth.ts";
 import { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, cookieValue, json, sessionCookie, sha256Hex } from "./http.ts";
 import type { Fetch } from "./workos.ts";
-import { VM_HANDLERS, type VmProvider } from "./vm.ts";
+import { ANNOUNCE_MAX_BODY_BYTES, VM_HANDLERS, type VmProvider } from "./vm.ts";
 import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
@@ -95,6 +95,8 @@ export function withSecurityHeaders(res: Response): Response {
 }
 
 export const MAX_BODY_BYTES = 64 * 1024;
+/** Routes whose bodies are smaller still (read, counted and refused the same way, before any handler). */
+const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES };
 
 function fail(e: HttpError): Response {
   return json(ERROR_STATUS[e.code], errorBody(e.code, e.message));
@@ -131,18 +133,18 @@ export async function readCapped(body: ReadableStream<Uint8Array> | null, cap: n
   return out;
 }
 
-async function readJsonObject(req: Request): Promise<Record<string, unknown>> {
+async function readJsonObject(req: Request, cap: number): Promise<Record<string, unknown>> {
   const type = req.headers.get("content-type") ?? "";
   if (!/^application\/json(\s*;|$)/i.test(type)) throw new HttpError("badRequest", "the body must be application/json");
   const tooLarge = () => new HttpError("badRequest", "the body is too large");
   // A declared length over the cap is refused before anything is read. A smaller (or no)
   // declared length proves nothing: the bytes are counted as they arrive.
   const declared = req.headers.get("content-length");
-  if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {
+  if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {
     await req.body?.cancel().catch(() => {});
     throw tooLarge();
   }
-  const buf = await readCapped(req.body, MAX_BODY_BYTES);
+  const buf = await readCapped(req.body, cap);
   if (buf === null) throw tooLarge();
   let v: unknown;
   try {
@@ -297,7 +299,7 @@ export function createApp(deps: AppDeps, handlers: Handlers = HANDLERS): { fetch
           req,
           params: match.params,
           query: url.searchParams,
-          body: BODY_METHODS.has(req.method) ? await readJsonObject(req) : {},
+          body: BODY_METHODS.has(req.method) ? await readJsonObject(req, ROUTE_BODY_CAPS[match.name] ?? MAX_BODY_BYTES) : {},
           userId: null,
           sessionHash: null,
           projectRole: null,

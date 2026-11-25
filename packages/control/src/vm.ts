@@ -34,6 +34,8 @@ export interface VmProvider {
 export const BOOT_TOKEN_TTL_MS = 120_000;
 export const ANNOUNCE_DEADLINE_MS = 10 * 60_000;
 export const PROVIDER_CALL_DEADLINE_MS = 5000;
+/** An announce body is at most this many bytes (contract r3). */
+export const ANNOUNCE_MAX_BODY_BYTES = 1024;
 export const WATCHDOG_BATCH = 20;
 export const WATCHDOG_BUDGET_MS = 60_000;
 
@@ -66,16 +68,26 @@ function sameText(a: string, b: string): boolean {
   return d === 0;
 }
 
-/** The provider's answer, or "unavailable" past the deadline or on any throw. */
-async function withDeadline<T>(p: () => Promise<T>, fallback: T): Promise<T> {
+/**
+ * The provider's answer, or `fallback` on any throw (a synchronous one included) or past the
+ * deadline. The deadline is checked twice: a timer races the call, and the answer's own
+ * arrival is measured on a monotonic clock, so an answer that arrives late (the timer held
+ * back by a busy event loop) is still refused. (This bounds our waiting, not the provider's
+ * work: the adapter's own calls carry their own deadlines.)
+ */
+export async function withDeadline<T>(p: () => Promise<T>, fallback: T, deadlineMs = PROVIDER_CALL_DEADLINE_MS): Promise<T> {
+  const start = performance.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
-      p().catch(() => fallback),
+    const v = await Promise.race([
+      Promise.resolve()
+        .then(p)
+        .catch(() => fallback),
       new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(fallback), PROVIDER_CALL_DEADLINE_MS);
+        timer = setTimeout(() => resolve(fallback), deadlineMs);
       }),
     ]);
+    return performance.now() - start < deadlineMs ? v : fallback;
   } finally {
     clearTimeout(timer);
   }

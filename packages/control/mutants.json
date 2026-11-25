@@ -526,13 +526,13 @@
  },
  {
   "file": "src/app.ts",
-  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
   "new": "if (false) {"
  },
  {
   "file": "src/app.ts",
-  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
-  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= MAX_BODY_BYTES) {"
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
+  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= cap) {"
  },
  {
   "file": "src/app.ts",
@@ -2212,5 +2212,42 @@
   "file": "migrations/0009_vm_launches.sql",
   "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))\n",
   "new": "  CHECK (1)\n"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    return performance.now() - start < deadlineMs ? v : fallback;",
+  "new": "    return v;",
+  "note": "no check of the answer's arrival time"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    return performance.now() - start < deadlineMs ? v : fallback;",
+  "new": "    return performance.now() - start <= deadlineMs + 1000 ? v : fallback;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      Promise.resolve()\n        .then(p)\n        .catch(() => fallback),",
+  "new": "      p().catch(() => fallback),",
+  "note": "a synchronous throw escapes"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "export const ANNOUNCE_MAX_BODY_BYTES = 1024;",
+  "new": "export const ANNOUNCE_MAX_BODY_BYTES = 1025;"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES };",
+  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = {};"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
+  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  const buf = await readCapped(req.body, cap);",
+  "new": "  const buf = await readCapped(req.body, MAX_BODY_BYTES);"
  }
 ]

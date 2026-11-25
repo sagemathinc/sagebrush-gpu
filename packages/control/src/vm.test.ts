@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { newId } from "@sbgpu/api";
 import { stmt } from "./db.ts";
 import { openAccrual } from "./ledger.ts";
-import { ANNOUNCE_DEADLINE_MS, BOOT_TOKEN_TTL_MS, PROVIDER_CALL_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, WATCHDOG_SELECT, canonicalIpv4, runVmWatchdog, terminateAttempt, type InstanceFacts, type JobEnv, type VmProvider } from "./vm.ts";
+import { ANNOUNCE_DEADLINE_MS, ANNOUNCE_MAX_BODY_BYTES, BOOT_TOKEN_TTL_MS, PROVIDER_CALL_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, WATCHDOG_SELECT, canonicalIpv4, runVmWatchdog, terminateAttempt, withDeadline, type InstanceFacts, type JobEnv, type VmProvider } from "./vm.ts";
 import { ORIGIN, T0, addMember, world, type World } from "./testing/world.ts";
 import { BOOT_SCRIPT_VECTOR, bootScriptSha256, renderBootScript } from "@sbgpu/machine";
 import type { HyperstackAdapter } from "@sbgpu/providers";
@@ -402,4 +402,78 @@ test("schema: next_ms is set exactly while a launch isn't final", async () => {
   await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET next_ms = NULL WHERE machine_id = ?`, l.machineId)]), /CHECK/);
   await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ? WHERE machine_id = ?`, T0, l.machineId)]), /CHECK/);
   await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ?, next_ms = NULL WHERE machine_id = ?`, T0, l.machineId)]);
+});
+
+test("announce: the body is at most 1 KiB, refused before anything happens", async () => {
+  const l = await launch();
+  const padded = (bytes: number) => {
+    const base = JSON.stringify(bodyOf(l));
+    return "{" + " ".repeat(bytes - base.length) + base.slice(1); // (valid JSON, exactly `bytes` bytes)
+  };
+  const post = (raw: string, headers: Record<string, string> = {}) =>
+    w.app.fetch(new Request(`${ORIGIN}/v1/agent/announce`, { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": IP, ...headers }, body: raw }));
+  assert.equal(padded(ANNOUNCE_MAX_BODY_BYTES + 1).length, 1025);
+  for (const [what, res] of [
+    ["1025 bytes", await post(padded(ANNOUNCE_MAX_BODY_BYTES + 1))],
+    ["a declared 1025", await post(padded(ANNOUNCE_MAX_BODY_BYTES), { "content-length": "1025" }).catch(() => null)],
+  ] as const) {
+    if (res === null) continue; // (the platform may refuse a lying length itself)
+    assert.equal(res.status, 400, what);
+  }
+  assert.equal(vm.factsCalls, 0);
+  assert.equal((await launchRow(l.machineId)).outcome, "launched");
+  assert.deepEqual(await w.db.all(`SELECT 1 FROM boot_tokens`), []);
+  assert.equal((await post(padded(ANNOUNCE_MAX_BODY_BYTES))).status, 200);
+  assert.equal(ANNOUNCE_MAX_BODY_BYTES, 1024);
+});
+
+test("provider deadline: a late answer is refused even if the timer was held back; a synchronous throw is caught", async () => {
+  // (the answer arrives after one yield and a busy event loop past the deadline: the timer can't fire in time)
+  const late = await withDeadline(async () => {
+    await Promise.resolve();
+    const until = performance.now() + 300;
+    while (performance.now() < until) {}
+    return "active" as const;
+  }, "unavailable" as const, 200);
+  assert.equal(late, "unavailable");
+  const inTime = await withDeadline(async () => "active" as const, "unavailable" as const, 200);
+  assert.equal(inTime, "active");
+  const thrown = await withDeadline((() => { throw new Error("sync"); }) as unknown as () => Promise<string>, "unavailable");
+  assert.equal(thrown, "unavailable");
+});
+
+test("announce: a provider answering after a blocked event loop past 5 s is unavailable (terminated, 403)", async () => {
+  const l = await launch();
+  const slow: VmProvider = {
+    instanceFacts: async () => {
+      await Promise.resolve();
+      const until = performance.now() + PROVIDER_CALL_DEADLINE_MS + 100;
+      while (performance.now() < until) {}
+      return { state: "active", ipv4: IP, exclusive: true };
+    },
+    terminate: async () => {},
+  };
+  w.deps.vm = slow;
+  const r = await announce(bodyOf(l));
+  assert.deepEqual([r.res.status, r.json], [403, REFUSED]);
+  assert.equal((await launchRow(l.machineId)).terminate_reason, "provider-unavailable");
+});
+
+test("watchdog: an 'absent' that arrives after a blocked event loop past the deadline doesn't confirm", async () => {
+  const l = await launch({ firstActiveMs: T0 - ANNOUNCE_DEADLINE_MS });
+  const late: VmProvider = {
+    instanceFacts: async () => {
+      await Promise.resolve();
+      const until = performance.now() + PROVIDER_CALL_DEADLINE_MS + 100;
+      while (performance.now() < until) {}
+      return { state: "absent", ipv4: null, exclusive: false };
+    },
+    terminate: async () => {},
+  };
+  assert.equal(await runVmWatchdog(env({ vm: late })), 1);
+  assert.equal((await launchRow(l.machineId)).outcome, "terminate"); // (still eligible: not confirmed)
+  // in time, it confirms
+  w.clock.t += 60_000;
+  await runVmWatchdog(env());
+  assert.equal((await launchRow(l.machineId)).outcome, "terminated");
 });
