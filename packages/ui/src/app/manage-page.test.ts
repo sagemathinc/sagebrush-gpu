@@ -314,3 +314,14 @@ test("Remove asks first: declining sends nothing; accepting removes that person 
   assert.doesNotMatch(page.text(), /grace@example\.org/);
   page.unmount();
 });
+
+test("a project with more people than a page load reads says so", async () => {
+  const t = await controllable(EMAILS.manager, { maxListPages: 1 });
+  for (let i = 0; i < 200; i++) t.demo.backend.addMember(t.demo.projectId, { email: `big${i}@example.org` }); // 208 in all
+  const page = mountApp(win, t.store, `/p/${t.demo.projectId}/manage`, new FakeTimers());
+  await settle();
+  assert.match(page.text(), /People \(200\+\)/);
+  assert.ok(page.root.textContent!.includes("Showing the first 200 people; the project has more than one page load reads."));
+  assert.doesNotMatch(page.text(), /Showing the first \d+ machines/);
+  page.unmount();
+});

@@ -109,7 +109,10 @@ function MembersTable({ store }: { store: Store }): VNode {
     if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.memberId);
   };
   return html`<section class="card">
-    <h2>People (${all.length})</h2>
+    <h2>People (${all.length}${store.truncated.value.has("members") ? "+" : ""})</h2>
+    ${store.truncated.value.has("members")
+      ? html`<p class="warn small">${`Showing the first ${all.length} people; the project has more than one page load reads.`}</p>`
+      : null}
     <input type="search" placeholder="Filter by email, name, ${labels.team}, role" aria-label="Filter" value=${query}
       onInput=${(e: Event) => setQuery((e.target as HTMLInputElement).value)} />
     <table class="members">
@@ -224,7 +227,10 @@ function AllMachines({ store }: { store: Store }): VNode {
   const email = new Map(store.members.value.map((m) => [m.id, m.email]));
   const stoppable = (m: Machine) => m.state === "starting" || m.state === "running" || m.state === "failed";
   return html`<section class="card">
-    <h2>Machines (${machines.length})</h2>
+    <h2>Machines (${machines.length}${store.truncated.value.has("allMachines") ? "+" : ""})</h2>
+    ${store.truncated.value.has("allMachines")
+      ? html`<p class="warn small">${`Showing the first ${machines.length} machines; the project has more than one page load reads.`}</p>`
+      : null}
     ${machines.length === 0
       ? html`<p class="muted">No machines yet.</p>`
       : html`<table class="machines">

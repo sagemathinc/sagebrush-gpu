@@ -4,7 +4,7 @@ import { isId, isPriceSplit, addSplits, type Machine } from "@sbgpu/api";
 import { ApiError, createClient, type Client } from "../client.ts";
 import { mockFetch } from "./fetch.ts";
 import { demoOffers, seedDemo, type Demo } from "./seed.ts";
-import { MEMBERS_PAGE, MockBackend, SAVE_BYTES } from "./backend.ts";
+import { MEMBERS_PAGE, MockBackend, PAGE_SIZE, SAVE_BYTES } from "./backend.ts";
 
 const MIN = 60_000;
 
@@ -947,4 +947,28 @@ test("teams report a member count; their members page through listMembers?teamId
   const ta = await d.as(d.emails.assistant);
   const csv = await ta.call("getSpendCsv", { params: p, query: { by: "team" } });
   assert.ok(csv.includes(`\r\nBig,${MEMBERS_PAGE + 1},`), csv.slice(0, 300));
+});
+
+test("every list pages: members, machines and the ledger, with an offset cursor", async () => {
+  const d = setup();
+  const p = { projectId: d.projectId };
+  for (let i = 0; i < PAGE_SIZE; i++) d.backend.addMember(d.projectId, { email: `m${i}@example.org` });
+  const manager = await d.as(d.emails.manager);
+  const first = await manager.call("listMembers", { params: p });
+  assert.deepEqual([first.items.length, first.next], [PAGE_SIZE, String(PAGE_SIZE)]);
+  const rest = await manager.call("listMembers", { params: p, query: { cursor: first.next! } });
+  assert.deepEqual([rest.items.length, rest.next], [8, null]); // 208 in all
+  for (const bad of ["abc", "-1", "1.5", ""]) {
+    await rejects(manager.call("listMembers", { params: p, query: { cursor: bad } }), "badRequest", 400);
+  }
+  // Machines and the ledger page the same way.
+  const c = await d.as(d.emails.member);
+  await startL4(c, d.projectId);
+  d.backend.advance((PAGE_SIZE + 1) * MIN + 30_000); // 201 billed minutes
+  const m2 = await d.as(d.emails.manager);
+  const ledger = await m2.call("listLedger", { params: p });
+  assert.deepEqual([ledger.items.length, ledger.next], [PAGE_SIZE, String(PAGE_SIZE)]);
+  assert.equal((await m2.call("listLedger", { params: p, query: { cursor: ledger.next! } })).next, null);
+  assert.deepEqual((await m2.call("listMachines", { params: p, query: { all: "1" } })).next, null);
+  assert.deepEqual((await m2.call("listMachines", { params: p, query: { all: "1", cursor: "1" } })).items, []);
 });

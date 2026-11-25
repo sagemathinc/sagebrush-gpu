@@ -1111,11 +1111,6 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "            this.client.call(\"listMachines\", { params, query: { all: \"1\" } }),",
-  "new": "            this.client.call(\"listMachines\", { params }),"
- },
- {
-  "file": "src/app/store.ts",
   "old": "          applied++;\n",
   "new": "\n"
  },
@@ -1281,18 +1276,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      return { items: all.slice(offset, end), next: end < all.length ? String(end) : null };",
-  "new": "      return { items: all.slice(offset, end), next: end <= all.length ? String(end) : null };"
- },
- {
-  "file": "src/mock/backend.ts",
   "old": "export const MEMBERS_PAGE = 200;",
   "new": "export const MEMBERS_PAGE = 201;"
- },
- {
-  "file": "src/mock/backend.ts",
-  "old": "      if (!Number.isSafeInteger(offset) || offset < 0) throw",
-  "new": "      if (false) throw"
  },
  {
   "file": "src/mock/backend.ts",
@@ -1608,5 +1593,80 @@
   "file": "src/app/terminal-panel.ts",
   "old": "  if (notice.kind === \"waiting\") return `Waiting for the machine to take ${formatBytes(notice.bytes)} of input…`;",
   "new": "  if (notice.kind === \"waiting\") return \"\";"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "  return { items: all.slice(offset, end), next: end < all.length ? String(end) : null };",
+  "new": "  return { items: all.slice(offset, end), next: end <= all.length ? String(end) : null };"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "  if (!/^\\d+$/.test(cursor ?? \"0\") || !Number.isSafeInteger(offset)) throw new ApiFail(\"badRequest\", \"bad cursor\");",
+  "new": "  if (!Number.isSafeInteger(offset)) throw new ApiFail(\"badRequest\", \"bad cursor\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "export const PAGE_SIZE = MEMBERS_PAGE;",
+  "new": "export const PAGE_SIZE = 100;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    listLedger: ({ params, query }) => pageOf(this.ledger.filter((e) => e.projectId === params.projectId), query.cursor),",
+  "new": "    listLedger: ({ params, query }) => ({ items: this.ledger.filter((e) => e.projectId === params.projectId), next: null }),"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "export const MAX_LIST_PAGES = 25;",
+  "new": "export const MAX_LIST_PAGES = 26;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (page.next == null) return { items, truncated: false };",
+  "new": "      if (page.next == null) return { items, truncated: true };"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (generation !== this.#generation) return { items, truncated: false };\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    return { items, truncated: true };\n  }",
+  "new": "    return { items, truncated: false };\n  }"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    for (let pages = 0; pages < max; pages++) {",
+  "new": "    for (let pages = 0; pages <= max; pages++) {"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        if (members.truncated) cut.add(\"members\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "this.#allPages((cursor) => this.client.call(\"listMembers\", { params, query: cursor === undefined ? {} : { cursor } })),",
+  "new": "this.#allPages(() => this.client.call(\"listMembers\", { params, query: {} })),"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    ${store.truncated.value.has(\"members\")\n      ? html`<p class=\"warn small\">",
+  "new": "    ${false\n      ? html`<p class=\"warn small\">"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "<h2>People (${all.length}${store.truncated.value.has(\"members\") ? \"+\" : \"\"})</h2>",
+  "new": "<h2>People (${all.length})</h2>"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "query: cursor === undefined ? { all: \"1\" } : { all: \"1\", cursor } })),",
+  "new": "query: cursor === undefined ? {} : { cursor } })),"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const max = this.#options.maxListPages ?? MAX_LIST_PAGES;",
+  "new": "    const max = MAX_LIST_PAGES;"
  }
 ]

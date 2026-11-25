@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createClient } from "../client.ts";
 import { mockFetch } from "../mock/fetch.ts";
 import { seedDemo, type Demo } from "../mock/seed.ts";
-import { FAST_POLL_MS, SLOW_POLL_MS, Store } from "./store.ts";
+import { FAST_POLL_MS, MAX_LIST_PAGES, SLOW_POLL_MS, Store } from "./store.ts";
 import { controllable } from "./testkit.ts";
 
 const MIN = 60_000;
@@ -580,4 +580,52 @@ test("a bulk change stops quietly when the page moves on; what was sent stays se
   assert.equal(t.store.project.value?.id, t.otherId);
   assert.equal(amount("ada@example.org"), 1_000_000); // the first change did happen
   assert.equal(amount("alan@example.org"), 25_000_000);
+});
+
+test("paging: everyone is read, page by page", async () => {
+  const t = await controllable(seedDemo().emails.manager);
+  for (let i = 0; i < 450; i++) t.demo.backend.addMember(t.demo.projectId, { email: `x${i}@example.org` });
+  await t.store.openProject(t.demo.projectId);
+  assert.equal(t.store.members.value.length, 458);
+  assert.equal(t.store.truncated.value.size, 0);
+  const pages = t.log.filter((x) => x.startsWith(`GET /v1/projects/${t.demo.projectId}/members`));
+  assert.deepEqual(pages, [
+    `GET /v1/projects/${t.demo.projectId}/members`,
+    `GET /v1/projects/${t.demo.projectId}/members?cursor=200`,
+    `GET /v1/projects/${t.demo.projectId}/members?cursor=400`,
+  ]);
+});
+
+test("paging: a list stops at the cap and says so", async () => {
+  assert.equal(MAX_LIST_PAGES, 25); // the default: 5,000 at 200 a page
+  // A cap of 2 pages here, so the test stays small.
+  const t = await controllable(seedDemo().emails.manager, { maxListPages: 2 });
+  for (let i = 0; i < 400; i++) t.demo.backend.addMember(t.demo.projectId, { email: `y${i}@example.org` }); // 408 in all
+  await t.store.openProject(t.demo.projectId);
+  assert.equal(t.store.members.value.length, 400);
+  assert.deepEqual([...t.store.truncated.value], ["members"]);
+  assert.equal(t.log.filter((x) => x.startsWith(`GET /v1/projects/${t.demo.projectId}/members`)).length, 2);
+  // Exactly the cap is not "truncated": a full last page with no next.
+  const u = await controllable(seedDemo().emails.manager, { maxListPages: 2 });
+  for (let i = 0; i < 392; i++) u.demo.backend.addMember(u.demo.projectId, { email: `z${i}@example.org` }); // 400 in all
+  await u.store.openProject(u.demo.projectId);
+  assert.equal(u.store.members.value.length, 400);
+  assert.equal(u.store.truncated.value.size, 0);
+});
+
+test("paging: a navigation stops a list mid-way; no more pages of the old project", async () => {
+  const t = await controllable(seedDemo().emails.manager);
+  const manager = [...t.demo.backend.users.values()].find((u) => u.email === t.demo.emails.manager)!;
+  t.demo.backend.addMember(t.otherId, { email: manager.email, role: "manager", userId: manager.id });
+  for (let i = 0; i < 450; i++) t.demo.backend.addMember(t.demo.projectId, { email: `w${i}@example.org` });
+  const a = t.demo.projectId;
+  t.hold(new RegExp(`^GET /v1/projects/${a}/members\\?cursor=200$`), true);
+  const first = t.store.openProject(a);
+  for (let i = 0; i < 20 && !t.log.some((x) => x.endsWith("?cursor=200")); i++) await new Promise((r) => setTimeout(r, 0));
+  await t.store.openProject(t.otherId);
+  t.release();
+  await first;
+  assert.equal(t.log.some((x) => x.endsWith(`/projects/${a}/members?cursor=400`)), false);
+  assert.equal(t.store.project.value?.id, t.otherId);
+  assert.ok(t.store.members.value.every((m) => m.projectId === t.otherId));
 });

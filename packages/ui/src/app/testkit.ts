@@ -3,7 +3,7 @@
 import { createClient } from "../client.ts";
 import { mockFetch } from "../mock/fetch.ts";
 import { seedDemo } from "../mock/seed.ts";
-import { Store } from "./store.ts";
+import { Store, type StoreOptions } from "./store.ts";
 
 /**
  * A store whose requests can be held: hold(pattern) makes matching requests wait until
@@ -11,7 +11,7 @@ import { Store } from "./store.ts";
  * answers when the request is sent; only the answer's arrival is held, so a held answer
  * can be stale. Every request is logged as "METHOD path".
  */
-export async function controllable(email?: string) {
+export async function controllable(email?: string, options: StoreOptions = {}) {
   const demo = seedDemo();
   const other = demo.backend.addProject(demo.orgId, {
     name: "Second project",
@@ -46,7 +46,7 @@ export async function controllable(email?: string) {
     }
     return replaced ? replaced.make() : (answer as Promise<Response>);
   };
-  const store = new Store(createClient({ fetch: fetchFn }), () => demo.backend.now());
+  const store = new Store(createClient({ fetch: fetchFn }), () => demo.backend.now(), options);
   await store.verifySignIn(`mock:${email ?? demo.emails.member}`);
   return {
     demo,
