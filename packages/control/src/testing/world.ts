@@ -9,6 +9,7 @@ import { startSession } from "./sessions.ts";
 import type { AuthConfig } from "../auth.ts";
 import type { Fetch } from "../workos.ts";
 import type { VmProvider } from "../vm.ts";
+import type { AgentSignerSource } from "../signer.ts";
 import { normalizeEmail } from "../validate.ts";
 import { stmt } from "../db.ts";
 import { sqliteDb, type TestDb } from "./sqlite.ts";
@@ -20,6 +21,8 @@ export const T0 = Date.UTC(2027, 1, 1, 9, 0, 0);
 export interface World {
   db: TestDb;
   pending: Promise<unknown>[];
+  /** The alerts raised, in order. */
+  alerts: string[];
   deps: AppDeps;
   clock: { t: number };
   app: ReturnType<typeof createApp>;
@@ -28,10 +31,11 @@ export interface World {
 }
 
 export async function world(
-  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch; vm?: VmProvider } = {},
+  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch; vm?: VmProvider; agentSigner?: AgentSignerSource } = {},
 ): Promise<World> {
   const db = sqliteDb(o.upgrade ? { upgrade: o.upgrade } : {});
   const pending: Promise<unknown>[] = [];
+  const alerts: string[] = [];
   const clock = { t: T0 };
   let counter = 0;
   const deps: AppDeps = {
@@ -53,6 +57,11 @@ export async function world(
     waitUntil: (p) => {
       pending.push(p);
     },
+    // (no signer unless a test gives one: VM enroll then refuses)
+    agentSigner: o.agentSigner ?? (async () => null),
+    alert: (line) => {
+      alerts.push(line);
+    },
   };
   const orgId = newId("org");
   const projectId = newId("project");
@@ -71,7 +80,7 @@ export async function world(
         ]
       : []),
   ]);
-  return { db, pending, deps, clock, app: createApp(deps, o.handlers ? { ...HANDLERS, ...o.handlers } : HANDLERS), orgId, projectId };
+  return { db, pending, alerts, deps, clock, app: createApp(deps, o.handlers ? { ...HANDLERS, ...o.handlers } : HANDLERS), orgId, projectId };
 }
 
 export interface Req {

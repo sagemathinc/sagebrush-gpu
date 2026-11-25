@@ -67,6 +67,8 @@ async function world(handlers?: Handlers): Promise<World> {
       throw new Error("no network in tests");
     },
     vm: null,
+    agentSigner: async () => null,
+    alert: () => {},
   };
   const orgId = newId("org");
   const projectId = newId("project");
