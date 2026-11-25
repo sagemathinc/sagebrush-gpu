@@ -491,3 +491,16 @@ test("watchdog: an 'absent' that arrives after a blocked event loop past the dea
   await runVmWatchdog(env());
   assert.equal((await launchRow(l.machineId)).outcome, "terminated");
 });
+
+test("watchdog: rows that keep failing don't starve a row that fell due later (an attempt moves a row back)", async () => {
+  vm.absentAfterTerminate = false;
+  for (let i = 0; i < WATCHDOG_BATCH; i++) await launch({ firstActiveMs: T0 - ANNOUNCE_DEADLINE_MS }); // (due at T0, failing forever)
+  const later = await launch({ firstActiveMs: T0 - ANNOUNCE_DEADLINE_MS + 1000 }); // (due at T0 + 1 s)
+  w.clock.t = T0 + 2000;
+  await runVmWatchdog(env()); // (the 20 due first)
+  assert.ok(!vm.terminated.includes(later.providerMachineId));
+  vm.terminated = [];
+  w.clock.t = T0 + 62_000;
+  await runVmWatchdog(env()); // (the 20 went behind it: it's attempted now)
+  assert.ok(vm.terminated.includes(later.providerMachineId));
+});
