@@ -568,6 +568,10 @@ test("manager actions need a project", async () => {
   assert.equal(await t.store.stopAll(), null);
   assert.equal(await t.store.spendCsv("day"), null);
   assert.equal(await t.store.updateProject({ name: "x" }), false);
+  assert.equal(await t.store.createTeam("x", 0), false);
+  assert.equal(await t.store.renameTeam("team_x", "y"), false);
+  assert.equal(await t.store.setTeamAllocation("team_x", 1), false);
+  assert.equal(await t.store.deleteTeam("team_x"), false);
   assert.deepEqual(t.log, ["GET /v1/me"]); // signing in; nothing since
 });
 
@@ -665,4 +669,24 @@ test("paging: a navigation stops a list mid-way; no more pages of the old projec
   assert.equal(t.log.some((x) => x.endsWith(`/projects/${a}/members?cursor=400`)), false);
   assert.equal(t.store.project.value?.id, t.otherId);
   assert.ok(t.store.members.value.every((m) => m.projectId === t.otherId));
+});
+
+test("team actions send their request, then reload; a refusal is false with the server's words", async () => {
+  const t = await controllable(seedDemo().emails.manager);
+  await t.store.openProject(t.demo.projectId);
+  const teamId = t.store.teams.value.find((x) => x.name === "Team Qwen")!.id;
+  t.log.length = 0;
+  assert.equal(await t.store.createTeam("Team Phi", 1_000_000), true);
+  assert.equal(t.log[0], `POST /v1/projects/${t.demo.projectId}/teams`);
+  assert.ok(t.store.teams.value.some((x) => x.name === "Team Phi"));
+  assert.equal(await t.store.renameTeam(teamId, "Team Rho"), true);
+  assert.ok(t.store.teams.value.some((x) => x.id === teamId && x.name === "Team Rho"));
+  assert.equal(await t.store.setTeamAllocation(teamId, 7_000_000), true);
+  const allocationId = t.store.teams.value.find((x) => x.id === teamId)!.allocationId;
+  assert.equal(t.store.meters.value.find((x) => x.allocationId === allocationId)?.amount, 7_000_000);
+  assert.equal(await t.store.renameTeam(teamId, "Team Phi"), false);
+  assert.match(t.store.error.value ?? "", /a team with that name exists/);
+  assert.equal(await t.store.deleteTeam(teamId), true);
+  assert.equal(t.store.teams.value.some((x) => x.id === teamId), false);
+  assert.equal(await t.store.deleteTeam(teamId), false);
 });

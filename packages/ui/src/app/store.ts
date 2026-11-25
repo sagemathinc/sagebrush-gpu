@@ -446,6 +446,54 @@ export class Store {
     return done === true;
   }
 
+  // ---------------------------------------------------------------- teams
+
+  /** Create a team with an allocation; true when it was made. */
+  async createTeam(name: string, allocation: Micros): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act("team:create", async () => {
+      await this.client.call("createTeam", { params: { projectId }, body: { name, allocation } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
+  async renameTeam(teamId: string, name: string): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`team:${teamId}`, async () => {
+      await this.client.call("updateTeam", { params: { projectId, teamId }, body: { name } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
+  async setTeamAllocation(teamId: string, amount: Micros): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`team:${teamId}`, async () => {
+      await this.client.call("setTeamAllocation", { params: { projectId, teamId }, body: { amount } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
+  /** Delete a team: its members leave it and its allocation returns to the project. */
+  async deleteTeam(teamId: string): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`team:${teamId}`, async () => {
+      await this.client.call("deleteTeam", { params: { projectId, teamId } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
   /**
    * Apply several allocation changes, one at a time; stops at the first refusal and says how
    * far it got. Returns how many were applied, or null when the page moved on meanwhile

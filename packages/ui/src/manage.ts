@@ -137,3 +137,69 @@ export function csvFilename(projectName: string, by: string, isoDate: string): s
   const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "project";
   return `${slug}-spend-by-${by}-${isoDate.slice(0, 10)}.csv`;
 }
+
+// ---------------------------------------------------------------- teams
+
+/** Mirrors the control plane's limit on a team name (after trimming). */
+export const MAX_TEAM_NAME_LENGTH = 100;
+
+export interface TeamRow {
+  teamId: string;
+  name: string;
+  memberCount: number;
+  allocation: Micros;
+  spent: Micros;
+  remaining: Micros;
+  band: MeterBand;
+  /** Machines running (or starting, or saving) on the team's allocation. */
+  running: number;
+}
+
+/** One row per team, by name, joined with its allocation's meter and running machines. */
+export function teamRows(teams: readonly Team[], meters: readonly SpendMeter[], machines: readonly Machine[]): TeamRow[] {
+  const meterOf = new Map(meters.map((m) => [m.allocationId, m]));
+  const running = new Map<string, number>();
+  for (const m of machines) {
+    if (ACCRUING_STATES.includes(m.state)) running.set(m.allocationId, (running.get(m.allocationId) ?? 0) + 1);
+  }
+  return [...teams]
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .map((t) => {
+      const meter = meterOf.get(t.allocationId);
+      const allocation = meter?.amount ?? 0;
+      const spent = meter?.spent.total ?? 0;
+      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });
+      return {
+        teamId: t.id,
+        name: t.name,
+        memberCount: t.memberCount,
+        allocation,
+        spent,
+        remaining: view.remaining,
+        band: view.band,
+        running: running.get(t.allocationId) ?? 0,
+      };
+    });
+}
+
+/**
+ * A team name as the control plane compares names for uniqueness: its index is on
+ * SQLite's lower(name), which folds A-Z only (D1 has no ICU), so "Équipe" and "équipe"
+ * are different names there, and here.
+ */
+export function teamNameKey(name: string): string {
+  return name.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
+/**
+ * A team name as typed, checked as the control plane will: trimmed, 1 to 100 characters,
+ * and not another of the project's teams' name in any letter case (`self` is the team
+ * being renamed, which may change its own name's case).
+ */
+export function checkTeamName(text: string, teams: readonly Team[], self: string | null = null): { ok: true; name: string } | { ok: false; reason: string } {
+  const name = text.trim();
+  if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) return { ok: false, reason: `A name has 1 to ${MAX_TEAM_NAME_LENGTH} characters.` };
+  const clash = teams.find((t) => t.id !== self && teamNameKey(t.name) === teamNameKey(name));
+  if (clash) return { ok: false, reason: `There's already one called ${clash.name}.` };
+  return { ok: true, name };
+}

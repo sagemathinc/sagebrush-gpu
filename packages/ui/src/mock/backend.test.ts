@@ -4,7 +4,7 @@ import { isId, isPriceSplit, addSplits, type Machine } from "@sbgpu/api";
 import { ApiError, createClient, type Client } from "../client.ts";
 import { mockFetch } from "./fetch.ts";
 import { demoOffers, seedDemo, type Demo } from "./seed.ts";
-import { MEMBERS_PAGE, MockBackend, PAGE_SIZE, SAVE_BYTES } from "./backend.ts";
+import { MAX_TEAMS_PER_PROJECT, MEMBERS_PAGE, MockBackend, PAGE_SIZE, SAVE_BYTES } from "./backend.ts";
 
 const MIN = 60_000;
 
@@ -630,16 +630,78 @@ test("project totals count only the project's own allocations and spend", async 
   assert.equal((await manager.call("getProject", { params: { projectId: d.projectId } })).allocated, 4 * 25_000_000 + 200_000 + 2 * 50_000_000);
 });
 
-test("a team with running machines can't be deleted", async () => {
+test("deleting a team, as the control plane does: members leave, the allocation returns, its machines stop", async () => {
   const d = setup();
   const p = { projectId: d.projectId };
   const alan = await d.as(d.emails.teamMember);
   const m = await alan.call("startMachine", { params: p, body: { gpuType: "L4", chargeTo: "team" } });
+  d.backend.advance(90_000);
   const manager = await d.as(d.emails.manager);
-  const team = (await manager.call("listTeams", { params: p })).teams.find((t) => t.allocationId === m.allocationId);
-  assert.ok(team);
-  await rejects(manager.call("deleteTeam", { params: { ...p, teamId: team.id } }), "invalidState");
+  const team = (await manager.call("listTeams", { params: p })).teams.find((t) => t.allocationId === m.allocationId)!;
+  assert.ok(team.memberCount > 0);
+  const allocatedBefore = (await manager.call("getProject", { params: p })).allocated;
+  assert.deepEqual(await manager.call("deleteTeam", { params: { ...p, teamId: team.id } }), { ok: true });
+  assert.equal((await manager.call("listTeams", { params: p })).teams.some((t) => t.id === team.id), false);
+  assert.equal((await manager.call("getProject", { params: p })).allocated, allocatedBefore - 50_000_000);
+  const { items } = await manager.call("listMembers", { params: p });
+  assert.equal(items.some((x) => x.teamId === team.id), false);
+  // With nothing left on its allocation, the budget rules stop the machine, saving first.
+  d.backend.advance(60_000);
+  const after = await manager.call("getMachine", { params: { machineId: m.id } });
+  assert.notEqual(after.state, "running");
+  await rejects(manager.call("deleteTeam", { params: { ...p, teamId: team.id } }), "notFound");
   await rejects(manager.call("createTeam", { params: p, body: { name: "y", allocation: -5 } }), "badRequest");
+});
+
+test("team names as the control plane checks them: trimmed, 1-100 characters, unique; at most 200 teams; listed by name", async () => {
+  const d = setup();
+  const p = { projectId: d.projectId };
+  const manager = await d.as(d.emails.manager);
+  const bad = async (body: object, code: string, message: RegExp, teamId?: string) => {
+    const call = teamId === undefined ? manager.call("createTeam", { params: p, body: body as { name: string } }) : manager.call("updateTeam", { params: { ...p, teamId }, body });
+    await assert.rejects(call, (err: unknown) => {
+      assert.ok(err instanceof ApiError, String(err));
+      assert.equal(err.code, code);
+      assert.match(err.message, message);
+      return true;
+    });
+  };
+  await bad({ name: "   " }, "badRequest", /1 to 100 characters/);
+  await bad({ name: "x".repeat(101) }, "badRequest", /1 to 100 characters/);
+  await bad({ name: 5 }, "badRequest", /a team name is a string/);
+  const zeta = await manager.call("createTeam", { params: p, body: { name: "  Zeta ", allocation: 0 } });
+  assert.equal(zeta.name, "Zeta");
+  await bad({ name: "Zeta" }, "conflict", /a team with that name exists/);
+  // In any letter case, as the control plane's index on lower(name) holds it (A-Z folded only).
+  await bad({ name: "zETA" }, "conflict", /a team with that name exists/);
+  const eq = await manager.call("createTeam", { params: p, body: { name: "équipe" } });
+  assert.equal((await manager.call("createTeam", { params: p, body: { name: "ÉQUIPE" } })).name, "ÉQUIPE");
+  await bad({ name: "éQUIPE" }, "conflict", /a team with that name exists/);
+  await manager.call("deleteTeam", { params: { ...p, teamId: eq.id } });
+  // Names are unique within a project only.
+  const other = d.backend.addProject(d.orgId, { name: "Other", budget: 0, startsAt: "2027-01-01T00:00:00.000Z", endsAt: "2027-06-01T00:00:00.000Z" });
+  const owner = await d.as(d.emails.owner);
+  assert.equal((await owner.call("createTeam", { params: { projectId: other.id }, body: { name: "zeta" } })).name, "zeta");
+  await d.as(d.emails.manager);
+  const alpha = await manager.call("createTeam", { params: p, body: { name: "x".repeat(100) } });
+  assert.equal(alpha.name.length, 100);
+  await bad({ name: " Zeta" }, "conflict", /a team with that name exists/, alpha.id);
+  await bad({ name: "ZETA" }, "conflict", /a team with that name exists/, alpha.id);
+  // Renaming a team to its own name, or another case of it, is fine; a refused rename changes nothing.
+  assert.equal((await manager.call("updateTeam", { params: { ...p, teamId: zeta.id }, body: { name: "Zeta" } })).name, "Zeta");
+  assert.equal((await manager.call("updateTeam", { params: { ...p, teamId: zeta.id }, body: { name: "ZETA" } })).name, "ZETA");
+  assert.equal((await manager.call("updateTeam", { params: { ...p, teamId: zeta.id }, body: { name: "Zeta" } })).name, "Zeta");
+  assert.equal([...d.backend.teams.values()].find((t) => t.id === alpha.id)?.name, "x".repeat(100));
+  assert.equal((await manager.call("updateTeam", { params: { ...p, teamId: zeta.id }, body: { name: " Alpha " } })).name, "Alpha");
+  const names = (await manager.call("listTeams", { params: p })).teams.map((t) => t.name);
+  assert.deepEqual(names, [...names].sort());
+  assert.ok(names.includes("Alpha") && names.indexOf("Alpha") < names.indexOf("x".repeat(100)));
+  // The cap: fill the project up to 200 teams, then one more is refused.
+  const count = () => [...d.backend.teams.values()].filter((t) => t.projectId === d.projectId).length;
+  while (count() < MAX_TEAMS_PER_PROJECT) d.backend.addTeam(d.projectId, `t${count()}`, [], 0);
+  await bad({ name: "one too many" }, "conflict", /at most 200 teams/);
+  await manager.call("deleteTeam", { params: { ...p, teamId: zeta.id } });
+  assert.equal((await manager.call("createTeam", { params: p, body: { name: "fits again" } })).name, "fits again");
 });
 
 test("allocations may not add up to more than the project budget", async () => {
