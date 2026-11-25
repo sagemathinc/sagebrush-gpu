@@ -11,6 +11,7 @@ export interface MemberRow {
   name: string | null;
   role: Member["role"];
   status: Member["status"];
+  teamId: string | null;
   team: string | null;
   allocation: Micros;
   spent: Micros;
@@ -41,6 +42,7 @@ export function memberRows(members: readonly Member[], meters: readonly SpendMet
         name: m.name,
         role: m.role,
         status: m.status,
+        teamId: m.teamId,
         team: m.teamId ? (teamName.get(m.teamId) ?? null) : null,
         allocation,
         spent,

@@ -346,13 +346,13 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (member.status === \"removed\") throw new ApiFail(\"notFound\", \"no such member\");\n      enforce(canUpdateMember",
-  "new": "      enforce(canUpdateMember"
+  "old": "      if (member.status === \"removed\") throw new ApiFail(\"invalidState\", \"this member was removed\");\n",
+  "new": ""
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (member.status === \"removed\") throw new ApiFail(\"notFound\", \"no such member\");\n      enforce(canRemoveMember",
-  "new": "      enforce(canRemoveMember"
+  "old": "      if (member.status === \"removed\") throw new ApiFail(\"invalidState\", \"this member was already removed\");\n",
+  "new": ""
  },
  {
   "file": "src/mock/backend.ts",
@@ -2603,6 +2603,71 @@
   "file": "src/mock/backend.ts",
   "old": "t.projectId === projectId && t.id !== self && teamNameKey(t.name) === teamNameKey(name))",
   "new": "t.projectId === projectId && t.id !== self && t.name === name)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (body.teamId !== undefined && body.teamId !== null && typeof body.teamId !== \"string\") throw new ApiFail(\"badRequest\", \"teamId is a team id or null\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "some((t) => t.id === body.teamId && t.projectId === params.projectId)) {",
+  "new": "some((t) => t.id === body.teamId)) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (body.teamId != null && ![...this.teams.values()].some(",
+  "new": "      if (false && ![...this.teams.values()].some("
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        teamId: m.teamId,\n",
+  "new": "        teamId: null,\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.client.call(\"updateMember\", { params: { projectId, memberId }, body: { teamId } });\n      await this.refresh();\n",
+  "new": "      await this.client.call(\"updateMember\", { params: { projectId, memberId }, body: { teamId } });\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (projectId == null) return false;\n    const done = await this.#act(`memberTeam:${memberId}`",
+  "new": "    const done = await this.#act(`memberTeam:${memberId}`"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  if (!editable || teams.length === 0) return html`<td>${row.team ?? \"\"}</td>`;",
+  "new": "  if (teams.length === 0) return html`<td>${row.team ?? \"\"}</td>`;"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  if (!editable || teams.length === 0) return html`<td>${row.team ?? \"\"}</td>`;",
+  "new": "  if (!editable) return html`<td>${row.team ?? \"\"}</td>`;"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "value=${row.teamId ?? \"\"} disabled=${store.isBusy(`memberTeam:${row.memberId}`)}",
+  "new": "value=${\"\"} disabled=${store.isBusy(`memberTeam:${row.memberId}`)}"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "value=${row.teamId ?? \"\"} disabled=${store.isBusy(`memberTeam:${row.memberId}`)}",
+  "new": "value=${row.teamId ?? \"\"}"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "void store.setMemberTeam(row.memberId, value === \"\" ? null : value);",
+  "new": "void store.setMemberTeam(row.memberId, value);"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "canUpdateMember(actor, r.role, undefined, owners).ok;",
+  "new": "actor != null;"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "      <option value=\"\">${`No ${labels.team}`}</option>\n",
+  "new": ""
  },
  {
   "file": "src/mock/backend.ts",
