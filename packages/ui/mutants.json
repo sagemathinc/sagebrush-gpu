@@ -2668,5 +2668,11 @@
   "file": "src/app/manage-page.ts",
   "old": "      <option value=\"\">${`No ${labels.team}`}</option>\n",
   "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      billingMode: org.billingMode, // (an organization's mode is fixed, so the copy stays right)",
+  "new": "      billingMode: \"resold\",",
+  "note": "mock project's mode not from its org"
  }
 ]
