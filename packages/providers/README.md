@@ -255,9 +255,44 @@ seconds and confirmed gone, with the spend rate back at 0. `launchError.drift` n
   30 s apart; `spendSettled` is true only on a successful read of exactly 0, and the exit code is 0
   only for a pass that settled.
 
+## Shadeform (`src/shadeform/`, mock-only)
+
+Over Shadeform's public REST API (`https://api.shadeform.ai/v1`, key in the `X-API-KEY` header).
+It is built from Shadeform's API reference and tested only against mocks: nothing here has called
+Shadeform.
+
+- **launch() always refuses** (`invalid_request`, "VM mode is not supported") before any request.
+  Every Shadeform launch is a VM: either a startup script, or a container on a VM with
+  `--network=host`, the account's SSH key and no container status in the API. VM mode is refused
+  (machine DESIGN.md section 2). Any future VM design goes to SEC as its own note first. Because
+  launch refuses, Shadeform must not be in any project's `allowedProviders`.
+- **Offers** come from `GET /v1/instances/types?num_gpus=N&shade_cloud=true`:
+  - on-demand availability only; the price is the type's `hourly_price` in whole cents, as micros;
+  - one offer per GPU type and place, the cheapest, preferring one that can launch at a tie;
+  - stock is `none` when Shadeform says the place can't launch now, and `unknown` otherwise (Shadeform gives no level).
+- **Places.** A data center is `<cloud>/<region>`. Region names belong to each underlying cloud and
+  Shadeform doesn't document them, so a place is offered only once `SHADEFORM_REGIONS` gives its
+  country, each entry checked against a real catalog read. Today that's only the documented
+  `hyperstack/canada-1`.
+- **GPUs.** `A100_80G` and `H100` cover both PCIe and SXM; they map only with an interconnect in
+  the table (`pcie`, `sxm4`/`sxm5`, to be confirmed against a real catalog). Anything else is never
+  offered.
+- **Status.** An instance maps to our status as follows:
+  - the image is the VM's `os` and the disk its type's `storage_in_gb`;
+  - environment names come from both `envs` lists;
+  - ports from `port_forwards` and the container's `port_mappings`;
+  - an SSH key, Shade Cloud off, non-on-demand terms and a template, cluster or commitment are unexpected settings;
+  - the command is a fixed marker, so no Shadeform machine ever matches a launch spec.
+
+  `deleting` is `stopping` (billing has stopped, but the machine isn't gone); only `deleted` or a 404 is `terminated`.
+- **List and terminate.**
+  - The list is read by offset, 100 per page, at most 50 pages. It fails if the total changes or a page has the wrong length.
+  - Terminate is `POST .../delete`, idempotent on 404. A 409 counts as done only if a fresh status shows the instance deleting or gone.
+- **Errors** keep no provider text (bodies can echo request values). An unreadable reply to a POST is `outcome_unknown`.
+
 ## Not yet
 
-- The second adapter after the Dec 12 provider decision: Shadeform, or Hyperstack/Nebius.
+- Hyperstack/Nebius, after the Dec 12 provider decision.
 
 ## Tests
 
