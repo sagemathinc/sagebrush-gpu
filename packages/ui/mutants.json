@@ -2924,5 +2924,10 @@
   "file": "src/app/store.ts",
   "old": "    const load = ++this.#orgLoad;\n",
   "new": "    const load = this.#orgLoad;\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (generation !== this.#generation) return;\n    const load = ++this.#orgLoad;",
+  "new": "    const load = ++this.#orgLoad;"
  }
 ]

@@ -228,7 +228,9 @@ export class Store {
   async #loadOrg(orgId: string, generation: number): Promise<void> {
     // Loads can overlap (two moves on different projects each read the figures again):
     // only the latest one asked may publish, so an older answer arriving last can't
-    // overwrite newer figures.
+    // overwrite newer figures. A load for a page that has since moved on (a move whose
+    // answer came after a navigation) takes no number: it mustn't outrank the new page's.
+    if (generation !== this.#generation) return;
     const load = ++this.#orgLoad;
     try {
       const params = { orgId };

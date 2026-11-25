@@ -35,6 +35,8 @@ export async function controllable(email?: string, options: StoreOptions = {}) {
   let openGate: (() => void) | null = null;
   let failNext: Error | null = null;
   let override: { pattern: RegExp; make: () => Response } | null = null;
+  /** Independent one-shot holds (gate()): each holds the next matching request until its own release. */
+  const gates: Array<{ pattern: RegExp; gate: Promise<void> }> = [];
   const fetchFn = async (url: string, init: RequestInit) => {
     log.push(`${init.method} ${url}`);
     if (failNext) {
@@ -50,6 +52,11 @@ export async function controllable(email?: string, options: StoreOptions = {}) {
       const gate = held.gate;
       if (held.once) held = null;
       await gate;
+    }
+    const one = gates.findIndex((g) => g.pattern.test(key));
+    if (one >= 0) {
+      const [g] = gates.splice(one, 1);
+      await g!.gate;
     }
     return replaced ? replaced.make() : (answer as Promise<Response>);
   };
@@ -68,6 +75,12 @@ export async function controllable(email?: string, options: StoreOptions = {}) {
       openGate?.();
       openGate = null;
       held = null;
+    },
+    /** Hold the next request matching `pattern` (independently of hold()); call the result to let it answer. */
+    gate(pattern: RegExp): () => void {
+      let open: () => void = () => {};
+      gates.push({ pattern, gate: new Promise<void>((resolve) => (open = resolve)) });
+      return () => open();
     },
     failOnce(err: Error) {
       failNext = err;

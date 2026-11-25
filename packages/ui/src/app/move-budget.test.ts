@@ -172,3 +172,60 @@ test("two moves crossing: the older refresh failing late doesn't report over the
   assert.equal(t.store.error.value, null);
   assert.equal(t.store.org.value?.unassignedCredit, 2_897_000_000);
 });
+
+/** A second organization the owner can view, with one project. */
+function secondOrg(t: Awaited<ReturnType<typeof controllable>>) {
+  const b = t.demo.backend;
+  const org = b.addOrg("Second org", 1000, 50_000_000);
+  b.addProject(org.id, { name: "Elsewhere", budget: 10_000_000, startsAt: "2027-01-01T00:00:00.000Z", endsAt: "2027-06-01T00:00:00.000Z" });
+  const owner = [...b.users.values()].find((u) => u.email === EMAILS.owner)!;
+  b.setOrgRole(org.id, owner.id, "viewer");
+  return org;
+}
+
+test("a move answered after a navigation to another organization doesn't stop the new page loading", async () => {
+  const t = await controllable(EMAILS.owner);
+  const other = secondOrg(t);
+  await t.store.loadMe();
+  await t.store.openOrg(t.demo.orgId);
+  // The move's answer is held...
+  const moveAnswers = t.gate(/^POST \/v1\/projects\/[^/]+\/budget$/);
+  const move = t.store.moveProjectBudget(t.demo.projectId, 1_000_000);
+  await ticks();
+  // ...while the owner opens another organization, whose load is held too.
+  const newPageAnswers = t.gate(new RegExp(`^GET /v1/orgs/${other.id}$`));
+  const open = t.store.openOrg(other.id);
+  await ticks();
+  // The old move answers now: its refresh belongs to a page that's gone.
+  moveAnswers();
+  assert.equal(await move, false);
+  newPageAnswers();
+  await open;
+  assert.equal(t.store.orgId.value, other.id);
+  assert.equal(t.store.org.value?.name, "Second org");
+  assert.deepEqual(t.store.orgProjects.value.map((p) => p.name), ["Elsewhere"]);
+  assert.equal(t.store.error.value, null);
+  // (the move itself did happen on the server)
+  assert.equal(t.demo.backend.projects.get(t.demo.projectId)!.budget, 2_001_000_000);
+});
+
+test("...and if the new organization's load fails, that failure is what's shown", async () => {
+  const t = await controllable(EMAILS.owner);
+  const other = secondOrg(t);
+  await t.store.loadMe();
+  await t.store.openOrg(t.demo.orgId);
+  const moveAnswers = t.gate(/^POST \/v1\/projects\/[^/]+\/budget$/);
+  const move = t.store.moveProjectBudget(t.demo.projectId, 1_000_000);
+  await ticks();
+  const orgPath = new RegExp(`^GET /v1/orgs/${other.id}$`);
+  t.respondOnce(orgPath, () => Response.json({ error: { code: "internal", message: "new page failed" } }, { status: 500 }));
+  const newPageAnswers = t.gate(orgPath);
+  const open = t.store.openOrg(other.id);
+  await ticks();
+  moveAnswers();
+  await move;
+  newPageAnswers();
+  await open;
+  assert.equal(t.store.error.value, "new page failed");
+  assert.equal(t.store.org.value, null);
+});
