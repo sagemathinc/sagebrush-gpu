@@ -1125,6 +1125,10 @@ test("organizations: a byok one runs at margin 0; projects are listed a page at 
   assert.deepEqual([first.items.length, first.next], [PAGE_SIZE, String(PAGE_SIZE)]);
   const rest = await c.call("listProjects", { params: { orgId: own.id }, query: { cursor: String(PAGE_SIZE) } });
   assert.deepEqual([rest.items.map((p) => p.name), rest.next], [[`p${PAGE_SIZE}`], null]);
+  // each project carries its organization's mode
+  assert.deepEqual(new Set([...first.items, ...rest.items].map((p) => p.billingMode)), new Set(["byok"]));
+  const resold = d.backend.addOrg("Resold 2", 2000, 0);
+  assert.equal(d.backend.addProject(resold.id, { name: "r", budget: 0, startsAt: "2027-01-01T00:00:00.000Z", endsAt: "2027-06-01T00:00:00.000Z" }).billingMode, "resold");
   // Someone with no role in the organization sees nothing of it.
   const ada = await d.as(d.emails.member);
   await rejects(ada.call("getOrg", { params: { orgId: own.id } }), "notFound", 404);

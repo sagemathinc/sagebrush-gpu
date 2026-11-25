@@ -53,9 +53,12 @@ interface ProjectRow {
   policy_json: string;
   labels_json: string | null;
   created_ms: number;
+  billing_mode: BillingMode;
 }
 
-const PROJECT_COLUMNS = `id, org_id, name, starts_ms, ends_ms, margin_bps_override, budget, final_save_reserve_minutes, policy_json, labels_json, created_ms`;
+// (always read FROM projects: the organization's billing mode comes along, for the project's pages)
+const PROJECT_COLUMNS = `id, org_id, name, starts_ms, ends_ms, margin_bps_override, budget, final_save_reserve_minutes, policy_json, labels_json, created_ms,
+  (SELECT billing_mode FROM orgs WHERE orgs.id = projects.org_id) AS billing_mode`;
 
 function toOrg(r: OrgRow): Organization {
   return {
@@ -93,6 +96,7 @@ async function toProjects(db: Db, rows: ProjectRow[]): Promise<Project[]> {
     return {
       id: r.id,
       orgId: r.org_id,
+      billingMode: r.billing_mode,
       name: r.name,
       labels: r.labels_json === null ? null : (JSON.parse(r.labels_json) as ProjectLabels),
       startsAt: toIso(r.starts_ms),

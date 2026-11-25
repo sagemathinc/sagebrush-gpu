@@ -4,7 +4,7 @@ import { BILLING_MODES, isBillingMode, newId } from "@sbgpu/api";
 import { sqliteDb } from "./testing/sqlite.ts";
 import { credentialForMachine, credentialForOrg } from "./billing.ts";
 import { stmt, type Db } from "./db.ts";
-import { T0, call, person, world } from "./testing/world.ts";
+import { T0, addMember, call, person, signIn, world } from "./testing/world.ts";
 
 const org = (id: string, mode: string | null, margin = 0) =>
   stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES (?, 'O', ?, ?, ?)`, id, mode, margin, T0);
@@ -164,4 +164,26 @@ test("the organization's mode is on the wire", async () => {
     assert.equal(res.status, 200);
     assert.equal(json.billingMode, mode);
   }
+});
+
+test("a project carries its organization's mode, for members with no org role", async () => {
+  const w = await world();
+  const { db } = w;
+  const [b, bp] = [newId("org"), newId("project")];
+  await db.batch([org(b, "byok"), project(bp, b)]);
+  // a plain project member in both (no org role at all)
+  await addMember(w, "m@example.com", "member");
+  await addMember(w, "m@example.com", "member", { projectId: bp });
+  const cookie = await signIn(w, "m@example.com");
+  for (const [projectId, mode] of [[w.projectId, "resold"], [bp, "byok"]] as const) {
+    const { res, json } = await call(w, "GET", `/v1/projects/${projectId}`, { cookie });
+    assert.equal(res.status, 200, projectId);
+    assert.equal(json.billingMode, mode);
+  }
+  assert.equal((await call(w, "GET", `/v1/orgs/${b}`, { cookie })).res.status === 200, false); // (the org itself stays out of reach)
+  // the org's listing carries it too
+  const viewer = await person(w, "v@example.com", "member");
+  await db.batch([stmt(`INSERT INTO org_members (org_id, user_id, role) SELECT ?, user_id, 'viewer' FROM members WHERE id = ?`, b, viewer.memberId)]);
+  const { json } = await call(w, "GET", `/v1/orgs/${b}/projects`, { cookie: viewer.cookie });
+  assert.deepEqual((json.items as { id: string; billingMode: string }[]).map((p) => [p.id, p.billingMode]), [[bp, "byok"]]);
 });

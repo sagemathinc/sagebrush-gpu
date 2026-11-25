@@ -9,6 +9,7 @@ function project(over: Partial<Project> = {}): Project {
   return {
     id: "prj_1",
     orgId: "org_1",
+    billingMode: "resold",
     name: "Fine-tuning lab",
     labels: null,
     startsAt: "2027-01-01T00:00:00.000Z",

@@ -306,6 +306,7 @@ export class MockBackend {
     const project: Project = {
       id: this.newId("project"),
       orgId,
+      billingMode: org.billingMode, // (an organization's mode is fixed, so the copy stays right)
       name: init.name,
       labels: init.labels ?? null,
       startsAt: init.startsAt,

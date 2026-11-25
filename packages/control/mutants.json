@@ -2527,5 +2527,17 @@
   "old": "    IS NOT (SELECT o.billing_mode FROM projects p JOIN orgs o ON o.id = p.org_id WHERE p.id = OLD.project_id)",
   "new": "    IS (SELECT o.billing_mode FROM projects p JOIN orgs o ON o.id = p.org_id WHERE p.id = OLD.project_id)",
   "note": "refuses same-mode machine moves only"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "      billingMode: r.billing_mode,\n      name: r.name,",
+  "new": "      billingMode: \"resold\" as const,\n      name: r.name,",
+  "note": "a project's mode not from its org"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "  (SELECT billing_mode FROM orgs WHERE orgs.id = projects.org_id) AS billing_mode`;",
+  "new": "  (SELECT billing_mode FROM orgs ORDER BY billing_mode LIMIT 1) AS billing_mode`;",
+  "note": "some org's mode, not the project's own"
  }
 ]
