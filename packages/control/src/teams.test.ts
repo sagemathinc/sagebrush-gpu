@@ -328,7 +328,11 @@ test("schema: a member's team is a live team of its project; deleted teams stay 
     stmt(`UPDATE members SET team_id = ?, status = 'removed' WHERE id = ?`, t2, gone),
   ]);
   await assert.rejects(w.db.batch([stmt(`UPDATE teams SET deleted_ms = ? WHERE id = ?`, T0, t2)]), /keeps no members/);
-  // no one joins a deleted team, and it never comes back
+  // no one joins a deleted team, and it never comes back: not by update, not at insert
+  await assert.rejects(
+    w.db.batch([stmt(`INSERT INTO members (id, project_id, email, role, status, team_id, created_ms) VALUES (?, ?, 'late@example.com', 'member', 'invited', ?, ?)`, newId("member"), w.projectId, live, T0)]),
+    /team:/,
+  );
   await assert.rejects(w.db.batch([stmt(`UPDATE members SET team_id = ? WHERE id = ?`, live, a)]), /team:/);
   await assert.rejects(w.db.batch([stmt(`UPDATE teams SET deleted_ms = NULL WHERE id = ?`, live)]), /stays deleted/);
   await assert.rejects(w.db.batch([stmt(`UPDATE teams SET deleted_ms = ? WHERE id = ?`, T0 + 1, live)]), /stays deleted/);

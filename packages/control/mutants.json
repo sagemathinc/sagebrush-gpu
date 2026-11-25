@@ -1210,5 +1210,10 @@
   "file": "src/members.ts",
   "old": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,",
   "new": ": `${MEMBER_SELECT} WHERE (m.project_id = ? OR 1) AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id AND t.deleted_ms IS NULL",
+  "new": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id"
  }
 ]
