@@ -3690,5 +3690,287 @@
   "old": "VALUES (?, ?, 'vm', ?, ?, ?, ?, 'creating', ?, ?)`,",
   "new": "VALUES (?, ?, 'container', ?, ?, ?, ?, 'creating', ?, ?)`,",
   "note": "intent recorded as a container"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [i.machineId, i.incarnation, i.rate.providerCostPerHour, i.rate.marginBps],",
+  "new": "params: [i.machineId, i.incarnation, i.rate.marginBps, i.rate.providerCostPerHour],",
+  "note": "the rate's cost and margin swapped at intent"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
+  "new": "i.createdMs + CREATE_DEADLINE_MS + 1, i.createdMs],",
+  "note": "the create deadline a millisecond late"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "SELECT 0 WHERE changes() <> 1`",
+  "new": "SELECT 0 WHERE changes() < 0`",
+  "note": "every changes() guard disabled"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating' AND provider_machine_id IS NULL`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND provider_machine_id IS NULL`,",
+  "note": "the id recorded past creating"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating' AND provider_machine_id IS NULL`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating'`,",
+  "note": "an id overwritten by another"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND provider_machine_id IS NULL AND used_ms IS NULL`,",
+  "new": "AND provider_machine_id IS NULL`,",
+  "note": "a revoked token takes the id"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "SELECT l.machine_id, l.incarnation, l.provider, r.provider_cost_per_hour, r.margin_bps, l.created_ms",
+  "new": "SELECT l.machine_id, l.incarnation, l.provider, r.provider_cost_per_hour, r.margin_bps, l.created_ms + 60000",
+  "note": "the accrual starts after the intent"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "(SELECT (l.created_ms / 60000) * 60000 FROM launches l",
+  "new": "(SELECT l.created_ms + 60000 FROM launches l",
+  "note": "billed-through not the intent's minute"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    return r.length === 1 ? \"recorded\" : \"refused\";",
+  "new": "    return \"refused\";",
+  "note": "a replay reported refused"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND (first_running_ms IS NULL OR first_running_ms > ?)`,",
+  "new": "AND (first_running_ms IS NULL OR first_running_ms >= ?)`,",
+  "note": "an equal sample re-recorded"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [atMs, atMs + CONNECT_WINDOW_MS, machineId,",
+  "new": "params: [atMs, atMs + CONNECT_WINDOW_MS + 1, machineId,",
+  "note": "the connect deadline a millisecond late"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [atMs, atMs + BOOT_TOKEN_TTL_MS, machineId,",
+  "new": "params: [atMs + 1, atMs + 1 + BOOT_TOKEN_TTL_MS, machineId,",
+  "note": "the token's window not first running"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND mode = 'container' AND provider_machine_id = ? AND used_ms IS NULL`,\n        params: [atMs",
+  "new": "AND mode = 'container' AND provider_machine_id = ?`,\n        params: [atMs",
+  "note": "a revoked token gets a window"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND mode = 'container' AND watchdog_version = ? AND outcome IN ('creating', 'issued', 'terminate')`,",
+  "new": "AND mode = 'container' AND outcome IN ('creating', 'issued', 'terminate')`,",
+  "note": "the claim ignores the version"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "sql: `UPDATE boot_tokens SET used_ms = COALESCE(used_ms, ?) WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,",
+  "new": "sql: `UPDATE boot_tokens SET used_ms = used_ms WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND ? IS NOT NULL`,",
+  "note": "no revocation before terminate"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "s.machineId === machineId && s.state !== \"terminated\")",
+  "new": "s.machineId === machineId)",
+  "note": "terminated pods counted by name"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0) {",
+  "new": "  if (false) {",
+  "note": "pods found by name never billed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "gone = s !== \"unavailable\" && s.providerMachineId === r.provider_machine_id && s.state === \"terminated\";",
+  "new": "gone = s !== \"unavailable\";",
+  "note": "terminated without the provider confirming"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "gone = left !== \"unavailable\" && left.length === 0;",
+  "new": "gone = left !== \"unavailable\";",
+  "note": "terminated while pods are still listed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      ...closeAccrual(r.machine_id, r.incarnation, at),\n",
+  "new": "",
+  "note": "the accrual never closed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (e instanceof ProviderError && e.kind === \"outcome_unknown\") return \"unknown\";\n",
+  "new": "",
+  "note": "a lost reply treated as a definitive failure"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "await abandonContainer(env, l.machineId, l.incarnation, \"create-failed\", [e.providerMachineId]);",
+  "new": "await abandonContainer(env, l.machineId, l.incarnation, \"create-failed\");",
+  "note": "a refused pod not ended by its id"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if ((await recordContainerId(env.db, l.machineId, l.incarnation, created.id)) === \"recorded\") return \"created\";",
+  "new": "await recordContainerId(env.db, l.machineId, l.incarnation, created.id); if (Math.random() < 2) return \"created\";",
+  "note": "a refused id batch reported created"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const s = await withDeadline<ProviderMachineStatus | \"unavailable\">(() => p.status(id), \"unavailable\");\n  if (s === \"unavailable\") return \"unavailable\";\n  const at = env.clock(); // (control time, after the read)",
+  "new": "  const at = env.clock();\n  const s = await withDeadline<ProviderMachineStatus | \"unavailable\">(() => p.status(id), \"unavailable\");\n  if (s === \"unavailable\") return \"unavailable\";",
+  "note": "first running timed before the read"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (s.providerMachineId !== id || s.machineId !== machineId) {",
+  "new": "  if (s.machineId !== machineId) {",
+  "note": "another pod's answer accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (s.providerMachineId !== id || s.machineId !== machineId) {",
+  "new": "  if (s.providerMachineId !== id) {",
+  "note": "another machine's pod accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.image === e.image &&",
+  "new": "    true &&",
+  "note": "image drift accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    sameList(s.command, e.launcher) &&",
+  "new": "    true &&",
+  "note": "entrypoint drift accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    sameList(s.envNames, [e.bootEnv]) &&",
+  "new": "    true &&",
+  "note": "extra env names accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.exposedPorts.length === 0 &&",
+  "new": "    true &&",
+  "note": "exposed ports accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.unexpectedSettings.length === 0;",
+  "new": "    true;",
+  "note": "unexpected settings accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if (s.state === \"terminated\" || s.state === \"failed\" || s.state === \"stopping\") {",
+  "new": "if (s.state === \"terminated\" || s.state === \"stopping\") {",
+  "note": "a failed pod not ended"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'container'",
+  "new": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
+  "note": "the container watchdog takes VM launches"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "            WHEN v.outcome = 'creating' THEN 'create-deadline'",
+  "new": "            WHEN v.outcome = 'creating' THEN 'connect-deadline'",
+  "note": "the create deadline misnamed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) break;",
+  "new": "    if (env.elapsedMs() > WATCHDOG_BUDGET_MS) break;",
+  "note": "a claim at the budget's end"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if (named !== \"unavailable\" && named.length === 1) {",
+  "new": "if (named !== \"unavailable\" && named.length >= 1) {",
+  "note": "one of two pods recorded as the launch's"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "        reason = \"duplicate-name\";",
+  "new": "        reason = reason;",
+  "note": "duplicates not named"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS;",
+  "new": "export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS + 1000;",
+  "note": "a longer connect window"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "  WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation AND l.outcome = 'creating'\n)",
+  "new": "  WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation\n)",
+  "note": "a rate added past creating"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "WHEN NEW.mode = 'container'\n  AND (NEW.provider_machine_id",
+  "new": "WHEN NEW.mode = 'vm'\n  AND (NEW.provider_machine_id",
+  "note": "a container launch moves without its rate"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour AND r.margin_bps = NEW.margin_bps",
+  "new": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour",
+  "note": "an accrual at another margin"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour AND r.margin_bps = NEW.margin_bps",
+  "new": "      AND r.margin_bps = NEW.margin_bps",
+  "note": "an accrual at another cost"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND l.provider = NEW.provider\n",
+  "new": "",
+  "note": "an accrual of another provider"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND (l.mode <> 'container' OR l.created_ms = NEW.start_ms)",
+  "new": "      AND 1",
+  "note": "an accrual from another start"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "    OR EXISTS (SELECT 1 FROM launches l WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation AND l.mode = 'container')\n",
+  "new": "",
+  "note": "a container launch without a rate accrues"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_rates_kept BEFORE UPDATE ON launch_rates\n",
+  "new": "CREATE TRIGGER launch_rates_kept BEFORE UPDATE OF incarnation ON launch_rates\n",
+  "note": "a rate changed"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nBEGIN",
+  "new": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nWHEN 0\nBEGIN",
+  "note": "a rate deleted"
  }
 ]

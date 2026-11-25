@@ -1,0 +1,438 @@
+// Container mode's launch (RunPod; the container-launch design r2.1, SEC clear, steps 2-4 and
+// 6): the intent, the create, the provider id with the accrual, first running, and the connect
+// watchdog. Launch is off in production: nothing in the app calls launchContainer yet (container
+// enroll comes next), and it runs only against an adapter the caller gives.
+//
+// - The intent is one batch before any provider call: the launch row (creating), its pinned rate
+//   and the boot token's hash (pending: no provider id, no window). The token itself lives only
+//   in memory, for the create.
+// - The provider id is one guarded batch: the id on the launch and on its token, and the accrual
+//   opened from the pinned rate, starting at the intent (RunPod bills from creation). Each guarded
+//   write is followed by a guard that fails the whole batch unless it changed exactly one row.
+// - A lost create reply, or a crash after the create, is recovered by the pod's name when the
+//   launch's create deadline passes, with the same batch and the same rate.
+// - First running is a verified observation (the expected pod, image, entrypoint, env names and
+//   settings), timed by control's clock after the read. It only moves earlier, and it opens the
+//   token's 120 s window together with the launch's connect deadline.
+// - Every termination revokes the boot token in the batch that claims the launch, before any
+//   provider call. Only the provider confirming the pod gone marks it terminated and closes the
+//   accrual.
+
+import type { LaunchSpec, ProviderMachineStatus } from "@sbgpu/providers";
+import { ProviderError } from "@sbgpu/providers";
+import type { Db, Stmt } from "./db.ts";
+import { base64url, sha256Hex } from "./http.ts";
+import { closeAccrual } from "./ledger.ts";
+import { BOOT_TOKEN_TTL_MS, CREATE_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, withDeadline } from "./vm.ts";
+
+/** The calls container mode needs from a provider adapter (the RunPod adapter has them). */
+export interface ContainerProvider {
+  /** Creates one pod, or finds the one a lost reply created; throws ProviderError otherwise. */
+  launch(spec: LaunchSpec): Promise<{ providerMachineId: string }>;
+  /** A pod the provider no longer knows reports state "terminated". */
+  status(providerMachineId: string): Promise<ProviderMachineStatus>;
+  /** Idempotent; throws when the provider can't confirm the request was taken. */
+  terminate(providerMachineId: string): Promise<void>;
+  /** Every pod of ours (by name), in any state; throws rather than return part of the list. */
+  listMachines(): Promise<ProviderMachineStatus[]>;
+}
+
+/** What a container must show to be first seen running: the release's image and launcher, and only the token's variable. */
+export interface ContainerExpect {
+  image: string;
+  launcher: readonly string[];
+  /** The boot token's variable, the only env name the pod may have. */
+  bootEnv: string;
+}
+
+export interface ContainerEnv {
+  db: Db;
+  /** Control's time, read when it's needed (first running is timed after its provider read). */
+  clock(): number;
+  provider: ContainerProvider | null;
+  expect: ContainerExpect;
+  randomBytes(n: number): Uint8Array;
+  /** Milliseconds since the run began (the watchdog's budget). */
+  elapsedMs(): number;
+}
+
+/** The connect window: enroll within this of first running, or the pod is ended. */
+export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS;
+/** How long the create (with the adapter's own recovery by name) may take. */
+export const LAUNCH_CALL_DEADLINE_MS = 60_000;
+
+export type ContainerReason = "create-failed" | "create-deadline" | "connect-deadline" | "provider-facts" | "pod-exited" | "duplicate-name";
+
+/** Fails its batch unless the statement just before it changed exactly one row (D1 runs a batch in order, on one connection, as one transaction). */
+const TOOK: Stmt = { sql: `INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`, params: [] };
+
+/** A provider's pod id: 1 to 64 printable ASCII characters (the schema bounds the same bytes). */
+const PROVIDER_ID = /^[\x21-\x7e]{1,64}$/;
+
+export interface ContainerIntent {
+  machineId: string;
+  incarnation: number;
+  agentSha256: string;
+  credentialKind: "ours" | "org";
+  /** The offer's pinned rate: what the launch bills at, whenever its accrual opens. */
+  rate: { providerCostPerHour: number; marginBps: number };
+  createdMs: number;
+  tokenSha256: string;
+}
+
+/** The intent: the launch (creating, due at its create deadline), its rate and its pending token, all or nothing. */
+export async function recordContainerIntent(db: Db, i: ContainerIntent): Promise<void> {
+  await db.batch([
+    {
+      sql: `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, outcome, next_ms, created_ms)
+            VALUES (?, ?, 'container', 'runpod', ?, ?, 'creating', ?, ?)`,
+      params: [i.machineId, i.incarnation, i.agentSha256, i.credentialKind, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],
+    },
+    {
+      sql: `INSERT INTO launch_rates (machine_id, incarnation, provider_cost_per_hour, margin_bps) VALUES (?, ?, ?, ?)`,
+      params: [i.machineId, i.incarnation, i.rate.providerCostPerHour, i.rate.marginBps],
+    },
+    {
+      sql: `INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, mode) VALUES (?, ?, ?, 'container')`,
+      params: [i.tokenSha256, i.machineId, i.incarnation],
+    },
+  ]);
+}
+
+/** The accrual of a container launch, from its pinned rate and its intent time; nothing if it has one. */
+function openFromRate(machineId: string, incarnation: number, boundId: string | null): Stmt[] {
+  return [
+    {
+      sql: `INSERT INTO machine_accruals (machine_id, incarnation, provider, provider_cost_per_hour, margin_bps, start_ms)
+            SELECT l.machine_id, l.incarnation, l.provider, r.provider_cost_per_hour, r.margin_bps, l.created_ms
+            FROM launches l JOIN launch_rates r ON r.machine_id = l.machine_id AND r.incarnation = l.incarnation
+            WHERE l.machine_id = ? AND l.incarnation = ? AND l.mode = 'container' AND ${boundId === null ? "l.provider_machine_id IS NULL" : "l.provider_machine_id = ?"}
+              AND NOT EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = l.machine_id AND a.incarnation = l.incarnation)`,
+      params: boundId === null ? [machineId, incarnation] : [machineId, incarnation, boundId],
+    },
+    TOOK,
+    {
+      sql: `UPDATE machines SET billed_through_ms = COALESCE(billed_through_ms, (SELECT (l.created_ms / 60000) * 60000 FROM launches l WHERE l.machine_id = ? AND l.incarnation = ?))
+            WHERE id = ?`,
+      params: [machineId, incarnation, machineId],
+    },
+    TOOK,
+  ];
+}
+
+/**
+ * The provider id of a creating container launch, with its accrual, in one guarded batch: the id
+ * on the launch (none recorded yet), the same id on its token, and the accrual from the pinned
+ * rate. "recorded" for this id, now or already (a replay opens nothing more); "refused" for
+ * another id, a launch past creating, or a failed write (the caller abandons the launch with the
+ * id it holds).
+ */
+export async function recordContainerId(db: Db, machineId: string, incarnation: number, providerMachineId: string): Promise<"recorded" | "refused"> {
+  if (!PROVIDER_ID.test(providerMachineId)) return "refused";
+  try {
+    await db.batch([
+      {
+        sql: `UPDATE launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1
+              WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating' AND provider_machine_id IS NULL`,
+        params: [providerMachineId, machineId, incarnation],
+      },
+      TOOK,
+      {
+        sql: `UPDATE boot_tokens SET provider_machine_id = ? WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND provider_machine_id IS NULL AND used_ms IS NULL`,
+        params: [providerMachineId, machineId, incarnation],
+      },
+      TOOK,
+      ...openFromRate(machineId, incarnation, providerMachineId),
+    ]);
+    return "recorded";
+  } catch {
+    // (nothing of the batch applied: already recorded with this id is a replay, anything else is refused)
+    const r = await db.all<{ ok: number }>(
+      `SELECT 1 AS ok FROM launches l WHERE l.machine_id = ? AND l.incarnation = ? AND l.mode = 'container' AND l.outcome = 'creating' AND l.provider_machine_id = ?
+         AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = l.machine_id AND a.incarnation = l.incarnation)`,
+      [machineId, incarnation, providerMachineId],
+    );
+    return r.length === 1 ? "recorded" : "refused";
+  }
+}
+
+/**
+ * First running: a verified observation at control time `atMs` (taken after the provider read),
+ * in one guarded batch. The launch moves to issued (or stays issued) with first running and its
+ * connect deadline, and the token gets its 120 s window. It only moves earlier: a sample no
+ * earlier than the recorded one changes nothing ("kept"), and so does a launch that isn't
+ * creating or issued with this id, or a revoked token.
+ */
+export async function recordFirstRunning(db: Db, machineId: string, incarnation: number, providerMachineId: string, atMs: number): Promise<"recorded" | "kept"> {
+  if (!Number.isSafeInteger(atMs) || atMs < 0) return "kept";
+  try {
+    await db.batch([
+      {
+        sql: `UPDATE launches SET first_running_ms = ?, outcome = 'issued', next_ms = ?, watchdog_version = watchdog_version + 1
+              WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND provider_machine_id = ? AND outcome IN ('creating', 'issued')
+                AND (first_running_ms IS NULL OR first_running_ms > ?)`,
+        params: [atMs, atMs + CONNECT_WINDOW_MS, machineId, incarnation, providerMachineId, atMs],
+      },
+      TOOK,
+      {
+        sql: `UPDATE boot_tokens SET issued_ms = ?, expires_ms = ?
+              WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND provider_machine_id = ? AND used_ms IS NULL`,
+        params: [atMs, atMs + BOOT_TOKEN_TTL_MS, machineId, incarnation, providerMachineId],
+      },
+      TOOK,
+    ]);
+    return "recorded";
+  } catch {
+    return "kept";
+  }
+}
+
+interface ContainerRow {
+  machine_id: string;
+  incarnation: number;
+  provider_machine_id: string | null;
+  watchdog_version: number;
+  outcome: string;
+}
+
+async function containerRow(db: Db, machineId: string, incarnation: number): Promise<ContainerRow | null> {
+  const r = await db.all<ContainerRow>(
+    `SELECT machine_id, incarnation, provider_machine_id, watchdog_version, outcome FROM launches WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,
+    [machineId, incarnation],
+  );
+  return r[0] ?? null;
+}
+
+/** The provider's live pods carrying this machine's name. "unavailable" if the whole list can't be read. */
+async function podsNamed(env: ContainerEnv, machineId: string): Promise<string[] | "unavailable"> {
+  const p = env.provider;
+  if (!p) return "unavailable";
+  const list = await withDeadline<ProviderMachineStatus[] | "unavailable">(() => p.listMachines(), "unavailable");
+  if (list === "unavailable") return "unavailable";
+  return list.filter((s) => s.machineId === machineId && s.state !== "terminated").map((s) => s.providerMachineId);
+}
+
+/**
+ * One termination attempt, if this caller wins the row's claim: in one batch, the claim (a
+ * conditional update from the version it read; the launch moves to terminate) and the boot
+ * token's revocation. Only after that commits does it call the provider: terminate every pod of
+ * the launch (its id, or every pod with its name when it has none, or others besides), then
+ * confirm. Confirmed gone marks it terminated and closes the accrual. Returns whether the claim
+ * was won.
+ */
+export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerRow, reason: ContainerReason | string, heldIds: readonly string[] = []): Promise<boolean> {
+  const now = env.clock();
+  try {
+    await env.db.batch([
+      {
+        sql: `UPDATE launches SET watchdog_version = watchdog_version + 1, next_ms = ?,
+                outcome = CASE WHEN outcome IN ('creating', 'issued') THEN 'terminate' ELSE outcome END,
+                terminate_reason = COALESCE(terminate_reason, ?)
+              WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND watchdog_version = ? AND outcome IN ('creating', 'issued', 'terminate')`,
+        params: [now, reason, r.machine_id, r.incarnation, r.watchdog_version],
+      },
+      TOOK,
+      {
+        sql: `UPDATE boot_tokens SET used_ms = COALESCE(used_ms, ?) WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,
+        params: [now, r.machine_id, r.incarnation],
+      },
+    ]);
+  } catch {
+    return false;
+  }
+  const p = env.provider;
+  if (!p) return true; // (no adapter: the row stays due)
+  // which pods: the recorded id and any the caller holds; with none recorded, every pod with the name
+  const held = heldIds.filter((x) => PROVIDER_ID.test(x));
+  let ids = [...new Set([...(r.provider_machine_id !== null ? [r.provider_machine_id] : []), ...held])];
+  const byName = r.provider_machine_id === null;
+  // (with no id recorded, every pod with the name; a list that wasn't read proves nothing, but the
+  // pods the caller holds are still ended)
+  const named = byName ? await podsNamed(env, r.machine_id) : [];
+  if (named !== "unavailable") ids = [...new Set([...ids, ...named])];
+  if (byName && ids.length > 0) {
+    // pods exist that no id batch recorded: they bill, so the accrual opens from the pinned rate
+    // (a definitive create failure with no pod opens none)
+    try {
+      await env.db.batch(openFromRate(r.machine_id, r.incarnation, null));
+    } catch {
+      // (already open, or the write failed: the next attempt tries again)
+    }
+  }
+  for (const id of ids) await withDeadline(() => p.terminate(id), undefined);
+  if (named === "unavailable") return true; // (the row stays due: absence can't be confirmed)
+  // confirmed gone: by the recorded id's own status, or by a fresh list showing no pod with the name
+  let gone: boolean;
+  if (!byName && held.every((x) => x === r.provider_machine_id)) {
+    const s = await withDeadline<ProviderMachineStatus | "unavailable">(() => p.status(r.provider_machine_id!), "unavailable");
+    gone = s !== "unavailable" && s.providerMachineId === r.provider_machine_id && s.state === "terminated";
+  } else {
+    const left = await podsNamed(env, r.machine_id);
+    gone = left !== "unavailable" && left.length === 0;
+  }
+  if (gone) {
+    const at = env.clock();
+    await env.db.batch([
+      {
+        sql: `UPDATE launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'terminate'`,
+        params: [at, r.machine_id, r.incarnation],
+      },
+      ...closeAccrual(r.machine_id, r.incarnation, at),
+    ]);
+  }
+  return true;
+}
+
+/** Ends a container launch now (revoking its token first), with the pod ids the caller holds. */
+export async function abandonContainer(env: ContainerEnv, machineId: string, incarnation: number, reason: ContainerReason, heldIds: readonly string[] = []): Promise<void> {
+  const r = await containerRow(env.db, machineId, incarnation);
+  if (!r) return;
+  await terminateContainerAttempt(env, r, reason, heldIds);
+}
+
+export interface ContainerLaunch {
+  machineId: string;
+  incarnation: number;
+  agentSha256: string;
+  credentialKind: "ours" | "org";
+  rate: { providerCostPerHour: number; marginBps: number };
+  /** Everything the create needs but the boot token, which is made here. */
+  spec: Omit<LaunchSpec, "bootToken">;
+}
+
+/**
+ * The launch up to the provider id: the intent, then the create with the token in the pod's env,
+ * then the id batch. "not-started": the intent wasn't written (nothing was created). "created":
+ * the id and the accrual are recorded. "unknown": the create's outcome is unknown (the row stays
+ * creating; at its create deadline the watchdog finds any pod by its name). "abandoned": the
+ * create failed, or its pod was refused; the launch is ended (token revoked first).
+ */
+export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Promise<"not-started" | "created" | "unknown" | "abandoned"> {
+  const token = base64url(env.randomBytes(32));
+  try {
+    await recordContainerIntent(env.db, {
+      machineId: l.machineId,
+      incarnation: l.incarnation,
+      agentSha256: l.agentSha256,
+      credentialKind: l.credentialKind,
+      rate: l.rate,
+      createdMs: env.clock(),
+      tokenSha256: await sha256Hex(token),
+    });
+  } catch {
+    return "not-started";
+  }
+  const p = env.provider;
+  if (!p) {
+    await abandonContainer(env, l.machineId, l.incarnation, "create-failed");
+    return "abandoned";
+  }
+  type Created = { id: string } | { error: unknown } | "late";
+  const created = await withDeadline<Created>(
+    () => p.launch({ ...l.spec, bootToken: token }).then((x) => ({ id: x.providerMachineId }), (e: unknown) => ({ error: e })),
+    "late",
+    LAUNCH_CALL_DEADLINE_MS,
+  );
+  if (created === "late") return "unknown";
+  if ("error" in created) {
+    const e = created.error;
+    // a pod the adapter refused (it didn't match the spec): ours, and billed, so it is ended by its id
+    if (e instanceof ProviderError && e.providerMachineId !== null) {
+      await abandonContainer(env, l.machineId, l.incarnation, "create-failed", [e.providerMachineId]);
+      return "abandoned";
+    }
+    if (e instanceof ProviderError && e.kind === "outcome_unknown") return "unknown";
+    // a definitive failure: no pod; the watchdog confirms that by name before it marks the launch terminated
+    await abandonContainer(env, l.machineId, l.incarnation, "create-failed");
+    return "abandoned";
+  }
+  if ((await recordContainerId(env.db, l.machineId, l.incarnation, created.id)) === "recorded") return "created";
+  await abandonContainer(env, l.machineId, l.incarnation, "create-failed", [created.id]);
+  return "abandoned";
+}
+
+/** Same strings in the same order. */
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+/**
+ * One observation of a creating or issued container launch: a fresh provider read, verified
+ * (the expected pod; when running, the release's image and launcher, the token's variable as the
+ * only env name, no ports and no other settings). Running and verified records first running at
+ * control time after the read. A pod that exited, or doesn't match, ends the launch.
+ */
+export async function observeContainer(env: ContainerEnv, machineId: string, incarnation: number): Promise<"running" | "pending" | "unavailable" | "ended"> {
+  const r = await containerRow(env.db, machineId, incarnation);
+  const p = env.provider;
+  if (!r || !p || r.provider_machine_id === null || (r.outcome !== "creating" && r.outcome !== "issued")) return "unavailable";
+  const id = r.provider_machine_id;
+  const s = await withDeadline<ProviderMachineStatus | "unavailable">(() => p.status(id), "unavailable");
+  if (s === "unavailable") return "unavailable";
+  const at = env.clock(); // (control time, after the read)
+  if (s.providerMachineId !== id || s.machineId !== machineId) {
+    await terminateContainerAttempt(env, r, "provider-facts");
+    return "ended";
+  }
+  if (s.state === "terminated" || s.state === "failed" || s.state === "stopping") {
+    await terminateContainerAttempt(env, r, "pod-exited");
+    return "ended";
+  }
+  if (s.state !== "running") return "pending";
+  const e = env.expect;
+  const ok =
+    s.image === e.image &&
+    sameList(s.command, e.launcher) &&
+    sameList(s.envNames, [e.bootEnv]) &&
+    s.exposedPorts.length === 0 &&
+    s.unexpectedSettings.length === 0;
+  if (!ok) {
+    await terminateContainerAttempt(env, r, "provider-facts");
+    return "ended";
+  }
+  await recordFirstRunning(env.db, machineId, incarnation, id, at);
+  return "running";
+}
+
+/**
+ * The container watchdog's search (exported for its query-plan test): due container launches,
+ * a range scan of the partial index on next_ms in the index's order, stopping at the batch.
+ */
+export const CONTAINER_WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.watchdog_version, v.outcome,
+       CASE WHEN v.outcome = 'terminate' THEN v.terminate_reason
+            WHEN v.outcome = 'creating' THEN 'create-deadline'
+            ELSE 'connect-deadline' END AS reason
+     FROM launches v
+     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'container'
+     ORDER BY v.next_ms, v.watchdog_version, v.machine_id, v.incarnation
+     LIMIT ?`;
+
+/**
+ * The container watchdog job: launches marked to terminate, creating past their create deadline
+ * (never seen running), and issued past their connect deadline (not enrolled within 120 s of
+ * first running), which is exactly `next_ms <= now`. A creating launch whose id was never
+ * recorded (a lost reply, a crash) first gets it from the provider's list by its name, with the
+ * same id batch and its pinned rate, so its accrual opens as it would have; two pods with the
+ * name are both ended. At most WATCHDOG_BATCH a run, none claimed past the budget. Returns how
+ * many it attempted.
+ */
+export async function runContainerWatchdog(env: ContainerEnv): Promise<number> {
+  const rows = await env.db.all<ContainerRow & { reason: string }>(CONTAINER_WATCHDOG_SELECT, [env.clock(), WATCHDOG_BATCH]);
+  let attempted = 0;
+  for (const row of rows) {
+    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) break;
+    let r: ContainerRow = row;
+    let reason = row.reason;
+    if (r.outcome === "creating" && r.provider_machine_id === null) {
+      const named = await podsNamed(env, r.machine_id);
+      if (named !== "unavailable" && named.length === 1) {
+        await recordContainerId(env.db, r.machine_id, r.incarnation, named[0]!);
+        r = (await containerRow(env.db, r.machine_id, r.incarnation)) ?? r;
+      } else if (named !== "unavailable" && named.length > 1) {
+        reason = "duplicate-name";
+      }
+    }
+    if (await terminateContainerAttempt(env, r, reason)) attempted++;
+  }
+  return attempted;
+}
