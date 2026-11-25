@@ -129,7 +129,7 @@ export const HEARTBEAT_HANDLERS: Handlers = {
         params: [finalSaveReserveSeconds(r.dirtyBytes), c.mch, c.inc],
       },
       {
-        sql: `UPDATE vm_launches SET heartbeat_due_ms = ? WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND heartbeat_due_ms < ?`,
+        sql: `UPDATE launches SET heartbeat_due_ms = ? WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND heartbeat_due_ms < ?`,
         params: [now + HEARTBEAT_LOST_MS, c.mch, c.inc, now + HEARTBEAT_LOST_MS],
       },
     ];
@@ -169,8 +169,8 @@ interface Candidate {
  */
 export const HEARTBEAT_WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.watchdog_version, v.heartbeat_due_ms AS due_ms,
        EXISTS (SELECT 1 FROM machines m WHERE m.id = v.machine_id AND m.incarnation = v.incarnation AND m.state = 'running') AS running
-     FROM vm_launches v
-     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?
+     FROM launches v
+     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?
      ORDER BY v.heartbeat_due_ms, v.machine_id, v.incarnation
      LIMIT ?`;
 
@@ -194,7 +194,7 @@ export async function runHeartbeatWatchdog(env: JobEnv): Promise<number> {
       // (deferred; a heartbeat or the machine running again since the read leaves it as it is)
       await env.db.batch([
         {
-          sql: `UPDATE vm_launches SET heartbeat_due_ms = ? WHERE ${same} AND NOT ${running}`,
+          sql: `UPDATE launches SET heartbeat_due_ms = ? WHERE ${same} AND NOT ${running}`,
           params: [env.now + HEARTBEAT_LOST_MS, r.machine_id, r.incarnation, r.due_ms, r.machine_id, r.incarnation],
         },
       ]);
@@ -203,7 +203,7 @@ export async function runHeartbeatWatchdog(env: JobEnv): Promise<number> {
     try {
       await env.db.batch([
         {
-          sql: `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = 'heartbeat-lost', next_ms = ?, watchdog_version = watchdog_version + 1
+          sql: `UPDATE launches SET outcome = 'terminate', terminate_reason = 'heartbeat-lost', next_ms = ?, watchdog_version = watchdog_version + 1
                 WHERE ${same} AND watchdog_version = ? AND ${running}`,
           params: [env.now, r.machine_id, r.incarnation, r.due_ms, r.watchdog_version, r.machine_id, r.incarnation],
         },

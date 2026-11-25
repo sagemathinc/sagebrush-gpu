@@ -62,8 +62,8 @@ async function launch(o: { firstActiveMs?: number; ipv4?: string } = {}) {
       machineId, w.projectId, allocationId, memberId, providerMachineId, T0,
     ),
     stmt(
-      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, next_ms, created_ms, outcome)
-       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, 'launched')`,
+      `INSERT INTO launches (machine_id, incarnation, mode, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, next_ms, created_ms, outcome)
+       VALUES (?, 1, 'vm', 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, 'launched')`,
       machineId, providerMachineId, sha(nonce), SCRIPT, sha("agent"), o.ipv4 ?? IP, o.firstActiveMs ?? T0, (o.firstActiveMs ?? T0) + ANNOUNCE_DEADLINE_MS, T0,
     ),
   ]);
@@ -79,7 +79,7 @@ async function announce(body: unknown, headers: Record<string, string> = { "cf-c
 const bodyOf = (l: Awaited<ReturnType<typeof launch>>, extra: Record<string, unknown> = {}) => ({ machineId: l.machineId, nonce: l.nonce, bootScriptSha256: SCRIPT, ...extra });
 const launchRow = async (machineId: string) =>
   (await w.db.all<{ outcome: string; terminate_reason: string | null; announce_ms: number | null; watchdog_version: number; terminated_ms: number | null }>(
-    `SELECT outcome, terminate_reason, announce_ms, watchdog_version, terminated_ms FROM vm_launches WHERE machine_id = ?`, [machineId]))[0]!;
+    `SELECT outcome, terminate_reason, announce_ms, watchdog_version, terminated_ms FROM launches WHERE machine_id = ?`, [machineId]))[0]!;
 const REFUSED = { error: { code: "forbidden", message: "refused" } };
 
 test("announce: the launcher gets a single-use token for 120 s; only its hash is kept, bound to the launch", async () => {
@@ -94,10 +94,10 @@ test("announce: the launcher gets a single-use token for 120 s; only its hash is
   assert.equal(r.json.expiresAt, new Date(T0 + 30_000 + BOOT_TOKEN_TTL_MS).toISOString());
   const rows = await w.db.all<Record<string, unknown>>(`SELECT * FROM boot_tokens`);
   assert.deepEqual(rows.map((x) => ({ ...x })), [{
-    token_sha256: sha(token), machine_id: l.machineId, incarnation: 1, provider_machine_id: l.providerMachineId, nonce_sha256: sha(l.nonce),
+    token_sha256: sha(token), machine_id: l.machineId, incarnation: 1, mode: "vm", provider_machine_id: l.providerMachineId, nonce_sha256: sha(l.nonce),
     issued_ms: T0 + 30_000, expires_ms: T0 + 30_000 + BOOT_TOKEN_TTL_MS, used_ms: null,
   }]);
-  assert.ok(!JSON.stringify(await w.db.all(`SELECT * FROM vm_launches`)).includes(l.nonce));
+  assert.ok(!JSON.stringify(await w.db.all(`SELECT * FROM launches`)).includes(l.nonce));
   assert.deepEqual({ ...(await launchRow(l.machineId)) }, { outcome: "issued", terminate_reason: null, announce_ms: T0 + 30_000, watchdog_version: 0, terminated_ms: null });
   assert.deepEqual(vm.terminated, []);
 });
@@ -276,7 +276,7 @@ test("watchdog: the run's budget: no claim past it, and unreached rows keep thei
   let calls = 0;
   const attempted = await runVmWatchdog(env({ elapsedMs: () => (calls++ < 2 ? 0 : WATCHDOG_BUDGET_MS) }));
   assert.equal(attempted, 2);
-  const versions = await w.db.all<{ v: number; ms: number | null }>(`SELECT watchdog_version AS v, next_ms AS ms FROM vm_launches ORDER BY v DESC`);
+  const versions = await w.db.all<{ v: number; ms: number | null }>(`SELECT watchdog_version AS v, next_ms AS ms FROM launches ORDER BY v DESC`);
   assert.deepEqual(versions.map((x) => x.v), [1, 1, 0, 0, 0]);
   // (the unreached rows keep their place: still due at their deadline)
   assert.deepEqual(versions.slice(2).map((x) => x.ms), [T0, T0, T0]);
@@ -302,15 +302,15 @@ test("canonical IPv4 only", () => {
 test("schema: one token per launch, at most 120 s; reasons exactly for terminating launches", async () => {
   const l = await launch();
   const ins = (h: string, issued: number, expires: number) =>
-    w.db.batch([stmt(`INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, provider_machine_id, nonce_sha256, issued_ms, expires_ms) VALUES (?, ?, 1, ?, ?, ?, ?)`, h, l.machineId, l.providerMachineId, sha("n"), issued, expires)]);
+    w.db.batch([stmt(`INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, mode, provider_machine_id, nonce_sha256, issued_ms, expires_ms) VALUES (?, ?, 1, 'vm', ?, ?, ?, ?)`, h, l.machineId, l.providerMachineId, sha("n"), issued, expires)]);
   await assert.rejects(ins(sha("a"), T0, T0 + 120_001), /CHECK/);
   await assert.rejects(ins(sha("a"), T0, T0), /CHECK/);
   await ins(sha("a"), T0, T0 + 120_000);
   await assert.rejects(ins(sha("b"), T0, T0 + 1), /UNIQUE/);
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'terminate' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET terminate_reason = 'second-announce' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'issued' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET boot_script_sha256 = ? WHERE machine_id = ?`, SCRIPT.toUpperCase(), l.machineId)]), /CHECK/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET outcome = 'terminate' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET terminate_reason = 'second-announce' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET outcome = 'issued' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET boot_script_sha256 = ? WHERE machine_id = ?`, SCRIPT.toUpperCase(), l.machineId)]), /CHECK/);
 });
 
 test("announce: a launch of an older incarnation, or an IP that's a prefix of the launch's, is refused untouched", async () => {
@@ -327,7 +327,7 @@ test("announce: a launch of an older incarnation, or an IP that's a prefix of th
 test("announce: a valid second announce after enroll terminates too", async () => {
   const l = await launch();
   assert.equal((await announce(bodyOf(l))).res.status, 200);
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', next_ms = NULL, heartbeat_due_ms = ? WHERE machine_id = ?`, T0, l.machineId)]); // (as enroll will)
+  await w.db.batch([stmt(`UPDATE launches SET outcome = 'enrolled', next_ms = NULL, heartbeat_due_ms = ? WHERE machine_id = ?`, T0, l.machineId)]); // (as enroll will)
   w.clock.t += 1000;
   assert.equal((await announce(bodyOf(l))).res.status, 403);
   const row = await launchRow(l.machineId);
@@ -349,7 +349,7 @@ test("announce: the boot script's hash is the shared vector's (the same bytes on
   const hash = await bootScriptSha256(renderBootScript(BOOT_SCRIPT_VECTOR.values));
   assert.equal(hash, BOOT_SCRIPT_VECTOR.sha256);
   const l = await launch();
-  await w.db.batch([stmt(`UPDATE vm_launches SET boot_script_sha256 = ? WHERE machine_id = ?`, hash, l.machineId)]);
+  await w.db.batch([stmt(`UPDATE launches SET boot_script_sha256 = ? WHERE machine_id = ?`, hash, l.machineId)]);
   assert.equal((await announce(bodyOf(l, { bootScriptSha256: SCRIPT }))).res.status, 403); // (another script's hash)
   assert.equal((await announce(bodyOf(l, { bootScriptSha256: BOOT_SCRIPT_VECTOR.sha256 }))).res.status, 200);
 });
@@ -372,8 +372,8 @@ test("watchdog: its search is a range on the partial index in its own order: no 
       kind === "enrolled" ? ["enrolled", null, null, null] :
       ["launched", null, null, firstActive + ANNOUNCE_DEADLINE_MS];
     stmts.push(stmt(
-      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, announce_ms, outcome, terminate_reason, terminated_ms, next_ms, heartbeat_due_ms, created_ms)
-       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO launches (machine_id, incarnation, mode, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, announce_ms, outcome, terminate_reason, terminated_ms, next_ms, heartbeat_due_ms, created_ms)
+       VALUES (?, 1, 'vm', 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       machineId, String(100000 + i), sha(machineId), SCRIPT, sha("agent"), IP, firstActive, kind === "enrolled" ? T0 : null, outcome, reason, terminated, next, kind === "enrolled" ? T0 : null, T0,
     ));
     if (kind === "due") due.push(String(100000 + i));
@@ -382,7 +382,7 @@ test("watchdog: its search is a range on the partial index in its own order: no 
   const plan = w.db.raw.prepare(`EXPLAIN QUERY PLAN ${WATCHDOG_SELECT}`).all(w.clock.t, w.clock.t, WATCHDOG_BATCH) as Array<{ detail: string }>;
   const details = plan.map((p) => p.detail);
   // the launches: a SEARCH with the index's range, never a SCAN; nothing sorted
-  assert.ok(details.some((d) => /^SEARCH v USING (COVERING )?INDEX vm_launches_next \(next_ms>\? AND next_ms<\?\)$/.test(d) || /^SEARCH v USING (COVERING )?INDEX vm_launches_next \(next_ms<\?\)$/.test(d)), JSON.stringify(details));
+  assert.ok(details.some((d) => /^SEARCH v USING (COVERING )?INDEX launches_next \(next_ms>\? AND next_ms<\?\)$/.test(d) || /^SEARCH v USING (COVERING )?INDEX launches_next \(next_ms<\?\)$/.test(d)), JSON.stringify(details));
   assert.ok(!details.some((d) => /^SCAN v\b/.test(d)), JSON.stringify(details));
   assert.ok(!details.some((d) => /TEMP B-TREE/.test(d)), JSON.stringify(details));
   // and a run attempts exactly the due ones
@@ -399,9 +399,9 @@ test("watchdog: its search is a range on the partial index in its own order: no 
 
 test("schema: next_ms is set exactly while a launch isn't final", async () => {
   const l = await launch();
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET next_ms = NULL WHERE machine_id = ?`, l.machineId)]), /CHECK/);
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ? WHERE machine_id = ?`, T0, l.machineId)]), /CHECK/);
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ?, next_ms = NULL, heartbeat_due_ms = ? WHERE machine_id = ?`, T0, T0, l.machineId)]);
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET next_ms = NULL WHERE machine_id = ?`, l.machineId)]), /CHECK/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET outcome = 'enrolled', announce_ms = ? WHERE machine_id = ?`, T0, l.machineId)]), /CHECK/);
+  await w.db.batch([stmt(`UPDATE launches SET outcome = 'enrolled', announce_ms = ?, next_ms = NULL, heartbeat_due_ms = ? WHERE machine_id = ?`, T0, T0, l.machineId)]);
 });
 
 test("announce: the body is at most 1 KiB, refused before anything happens", async () => {

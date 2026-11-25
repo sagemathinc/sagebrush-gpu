@@ -2100,8 +2100,8 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
-  "new": "UPDATE vm_launches SET watchdog_version = watchdog_version, next_ms = ?,",
+  "old": "UPDATE launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
+  "new": "UPDATE launches SET watchdog_version = watchdog_version, next_ms = ?,",
   "note": "a claim that writes the value it read"
  },
  {
@@ -2150,29 +2150,14 @@
   "new": "export const WATCHDOG_BATCH = 21;"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "  CHECK (expires_ms > issued_ms AND expires_ms - issued_ms <= 120000),",
-  "new": "  CHECK (expires_ms > issued_ms),"
- },
- {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  UNIQUE (machine_id, incarnation),\n  FOREIGN KEY",
   "new": "  FOREIGN KEY"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),",
   "new": ""
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),\n",
-  "new": ""
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "  boot_script_sha256 TEXT NOT NULL CHECK (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0 AND boot_script_sha256 NOT GLOB '*[^0-9a-f]*'),",
-  "new": "  boot_script_sha256 TEXT NOT NULL CHECK (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0),"
  },
  {
   "file": "wrangler.json",
@@ -2181,35 +2166,23 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
-  "new": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = next_ms + 0 * ?,",
+  "old": "UPDATE launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
+  "new": "UPDATE launches SET watchdog_version = watchdog_version + 1, next_ms = next_ms + 0 * ?,",
   "note": "an attempt doesn't move the row back"
  },
  {
   "file": "src/vm.ts",
-  "old": "sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = MIN(next_ms, ?) WHERE",
-  "new": "sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = next_ms + 0 * ? WHERE",
+  "old": "sql: `UPDATE launches SET announce_ms = ?, outcome = 'issued', next_ms = MIN(next_ms, ?) WHERE",
+  "new": "sql: `UPDATE launches SET announce_ms = ?, outcome = 'issued', next_ms = next_ms + 0 * ? WHERE",
   "note": "an unused token never falls due"
  },
  {
   "file": "src/vm.ts",
-  "old": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE",
-  "new": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ? WHERE"
+  "old": "UPDATE launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE",
+  "new": "UPDATE launches SET outcome = 'terminated', terminated_ms = ? WHERE"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
-  "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms) WHERE next_ms IS NOT NULL;",
-  "note": "the index doesn't serve the order: a sort"
- },
- {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
-  "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE outcome IN ('launched', 'issued', 'terminate');",
-  "note": "a predicate the query doesn't imply: a scan"
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL)),\n",
   "new": "  CHECK (1),\n"
  },
@@ -2257,30 +2230,14 @@
   "note": "no guard"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  CHECK (outcome <> 'creating' OR (ipv4 IS NULL AND first_active_ms IS NULL)),\n",
   "new": ""
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
-  "new": ""
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
-  "new": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
-  "note": "launched without an id"
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  CHECK ((ipv4 IS NULL) = (first_active_ms IS NULL)),\n",
   "new": ""
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius')),",
-  "new": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius', 'runpod')),"
  },
  {
   "file": "src/vm.ts",
@@ -2290,8 +2247,8 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "`UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'\n",
-  "new": "`UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND 1\n",
+  "old": "`UPDATE launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'\n",
+  "new": "`UPDATE launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND 1\n",
   "note": "past creating"
  },
  {
@@ -2368,8 +2325,8 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE",
-  "new": "    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version WHERE",
+  "old": "    `UPDATE launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE",
+  "new": "    `UPDATE launches SET provider_machine_id = ?, watchdog_version = watchdog_version WHERE",
   "note": "the id write leaves snapshots valid"
  },
  {
@@ -2547,37 +2504,19 @@
   "note": "no 0012 guard"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0),",
   "note": "agent hash's form unchecked"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  agent_sha256 TEXT CHECK (agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "note": "agent hash optional, any length"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed', 'heartbeat-lost')",
-  "new": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed', 'heartbeat-lost', 'other')",
-  "note": "an unknown reason allowed"
- },
- {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "  PRIMARY KEY (machine_id, incarnation),\n  FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
-  "new": "  FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
-  "note": "more than one gate report per launch"
- },
- {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "  PRIMARY KEY (machine_id, incarnation),\n  FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
-  "new": "  PRIMARY KEY (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
-  "note": "a gate report for no launch"
- },
- {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "CREATE TRIGGER gate_reports_kept BEFORE UPDATE ON gate_reports\nBEGIN",
   "new": "CREATE TRIGGER gate_reports_kept BEFORE UPDATE ON gate_reports WHEN 0\nBEGIN",
   "note": "gate reports changeable"
@@ -2595,58 +2534,22 @@
   "note": "the pin isn't the agent's hash"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND",
   "new": "length(agent_sha256) = 64 AND",
   "note": "agent hash's bytes unbounded (NUL tail)"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
-  "new": "length(nonce_sha256) = 64 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
-  "note": "launch nonce bytes unbounded"
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "CHECK (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND ",
-  "new": "CHECK (",
-  "note": "script hash bytes unbounded"
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),",
-  "new": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(provider_machine_id) BETWEEN 1 AND 64)),",
-  "note": "launch provider id in characters"
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),",
-  "new": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64)),",
-  "note": "launch provider id not ASCII"
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  ipv4 TEXT CHECK (ipv4 IS NULL OR (length(CAST(ipv4 AS BLOB)) BETWEEN 7 AND 15 AND length(ipv4) = length(CAST(ipv4 AS BLOB)))),",
   "new": "  ipv4 TEXT CHECK (ipv4 IS NULL OR (length(ipv4) BETWEEN 7 AND 15)),",
   "note": "ipv4 in characters"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND ",
   "new": "  token_sha256 TEXT PRIMARY KEY CHECK (",
   "note": "token hash bytes unbounded"
- },
- {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "  provider_machine_id TEXT NOT NULL CHECK (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB))),",
-  "new": "  provider_machine_id TEXT NOT NULL CHECK (length(provider_machine_id) BETWEEN 1 AND 64),",
-  "note": "token provider id in characters"
- },
- {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "  nonce_sha256 TEXT NOT NULL CHECK (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  issued_ms",
-  "new": "  nonce_sha256 TEXT NOT NULL CHECK (length(nonce_sha256) = 64),\n  issued_ms",
-  "note": "token nonce bytes unbounded"
  },
  {
   "file": "src/vm.ts",
@@ -2655,49 +2558,43 @@
   "note": "non-ASCII provider ids accepted"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(CAST(words AS BLOB)) <= 2048 AND instr(words, char(0)) = 0),",
   "new": "  words TEXT NOT NULL CHECK (json_type(words) IS NOT NULL AND length(CAST(words AS BLOB)) <= 2048 AND instr(words, char(0)) = 0),",
   "note": "gate words not an array"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(CAST(words AS BLOB)) <= 2048 AND instr(words, char(0)) = 0),",
   "new": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(CAST(words AS BLOB)) <= 2049 AND instr(words, char(0)) = 0),",
   "note": "gate words unbounded by one byte"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(CAST(words AS BLOB)) <= 2048 AND instr(words, char(0)) = 0),",
   "new": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(words) <= 2048 AND instr(words, char(0)) = 0),",
   "note": "gate words in characters"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(CAST(words AS BLOB)) <= 2048 AND instr(words, char(0)) = 0),",
   "new": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(CAST(words AS BLOB)) <= 2048),",
   "note": "gate words may hold a NUL"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND",
   "new": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND",
   "note": "agent hash may hold a NUL"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "CHECK (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
-  "new": "CHECK (length(CAST(nonce_sha256 AS BLOB)) = 64 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
-  "note": "launch nonce may hold a NUL"
- },
- {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0 AND",
   "new": "length(CAST(boot_script_sha256 AS BLOB)) = 64 AND",
   "note": "script hash may hold a NUL"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0 AND",
   "new": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND",
   "note": "token hash may hold a NUL"
@@ -2785,12 +2682,6 @@
   "old": "r.machine_state === \"starting\" && r.machine_incarnation",
   "new": "r.machine_incarnation",
   "note": "machine state unchecked"
- },
- {
-  "file": "src/enroll.ts",
-  "old": "r.provider_machine_id !== null && r.ipv4 !== null && sameText(r.token_provider_machine_id, r.provider_machine_id);",
-  "new": "r.provider_machine_id !== null && r.ipv4 !== null;",
-  "note": "token's provider id unchecked"
  },
  {
   "file": "src/enroll.ts",
@@ -3244,8 +3135,8 @@
  },
  {
   "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms <= ?",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms <= ?",
   "note": "due inclusive"
  },
  {
@@ -3303,19 +3194,19 @@
   "note": "enroll due time without the 120 s"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "),\n  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL)\n",
   "new": ")\n",
   "note": "enrolled without a due time"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND (NEW.heartbeat_due_ms IS NULL OR NEW.heartbeat_due_ms < OLD.heartbeat_due_ms)",
   "new": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND NEW.heartbeat_due_ms < OLD.heartbeat_due_ms",
   "note": "due time clearable"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
+  "file": "migrations/0014_launches.sql",
   "old": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND (NEW.heartbeat_due_ms IS NULL OR NEW.heartbeat_due_ms < OLD.heartbeat_due_ms)",
   "new": "WHEN 0",
   "note": "due time movable earlier"
@@ -3333,21 +3224,441 @@
   "note": "older report replaceable"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "file": "migrations/0014_launches.sql",
+  "old": "  WHEN EXISTS (SELECT 1 FROM vm_launches) OR EXISTS (SELECT 1 FROM boot_tokens) OR EXISTS (SELECT 1 FROM gate_reports)\n  THEN json('refused: launches exist",
+  "new": "  WHEN 0\n  THEN json('refused: launches exist",
+  "note": "0014 guard off"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "CHECK ((mode = 'vm' AND provider IN ('hyperstack', 'shadeform', 'nebius')) OR (mode = 'container' AND provider IN ('runpod')))",
+  "new": "CHECK (provider IN ('hyperstack', 'shadeform', 'nebius', 'runpod'))",
+  "note": "provider not by mode"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(mode = 'container' AND provider IN ('runpod'))",
+  "new": "(mode = 'container' AND provider IN ('runpod', 'shadeform'))",
+  "note": "a VM provider for a container"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(mode = 'vm' AND provider IN ('hyperstack', 'shadeform', 'nebius'))",
+  "new": "(mode = 'vm' AND provider IN ('hyperstack', 'shadeform', 'nebius', 'runpod'))",
+  "note": "a container provider for a VM"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  -- the provider's id for the machine: null until the create has returned it\n  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),",
+  "new": "  -- the provider's id for the machine: null until the create has returned it\n  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(provider_machine_id) BETWEEN 1 AND 64)),",
+  "note": "launch id bounded in chars"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  -- the provider's id for the machine: null until the create has returned it\n  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),",
+  "new": "  -- the provider's id for the machine: null until the create has returned it\n  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64)),",
+  "note": "launch id not ASCII"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*')),\n  boot_script",
+  "new": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) = 64 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*')),\n  boot_script",
+  "note": "launch nonce NUL"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*')),\n  boot_script",
+  "new": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) BETWEEN 64 AND 65 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*')),\n  boot_script",
+  "note": "launch nonce length"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "CHECK (boot_script_sha256 IS NULL OR (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0 AND",
+  "new": "CHECK (boot_script_sha256 IS NULL OR (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND",
+  "note": "script hash NUL"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "new": "),",
+  "note": "agent hash not hex"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "ipv4 TEXT CHECK (ipv4 IS NULL OR (length(CAST(ipv4 AS BLOB)) BETWEEN 7 AND 15 AND length(ipv4) = length(CAST(ipv4 AS BLOB)))),",
+  "new": "ipv4 TEXT CHECK (ipv4 IS NULL OR (length(CAST(ipv4 AS BLOB)) BETWEEN 7 AND 15)),",
+  "note": "ipv4 not ASCII"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "ipv4 TEXT CHECK (ipv4 IS NULL OR (length(CAST(ipv4 AS BLOB)) BETWEEN 7 AND 15 AND",
+  "new": "ipv4 TEXT CHECK (ipv4 IS NULL OR (length(CAST(ipv4 AS BLOB)) BETWEEN 7 AND 16 AND",
+  "note": "ipv4 too long"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  credential_kind TEXT CHECK (credential_kind IS NULL OR credential_kind IN ('ours', 'org')),",
+  "new": "  credential_kind TEXT,",
+  "note": "credential kind open"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "'hard-stop', 'duplicate-name', 'pod-exited')),",
+  "new": "'hard-stop', 'duplicate-name', 'pod-exited', 'orphan')),",
+  "note": "reasons open"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'vm' OR (nonce_sha256 IS NOT NULL AND boot_script_sha256 IS NOT NULL AND first_running_ms IS NULL AND max_end_ms IS NULL AND credential_kind IS NULL)),\n",
+  "new": "",
+  "note": "VM columns unchecked"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "first_running_ms IS NULL AND max_end_ms IS NULL AND credential_kind IS NULL)),",
+  "new": "first_running_ms IS NULL AND max_end_ms IS NULL)),",
+  "note": "VM with a credential kind"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(nonce_sha256 IS NOT NULL AND boot_script_sha256 IS NOT NULL AND first_running_ms",
+  "new": "(nonce_sha256 IS NOT NULL AND first_running_ms",
+  "note": "VM without a script hash"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR (nonce_sha256 IS NULL AND boot_script_sha256 IS NULL AND ipv4 IS NULL AND first_active_ms IS NULL AND announce_ms IS NULL AND credential_kind IS NOT NULL)),\n",
+  "new": "",
+  "note": "container columns unchecked"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "first_active_ms IS NULL AND announce_ms IS NULL AND credential_kind IS NOT NULL)),",
+  "new": "first_active_ms IS NULL AND credential_kind IS NOT NULL)),",
+  "note": "container with an announce"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "AND announce_ms IS NULL AND credential_kind IS NOT NULL)),",
+  "new": "AND announce_ms IS NULL)),",
+  "note": "container without a credential kind"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'vm' OR outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
+  "new": "",
+  "note": "VM matrix off"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),",
+  "new": "OR (ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),",
+  "note": "VM matrix without the id"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'vm' OR outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),\n",
+  "new": "",
+  "note": "issued without an announce"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR outcome <> 'launched'),\n",
+  "new": "",
+  "note": "container launched"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR outcome <> 'creating' OR first_running_ms IS NULL),\n",
+  "new": "",
+  "note": "creating seen running"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR outcome NOT IN ('issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND first_running_ms IS NOT NULL)),\n",
+  "new": "",
+  "note": "container issued without facts"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "OR (provider_machine_id IS NOT NULL AND first_running_ms IS NOT NULL)),",
+  "new": "OR (provider_machine_id IS NOT NULL)),",
+  "note": "container issued without first running"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "OR (provider_machine_id IS NOT NULL AND first_running_ms IS NOT NULL)),",
+  "new": "OR (first_running_ms IS NOT NULL)),",
+  "note": "container issued without the id"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR outcome IN ('enrolled', 'terminate', 'terminated') OR max_end_ms IS NULL),\n",
+  "new": "",
+  "note": "lifetime before enroll"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR outcome <> 'enrolled' OR max_end_ms IS NOT NULL),\n",
+  "new": "",
+  "note": "enrolled without a lifetime"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (first_running_ms IS NULL OR first_running_ms >= created_ms),\n",
+  "new": "",
+  "note": "first running before the intent"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (max_end_ms IS NULL OR max_end_ms > created_ms),\n",
+  "new": "  CHECK (max_end_ms IS NULL OR max_end_ms >= created_ms),\n",
+  "note": "lifetime at the intent"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),\n",
+  "new": "",
+  "note": "reason apart from terminating"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK ((outcome = 'terminated') = (terminated_ms IS NOT NULL)),\n",
+  "new": "",
+  "note": "terminated without its time"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL)),\n",
+  "new": "",
+  "note": "next_ms apart from final"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
   "new": "",
   "note": "no due index"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
-  "new": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation);",
+  "file": "migrations/0014_launches.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "note": "due index across modes"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation);",
   "note": "due index not partial"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
-  "new": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (machine_id, incarnation, heartbeat_due_ms) WHERE outcome = 'enrolled';",
-  "note": "due index not in due order"
+  "file": "migrations/0014_launches.sql",
+  "old": "CREATE UNIQUE INDEX launches_provider_id ON launches (provider, provider_machine_id) WHERE provider_machine_id IS NOT NULL;",
+  "new": "",
+  "note": "provider id bound twice"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "CREATE UNIQUE INDEX launches_provider_id ON launches (provider, provider_machine_id) WHERE provider_machine_id IS NOT NULL;",
+  "new": "CREATE UNIQUE INDEX launches_provider_id ON launches (provider_machine_id) WHERE provider_machine_id IS NOT NULL;",
+  "note": "provider id across providers"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.mode IS NOT OLD.mode\n",
+  "new": "WHEN 0\n",
+  "note": "mode mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.credential_kind IS NOT OLD.credential_kind\n",
+  "new": "WHEN 0\n",
+  "note": "credential kind mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.first_running_ms IS NOT NULL AND (NEW.first_running_ms IS NULL OR NEW.first_running_ms > OLD.first_running_ms)",
+  "new": "WHEN 0",
+  "note": "first running movable later"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.first_running_ms IS NOT NULL AND (NEW.first_running_ms IS NULL OR NEW.first_running_ms > OLD.first_running_ms)",
+  "new": "WHEN OLD.first_running_ms IS NOT NULL AND NEW.first_running_ms > OLD.first_running_ms",
+  "note": "first running clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.first_running_ms IS NOT NULL AND (NEW.first_running_ms IS NULL OR NEW.first_running_ms > OLD.first_running_ms)",
+  "new": "WHEN OLD.first_running_ms IS NOT NULL AND (NEW.first_running_ms IS NULL OR NEW.first_running_ms >= OLD.first_running_ms)",
+  "note": "first running not rewritable equal"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.first_running_ms IS NOT NULL AND (NEW.first_running_ms IS NULL OR NEW.first_running_ms > OLD.first_running_ms)",
+  "new": "WHEN OLD.first_running_ms IS NOT NULL AND (NEW.first_running_ms IS NULL OR NEW.first_running_ms <> OLD.first_running_ms)",
+  "note": "first running not movable earlier"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.max_end_ms IS NOT NULL AND NEW.max_end_ms IS NOT OLD.max_end_ms\n",
+  "new": "WHEN 0\n",
+  "note": "lifetime mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.max_end_ms IS NOT NULL AND NEW.max_end_ms IS NOT OLD.max_end_ms\n",
+  "new": "WHEN OLD.max_end_ms IS NOT NULL AND NEW.max_end_ms > OLD.max_end_ms\n",
+  "note": "lifetime shortenable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.max_end_ms IS NOT NULL AND NEW.max_end_ms IS NOT OLD.max_end_ms\n",
+  "new": "WHEN OLD.max_end_ms IS NOT NULL AND NEW.max_end_ms <> OLD.max_end_ms\n",
+  "note": "lifetime clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0 AND token_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "new": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND token_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "note": "token hash NUL"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0 AND token_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "new": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0),",
+  "note": "token hash not hex"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  mode TEXT NOT NULL CHECK (mode IN ('vm', 'container')),\n  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),",
+  "new": "  mode TEXT NOT NULL CHECK (mode IN ('vm', 'container')),\n  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(provider_machine_id) BETWEEN 1 AND 64)),",
+  "note": "token id unbounded in bytes"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*')),\n  issued_ms",
+  "new": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) = 64 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*')),\n  issued_ms",
+  "note": "token nonce NUL"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*')),\n  issued_ms",
+  "new": "  nonce_sha256 TEXT CHECK (nonce_sha256 IS NULL OR (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0)),\n  issued_ms",
+  "note": "token nonce not hex"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK ((issued_ms IS NULL) = (expires_ms IS NULL)),\n",
+  "new": "",
+  "note": "half a window"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'vm' OR (provider_machine_id IS NOT NULL AND nonce_sha256 IS NOT NULL AND issued_ms IS NOT NULL AND expires_ms > issued_ms AND expires_ms - issued_ms <= 120000)),\n",
+  "new": "",
+  "note": "VM token unchecked"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(provider_machine_id IS NOT NULL AND nonce_sha256 IS NOT NULL AND issued_ms IS NOT NULL AND",
+  "new": "(nonce_sha256 IS NOT NULL AND issued_ms IS NOT NULL AND",
+  "note": "VM token without an id"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "nonce_sha256 IS NOT NULL AND issued_ms IS NOT NULL AND expires_ms > issued_ms",
+  "new": "issued_ms IS NOT NULL AND expires_ms > issued_ms",
+  "note": "VM token without a nonce"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "AND issued_ms IS NOT NULL AND expires_ms > issued_ms AND",
+  "new": "AND expires_ms > issued_ms AND",
+  "note": "VM token without a window"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "expires_ms > issued_ms AND expires_ms - issued_ms <= 120000)),",
+  "new": "expires_ms >= issued_ms AND expires_ms - issued_ms <= 120000)),",
+  "note": "VM token empty window"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "expires_ms > issued_ms AND expires_ms - issued_ms <= 120000)),",
+  "new": "expires_ms > issued_ms AND expires_ms - issued_ms <= 120001)),",
+  "note": "VM token window over 120 s"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR (nonce_sha256 IS NULL AND (issued_ms IS NULL OR (provider_machine_id IS NOT NULL AND expires_ms = issued_ms + 120000)))),\n",
+  "new": "",
+  "note": "container token unchecked"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(nonce_sha256 IS NULL AND (issued_ms IS NULL OR",
+  "new": "((issued_ms IS NULL OR",
+  "note": "container token with a nonce"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "OR (provider_machine_id IS NOT NULL AND expires_ms = issued_ms + 120000)))),",
+  "new": "OR (expires_ms = issued_ms + 120000)))),",
+  "note": "container window without an id"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "OR (provider_machine_id IS NOT NULL AND expires_ms = issued_ms + 120000)))),",
+  "new": "OR (provider_machine_id IS NOT NULL AND expires_ms <= issued_ms + 120000)))),",
+  "note": "container window short"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "OR (provider_machine_id IS NOT NULL AND expires_ms = issued_ms + 120000)))),",
+  "new": "OR (provider_machine_id IS NOT NULL AND expires_ms >= issued_ms + 120000)))),",
+  "note": "container window long"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  -- one token per launch\n  UNIQUE (machine_id, incarnation),\n",
+  "new": "  -- one token per launch\n",
+  "note": "two tokens per launch"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  FOREIGN KEY (machine_id, incarnation, mode) REFERENCES launches (machine_id, incarnation, mode),\n",
+  "new": "",
+  "note": "token mode not its launch's"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": ",\n  -- once set, the token's provider id is its launch's (a null id skips this key)\n  FOREIGN KEY (machine_id, incarnation, mode, provider_machine_id) REFERENCES launches (machine_id, incarnation, mode, provider_machine_id)\n",
+  "new": "\n",
+  "note": "token id not its launch's"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  PRIMARY KEY (machine_id, incarnation),\n  FOREIGN KEY (machine_id, incarnation) REFERENCES launches (machine_id, incarnation)\n",
+  "new": "  PRIMARY KEY (machine_id, incarnation)\n",
+  "note": "gate report without a launch"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "note": "heartbeat watchdog across modes"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'vm'",
+  "new": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
+  "note": "VM watchdog across modes"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "VALUES (?, ?, 'vm', ?, ?, ?, ?, 'creating', ?, ?)`,",
+  "new": "VALUES (?, ?, 'container', ?, ?, ?, ?, 'creating', ?, ?)`,",
+  "note": "intent recorded as a container"
  }
 ]

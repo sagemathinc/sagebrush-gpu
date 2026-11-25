@@ -59,7 +59,7 @@ async function intent(db: Db = w.db) {
   return { machineId, nonce };
 }
 const row = async (machineId: string) =>
-  ({ ...(await w.db.all<Record<string, unknown>>(`SELECT outcome, provider_machine_id, ipv4, first_active_ms, next_ms, terminate_reason, announce_ms, watchdog_version FROM vm_launches WHERE machine_id = ?`, [machineId]))[0]! });
+  ({ ...(await w.db.all<Record<string, unknown>>(`SELECT outcome, provider_machine_id, ipv4, first_active_ms, next_ms, terminate_reason, announce_ms, watchdog_version FROM launches WHERE machine_id = ?`, [machineId]))[0]! });
 const env = (o: Partial<JobEnv> = {}): JobEnv => ({ db: w.db, now: w.clock.t, vm, elapsedMs: () => 0, ...o });
 async function announce(machineId: string, nonce: string) {
   const res = await w.app.fetch(new Request(`${ORIGIN}/v1/agent/announce`, {
@@ -181,7 +181,7 @@ test("abandoning after the id write failed: the mark stores the known id, so a f
 test("the watchdog never acts on a stale snapshot: the id write, the move to ACTIVE and an abandon each invalidate it", async () => {
   w.clock.t = T0 + CREATE_DEADLINE_MS; // (the create deadline: a creating row is due)
   const stale = async (machineId: string) => {
-    const r = (await w.db.all<{ provider_machine_id: string | null; watchdog_version: number }>(`SELECT provider_machine_id, watchdog_version FROM vm_launches WHERE machine_id = ?`, [machineId]))[0]!;
+    const r = (await w.db.all<{ provider_machine_id: string | null; watchdog_version: number }>(`SELECT provider_machine_id, watchdog_version FROM launches WHERE machine_id = ?`, [machineId]))[0]!;
     return { machine_id: machineId, incarnation: 1, provider_machine_id: r.provider_machine_id, watchdog_version: r.watchdog_version };
   };
   // ACTIVE lands between the watchdog's read and its claim (late, but before any claim: accepted)
@@ -235,7 +235,7 @@ test("the watchdog: a creating launch past its create deadline is terminated by 
 
 test("schema: the state matrix", async () => {
   const l = await intent();
-  const upd = (set: string, ...p: Array<string | number | null>) => w.db.batch([stmt(`UPDATE vm_launches SET ${set} WHERE machine_id = ?`, ...p, l.machineId)]);
+  const upd = (set: string, ...p: Array<string | number | null>) => w.db.batch([stmt(`UPDATE launches SET ${set} WHERE machine_id = ?`, ...p, l.machineId)]);
   await assert.rejects(upd(`ipv4 = ?, first_active_ms = ?`, IP, T0), /CHECK/); // (creating has no ACTIVE facts)
   await assert.rejects(upd(`outcome = 'launched'`), /CHECK/); // (launched needs the id and both facts)
   await assert.rejects(upd(`outcome = 'launched', provider_machine_id = 'v', ipv4 = ?`, IP), /CHECK/); // (facts together)
@@ -272,8 +272,8 @@ test("the migration refuses to rebuild over existing launches, before changing a
 
 test("schema (0012): a launch pins a well-formed agent hash; enroll's reasons are allowed", async () => {
   const l = await intent();
-  assert.deepEqual({ ...(await w.db.all<{ agent_sha256: string }>(`SELECT agent_sha256 FROM vm_launches WHERE machine_id = ?`, [l.machineId]))[0] }, { agent_sha256: AGENT });
-  const upd = (set: string, ...p: Array<string | number | null>) => w.db.batch([stmt(`UPDATE vm_launches SET ${set} WHERE machine_id = ?`, ...p, l.machineId)]);
+  assert.deepEqual({ ...(await w.db.all<{ agent_sha256: string }>(`SELECT agent_sha256 FROM launches WHERE machine_id = ?`, [l.machineId]))[0] }, { agent_sha256: AGENT });
+  const upd = (set: string, ...p: Array<string | number | null>) => w.db.batch([stmt(`UPDATE launches SET ${set} WHERE machine_id = ?`, ...p, l.machineId)]);
   for (const bad of [null, "", AGENT.toUpperCase(), AGENT.slice(1), AGENT + "0", "g" + AGENT.slice(1)]) await assert.rejects(upd(`agent_sha256 = ?`, bad), JSON.stringify(bad));
   for (const reason of ["second-enroll", "gate-failed", "sign-failed"]) await upd(`outcome = 'terminate', terminate_reason = ?`, reason);
   await assert.rejects(upd(`terminate_reason = 'other'`), /CHECK/);
@@ -301,7 +301,7 @@ test("schema (0012): gate reports are one canonical JSON array per launch, never
   await assert.rejects(w.db.batch([stmt(`UPDATE gate_reports SET words = '[]' WHERE machine_id = ?`, l.machineId)]), /never changed/);
   await assert.rejects(w.db.batch([stmt(`INSERT INTO enroll_guard (ok) VALUES (0)`)]), /CHECK/);
   // a batch whose guard fires is rolled back whole
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET watchdog_version = 7 WHERE machine_id = ?`, l.machineId), stmt(`INSERT INTO enroll_guard (ok) SELECT 0 WHERE 1`)]));
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET watchdog_version = 7 WHERE machine_id = ?`, l.machineId), stmt(`INSERT INTO enroll_guard (ok) SELECT 0 WHERE 1`)]));
   assert.equal((await row(l.machineId)).watchdog_version, 0);
 });
 
@@ -330,7 +330,7 @@ test("the 0012 rebuild refuses existing launches, before changing anything", () 
 test("schema (0012): every bounded text counts stored bytes and holds no NUL", async () => {
   const l = await intent();
   const NUL = String.fromCharCode(0);
-  const upd = (col: string, v: string) => w.db.batch([stmt(`UPDATE vm_launches SET ${col} = ? WHERE machine_id = ?`, v, l.machineId)]);
+  const upd = (col: string, v: string) => w.db.batch([stmt(`UPDATE launches SET ${col} = ? WHERE machine_id = ?`, v, l.machineId)]);
   // the hashes: exactly 64 bytes, no NUL, lowercase hex
   const badHashes = [
     AGENT + NUL + "x".repeat(100_000), // (64 hex, then a NUL and a long tail)
@@ -353,7 +353,7 @@ test("schema (0012): every bounded text counts stored bytes and holds no NUL", a
   await assert.rejects(upd("provider_machine_id", "v".repeat(65)), /CHECK/);
   await upd("provider_machine_id", "v".repeat(64));
   // the IPv4 (with the id, as the state matrix wants for a launched row)
-  const active = (ip: string) => w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'launched', ipv4 = ?, first_active_ms = ? WHERE machine_id = ?`, ip, T0, l.machineId)]);
+  const active = (ip: string) => w.db.batch([stmt(`UPDATE launches SET outcome = 'launched', ipv4 = ?, first_active_ms = ? WHERE machine_id = ?`, ip, T0, l.machineId)]);
   await assert.rejects(active(IP + NUL + "x".repeat(1000)), /CHECK/);
   await assert.rejects(active("203.0.113" + NUL), /CHECK/);
   await assert.rejects(active("203.0.113.\u00e9"), /CHECK/);
@@ -374,7 +374,7 @@ test("schema (0012): every bounded text counts stored bytes and holds no NUL", a
   await w.db.batch([stmt(`DELETE FROM gate_reports WHERE machine_id = ?`, l.machineId)]);
   // boot tokens: the same bounds
   const tok = (h: string, pid: string, nonce: string) =>
-    w.db.batch([stmt(`INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, provider_machine_id, nonce_sha256, issued_ms, expires_ms) VALUES (?, ?, 1, ?, ?, ?, ?)`, h, l.machineId, pid, nonce, T0, T0 + 1000)]);
+    w.db.batch([stmt(`INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, mode, provider_machine_id, nonce_sha256, issued_ms, expires_ms) VALUES (?, ?, 1, 'vm', ?, ?, ?, ?)`, h, l.machineId, pid, nonce, T0, T0 + 1000)]);
   for (const bad of badHashes) {
     await assert.rejects(tok(bad, "v", AGENT), /CHECK/, `token ${JSON.stringify(bad.slice(0, 70))}`);
     await assert.rejects(tok(AGENT, "v", bad), /CHECK/, `nonce ${JSON.stringify(bad.slice(0, 70))}`);
