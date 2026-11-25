@@ -296,8 +296,12 @@ async def ctrl_c_while_output_paused(sh=INTFLOOD):
                 os.kill(pid, 0)
             except ProcessLookupError:
                 return True
-            with open("/proc/%d/stat" % pid, "rb") as f:
-                return f.read().split(b")")[-1].split()[0] == b"Z"
+            # (it may be reaped between the two looks: its /proc entry gone, or ESRCH from the read itself)
+            try:
+                with open("/proc/%d/stat" % pid, "rb") as f:
+                    return f.read().split(b")")[-1].split()[0] == b"Z"
+            except (FileNotFoundError, ProcessLookupError):
+                return True
         assert await until(gone, 3), "Ctrl-C didn't reach the program while its output was paused"
     finally:
         await t.end()
