@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 
-import { BOOT_TOKEN_ENV, ENV_COPY_ALLOWLIST, ENV_FIXED, renderBootCommand, renderBootScript, renderProbePrologue } from "./boot.ts";
+import { BOOT_SCRIPT_VECTOR, BOOT_TOKEN_ENV, bootScriptSha256, ENV_COPY_ALLOWLIST, ENV_FIXED, renderBootCommand, renderBootScript, renderProbePrologue } from "./boot.ts";
 import { PROBE_PROLOGUE_SH } from "./bootstrap-script.ts";
 
 const TOKEN = "A".repeat(20) + "b-_" + "9".repeat(20); // 43 base64url characters
@@ -312,7 +312,7 @@ test("renderBootCommand: argv for containers, user data for VMs; values are chec
   assert.deepEqual(c.argv.slice(0, 2), ["/bin/sh", "-c"]);
   assert.ok(c.argv[2]!.includes("SBGPU_AGENT_SHA256='" + "a".repeat(64) + "'\n"));
   assert.ok(!c.argv[2]!.includes(BOOT_TOKEN_ENV + "="), "the token never goes in the script");
-  const vm = renderBootCommand({ ...v, mode: "vm" });
+  const vm = renderBootCommand({ ...v, mode: "vm", machineId: "mch_0123456789abcdefghjk", nonce: "B".repeat(22) });
   assert.ok("userData" in vm && vm.userData.startsWith("#!/bin/sh\n"));
   for (const bad of [
     { agentUrl: "http://cdn.example.com/a.tgz" },
@@ -386,4 +386,29 @@ test("probe prologue then the real launcher: the capture made, the key out of th
   assert.match(none.stderr, /no injected key/);
   assert.equal(none.out, null);
   assert.equal(existsSync(join(none.prefix, "opt/sbgpu/agent")), false);
+});
+
+test("vm mode: the machine id and nonce, required there and refused elsewhere; the shared boot-script vector", async () => {
+  const v = BOOT_SCRIPT_VECTOR.values;
+  const script = renderBootScript(v);
+  assert.ok(script.startsWith("#!/bin/sh\n") && script.endsWith("\n"));
+  assert.ok(script.includes(`\nSBGPU_MACHINE_ID='${v.machineId}'\nSBGPU_NONCE='${v.nonce}'\n`));
+  assert.deepEqual(renderBootCommand(v), { userData: script });
+  // (the vector: the same digest from WebCrypto and from node:crypto, over the script's exact UTF-8 bytes)
+  assert.equal(await bootScriptSha256(script), BOOT_SCRIPT_VECTOR.sha256);
+  assert.equal(createHash("sha256").update(Buffer.from(script, "utf8")).digest("hex"), BOOT_SCRIPT_VECTOR.sha256);
+  assert.equal(await bootScriptSha256(script + "\n"), createHash("sha256").update(script + "\n").digest("hex"));
+  assert.notEqual(await bootScriptSha256(script.slice(0, -1)), BOOT_SCRIPT_VECTOR.sha256);  // (the final newline counts)
+  // (vm mode without either value, or with a malformed one, is refused)
+  const { machineId, nonce, ...base } = v;
+  for (const bad of [base, { ...base, machineId }, { ...base, nonce }, { ...v, machineId: "mch_SHORT" }, { ...v, machineId: "prj_0123456789abcdefghjk" },
+                     { ...v, nonce: "A".repeat(21) }, { ...v, nonce: "A".repeat(23) }, { ...v, nonce: "A".repeat(21) + "+" }, { ...v, nonce: "A".repeat(21) + "'" }]) {
+    assert.throws(() => renderBootScript(bad as never), /vm mode needs/, JSON.stringify(bad));
+  }
+  // (container mode takes neither, and its script is unchanged by them)
+  const container = { ...base, mode: "container" as const };
+  for (const extra of [{ machineId }, { nonce }]) {
+    assert.throws(() => renderBootScript({ ...container, ...extra }), /vm mode only/);
+  }
+  assert.ok(!renderBootScript(container).includes("SBGPU_MACHINE_ID") && !renderBootScript(container).includes("SBGPU_NONCE"));
 });

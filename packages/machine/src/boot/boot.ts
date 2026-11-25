@@ -1,5 +1,6 @@
 // The launcher a provider runs first on a new machine (DESIGN.md section 1).  The control plane calls
 // renderBootCommand(); provider adapters put its result in place and never build a start command by hand.
+import { isId } from "@sbgpu/api";
 import { BOOTSTRAP_SH, PROBE_PROLOGUE_SH } from "./bootstrap-script.ts";
 
 export type BootMode = "container" | "vm";
@@ -12,6 +13,10 @@ export interface BootValues {
   /** https URL of the control plane. */
   controlUrl: string;
   mode: BootMode;
+  /** VM mode only (and required there): the machine's id and the launch's nonce (22 base64url), public values the
+   * launcher announces itself with (DESIGN.md section 1.6).  Never in container mode. */
+  machineId?: string;
+  nonce?: string;
 }
 
 /** The only variable a launch puts in the machine's environment; its value is the one-time boot token. */
@@ -38,12 +43,19 @@ export const ENV_FIXED: readonly string[] = Object.freeze(["PATH", "HOME", "LANG
 const URL_RE = /^https:\/\/[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~\/-]{0,1024})?$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const PREFIX_RE = /^\/[A-Za-z0-9._\/-]{1,512}$/;
+const NONCE_RE = /^[A-Za-z0-9_-]{22}$/;
 
 function check(v: BootValues): void {
   if (!URL_RE.test(v.agentUrl)) throw new Error("agentUrl must be a plain https URL");
   if (!URL_RE.test(v.controlUrl)) throw new Error("controlUrl must be a plain https URL");
   if (!SHA256_RE.test(v.agentSha256)) throw new Error("agentSha256 must be 64 lowercase hex");
   if (v.mode !== "container" && v.mode !== "vm") throw new Error("mode must be container or vm");
+  if (v.mode === "vm") {
+    if (typeof v.machineId !== "string" || !isId("machine", v.machineId)) throw new Error("vm mode needs the machine's id");
+    if (typeof v.nonce !== "string" || !NONCE_RE.test(v.nonce)) throw new Error("vm mode needs a nonce of 22 base64url");
+  } else if (v.machineId !== undefined || v.nonce !== undefined) {
+    throw new Error("a machine id and nonce are for vm mode only");
+  }
 }
 
 /** The whole launcher script with its values.  The options are for tests only: `prefix`, a directory standing in
@@ -61,10 +73,38 @@ export function renderBootScript(v: BootValues, opts: { prefix?: string; body?: 
     `SBGPU_AGENT_SHA256='${v.agentSha256}'\n` +
     `SBGPU_CONTROL_URL='${v.controlUrl}'\n` +
     `SBGPU_MODE='${v.mode}'\n` +
+    (v.mode === "vm" ? `SBGPU_MACHINE_ID='${v.machineId}'\nSBGPU_NONCE='${v.nonce}'\n` : "") +
     `SBGPU_PREFIX='${prefix}'\n` +
     (opts.body ?? BOOTSTRAP_SH)
   );
 }
+
+/**
+ * The boot script's identity in the VM announce (control's contract, r3): the sha256, 64 lowercase hex, of the UTF-8
+ * bytes of renderBootScript's output exactly as returned (the final newline included), which is what the provider
+ * delivers as user data.  WebCrypto, so the control Worker and Node compute it the same way.
+ */
+export async function bootScriptSha256(script: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(script));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * The shared test vector for bootScriptSha256: control's announce, the provider adapter and the launcher each test
+ * that hashing renderBootScript(values) gives `sha256`.  It changes whenever the launcher's bytes do (boot.test.ts
+ * pins it), so a change to the script is a deliberate change to this vector.
+ */
+export const BOOT_SCRIPT_VECTOR = Object.freeze({
+  values: Object.freeze({
+    agentUrl: "https://cdn.example.com/agent/sbgpu-agent.tar.gz",
+    agentSha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    controlUrl: "https://api.example.com",
+    mode: "vm",
+    machineId: "mch_0123456789abcdefghjk",
+    nonce: "AAAAAAAAAAAAAAAAAAAAAA",
+  } as const),
+  sha256: "0c04dcc413a4a04f796f0a3cac34a2454910aa06fa8d3f88b80397d3b328604a",
+});
 
 /** What a provider adapter launches with: the container's entrypoint (the launcher runs as PID 1), or a VM's
  * cloud-init user data.  The boot token goes in the environment as BOOT_TOKEN_ENV, separately. */
