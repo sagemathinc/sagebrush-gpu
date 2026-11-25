@@ -27,7 +27,6 @@ import json
 import os
 import signal
 import stat
-import subprocess
 import sys
 import time
 
@@ -49,7 +48,9 @@ JOB_UNITS = (  # (N8: exactly these, from the Hyperstack image's unit list)
 DOWN = ("inactive", "failed")      # (activating, deactivating, reloading or active is not down)
 LOCKED = "!*"
 KILL_ROUNDS = 5
-UNITS_MAX = 4096                   # (instances listed by systemd)
+UNITS_MAX = 4096                   # (units listed by systemd)
+OUT_MAX = 4096                     # (bytes of output admitted from a command whose output isn't used)
+CMD_TIMEOUT_S = 60.0
 NFT_SCRIPT = """table inet sbgpu_meta
 delete table inet sbgpu_meta
 table inet sbgpu_meta {
@@ -72,12 +73,12 @@ class Failed(Exception):
 
 
 class Ops:
-    """The commands and signals the step uses, so tests can stand in for systemd, logind, nft and kill."""
+    """The commands and signals the step uses, so tests can stand in for systemd, logind, nft and kill.  Every
+    command's output is admitted only up to `limit` bytes and within a deadline (G.run_bounded); past either it
+    raises G.CommandFailed, and the step stops with the word of the step it was in."""
 
-    def run(self, argv, data=None):
-        r = subprocess.run(argv, input=data, capture_output=True, timeout=60, check=False,
-                           stdin=None if data is not None else subprocess.DEVNULL)
-        return r.returncode, r.stdout
+    def run(self, argv, data=None, limit=OUT_MAX):
+        return G.run_bounded(argv, limit, CMD_TIMEOUT_S, data)
 
     def kill(self, pid, sig):
         try:
@@ -91,7 +92,7 @@ class Ops:
 
 # ---- units (N1's ssh, N5-N8)
 def _show(ops, unit, prop):
-    rc, out = ops.run(["systemctl", "show", "--property=" + prop, "--value", unit])
+    rc, out = ops.run(["systemctl", "show", "--property=" + prop, "--value", unit], limit=OUT_MAX)
     if rc != 0:
         raise Failed("units")
     return out.decode("ascii", "replace").strip()
@@ -110,11 +111,12 @@ def unit_down(ops, root, unit):
 
 
 def _instances(ops, patterns):
-    """Every loaded unit matching the patterns, as systemd lists them (capped)."""
-    rc, out = ops.run(["systemctl", "list-units", "--all", "--plain", "--no-legend", "--full"] + list(patterns))
+    """Every loaded unit matching the patterns, as systemd lists them (its output capped in bytes, then in units)."""
+    rc, out = ops.run(["systemctl", "list-units", "--all", "--plain", "--no-legend", "--full"] + list(patterns),
+                      limit=G.LIST_MAX)
     if rc != 0:
         raise Failed("units")
-    names = [ln.split()[0].decode("ascii", "replace") for ln in out.splitlines() if ln.strip()]
+    names = [u for u, _, _ in G.loaded_units(out)]
     if len(names) > UNITS_MAX:
         raise Failed("units")
     return names
@@ -127,8 +129,10 @@ def console_units(ops, root):
     return sorted(names, key=lambda n: (n.endswith("@.service"), n))  # (instances first, then the templates)
 
 
-def agent_units(root, allow):
-    names = G.unit_names(root)
+def agent_units(ops, root, allow):
+    """Every unit of each neutralised agent: those with a file in the unit search path, and those systemd has loaded
+    (a unit can stay loaded after its file is gone)."""
+    names = G.unit_names(root) | set(_instances(ops, G.agent_patterns(allow)) if allow["neutralisedAgents"] else ())
     out = []
     for a in allow["neutralisedAgents"]:
         u = a["unit"]
@@ -158,14 +162,22 @@ def _user_pids(proc):
 
 
 def end_sessions(ops, root, proc):
-    users = [r[0] for r in G._rows(os.path.join(root, "etc/passwd"), G.PASSWD_MAX, 7)
-             if G._gid(r[2]) >= G.USER_UID_MIN]  # (a uid parses like a gid: decimal digits only)
-    for u in users:
-        ops.run(["loginctl", "terminate-user", u])   # (a user with no session: nothing to end)
-        ops.run(["loginctl", "disable-linger", u])
+    """End every user's sessions and lingering (by numeric uid: a name could read as an option), kill what's left at
+    a user's uid, and prove both: no such process, and nobody lingering."""
+    uids = sorted({G._gid(r[2]) for r in G._rows(os.path.join(root, "etc/passwd"), G.PASSWD_MAX, 7)
+                   if G._gid(r[2]) >= G.USER_UID_MIN})  # (a uid parses like a gid: decimal digits only)
+    for uid in uids:
+        ops.run(["loginctl", "terminate-user", str(uid)])   # (a user with no session: nothing to end; the sweep proves it)
+        if ops.run(["loginctl", "disable-linger", str(uid)])[0] != 0:
+            raise Failed("sessions")
     for _ in range(KILL_ROUNDS):
         pids = _user_pids(proc)
         if not pids:
+            try:
+                if G._entries(os.path.join(root, G.LINGER_DIR), G.LINGER_MAX):
+                    raise Failed("sessions")  # (someone still lingering)
+            except FileNotFoundError:
+                pass
             return
         for pid in pids:
             ops.kill(pid, signal.SIGKILL)
@@ -318,8 +330,8 @@ def drop_sudo(root, allow):
 def block_metadata(ops):
     if ops.run(["nft", "-f", "-"], NFT_SCRIPT.encode())[0] != 0:
         raise Failed("metadata")
-    rc, listing = ops.run(["nft", "-j", "list", "table", "inet", G.META_TABLE])
-    if rc != 0 or len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):
+    rc, listing = ops.run(list(G.NFT_LIST_ARGV), limit=G.NFT_MAX)
+    if rc != 0 or not G.meta_rules_exact(listing):
         raise Failed("metadata")
 
 
@@ -327,20 +339,29 @@ def block_metadata(ops):
 def run(allow, root="/", proc="/proc", ops=None):
     """(ok, [word]): N1-N9 in order, stopping at the first that fails."""
     ops = ops or Ops()
+    step = "units"
     try:
         for u in SSH_UNITS:
             unit_down(ops, root, u)
+        step = "sessions"
         end_sessions(ops, root, proc)
+        step = "keys"
         mounts, pinned, seen = G.mount_points(proc), set(allow["mounts"]), {}
         for home in G._homes(root, allow["sentinelHomes"]):
             empty_keys(root, home, mounts, pinned, seen)
+        step = "passwords"
         lock_passwords(root)
+        step = "sudo"
         drop_sudo(root, allow)
-        for u in console_units(ops, root) + agent_units(root, allow) + list(CONTAINER_UNITS) + list(JOB_UNITS):
+        step = "units"
+        for u in console_units(ops, root) + agent_units(ops, root, allow) + list(CONTAINER_UNITS) + list(JOB_UNITS):
             unit_down(ops, root, u)
+        step = "metadata"
         block_metadata(ops)
     except Failed as f:
         return False, [f.word]
+    except G.CommandFailed:
+        return False, [step]  # (a command past its output cap or its deadline, killed: the step it was in fails)
     except (G.Unreadable, G.OverBudget, OSError, ValueError):
         return False, ["unreadable"]
     return True, []
@@ -358,7 +379,10 @@ def main(argv=None, stdout=None):
     except (IndexError, OSError, ValueError, G.Unreadable):
         stdout.write(line(False, ["unreadable"]) + "\n")
         return 1
-    ok, words = run(allow)
+    try:
+        ok, words = run(allow)
+    except Exception:  # (never leave the boot without its line)
+        ok, words = False, ["unreadable"]
     stdout.write(line(ok, words) + "\n")
     return 0 if ok else 1
 

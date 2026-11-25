@@ -10,6 +10,7 @@ import json
 import os
 import stat
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,11 +36,22 @@ class FakeOps:
         self.unkillable = set()
         self.nft = None
         self.calls = []
+        self.timeout = set()  # (commands that run past their deadline)
+        self.loaded = {}      # (units systemd has loaded with no file: name -> ActiveState)
+        self.lingering = set()
 
-    def run(self, argv, data=None):
+    def run(self, argv, data=None, limit=N.OUT_MAX):
         self.calls.append(tuple(argv))
+        if tuple(argv) in self.timeout:
+            raise G.CommandFailed("timeout")
         if tuple(argv) in self.fail:
             return 1, b""
+        rc, out = self._run(argv, data)
+        if len(out) > limit:
+            raise G.CommandFailed("overflow")  # (as the bounded runner would, before admitting it)
+        return rc, out
+
+    def _run(self, argv, data=None):
         root = self.vm.root
         if argv[:2] == ["systemctl", "stop"]:
             u = argv[2]
@@ -64,18 +76,23 @@ class FakeOps:
             if prop == "ActiveState":
                 return 0, (self.active.get(u, "inactive") + "\n").encode()
             st = G.unit_state(root, u)
+            if st == "absent" and u in self.loaded:
+                st = "present"  # (loaded, though its file is gone)
             return 0, ({"masked": "masked", "present": "loaded", "absent": "not-found"}[st] + "\n").encode()
         if argv[:2] == ["systemctl", "list-units"]:
             pats = [a for a in argv[2:] if not a.startswith("--")]
-            names = sorted(n for n in self.instances if any(fnmatch.fnmatch(n, p) for p in pats))
-            return 0, "".join("%s loaded active running x\n" % n for n in names).encode()
+            return 0, self.listing(pats)
         if argv[:2] == ["loginctl", "terminate-user"]:
-            uid = self.vm.uid_of(argv[2])
-            for pid in self.vm.pids_with_uid(uid):
+            for pid in self.vm.pids_with_uid(int(argv[2])):
                 if pid not in self.unkillable:
                     self.vm.remove_process(pid)
             return 0, b""
         if argv[:2] == ["loginctl", "disable-linger"]:
+            name = self.vm.name_of(int(argv[2]))
+            if name not in self.lingering:
+                p = self.vm.path(G.LINGER_DIR + "/" + name)
+                if os.path.lexists(p):
+                    os.unlink(p)
             return 0, b""
         if argv[:3] == ["nft", "-f", "-"]:
             self.nft = data
@@ -83,6 +100,17 @@ class FakeOps:
         if argv[:2] == ["nft", "-j"]:
             return (0, nft_json()) if self.nft == N.NFT_SCRIPT.encode() else (1, b"")
         raise AssertionError("unexpected command %r" % (argv,))
+
+    def listing(self, pats):
+        """systemd's list of loaded units: the running console instances, and units loaded with no file."""
+        lines = []
+        for n in sorted(set(self.instances) | set(self.loaded)):
+            if any(fnmatch.fnmatch(n, p) for p in pats):
+                masked = G.unit_state(self.vm.root, n) == "masked"
+                load = "masked" if masked else "loaded"
+                active = self.active.get(n, self.loaded.get(n, "active"))
+                lines.append("%s %s %s running x\n" % (n, load, active))
+        return "".join(lines).encode()
 
     def kill(self, pid, sig):
         self.calls.append(("kill", pid))
@@ -92,8 +120,8 @@ class FakeOps:
     def sleep(self, s):
         pass
 
-    def listing(self):
-        rc, out = self.run(["nft", "-j", "list", "table", "inet", "sbgpu_meta"])
+    def listing_nft(self):
+        rc, out = self._run(["nft", "-j", "list", "table", "inet", "sbgpu_meta"])
         if rc:
             raise G.Unreadable("nft")
         return out
@@ -156,8 +184,8 @@ class RentedVM(VM):
         if os.path.isdir(base):
             os.rmdir(base)
 
-    def uid_of(self, name):
-        return self.users[name]
+    def name_of(self, uid):
+        return next(n for n, u in self.users.items() if u == uid)
 
     def pids_with_uid(self, uid):
         out = []
@@ -171,7 +199,8 @@ class RentedVM(VM):
         return N.run(allow or GATE_ALLOW, root=self.root, proc=self.proc, ops=self.ops)
 
     def gate(self, allow=None):
-        self.nft = self.ops.listing() if self.ops.nft else b""
+        self.nft = self.ops.listing_nft() if self.ops.nft else b""
+        self.loaded = self.ops.listing(G.agent_patterns(allow or GATE_ALLOW))
         return self.run(allow or GATE_ALLOW)
 
 
@@ -187,12 +216,12 @@ class Base(unittest.TestCase):
     def lying(self, v, answers):
         real = v.ops.run
 
-        def run(argv, data=None):
+        def run(argv, data=None, limit=N.OUT_MAX):
             for prefix, answer in answers:
                 if tuple(argv[:len(prefix)]) == prefix:
                     v.ops.calls.append(tuple(argv))
                     return answer
-            return real(argv, data)
+            return real(argv, data, limit)
         v.ops.run = run
 
     def patch(self, obj, name, value):
@@ -317,7 +346,21 @@ class UnitsTest(Base):
         for u in ("grafana-agent.service", "grafana-agent.socket", "grafana-agent.timer", "grafana-agent@x.service"):
             self.assertEqual(G.unit_state(v.root, u), "masked", u)
         self.assertNotEqual(G.unit_state(v.root, "grafana-agent-other.service"), "masked")  # (not its unit)
-        self.assertEqual(N.agent_units(v.root, dict(GATE_ALLOW, neutralisedAgents=[])), [])
+        v = self.vm()  # (loaded by systemd, its files gone: found by systemd's list, stopped and masked)
+        v.ops.loaded = {"grafana-agent.socket": "active", "grafana-agent@7.service": "active"}
+        self.assertEqual(v.neutralise(), (True, []))
+        for u in ("grafana-agent.socket", "grafana-agent@7.service"):
+            self.assertIn(("systemctl", "stop", u), v.ops.calls)
+            self.assertEqual(G.unit_state(v.root, u), "masked", u)
+        self.assertEqual(v.gate(), (True, []))
+        v = self.vm()
+        v.ops.fail.add(("systemctl", "list-units", "--all", "--plain", "--no-legend", "--full") + tuple(G.agent_patterns(GATE_ALLOW)))
+        self.assertEqual(v.neutralise(), (False, ["units"]))
+        v = self.vm()  # (a list that isn't systemd's format: unreadable, never taken as unit names)
+        self.lying(v, [(("systemctl", "list-units", "--all", "--plain", "--no-legend", "--full") + tuple(G.agent_patterns(GATE_ALLOW)),
+                        (0, b"garbage\n"))])
+        self.assertEqual(v.neutralise(), (False, ["unreadable"]))
+        self.assertEqual(N.agent_units(v.ops, v.root, dict(GATE_ALLOW, neutralisedAgents=[])), [])
 
 
 class SessionsTest(Base):
@@ -326,16 +369,16 @@ class SessionsTest(Base):
         v.process(702, "nohup", PY, uid=1000)  # (left behind by logind's terminate)
         real = v.ops.run
 
-        def run(argv, data=None):
+        def run(argv, data=None, limit=N.OUT_MAX):
             if argv[:2] == ["loginctl", "terminate-user"]:
                 return 0, b""  # (logind ends nothing: the kill must)
-            return real(argv, data)
+            return real(argv, data, limit)
         v.ops.run = run
         self.assertEqual(v.neutralise(), (True, []))
         self.assertIn(("kill", 702), v.ops.calls)
         self.assertEqual(v.pids_with_uid(1000), [])
-        self.assertIn(("loginctl", "disable-linger", "shadeform"), v.ops.calls)
-        self.assertNotIn(("loginctl", "terminate-user", "messagebus"), v.ops.calls)  # (a system user)
+        self.assertIn(("loginctl", "disable-linger", "1001"), v.ops.calls)  # (by uid: a name could read as an option)
+        self.assertNotIn(("loginctl", "terminate-user", "102"), v.ops.calls)  # (a system user)
 
     def test_every_uid_counts_and_uid_1000_is_a_user(self):
         v = self.vm()
@@ -344,7 +387,22 @@ class SessionsTest(Base):
         self.lying(v, [(("loginctl", "terminate-user"), (0, b""))])  # (logind ends nothing: the kill must find it)
         self.assertEqual(v.neutralise(), (True, []))
         self.assertIn(("kill", 704), v.ops.calls)
-        self.assertIn(("loginctl", "terminate-user", "ubuntu"), v.ops.calls)  # (uid 1000 itself)
+        self.assertIn(("loginctl", "terminate-user", "1000"), v.ops.calls)  # (uid 1000 itself, by number)
+
+    def test_lingering_must_be_turned_off_and_proved(self):
+        v = self.vm()
+        v.ops.fail.add(("loginctl", "disable-linger", "1001"))
+        self.assertEqual(v.neutralise(), (False, ["sessions"]))
+        v = self.vm()  # (logind says it turned lingering off, but the user is still listed)
+        v.write(G.LINGER_DIR + "/shadeform", "")
+        v.ops.lingering.add("shadeform")
+        self.assertEqual(v.neutralise(), (False, ["sessions"]))
+        self.assertEqual(v.pids_with_uid(1001), [])  # (after its processes were gone)
+        v = self.vm()
+        v.write(G.LINGER_DIR + "/shadeform", "")  # (lingering, and logind turns it off)
+        self.assertEqual(v.neutralise(), (True, []))
+        self.assertEqual(os.listdir(v.path(G.LINGER_DIR)), [])
+        self.assertEqual(v.gate(), (True, []))
 
     def test_a_process_that_wont_die_stops_the_step(self):
         v = self.vm()
@@ -368,6 +426,116 @@ class SessionsTest(Base):
         self.assertEqual(N._user_pids(v.proc), [700, 701])
         os.makedirs(v.path("proc/self"), exist_ok=True)
         self.assertEqual(N._user_pids(v.proc), [700, 701])  # (non-numeric entries are skipped)
+
+
+class CommandLimitsTest(Base):
+    def test_a_command_past_its_deadline_fails_its_step_and_nothing_after_runs(self):
+        for argv, word in ((("systemctl", "stop", "ssh.socket"), "units"),
+                           (("loginctl", "disable-linger", "1000"), "sessions"),
+                           (("systemctl", "list-units", "--all", "--plain", "--no-legend", "--full", "getty@*",
+                             "serial-getty@*", "autovt@*", "container-getty@*", "console-getty.service"), "units"),
+                           (("systemctl", "show", "--property=LoadState", "--value", "cron.service"), "units"),
+                           (("nft", "-f", "-"), "metadata"),
+                           (("nft", "-j", "list", "table", "inet", "sbgpu_meta"), "metadata")):
+            v = self.vm()
+            v.ops.timeout.add(argv)
+            self.assertEqual(v.neutralise(), (False, [word]), argv)
+            self.assertEqual(v.ops.calls[-1], argv, argv)  # (it stopped there)
+
+    def test_output_past_each_cap_fails(self):
+        v = self.vm()
+        v.ops.loaded = {"grafana-agent@%d.service" % i: "inactive" for i in range(2)}
+        self.patch(G, "LIST_MAX", len(v.ops.listing(G.agent_patterns(GATE_ALLOW))))
+        self.assertEqual(v.neutralise(), (True, []))  # (exactly at the cap)
+        v = self.vm()
+        v.ops.loaded = {"grafana-agent@%d.service" % i: "inactive" for i in range(2)}
+        self.patch(G, "LIST_MAX", len(v.ops.listing(G.agent_patterns(GATE_ALLOW))) - 1)
+        self.assertEqual(v.neutralise(), (False, ["units"]))
+        v = self.vm()
+        self.patch(G, "NFT_MAX", len(nft_json()) - 1)
+        self.assertEqual(v.neutralise(), (False, ["metadata"]))
+        v = self.vm()
+        self.patch(N, "OUT_MAX", len("inactive\n") - 1)  # (even a show's answer is capped)
+        self.assertEqual(v.neutralise(), (False, ["units"]))
+
+    def test_main_always_prints_its_line(self):
+        def boom(allow):
+            raise RuntimeError("unexpected")
+        self.patch(N, "run", boom)
+        v = self.vm()
+        p = v.write("allow.json", json.dumps(GATE_ALLOW))
+        out = io.StringIO()
+        self.assertEqual(N.main([p], out), 1)
+        self.assertEqual(out.getvalue(), 'SBGPU-NEUTRALISE {"v":1,"ok":false,"fail":["unreadable"]}\n')
+
+
+class RealRunnerTest(unittest.TestCase):
+    """The bounded runner with real child processes: output capped before it is kept, stderr never kept, and the
+    child's whole process group killed and reaped past a cap or a deadline."""
+
+    def py(self, code):
+        return [sys.executable, "-I", "-c", code]
+
+    def marker(self):
+        import tempfile
+        d = tempfile.mkdtemp(prefix="sbgpu-runner-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        return os.path.join(d, "late")
+
+    def test_exact_and_one_over(self):
+        self.assertEqual(G.run_bounded(self.py("import sys; sys.stdout.write('x' * 1000)"), 1000, 10), (0, b"x" * 1000))
+        with self.assertRaises(G.CommandFailed) as e:
+            G.run_bounded(self.py("import sys; sys.stdout.write('x' * 1001)"), 1000, 10)
+        self.assertEqual(e.exception.kind, "overflow")
+
+    def test_a_stderr_flood_is_never_kept_and_never_blocks(self):
+        code = "import sys; sys.stderr.write('e' * (4 << 20)); sys.stdout.write('ok')"
+        self.assertEqual(G.run_bounded(self.py(code), 10, 20), (0, b"ok"))
+
+    def test_overflow_kills_the_whole_group(self):
+        m = self.marker()
+        late = "import time; time.sleep(2); open(%r, 'w')" % m
+        code = ("import subprocess, sys, time\n"
+                "subprocess.Popen([sys.executable, '-c', %r])\n"
+                "sys.stdout.write('x' * 100); sys.stdout.flush(); time.sleep(30)") % late
+        with self.assertRaises(G.CommandFailed):
+            G.run_bounded(self.py(code), 10, 20)
+        time.sleep(3)
+        self.assertFalse(os.path.exists(m))  # (the grandchild was killed with it)
+
+    def test_a_deadline_kills_and_reaps(self):
+        m = self.marker()
+        code = "import time; time.sleep(2); open(%r, 'w')" % m
+        t = time.monotonic()
+        with self.assertRaises(G.CommandFailed) as e:
+            G.run_bounded(self.py(code), 10, 0.5)
+        self.assertEqual(e.exception.kind, "timeout")
+        self.assertLess(time.monotonic() - t, 1.5)
+        time.sleep(2.5)
+        self.assertFalse(os.path.exists(m))
+        code = "import os, time; os.close(1); time.sleep(5)"  # (output closed, but still running)
+        with self.assertRaises(G.CommandFailed):
+            G.run_bounded(self.py(code), 10, 0.5)
+
+    def test_never_reads_past_the_cap(self):
+        sizes = []
+        real = G._read
+        G._read = lambda fd, n: sizes.append(n) or real(fd, n)
+        try:
+            with self.assertRaises(G.CommandFailed):
+                G.run_bounded(self.py("import sys; sys.stdout.write('x' * 100000)"), 10, 10)
+        finally:
+            G._read = real
+        self.assertTrue(sizes and max(sizes) <= 11, sizes)  # (one byte past the cap, never more)
+
+    def test_input_and_return_code(self):
+        self.assertEqual(G.run_bounded(self.py("import sys; sys.stdout.write(sys.stdin.read()); sys.exit(3)"), 100, 10,
+                                       data=b"script"), (3, b"script"))
+
+    def test_the_real_ops_use_it(self):
+        with self.assertRaises(G.CommandFailed):
+            N.Ops().run(self.py("import sys; sys.stdout.write('x' * 5000)"))  # (OUT_MAX by default)
+        self.assertEqual(N.Ops().run(self.py("print('hi')"), limit=3), (0, b"hi\n"))
 
 
 class KeysTest(Base):
@@ -582,10 +750,10 @@ class MetadataTest(Base):
         v = self.vm()
         real = v.ops.run
 
-        def run(argv, data=None):
+        def run(argv, data=None, limit=N.OUT_MAX):
             if argv[:2] == ["nft", "-j"]:
                 return 0, nft_json(json.loads(nft_json())["nftables"][:-1])  # (one rule short)
-            return real(argv, data)
+            return real(argv, data, limit)
         v.ops.run = run
         self.assertEqual(v.neutralise(), (False, ["metadata"]))
         v = self.vm()

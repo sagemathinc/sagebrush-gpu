@@ -2275,14 +2275,14 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
-  "old": "        ops.run([\"loginctl\", \"disable-linger\", u])",
-  "new": "        pass",
+  "old": "        if ops.run([\"loginctl\", \"disable-linger\", str(uid)])[0] != 0:\n            raise Failed(\"sessions\")",
+  "new": "        ops.run([\"loginctl\", \"disable-linger\", str(uid)])",
   "note": "neutralise: sessions: lingering left on"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
-  "old": "             if G._gid(r[2]) >= G.USER_UID_MIN]",
-  "new": "             if G._gid(r[2]) > G.USER_UID_MIN]",
+  "old": "                   if G._gid(r[2]) >= G.USER_UID_MIN})",
+  "new": "                   if G._gid(r[2]) > G.USER_UID_MIN})",
   "note": "neutralise: sessions: uid 1000 missed"
  },
  {
@@ -2443,26 +2443,164 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
-  "old": "    if rc != 0 or len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
-  "new": "    if rc != 0 or len(listing) > G.NFT_MAX:",
+  "old": "    if rc != 0 or not G.meta_rules_exact(listing):",
+  "new": "    if rc != 0:",
   "note": "neutralise: metadata: the rules unproved"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
-  "old": "    if rc != 0 or len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
-  "new": "    if len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
+  "old": "    if rc != 0 or not G.meta_rules_exact(listing):",
+  "new": "    if not G.meta_rules_exact(listing):",
   "note": "neutralise: metadata: a failed listing ignored"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
-  "old": "    if rc != 0 or len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
-  "new": "    if rc != 0 or not G.meta_rules_exact(listing):",
-  "note": "neutralise: metadata: the listing unbounded"
+  "old": "        for u in SSH_UNITS:\n            unit_down(ops, root, u)\n        step = \"sessions\"\n        end_sessions(ops, root, proc)",
+  "new": "        step = \"sessions\"\n        end_sessions(ops, root, proc)\n        for u in SSH_UNITS:\n            unit_down(ops, root, u)",
+  "note": "neutralise: order: sessions before ssh is down"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
-  "old": "        for u in SSH_UNITS:\n            unit_down(ops, root, u)\n        end_sessions(ops, root, proc)",
-  "new": "        end_sessions(ops, root, proc)\n        for u in SSH_UNITS:\n            unit_down(ops, root, u)",
-  "note": "neutralise: order: sessions before ssh is down"
+  "old": "    def run(self, argv, data=None, limit=OUT_MAX):\n        return G.run_bounded(argv, limit, CMD_TIMEOUT_S, data)",
+  "new": "    def run(self, argv, data=None, limit=OUT_MAX):\n        return G.run_bounded(argv, 1 << 30, CMD_TIMEOUT_S, data)",
+  "note": "neutralise: limits: the real ops uncapped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    rc, listing = ops.run(list(G.NFT_LIST_ARGV), limit=G.NFT_MAX)",
+  "new": "    rc, listing = ops.run(list(G.NFT_LIST_ARGV), limit=1 << 30)",
+  "note": "neutralise: limits: the nft listing uncapped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "                      limit=G.LIST_MAX)",
+  "new": "                      limit=1 << 30)",
+  "note": "neutralise: limits: the unit list uncapped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    rc, out = ops.run([\"systemctl\", \"show\", \"--property=\" + prop, \"--value\", unit], limit=OUT_MAX)",
+  "new": "    rc, out = ops.run([\"systemctl\", \"show\", \"--property=\" + prop, \"--value\", unit], limit=1 << 30)",
+  "note": "neutralise: limits: show uncapped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        return False, [step]  # (a command past its output cap or its deadline, killed: the step it was in fails)",
+  "new": "        return False, [\"unreadable\"]",
+  "note": "neutralise: limits: a failed command's step not named"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        step = \"sessions\"\n",
+  "new": "",
+  "note": "neutralise: limits: a sessions command named as units"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        step = \"metadata\"\n",
+  "new": "",
+  "note": "neutralise: limits: a metadata command named as units"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    except Exception:  # (never leave the boot without its line)\n        ok, words = False, [\"unreadable\"]",
+  "new": "    except ZeroDivisionError:\n        ok, words = False, [\"unreadable\"]",
+  "note": "neutralise: main: an unexpected error leaves no line"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "                if G._entries(os.path.join(root, G.LINGER_DIR), G.LINGER_MAX):\n                    raise Failed(\"sessions\")  # (someone still lingering)",
+  "new": "                pass",
+  "note": "neutralise: sessions: lingering unproved"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        ops.run([\"loginctl\", \"terminate-user\", str(uid)])",
+  "new": "        ops.run([\"loginctl\", \"terminate-user\", \"u\" + str(uid)])",
+  "note": "neutralise: sessions: users not named by uid"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    names = G.unit_names(root) | set(_instances(ops, G.agent_patterns(allow)) if allow[\"neutralisedAgents\"] else ())",
+  "new": "    names = G.unit_names(root)",
+  "note": "neutralise: agents: loaded units without files missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    names = [u for u, _, _ in G.loaded_units(out)]",
+  "new": "    names = [ln.split()[0].decode() for ln in out.splitlines() if ln.strip()]",
+  "note": "neutralise: units: the list parsed loosely"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            chunk = _read(fd, min(65536, limit + 1 - got))",
+  "new": "            chunk = _read(fd, 65536)",
+  "note": "neutralise: runner: reads past the cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if got > limit:\n                end(\"overflow\")",
+  "new": "            pass",
+  "note": "neutralise: runner: no cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        except subprocess.TimeoutExpired:\n            end(\"timeout\")",
+  "new": "        except subprocess.TimeoutExpired:\n            pass",
+  "note": "neutralise: runner: a child that closed its output waited out"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            os.killpg(p.pid, signal.SIGKILL)\n        except ProcessLookupError:\n            pass\n        p.wait()\n        p.stdout.close()\n        raise CommandFailed(kind)",
+  "new": "            p.kill()\n        except ProcessLookupError:\n            pass\n        p.wait()\n        p.stdout.close()\n        raise CommandFailed(kind)",
+  "note": "neutralise: runner: only the child killed, not its group"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)",
+  "new": "                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True, start_new_session=True)",
+  "note": "neutralise: runner: stderr piped and never read"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        rc, out = run_bounded([\"systemctl\", \"list-units\", \"--all\", \"--plain\", \"--no-legend\", \"--full\"] + list(patterns),\n                              LIST_MAX, LIST_TIMEOUT_S)",
+  "new": "        rc, out = run_bounded([\"systemctl\", \"list-units\", \"--all\", \"--plain\", \"--no-legend\", \"--full\"] + list(patterns),\n                              1 << 30, LIST_TIMEOUT_S)",
+  "note": "neutralise: gate: the unit list uncapped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if rc != 0:\n        raise Unreadable(\"list-units\")",
+  "new": "    pass",
+  "note": "neutralise: gate: a failed unit list ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        rc, out = run_bounded(NFT_LIST_ARGV, NFT_MAX, NFT_TIMEOUT_S)",
+  "new": "        rc, out = run_bounded(NFT_LIST_ARGV, 1 << 30, NFT_TIMEOUT_S)",
+  "note": "neutralise: gate: the nft listing uncapped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if active not in (\"inactive\", \"failed\") or load not in (\"masked\", \"not-found\"):",
+  "new": "        if active not in (\"inactive\", \"failed\"):",
+  "note": "neutralise: gate: a loaded unit that could start passes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if active not in (\"inactive\", \"failed\") or load not in (\"masked\", \"not-found\"):",
+  "new": "        if load not in (\"masked\", \"not-found\"):",
+  "note": "neutralise: gate: an active loaded unit passes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if len(f) < 4 or not _UNIT.fullmatch(f[0]):",
+  "new": "        if len(f) < 3:",
+  "note": "neutralise: gate: unit names unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if _entries(os.path.join(root, LINGER_DIR), LINGER_MAX):\n            out.add(\"user-session\")",
+  "new": "        pass",
+  "note": "neutralise: gate: lingering unchecked"
  }
 ]
