@@ -27,7 +27,15 @@ export interface StoreOptions {
   uiHost?: string;
   /** Demo build only: a local mock terminal to use instead of the relay. */
   devTerminal?: { url: string; token: string };
+  /** Pages read per list per refresh (default MAX_LIST_PAGES); tests use a smaller cap. */
+  maxListPages?: number;
 }
+
+/**
+ * The most a list is read to, page by page (25 pages of 200): enough for any pilot-sized
+ * project, and a bound on what one refresh can fetch. Past it the page says so.
+ */
+export const MAX_LIST_PAGES = 25;
 
 /** Poll fast while something is changing, slowly otherwise. */
 export const FAST_POLL_MS = 2_000;
@@ -59,6 +67,8 @@ export class Store {
   readonly members = signal<Member[]>([]);
   readonly teams = signal<Team[]>([]);
   readonly allMachines = signal<Machine[]>([]);
+  /** Lists cut at MAX_LIST_PAGES: "members", "machines" and "allMachines". */
+  readonly truncated = signal<ReadonlySet<string>>(new Set());
 
   readonly membership = computed(() => this.me.value?.projects.find((p) => p.projectId === this.projectId.value) ?? null);
   readonly role = computed<ProjectRole | null>(() => this.membership.value?.role ?? null);
@@ -262,6 +272,26 @@ export class Store {
     }
   }
 
+  /**
+   * Every page of a list, following `next`, up to MAX_LIST_PAGES; truncated when it stopped
+   * there with more to come. A navigation meanwhile stops it early (the caller drops the
+   * result anyway).
+   */
+  async #allPages<T>(fetchPage: (cursor: string | undefined) => Promise<{ items: T[]; next: string | null }>): Promise<{ items: T[]; truncated: boolean }> {
+    const generation = this.#generation;
+    const items: T[] = [];
+    let cursor: string | undefined;
+    const max = this.#options.maxListPages ?? MAX_LIST_PAGES;
+    for (let pages = 0; pages < max; pages++) {
+      const page = await fetchPage(cursor);
+      items.push(...page.items);
+      if (page.next == null) return { items, truncated: false };
+      if (generation !== this.#generation) return { items, truncated: false };
+      cursor = page.next;
+    }
+    return { items, truncated: true };
+  }
+
   async #refresh(generation: number): Promise<void> {
     const projectId = this.projectId.value;
     if (projectId == null) return;
@@ -270,14 +300,14 @@ export class Store {
     const staff = this.isStaff.value;
     const [spend, machines, quotes, managed] = await Promise.all([
       this.client.call("getSpend", { params }),
-      this.client.call("listMachines", { params }),
+      this.#allPages((cursor) => this.client.call("listMachines", { params, query: cursor === undefined ? {} : { cursor } })),
       Promise.all(gpuTypes.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
       staff
         ? Promise.all([
             this.client.call("getProject", { params }),
-            this.client.call("listMembers", { params }),
+            this.#allPages((cursor) => this.client.call("listMembers", { params, query: cursor === undefined ? {} : { cursor } })),
             this.client.call("listTeams", { params }),
-            this.client.call("listMachines", { params, query: { all: "1" } }),
+            this.#allPages((cursor) => this.client.call("listMachines", { params, query: cursor === undefined ? { all: "1" } : { all: "1", cursor } })),
           ])
         : null,
     ]);
@@ -285,6 +315,8 @@ export class Store {
     batch(() => {
       this.meters.value = spend.meters;
       this.machines.value = machines.items;
+      const cut = new Set<string>();
+      if (machines.truncated) cut.add("machines");
       this.quotes.value = Object.fromEntries(quotes.map((q) => [q.gpuType, q]));
       if (managed) {
         const [project, members, teams, all] = managed;
@@ -292,7 +324,10 @@ export class Store {
         this.members.value = members.items;
         this.teams.value = teams.teams;
         this.allMachines.value = all.items;
+        if (members.truncated) cut.add("members");
+        if (all.truncated) cut.add("allMachines");
       }
+      this.truncated.value = cut;
     });
   }
 

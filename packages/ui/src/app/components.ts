@@ -210,8 +210,10 @@ export function MachineList({ store }: { store: Store }): VNode {
   const machines = store.machines.value;
   const labels = store.labels.value;
   const now = store.now();
+  const cut = store.truncated.value.has("machines");
   return html`<section>
-    <h2>Your machines</h2>
+    <h2>Your machines${cut ? ` (${machines.length}+)` : ""}</h2>
+    ${cut ? html`<p class="warn small">${`Showing your first ${machines.length} machines; you have more than one page load reads.`}</p>` : null}
     ${machines.length === 0
       ? html`<p class="muted">None yet. Start one above.</p>`
       : html`<ul class="cards">${machines.map((m) => html`<${MachineCard} key=${m.id} store=${store} machine=${m} labels=${labels} now=${now} />`)}</ul>`}

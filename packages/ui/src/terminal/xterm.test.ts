@@ -35,13 +35,22 @@ async function mounted() {
 
 const bytes = (s: string) => new TextEncoder().encode(s);
 
+// Waits for xterm's write callbacks rather than a fixed delay (a loaded machine is slow).
+async function until(cond: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error("timed out waiting for xterm");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 test("written bytes reach the screen, and done() fires only after xterm has them", async () => {
   const term = await mounted();
   let done = 0;
   term.write(bytes("hello \x1b[1mworld\x1b[0m\r\nline 2"), () => done++);
   assert.equal(done, 0); // not before the write is processed
   assert.equal(term.bufferText(), ""); // nothing yet: the write is asynchronous
-  await new Promise((r) => setTimeout(r, 20));
+  await until(() => done > 0);
   assert.equal(done, 1);
   assert.equal(term.bufferText(), "hello world\nline 2");
   term.dispose();
@@ -53,7 +62,7 @@ test("UTF-8 split across writes still renders once, in order", async () => {
   const order: number[] = [];
   term.write(all.subarray(0, 1), () => order.push(1));
   term.write(all.subarray(1), () => order.push(2));
-  await new Promise((r) => setTimeout(r, 20));
+  await until(() => order.length === 2);
   assert.deepEqual(order, [1, 2]);
   assert.equal(term.bufferText(), "é → ✓");
   term.dispose();
@@ -61,12 +70,13 @@ test("UTF-8 split across writes still renders once, in order", async () => {
 
 test("reset clears the screen (a replay starts from nothing)", async () => {
   const term = await mounted();
-  term.write(bytes("old output"), () => {});
-  await new Promise((r) => setTimeout(r, 20));
+  let written = 0;
+  term.write(bytes("old output"), () => written++);
+  await until(() => written === 1);
   assert.equal(term.bufferText(), "old output");
   term.reset();
-  term.write(bytes("replayed"), () => {});
-  await new Promise((r) => setTimeout(r, 20));
+  term.write(bytes("replayed"), () => written++);
+  await until(() => written === 2);
   assert.equal(term.bufferText(), "replayed");
   term.dispose();
 });

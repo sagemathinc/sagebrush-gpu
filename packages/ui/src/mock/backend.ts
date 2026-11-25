@@ -6,9 +6,9 @@
 //
 // As the control plane does (contract answers, Nov 24): a caller with no role in a project
 // gets notFound and one with too low a role forbidden; allocations may not add up to more
-// than the project budget (conflict); member changes follow @sbgpu/api's authz. Mock-only:
-// pages are never split (next is always null), and a removed member's allocation still
-// counts toward the budget.
+// than the project budget (conflict); member changes follow @sbgpu/api's authz; lists page
+// 200 at a time. Mock-only: a page's cursor is an offset, and a removed member's allocation
+// still counts toward the budget.
 
 import {
   ACCRUING_STATES,
@@ -88,8 +88,9 @@ export const PROVIDER_STOP_SECONDS = 15;
 export const SAVE_BYTES = 120 * 1024 * 1024;
 export const SAVE_BYTES_PER_SECOND = 20 * 1024 * 1024;
 export const PAGE_TOKEN_SECONDS = 60;
-/** listMembers?teamId= pages, as the control plane does. */
+/** Lists page like the control plane's: 200 items, then a cursor. */
 export const MEMBERS_PAGE = 200;
+export const PAGE_SIZE = MEMBERS_PAGE;
 
 /** Mock-only country sets for the locality presets; the real table is @sbgpu/providers' localityFor. */
 const EU = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"];
@@ -106,6 +107,14 @@ const LOCALITY_COUNTRIES: Record<ProjectPolicy["locality"], readonly string[] | 
 export const GPU_MEMORY_GB: Readonly<Record<string, number>> = { L4: 24, A10: 24, A6000: 48, "A100-80GB": 80, H100: 80 };
 
 const ZERO: PriceSplit = Object.freeze({ providerCost: 0, margin: 0, total: 0 });
+
+/** A page of `all` from `cursor` (an offset, as a string); next is null on the last page. */
+function pageOf<T>(all: readonly T[], cursor: string | undefined): { items: T[]; next: string | null } {
+  const offset = cursor === undefined ? 0 : Number(cursor);
+  if (!/^\d+$/.test(cursor ?? "0") || !Number.isSafeInteger(offset)) throw new ApiFail("badRequest", "bad cursor");
+  const end = offset + PAGE_SIZE;
+  return { items: all.slice(offset, end), next: end < all.length ? String(end) : null };
+}
 
 function metered(rec: { m: Machine; marginBps: BasisPoints }): MeteredMachine {
   return { providerCostPerHour: rec.m.pricePerHour.providerCost, marginBps: rec.marginBps };
@@ -948,15 +957,10 @@ export class MockBackend {
 
     listMembers: ({ params, query }) => {
       if (query.teamId === undefined) {
-        return { items: [...this.members.values()].filter((m) => m.projectId === params.projectId), next: null };
+        return pageOf([...this.members.values()].filter((m) => m.projectId === params.projectId), query.cursor);
       }
-      // One team's members who haven't been removed, a page at a time.
-      const team = this.#team(params.projectId, query.teamId);
-      const offset = query.cursor === undefined ? 0 : Number(query.cursor);
-      if (!Number.isSafeInteger(offset) || offset < 0) throw new ApiFail("badRequest", "bad cursor");
-      const all = this.#teamMembers(team);
-      const end = offset + MEMBERS_PAGE;
-      return { items: all.slice(offset, end), next: end < all.length ? String(end) : null };
+      // One team's members who haven't been removed.
+      return pageOf(this.#teamMembers(this.#team(params.projectId, query.teamId)), query.cursor);
     },
 
     inviteMembers: ({ params, body, user }) => {
@@ -1100,7 +1104,7 @@ export class MockBackend {
       return this.#spendCsv(this.#project(params.projectId), query.by);
     },
 
-    listLedger: ({ params }) => ({ items: this.ledger.filter((e) => e.projectId === params.projectId), next: null }),
+    listLedger: ({ params, query }) => pageOf(this.ledger.filter((e) => e.projectId === params.projectId), query.cursor),
 
     listMachines: ({ params, query, user }) => {
       const all = query.all === "1";
@@ -1109,7 +1113,7 @@ export class MockBackend {
       const items = [...this.machines.values()]
         .map((r) => r.m)
         .filter((m) => m.projectId === params.projectId && m.state !== "deleted" && (all || m.memberId === me?.id));
-      return { items, next: null };
+      return pageOf(items, query.cursor);
     },
 
     startMachine: ({ params, body, user }) => {
