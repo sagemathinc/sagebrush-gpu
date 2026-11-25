@@ -1453,7 +1453,7 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            if alias != name and depth < 4:",
+  "old": "            if inside and alias != name and alias.endswith(name[name.rindex(\".\"):]) and depth < 4:",
   "new": "            if False:",
   "note": "vm gate: unit: aliases not followed"
  },
@@ -1465,7 +1465,7 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "        if p[\"comm\"] == \"sshd\" or os.path.basename(p[\"exe\"]) == \"sshd\":",
+  "old": "        if p[\"comm\"] in SSHD_NAMES or os.path.basename(p[\"exe\"]) in SSHD_NAMES:",
   "new": "        if False:",
   "note": "vm gate: ssh: a running sshd passes"
  },
@@ -1495,8 +1495,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "        if not home.startswith(\"/\") or os.path.normpath(home) != home:",
-  "new": "        if not home.startswith(\"/\"):",
+  "old": "        if not home.startswith(\"/\") or os.path.normpath(home) != home or \"\\x00\" in home:",
+  "new": "        if not home.startswith(\"/\") or \"\\x00\" in home:",
   "note": "vm gate: passwd: a dotted home accepted"
  },
  {
@@ -1555,7 +1555,7 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "        if kthread:\n            return {\"kthread\": True}",
+  "old": "        if int(fields[6]) & PF_KTHREAD:\n            return {\"kthread\": True}",
   "new": "        if False:\n            return {\"kthread\": True}",
   "note": "vm gate: processes: kernel threads read as processes"
  },
@@ -1567,19 +1567,19 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            if any(r.search(data) for r in CREDENTIAL_SHAPES):",
-  "new": "            if False:",
+  "old": "    if any(r.search(data) for r in CREDENTIAL_SHAPES):",
+  "new": "    if False:",
   "note": "vm gate: secrets: shapes not searched"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            if known and _matches_known(data, known):",
-  "new": "            if False:",
+  "old": "    if by_len and _matches_known(data, by_len, budget):",
+  "new": "    if False:",
   "note": "vm gate: secrets: known values not searched"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            for i in range(len(s) - n + 1):",
+  "old": "            for i in range(windows):",
   "new": "            for i in range(1):",
   "note": "vm gate: secrets: only a run's first window"
  },
@@ -1627,8 +1627,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "16 <= k[\"bytes\"] <= 4096",
-  "new": "1 <= k[\"bytes\"] <= 4096",
+  "old": "16 <= k[\"bytes\"] <= KNOWN_BYTES_MAX",
+  "new": "1 <= k[\"bytes\"] <= KNOWN_BYTES_MAX",
   "note": "vm gate: known: short values accepted"
  },
  {
@@ -1636,5 +1636,101 @@
   "old": "        fails.add(\"process\")  # (without a complete process scan nothing below it can pass)",
   "new": "        pass",
   "note": "vm gate: run: an incomplete scan passes the process check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if int(lport, 16) == 22:",
+  "new": "            if False:",
+  "note": "vm gate: listeners: a connected socket on port 22 passes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            inside = \"/\" not in target or any(target == \"/\" + d + \"/\" + alias for d in UNIT_PATH)",
+  "new": "            inside = True",
+  "note": "vm gate: unit: an external linked unit read as an alias"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if len(parts) != 7:",
+  "new": "        if len(parts) < 7:",
+  "note": "vm gate: passwd: a long row accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            home = parts[5].decode(\"utf-8\", \"strict\")",
+  "new": "            home = parts[5].decode(\"utf-8\", \"replace\")",
+  "note": "vm gate: passwd: an undecodable home replaced"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "SSHD_NAMES = (\"sshd\", \"sshd-session\", \"sshd-auth\")",
+  "new": "SSHD_NAMES = (\"sshd\",)",
+  "note": "vm gate: ssh: OpenSSH 9.8 names missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if not chunk:\n                break",
+  "new": "            break",
+  "note": "vm gate: reads: one read taken as the end"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if path not in pinned and (path in mounts or here != dev):",
+  "new": "            if path not in pinned and here != dev:",
+  "note": "vm gate: mounts: mountinfo ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if path not in pinned and (path in mounts or here != dev):",
+  "new": "            if path in mounts or here != dev:",
+  "note": "vm gate: mounts: the pinned paths ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if len(fields) < 10 or b\"-\" not in fields[6:]:",
+  "new": "        if False:",
+  "note": "vm gate: mounts: a malformed mountinfo line read"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if self.procs > MAX_PROCS:",
+  "new": "        if False:",
+  "note": "vm gate: budget: processes unbounded"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if self.fds > MAX_FDS_TOTAL:",
+  "new": "        if False:",
+  "note": "vm gate: budget: fds unbounded in all"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        if self.hashed > MAX_HASH_BYTES:",
+  "new": "        if False:",
+  "note": "vm gate: budget: hashing unbounded"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if len(names) > limit:",
+  "new": "            if False:",
+  "note": "vm gate: budget: listings unbounded"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            budget.hash(windows * n)",
+  "new": "            budget.hash(windows * n * len(digests))",
+  "note": "vm gate: budget: a window hashed per digest"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            secrets |= _secrets(_read_bounded(os.path.join(base, name), ARGS_MAX, regular=False), by_len, budget)",
+  "new": "            pass",
+  "note": "vm gate: secrets: environ and cmdline not read"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    except OverBudget:\n        procs = None\n        fails.add(\"gate-budget\")",
+  "new": "    except OverBudget:\n        procs = {}",
+  "note": "vm gate: budget: exhaustion passes"
  }
 ]

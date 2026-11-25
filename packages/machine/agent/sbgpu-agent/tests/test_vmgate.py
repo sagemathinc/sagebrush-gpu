@@ -16,7 +16,7 @@ from sbgpu_agent import vmgate as G  # noqa: E402
 
 NET_HEAD = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
 SYSTEMD, RESOLVED, PY = "/usr/lib/systemd/systemd", "/usr/lib/systemd/systemd-resolved", "/usr/bin/python3.12"
-ALLOW = {"v": 1, "processes": [SYSTEMD, RESOLVED, PY],
+ALLOW = {"v": 1, "processes": [SYSTEMD, RESOLVED, PY], "mounts": [],
          "loopback": [{"process": RESOLVED, "proto": "udp", "address": "127.0.0.53", "port": 53},
                       {"process": RESOLVED, "proto": "tcp", "address": "127.0.0.53", "port": 53}]}
 
@@ -50,6 +50,7 @@ class VM:
             self.write("lib/systemd/system/" + unit, "[Unit]\n")
             self.link("etc/systemd/system/" + unit, "/dev/null")
         self.link("etc/systemd/system/sshd.service", "/lib/systemd/system/ssh.service")  # (the alias Ubuntu ships)
+        self.mountinfo("/")
         self.process(1, "systemd", SYSTEMD)
         self.process(300, "systemd-resolve", RESOLVED, sockets=(7001, 7002))
         self.tables(tcp=[row(0, hex4("127.0.0.53"), 53, "0A", 7002)], udp=[row(0, hex4("127.0.0.53"), 53, "07", 7001)])
@@ -83,6 +84,10 @@ class VM:
         os.makedirs(self.path(base + "fd"), exist_ok=True)
         for i, inode in enumerate(sockets):
             self.link(base + "fd/%d" % (i + 3), "socket:[%d]" % inode)
+
+    def mountinfo(self, *points):
+        self.write("proc/self/mountinfo", "".join(
+            "%d 1 8:%d / %s rw,relatime shared:1 - ext4 /dev/sda%d rw\n" % (20 + i, i, p, i) for i, p in enumerate(points)))
 
     def tables(self, tcp=(), tcp6=(), udp=(), udp6=()):
         for name, rows in (("tcp", tcp), ("tcp6", tcp6), ("udp", udp), ("udp6", udp6)):
@@ -240,8 +245,10 @@ class ListenerTest(Base):
         self.assertEqual(v.run(), (False, ["listener-loopback"]))
         # (clients aren't listeners: an established TCP, a connected UDP)
         v = with_rows(tcp=[row(1, hex4("10.0.0.5"), 40000, "01", 7005, remote=hex4("1.2.3.4"), rport=443)],
-                      udp=[row(1, hex4("10.0.0.5"), 40001, "01", 7006, remote=hex4("1.1.1.1"), rport=53)])
-        self.assertEqual(v.run(), (True, []))
+                      udp=[row(1, hex4("10.0.0.5"), 40001, "01", 7006, remote=hex4("1.1.1.1"), rport=53)],
+                      tcp6=[row(1, hex6("2001:db8::5"), 40002, "01", 7007, remote=hex6("2001:db8::9"), rport=443)],
+                      udp6=[row(1, hex6("2001:db8::5"), 40003, "01", 7008, remote=hex6("2001:db8::9"), rport=53)])
+        self.assertEqual(v.run(), (True, []))  # (clients on other local ports, IPv4 and IPv6: exempt)
 
     def test_tables_missing_or_malformed_fail_closed(self):
         for how in ("missing", "header", "row"):
@@ -282,10 +289,10 @@ class ProcessTest(Base):
         v.write("proc/403/stat", "")  # (half a process directory that then vanished)
         real = G._one
 
-        def one(proc, pid):
+        def one(proc, pid, *rest):
             if pid == 403:
                 shutil.rmtree(v.path("proc/403"))
-            return real(proc, pid)
+            return real(proc, pid, *rest)
         G._one = one
         try:
             self.assertEqual(v.run(), (True, []))
@@ -351,9 +358,155 @@ class SecretsTest(Base):
         self.assertEqual(G.load_known(b""), [])
         self.assertEqual(G.load_known(json.dumps({"known": [good]}).encode()), [good])
         for bad in ({"known": [dict(good, bytes=8)]}, {"known": [dict(good, sha256="A" * 64)]}, {"known": [good], "x": 1},
-                    {"known": [dict(good, value="secret")]}, {"known": [good] * (G.KNOWN_MAX + 1)}):
+                    {"known": [dict(good, value="secret")]}, {"known": [good] * (G.KNOWN_MAX + 1)},
+                    {"known": [dict(good, bytes=G.KNOWN_BYTES_MAX + 1)]}):
             with self.assertRaises(ValueError, msg=bad):
                 G.load_known(json.dumps(bad).encode())
+
+
+class BudgetTest(Base):
+    """The gate's work is bounded in all, not only per file: processes scanned, directory entries, fds, bytes hashed.
+    Running out fails the gate ("gate-budget"); it never skips the rest and passes."""
+
+    def limits(self, **kw):
+        saved = {k: getattr(G, k) for k in kw}
+        for k, val in kw.items():
+            setattr(G, k, val)
+        self.addCleanup(lambda: [setattr(G, k, val) for k, val in saved.items()])
+
+    def test_processes_exact_and_over(self):
+        v = self.vm()  # (2 processes: systemd and resolved)
+        self.limits(MAX_PROCS=2)
+        self.assertEqual(v.run(), (True, []))
+        self.limits(MAX_PROCS=1)
+        self.assertEqual(v.run(), (False, ["gate-budget", "process"]))
+
+    def test_a_stable_large_process_table_fails_rather_than_passing(self):
+        v = self.vm()
+        for pid in range(1000, 1010):
+            v.process(pid, "systemd", SYSTEMD)
+        self.limits(MAX_PROCS=11)
+        self.assertEqual(v.run(), (False, ["gate-budget", "process"]))
+        self.limits(MAX_PROCS=12)
+        self.assertEqual(v.run(), (True, []))
+
+    def test_a_listing_is_enumerated_with_a_cap(self):
+        v = self.vm()
+        self.limits(MAX_PROCS=2)
+        for i in range(G.MAX_PROCS + 520):
+            os.makedirs(v.path("proc/x%d" % i))
+        self.assertEqual(v.run(), (False, ["gate-budget", "process"]))
+
+    def test_fds_per_process_and_in_all(self):
+        v = self.vm()  # (resolved holds 2 fds)
+        self.limits(MAX_FDS=2)
+        self.assertEqual(v.run(), (True, []))
+        v.link("proc/300/fd/9", "/dev/null")
+        self.assertEqual(v.run(), (False, ["gate-budget", "process"]))
+        v = self.vm()
+        self.limits(MAX_FDS=4096, MAX_FDS_TOTAL=2)
+        self.assertEqual(v.run(), (True, []))
+        v.process(301, "systemd", SYSTEMD, sockets=(9001,))
+        self.assertEqual(v.run(), (False, ["gate-budget", "process"]))
+
+    def test_hashing_each_window_once_within_the_budget(self):
+        # (an adversarial base64url run at the maximum count of known values, lengths 16..31; the budget is charged
+        # (windows x length) per distinct length, once however many digests share it)
+        run = b"A" * 1000
+        known = [{"sha256": hashlib.sha256(bytes([66 + i]) * (16 + i)).hexdigest(), "bytes": 16 + i} for i in range(G.KNOWN_MAX)]
+        known[1] = dict(known[1], bytes=16)  # (two digests of one length: hashed once)
+        v = self.vm()
+        base = G.Budget()
+        G.processes(v.proc, 999999, known, base)  # (what the rest of the VM costs: "systemd-resolved" is a 16-byte run)
+        need = base.hashed + sum((len(run) - n + 1) * n for n in {k["bytes"] for k in known})
+        v.process(900, "python3", PY, env=b"X=" + run + b"\0")
+        self.limits(MAX_HASH_BYTES=need)
+        self.assertEqual(v.run(known=known), (True, []))
+        self.limits(MAX_HASH_BYTES=need - 1)
+        self.assertEqual(v.run(known=known), (False, ["gate-budget", "process"]))
+
+    def test_only_words_are_kept_never_the_bytes(self):
+        v = self.vm()
+        v.process(901, "python3", PY, env=b"K=-----BEGIN RSA PRIVATE KEY-----\0")
+        procs = G.processes(v.proc, self_pid=999999)
+        for p in procs.values():
+            self.assertEqual(set(p) - {"kthread", "comm", "exe", "secrets", "sockets"}, set())
+        self.assertEqual(procs[901]["secrets"], {"credential-shape"})
+
+
+class RepairTest(Base):
+    """The repairs after review: short reads, strict passwd rows, OpenSSH 9.8's sshd names, linked unit files,
+    mount crossings, and port 22 in any state."""
+
+    def test_short_reads_are_read_to_the_end(self):
+        real = os.read
+        G.os.read = lambda fd, n: real(fd, min(n, 7))  # (every read returns at most 7 bytes)
+        try:
+            self.assertEqual(self.vm().run(), (True, []))  # (the control: a clean VM still passes)
+            v = self.vm()
+            v.process(950, "python3", PY, env=b"PATH=/usr/bin\0K=-----BEGIN OPENSSH PRIVATE KEY-----\0")
+            self.assertEqual(v.run(), (False, ["credential-shape"]))  # (a shape split across many reads)
+            v = self.vm()
+            v.write("proc/net/tcp6", NET_HEAD + row(0, hex6("::1"), 9999, "0A", 1) * 3 + "   9: zz\n")
+            self.assertEqual(v.run(), (False, ["unreadable"]))  # (a malformed suffix after many short reads)
+        finally:
+            G.os.read = real
+
+    def test_passwd_rows_strict(self):
+        for passwd in (b"root:x:0:0::/root:/bin/sh\nx:x:1:1::/home/\xff:/bin/sh\n",   # (not UTF-8)
+                       b"root:x:0:0::/root:/bin/sh\nx:x:1:1::/home/x\n",              # (6 fields)
+                       b"root:x:0:0::/root:/bin/sh\nx:x:1:1::/home/x:/bin/sh:extra\n"):  # (8 fields)
+            v = self.vm()
+            v.write("etc/passwd", passwd)
+            self.assertEqual(v.run(), (False, ["unreadable"]), passwd)
+        v = self.vm()
+        v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\n\nubuntu:x:1000:1000::/home/ubuntu:/bin/bash\n")
+        self.assertEqual(v.run(), (True, []))  # (an empty line is fine)
+
+    def test_every_sshd_name_whatever_the_allowlist(self):
+        for name in ("sshd", "sshd-session", "sshd-auth"):
+            v = self.vm()
+            v.process(960, name, "/usr/lib/openssh/" + name)
+            allow = dict(ALLOW, processes=ALLOW["processes"] + ["/usr/lib/openssh/" + name])
+            self.assertEqual(v.run(allow), (False, ["ssh-running"]), name)
+
+    def test_linked_unit_files_are_present_aliases_are_followed(self):
+        for target in ("/opt/units/ssh.service", "../../../opt/units/ssh.service", "/lib/systemd/system/ssh.service.d/x"):
+            v = self.vm()
+            v.write("opt/units/ssh.service", "[Unit]\n")
+            v.link("etc/systemd/system/sshd.service", target)  # (a linked unit file, not an alias)
+            self.assertEqual(v.run(), (False, ["ssh-unit"]), target)
+        # (the controls: aliases, absolute in the search path or bare in the same directory, to the masked unit)
+        for target in ("/lib/systemd/system/ssh.service", "/usr/lib/systemd/system/ssh.service", "ssh.service"):
+            v = self.vm()
+            v.link("etc/systemd/system/sshd.service", target)
+            self.assertEqual(v.run(), (True, []), target)
+
+    def test_mount_crossings_below_a_home_are_refused_unless_pinned(self):
+        for point in ("/home/ubuntu", "/home/ubuntu/.ssh", "/root"):
+            v = self.vm()
+            v.mountinfo("/", point)
+            self.assertEqual(v.run(), (False, ["mount-crossing"]), point)
+            self.assertEqual(v.run(dict(ALLOW, mounts=[point])), (True, []), point)  # (pinned by the image)
+        v = self.vm()
+        v.mountinfo("/", "/home/my\\040dir")  # (an escaped mount point elsewhere: read, and not crossed)
+        self.assertIn("/home/my dir", G.mount_points(v.proc))
+        self.assertEqual(v.run(), (True, []))
+        for bad in ("garbage\n", "20 1 8:1 / relative rw shared:1 - ext4 /dev/sda rw\n", "20 1 8:1 / / rw shared:1 ext4 x y z\n"):
+            v = self.vm()
+            v.write("proc/self/mountinfo", bad)
+            self.assertEqual(v.run(), (False, ["unreadable"]), bad)
+
+    def test_port_22_in_any_state(self):
+        for tables in ({"udp": [row(9, hex4("127.0.0.53"), 53, "07", 7001), row(1, hex4("10.0.0.5"), 22, "01", 7010, remote=hex4("1.2.3.4"), rport=40000)]},
+                       {"tcp": [row(9, hex4("127.0.0.53"), 53, "0A", 7002), row(1, hex4("10.0.0.5"), 22, "01", 7011, remote=hex4("1.2.3.4"), rport=40001)]},
+                       {"udp6": [row(1, hex6("2001:db8::5"), 22, "01", 7012, remote=hex6("2001:db8::9"), rport=40002)]},
+                       {"tcp6": [row(1, hex6("2001:db8::5"), 22, "01", 7013, remote=hex6("2001:db8::9"), rport=40003)]}):
+            v = self.vm()
+            base = {"tcp": [row(9, hex4("127.0.0.53"), 53, "0A", 7002)], "udp": [row(9, hex4("127.0.0.53"), 53, "07", 7001)]}
+            base.update(tables)
+            v.tables(**base)
+            self.assertEqual(v.run(), (False, ["listener-22"]), tables)
 
 
 class ProviderTest(Base):
@@ -393,7 +546,8 @@ class InputTest(Base):
         for bad in (dict(ALLOW, v=2), dict(ALLOW, processes=["bash"]),
                     dict(ALLOW, loopback=[{"process": RESOLVED, "proto": "tcp", "address": "0.0.0.0", "port": 53}]),
                     dict(ALLOW, loopback=[{"process": RESOLVED, "proto": "tcp", "address": "127.0.0.1", "port": 22}]),
-                    dict(ALLOW, loopback=[{"process": RESOLVED, "proto": "sctp", "address": "127.0.0.1", "port": 53}])):
+                    dict(ALLOW, loopback=[{"process": RESOLVED, "proto": "sctp", "address": "127.0.0.1", "port": 53}]),
+                    dict(ALLOW, mounts=["/"]), dict(ALLOW, mounts=["home"]), dict(ALLOW, mounts=["/home/../root"])):
             with self.assertRaises(ValueError, msg=bad):
                 G.load_allowlist(v.write("bad.json", json.dumps(bad)))
 
