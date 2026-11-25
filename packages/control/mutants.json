@@ -2160,17 +2160,17 @@
   "new": "  FOREIGN KEY"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),",
   "new": ""
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),\n",
   "new": ""
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  boot_script_sha256 TEXT NOT NULL CHECK (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0 AND boot_script_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  boot_script_sha256 TEXT NOT NULL CHECK (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0),"
  },
@@ -2209,7 +2209,7 @@
   "note": "a predicate the query doesn't imply: a scan"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))\n",
   "new": "  CHECK (1)\n"
  },
@@ -2257,28 +2257,28 @@
   "note": "no guard"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  CHECK (outcome <> 'creating' OR (ipv4 IS NULL AND first_active_ms IS NULL)),\n",
   "new": ""
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
   "new": ""
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
   "new": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
   "note": "launched without an id"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  CHECK ((ipv4 IS NULL) = (first_active_ms IS NULL)),\n",
   "new": ""
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius')),",
   "new": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius', 'runpod')),"
  },
@@ -2547,21 +2547,21 @@
   "note": "no 0012 guard"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0),",
   "note": "agent hash's form unchecked"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  agent_sha256 TEXT CHECK (agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "note": "agent hash optional, any length"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
-  "old": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed')",
-  "new": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed', 'other')",
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed', 'heartbeat-lost')",
+  "new": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed', 'heartbeat-lost', 'other')",
   "note": "an unknown reason allowed"
  },
  {
@@ -2595,37 +2595,37 @@
   "note": "the pin isn't the agent's hash"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND",
   "new": "length(agent_sha256) = 64 AND",
   "note": "agent hash's bytes unbounded (NUL tail)"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
   "new": "length(nonce_sha256) = 64 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
   "note": "launch nonce bytes unbounded"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "CHECK (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND ",
   "new": "CHECK (",
   "note": "script hash bytes unbounded"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),",
   "new": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(provider_machine_id) BETWEEN 1 AND 64)),",
   "note": "launch provider id in characters"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),",
   "new": "  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64)),",
   "note": "launch provider id not ASCII"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  ipv4 TEXT CHECK (ipv4 IS NULL OR (length(CAST(ipv4 AS BLOB)) BETWEEN 7 AND 15 AND length(ipv4) = length(CAST(ipv4 AS BLOB)))),",
   "new": "  ipv4 TEXT CHECK (ipv4 IS NULL OR (length(ipv4) BETWEEN 7 AND 15)),",
   "note": "ipv4 in characters"
@@ -2679,19 +2679,19 @@
   "note": "gate words may hold a NUL"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND",
   "new": "  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND",
   "note": "agent hash may hold a NUL"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "CHECK (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
   "new": "CHECK (length(CAST(nonce_sha256 AS BLOB)) = 64 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),\n  boot_script",
   "note": "launch nonce may hold a NUL"
  },
  {
-  "file": "migrations/0012_vm_enroll.sql",
+  "file": "migrations/0013_agent_heartbeat.sql",
   "old": "length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0 AND",
   "new": "length(CAST(boot_script_sha256 AS BLOB)) = 64 AND",
   "note": "script hash may hold a NUL"
@@ -3025,5 +3025,239 @@
   "old": "  return b !== null && b.length === 32;",
   "new": "  return b !== null;",
   "note": "any part length"
+ },
+ {
+  "file": "src/agent-auth.ts",
+  "old": "  if (!m) throw REFUSED();\n",
+  "new": "",
+  "note": "no Bearer required"
+ },
+ {
+  "file": "src/agent-auth.ts",
+  "old": "const BEARER = /^Bearer ([A-Za-z0-9_.-]{1,4096})$/;",
+  "new": "const BEARER = /^[Bb]earer ([A-Za-z0-9_.-]{1,4096})$/;",
+  "note": "scheme case-insensitive"
+ },
+ {
+  "file": "src/agent-auth.ts",
+  "old": "  if (!v.ok) throw REFUSED();",
+  "new": "  if (!v.ok && v.reason !== \"expired\") throw REFUSED();",
+  "note": "expired tokens accepted"
+ },
+ {
+  "file": "src/agent-auth.ts",
+  "old": "  if (!r || !machineTokenStateOk(c, { id: c.mch, state: r.state, incarnation: r.incarnation }) || r.outcome !== \"enrolled\") throw REFUSED();",
+  "new": "  if (!r || r.outcome !== \"enrolled\") throw REFUSED();",
+  "note": "machine state/incarnation unchecked"
+ },
+ {
+  "file": "src/agent-auth.ts",
+  "old": " || r.outcome !== \"enrolled\") throw REFUSED();",
+  "new": ") throw REFUSED();",
+  "note": "launch state unchecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "  if (!exactKeys(b, \"activity,idleSince,incarnation,save,uptimeS\") || b.incarnation !== inc || !int(b.uptimeS, 0, MAX_UPTIME_S)) throw BAD();",
+  "new": "  if (!exactKeys(b, \"activity,idleSince,incarnation,save,uptimeS\") || !int(b.uptimeS, 0, MAX_UPTIME_S)) throw BAD();",
+  "note": "incarnation unchecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "ms < floorMs || ms > nowMs + SKEW_MS",
+  "new": "ms > nowMs + SKEW_MS",
+  "note": "times before enroll"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "ms < floorMs || ms > nowMs + SKEW_MS",
+  "new": "ms < floorMs || ms > nowMs + SKEW_MS + 1",
+  "note": "skew plus one"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "!Number.isSafeInteger(ms) || toIso(ms) !== x ||",
+  "new": "!Number.isSafeInteger(ms) ||",
+  "note": "non-canonical times"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "  if (a.gpuUtilPct !== null && !int(a.gpuUtilPct, 0, 100)) throw BAD();",
+  "new": "  if (a.gpuUtilPct !== null && !int(a.gpuUtilPct, 0, 101)) throw BAD();",
+  "note": "gpu use 101"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "!int(p.bytesDone, 0, p.bytesTotal as number)",
+  "new": "!int(p.bytesDone, 0, SAFE)",
+  "note": "done past total"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "new TextEncoder().encode(s.error).length > MAX_SAVE_ERROR_BYTES",
+  "new": "s.error.length > MAX_SAVE_ERROR_BYTES",
+  "note": "error in characters"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "s.error.length === 0 || s.error.includes(\"\\0\") ||",
+  "new": "s.error.length === 0 ||",
+  "note": "error may hold a NUL"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "  if (s.snapshotId !== null && !isId(\"snapshot\", s.snapshotId)) throw BAD();\n",
+  "new": "",
+  "note": "any snapshot id"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "    if (!enrolled) throw new HttpError(\"unauthenticated\", \"refused\");\n",
+  "new": "",
+  "note": "no enroll time"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "        params: [finalSaveReserveSeconds(r.dirtyBytes), c.mch, c.inc],",
+  "new": "        params: [finalSaveReserveSeconds(0), c.mch, c.inc],",
+  "note": "estimate ignores dirty bytes"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "    if (c.exp - nowS <= REFRESH_WITHIN_S) {",
+  "new": "    if (c.exp - nowS < REFRESH_WITHIN_S) {",
+  "note": "refresh boundary exclusive"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "exp: nowS + AGENT_TOKEN_TTL_S, mch",
+  "new": "exp: c.exp + AGENT_TOKEN_TTL_S, mch",
+  "note": "refresh extends from the old expiry"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "        deps.alert(\"heartbeat: the agent signer isn't ready; no refresh\");\n",
+  "new": "",
+  "note": "missing signer silent"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND COALESCE(h.last_ms, g.at_ms) < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND COALESCE(h.last_ms, g.at_ms) <= ?",
+  "note": "cutoff inclusive"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND COALESCE(h.last_ms, g.at_ms) < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND g.at_ms < ?",
+  "note": "heartbeats ignored"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation AND m.state = 'running'",
+  "new": "     JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation",
+  "note": "any machine state selected"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     ORDER BY COALESCE(h.last_ms, g.at_ms), v.machine_id, v.incarnation",
+  "new": "     ORDER BY h.last_ms, v.machine_id, v.incarnation",
+  "note": "no-row class starves"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "                WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND watchdog_version = ?\n",
+  "new": "                WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND watchdog_version = watchdog_version + 0 * ?\n",
+  "note": "version not rechecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "                  AND EXISTS (SELECT 1 FROM machines WHERE id = ? AND incarnation = ? AND state = 'running')\n",
+  "new": "                  AND EXISTS (SELECT 1 FROM machines WHERE id = ? AND incarnation >= 0 * ?)\n",
+  "note": "machine not rechecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": ": { sql: `EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ? AND last_ms = ?)`",
+  "new": ": { sql: `EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ? AND last_ms >= 0 * ?)`",
+  "note": "heartbeat not rechecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "? { sql: `NOT EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ?) AND EXISTS",
+  "new": "? { sql: `0 * ? * ? = 0 AND EXISTS",
+  "note": "no-row absence not rechecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "        TOOK,\n      ]);",
+  "new": "      ]);",
+  "note": "no guard"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "    for (const [kid, p] of pins) keys.set(kid, await",
+  "new": "    for (const [kid, p] of [...pins].slice(0, 1)) keys.set(kid, await",
+  "note": "only the first pin loaded"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "  WHEN EXISTS (SELECT 1 FROM vm_launches) OR EXISTS (SELECT 1 FROM boot_tokens) OR EXISTS (SELECT 1 FROM gate_reports)\n",
+  "new": "  WHEN 0\n",
+  "note": "no 0013 guard"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "  save_state TEXT NOT NULL CHECK (save_state IN ('idle', 'saving', 'failed')),",
+  "new": "  save_state TEXT NOT NULL,",
+  "note": "any save state"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "(length(CAST(save_error AS BLOB)) BETWEEN 1 AND 200 AND instr(save_error, char(0)) = 0)",
+  "new": "(length(save_error) BETWEEN 1 AND 200)",
+  "note": "error in characters, NUL allowed"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "(length(CAST(save_snapshot_id AS BLOB)) BETWEEN 1 AND 64 AND instr(save_snapshot_id, char(0)) = 0)",
+  "new": "(length(CAST(save_snapshot_id AS BLOB)) BETWEEN 1 AND 64)",
+  "note": "snapshot id may hold a NUL"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "  CHECK ((save_bytes_done IS NULL) = (save_bytes_total IS NULL) AND (save_bytes_done IS NULL OR save_bytes_done <= save_bytes_total)),\n",
+  "new": "",
+  "note": "progress unpaired"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "  gpu_util_pct INTEGER CHECK (gpu_util_pct IS NULL OR gpu_util_pct BETWEEN 0 AND 100),",
+  "new": "  gpu_util_pct INTEGER,",
+  "note": "gpu use unbounded"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "  uptime_s INTEGER NOT NULL CHECK (uptime_s BETWEEN 0 AND 10000000),",
+  "new": "  uptime_s INTEGER NOT NULL,",
+  "note": "uptime unbounded"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "  machine_id TEXT NOT NULL REFERENCES machines (id),\n  incarnation INTEGER NOT NULL CHECK (incarnation BETWEEN 0 AND 9007199254740991),\n  last_ms",
+  "new": "  machine_id TEXT NOT NULL,\n  incarnation INTEGER NOT NULL CHECK (incarnation BETWEEN 0 AND 9007199254740991),\n  last_ms",
+  "note": "heartbeat for no machine"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "CREATE INDEX vm_launches_enrolled ON vm_launches (machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "",
+  "note": "no enrolled index"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog])",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog])",
+  "note": "heartbeat watchdog not scheduled"
  }
 ]

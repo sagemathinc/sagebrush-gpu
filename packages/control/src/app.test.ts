@@ -68,6 +68,7 @@ async function world(handlers?: Handlers): Promise<World> {
     },
     vm: null,
     agentSigner: async () => null,
+    agentPublicKeys: async () => null,
     alert: () => {},
   };
   const orgId = newId("org");

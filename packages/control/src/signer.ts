@@ -46,6 +46,41 @@ function parseJson(text: unknown): unknown {
 }
 
 /**
+ * The deployment's pinned public keys, `{ kid: { kty, crv, x } }` as text: a closed map of
+ * 1 to MAX_PINNED_KEYS well-formed kids, every value a closed public Ed25519 JWK (the one in
+ * use or not). Else null.
+ */
+function parsePins(publicKeys: unknown): Map<string, { x: string }> | null {
+  const pinned = parseJson(publicKeys);
+  if (typeof pinned !== "object" || pinned === null || Array.isArray(pinned)) return null;
+  const kids = Object.keys(pinned);
+  if (kids.length === 0 || kids.length > MAX_PINNED_KEYS || !kids.every((k) => KID_PATTERN.test(k))) return null;
+  const pins = new Map<string, { x: string }>();
+  for (const k of kids) {
+    const p = closedObject((pinned as Record<string, unknown>)[k], "crv,kty,x");
+    if (!p || p.kty !== "OKP" || p.crv !== "Ed25519" || !ed25519Part(p.x)) return null;
+    pins.set(k, { x: p.x as string });
+  }
+  return pins;
+}
+
+/** Where a request gets the verifiers' keys: the pinned public keys by kid; null when the pins are malformed. */
+export type AgentKeysSource = () => Promise<ReadonlyMap<string, Key> | null>;
+
+/** Every pinned public key, imported for verification, by kid; null if the pins are malformed (or any fails to import). */
+export async function loadAgentPublicKeys(publicKeys: unknown): Promise<ReadonlyMap<string, Key> | null> {
+  const pins = parsePins(publicKeys);
+  if (!pins) return null;
+  const keys = new Map<string, Key>();
+  try {
+    for (const [kid, p] of pins) keys.set(kid, await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: p.x }, "Ed25519", false, ["verify"]));
+  } catch {
+    return null;
+  }
+  return keys;
+}
+
+/**
  * The signer, if ready: `privateJwk` is the secret's text, `kid` its key id, `publicKeys` the
  * deployment's pinned map `{ kid: { kty, crv, x } }` as text. Else null.
  */
@@ -54,17 +89,8 @@ export async function loadAgentSigner(privateJwk: unknown, kid: unknown, publicK
   if (typeof kid !== "string") return null;
   const jwk = closedObject(parseJson(privateJwk), "crv,d,kty,x");
   if (!jwk || jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || !ed25519Part(jwk.d) || !ed25519Part(jwk.x)) return null;
-  const pinned = parseJson(publicKeys);
-  if (typeof pinned !== "object" || pinned === null || Array.isArray(pinned)) return null;
-  const kids = Object.keys(pinned);
-  if (kids.length === 0 || kids.length > MAX_PINNED_KEYS || !kids.every((k) => KID_PATTERN.test(k))) return null;
-  // (every pin is a closed public Ed25519 JWK, the one used or not)
-  const pins = new Map<string, Record<string, unknown>>();
-  for (const k of kids) {
-    const p = closedObject((pinned as Record<string, unknown>)[k], "crv,kty,x");
-    if (!p || p.kty !== "OKP" || p.crv !== "Ed25519" || !ed25519Part(p.x)) return null;
-    pins.set(k, p);
-  }
+  const pins = parsePins(publicKeys);
+  if (!pins) return null;
   const pub = pins.get(kid);
   if (!pub || pub.x !== jwk.x) return null;
   try {

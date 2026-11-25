@@ -3,6 +3,7 @@
 // one. The ledger's accrual and the hard stops join this list with the scheduler.
 
 import { runVmWatchdog, type JobEnv } from "./vm.ts";
+import { runHeartbeatWatchdog } from "./heartbeat.ts";
 
 export type { JobEnv };
 
@@ -42,4 +43,7 @@ export const pruneAuthStates: ScheduledJob = {
 /** VM mode's watchdog (vm.ts): launches that must end, terminated until the provider confirms it. */
 export const vmWatchdog: ScheduledJob = { name: "vm watchdog", run: runVmWatchdog };
 
-export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);
+/** Enrolled VMs whose heartbeats stopped (heartbeat.ts): marked heartbeat-lost, for the VM watchdog to end. */
+export const heartbeatWatchdog: ScheduledJob = { name: "heartbeat watchdog", run: runHeartbeatWatchdog };
+
+export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);
