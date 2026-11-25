@@ -1585,8 +1585,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            if any(n == agent or n.startswith(agent + \".\") or n.startswith(agent + \"@\") for n in names):",
-  "new": "            if False:",
+  "old": "        if any(n == agent or n.startswith(agent + \".\") or n.startswith(agent + \"@\") for n in names):",
+  "new": "        if False:",
   "note": "vm gate: provider: units not seen"
  },
  {
@@ -1609,13 +1609,13 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    s.close()\n    return {\"imds\"}",
-  "new": "    s.close()\n    return set()",
+  "old": "    s.close()\n    return False",
+  "new": "    s.close()\n    return True",
   "note": "vm gate: imds: an answer passes"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    return {\"config-drive\"} if any(n in CONFIG_DRIVE_LABELS for n in names) else set()",
+  "old": "    return {\"config-drive\"} if any(n.lower() in CONFIG_DRIVE_LABELS for n in names) else set()",
   "new": "    return set()",
   "note": "vm gate: config drive: passes"
  },
@@ -1657,8 +1657,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            home = parts[5].decode(\"utf-8\", \"strict\")",
-  "new": "            home = parts[5].decode(\"utf-8\", \"replace\")",
+  "old": "            name, home, shell = (parts[i].decode(\"utf-8\", \"strict\") for i in (0, 5, 6))",
+  "new": "            name, home, shell = (parts[i].decode(\"utf-8\", \"replace\") for i in (0, 5, 6))",
   "note": "vm gate: passwd: an undecodable home replaced"
  },
  {
@@ -1669,8 +1669,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            if not chunk:\n                break",
-  "new": "            break",
+  "old": "            chunk = os.read(fd, limit + 1 - got)\n            if not chunk:\n                break",
+  "new": "            chunk = os.read(fd, limit + 1 - got)\n            break",
   "note": "vm gate: reads: one read taken as the end"
  },
  {
@@ -1735,14 +1735,14 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            names = _entries(os.path.join(root, d), UNIT_DIR_MAX)",
-  "new": "            names = os.listdir(os.path.join(root, d))",
+  "old": "            out.update(_entries(os.path.join(root, d), UNIT_DIR_MAX))",
+  "new": "            out.update(os.listdir(os.path.join(root, d)))",
   "note": "vm gate: unit directories listed whole"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "            names = _entries(os.path.join(root, d), UNIT_DIR_MAX)",
-  "new": "            names = _entries(os.path.join(root, d), LABELS_MAX)",
+  "old": "            out.update(_entries(os.path.join(root, d), UNIT_DIR_MAX))",
+  "new": "            out.update(_entries(os.path.join(root, d), LABELS_MAX))",
   "note": "vm gate: unit directories under the wrong cap"
  },
  {
@@ -1897,14 +1897,14 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    return {\"user-session\"} if any(max(p[\"uids\"]) >= USER_UID_MIN for p in procs.values()) else set()",
-  "new": "    return {\"user-session\"} if any(p[\"uids\"][0] >= USER_UID_MIN for p in procs.values()) else set()",
+  "old": "    out = {\"user-session\"} if any(max(p[\"uids\"]) >= USER_UID_MIN for p in procs.values()) else set()",
+  "new": "    out = {\"user-session\"} if any(p[\"uids\"][0] >= USER_UID_MIN for p in procs.values()) else set()",
   "note": "vm gate neutralised: sessions: only the real uid"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "    return {\"user-session\"} if any(max(p[\"uids\"]) >= USER_UID_MIN for p in procs.values()) else set()",
-  "new": "    return {\"user-session\"} if any(max(p[\"uids\"]) > USER_UID_MIN for p in procs.values()) else set()",
+  "old": "    out = {\"user-session\"} if any(max(p[\"uids\"]) >= USER_UID_MIN for p in procs.values()) else set()",
+  "new": "    out = {\"user-session\"} if any(max(p[\"uids\"]) > USER_UID_MIN for p in procs.values()) else set()",
   "note": "vm gate neutralised: sessions: uid 1000 itself missed"
  },
  {
@@ -2017,13 +2017,13 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "                    return \"ok\" if seen[key] == home or home in pinned else \"mount\"",
+  "old": "                    return \"ok\" if seen[key] == home or home in pinned or seen[key] in pinned else \"mount\"",
   "new": "                    return \"ok\"",
   "note": "vm gate neutralised: keys: an alias taken as the same home"
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "                    return \"ok\" if seen[key] == home or home in pinned else \"mount\"",
+  "old": "                    return \"ok\" if seen[key] == home or home in pinned or seen[key] in pinned else \"mount\"",
   "new": "                    return \"ok\" if seen[key] == home else \"mount\"",
   "note": "vm gate neutralised: keys: a pinned alias refused"
  },
