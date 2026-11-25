@@ -2603,5 +2603,11 @@
   "file": "src/mock/backend.ts",
   "old": "t.projectId === projectId && t.id !== self && teamNameKey(t.name) === teamNameKey(name))",
   "new": "t.projectId === projectId && t.id !== self && t.name === name)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      billingMode: org.billingMode, // (an organization's mode is fixed, so the copy stays right)",
+  "new": "      billingMode: \"resold\",",
+  "note": "mock project's mode not from its org"
  }
 ]

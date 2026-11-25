@@ -144,6 +144,8 @@ export interface ProjectLabels {
 export interface Project {
   id: ProjectId;
   orgId: OrgId;
+  /** The organization's (read-only here), so the project's pages can word prices without the org. */
+  billingMode: BillingMode;
   name: string;
   labels: ProjectLabels | null;
   startsAt: IsoTime;
