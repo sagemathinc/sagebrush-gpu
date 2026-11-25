@@ -273,6 +273,7 @@ export class MockBackend {
     const org: Organization = {
       id: this.newId("org"),
       name,
+      billingMode: "resold",
       marginBps,
       unassignedCredit: credit,
       totalCredit: credit,

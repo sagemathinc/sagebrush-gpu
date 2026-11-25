@@ -54,9 +54,25 @@ export interface Me {
 
 // ---------------------------------------------------------------- organizations
 
+/**
+ * How an organization pays for machines. "resold": our provider account, our margin, our
+ * invoices. "byok": the organization's own provider account, so the provider bills it; our
+ * ledger runs at margin 0, and its credit is a budget it grants itself rather than money
+ * owed to us. (A byok organization pays a negotiated flat fee by contract, outside the
+ * ledger; the ledger still enforces its members' budgets.)
+ */
+export const BILLING_MODES = ["resold", "byok"] as const;
+export type BillingMode = (typeof BILLING_MODES)[number];
+
+export function isBillingMode(x: unknown): x is BillingMode {
+  return typeof x === "string" && (BILLING_MODES as readonly string[]).includes(x);
+}
+
 export interface Organization {
   id: OrgId;
   name: string;
+  /** Fixed when the organization is created. */
+  billingMode: BillingMode;
   /** The default margin for its projects; negotiated per organization (3000 = 30%). */
   marginBps: BasisPoints;
   /** Credit bought and not yet assigned to a project. */

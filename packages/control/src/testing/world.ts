@@ -59,7 +59,7 @@ export async function world(
   // (the seed project's budget is funded the way the API funds one: credit to the org, moved to the project)
   const budget = o.budget ?? 1_000_000_000;
   await db.batch([
-    stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms, total_credit) VALUES (?, 'Org', 3000, ?, ?)`, orgId, T0, budget),
+    stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms, total_credit) VALUES (?, 'Org', 'resold', 3000, ?, ?)`, orgId, T0, budget),
     stmt(
       `INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj', ?, ?, ?, ?)`,
       projectId, orgId, T0, T0 + 86_400_000, budget, T0,

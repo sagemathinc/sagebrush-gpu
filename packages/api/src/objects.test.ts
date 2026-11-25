@@ -2,11 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ACCRUING_STATES,
+  BILLING_MODES,
   DEFAULT_POLICY,
   MACHINE_STATES,
   MACHINE_TRANSITIONS,
   PROJECT_ROLES,
   canTransition,
+  isBillingMode,
   orgRoleAtLeast,
   projectRoleAtLeast,
   type MachineState,
@@ -63,4 +65,10 @@ test("the default policy is frozen and allows nothing until configured", () => {
   assert.deepEqual(DEFAULT_POLICY.allowedGpuTypes, []);
   assert.deepEqual(DEFAULT_POLICY.allowedProviders, []);
   assert.equal(DEFAULT_POLICY.finalSaveReserveMinutes, 10);
+});
+
+test("billing modes: exactly resold and byok", () => {
+  assert.deepEqual(BILLING_MODES, ["resold", "byok"]);
+  for (const m of BILLING_MODES) assert.equal(isBillingMode(m), true);
+  for (const x of ["", "Resold", "byok ", "other", null, undefined, 0, ["resold"]]) assert.equal(isBillingMode(x), false, String(x));
 });

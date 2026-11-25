@@ -273,7 +273,7 @@ test("listProjects: org members, paged", async () => {
   assert.deepEqual([pages, seen.length, new Set(seen).size], [2, PROJECTS_PAGE_SIZE + 11, PROJECTS_PAGE_SIZE + 11]);
   // another org's projects aren't listed, and its list isn't reachable
   const other = newId("org");
-  await w.db.batch([stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'B', 0, ?)`, other, T0)]);
+  await w.db.batch([stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES (?, 'B', 'resold', 0, ?)`, other, T0)]);
   assert.equal(code(await call(w, "GET", `/v1/orgs/${other}/projects`, { cookie: own })), "notFound");
 });
 

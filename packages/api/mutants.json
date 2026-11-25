@@ -793,5 +793,10 @@
   "file": "src/routes.ts",
   "old": "startSignIn: { method: \"GET\", path: \"/v1/auth/start\", access: { auth: \"public\" }",
   "new": "startSignIn: { method: \"GET\", path: \"/v1/auth/start\", access: { auth: \"session\", scope: \"none\" }"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "return typeof x === \"string\" && (BILLING_MODES as readonly string[]).includes(x);",
+  "new": "return typeof x === \"string\";"
  }
 ]
