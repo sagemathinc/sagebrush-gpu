@@ -11,6 +11,7 @@ client (the UI, the providers, the control plane, Sagebrush). Lane: control.
 | `objects.ts` | Organization, Project + ProjectPolicy, Member, Team, Allocation, SpendMeter, LedgerEntry, Quote, Machine (states, transitions, stop reasons, save status), agent request/response shapes |
 | `routes.ts` | `Endpoints` (types of every endpoint) and `ROUTES` (method, path, access), `matchRoute`, `buildPath` |
 | `tokens.ts` | The opaque boot token (`bootExchange`), the claims of each signed token kind, the closed validator `validateClaims`, and `machineTokenStateOk` |
+| `credentials.ts` | An organization's own provider keys (byok): `ProviderCredential` and its statuses, `isCredentialKeyShape`, the reauth window (`RECENT_AUTH_WINDOW_MS`, `isRecentAuthForMs`) and the fixed `CREDENTIAL_REFUSALS` |
 | `providers.ts` | `ProviderId`, `Offer`, `ProviderMachineStatus` (the adapter interface itself is in @sbgpu/providers) |
 | `ids.ts`, `time.ts`, `errors.ts` | Prefixed ids, ISO-8601 UTC times, the error shape and its closed set of codes |
 

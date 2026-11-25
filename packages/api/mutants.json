@@ -791,8 +791,8 @@
  },
  {
   "file": "src/routes.ts",
-  "old": "startSignIn: { method: \"GET\", path: \"/v1/auth/start\", access: { auth: \"public\" }",
-  "new": "startSignIn: { method: \"GET\", path: \"/v1/auth/start\", access: { auth: \"session\", scope: \"none\" }"
+  "old": "    path: \"/v1/auth/start\",\n    access: { auth: \"public\" },",
+  "new": "    path: \"/v1/auth/start\",\n    access: { auth: \"session\", scope: \"none\" },"
  },
  {
   "file": "src/objects.ts",
@@ -840,5 +840,161 @@
   "old": "  return { v: 1, pass: o.pass, fail: [...fail] as VmGateWord[] };",
   "new": "  return { v: 1, pass: o.pass, fail: fail as VmGateWord[] };",
   "note": "not a copy"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "export const RECENT_AUTH_WINDOW_MS = 300_000;",
+  "new": "export const RECENT_AUTH_WINDOW_MS = 600_000;",
+  "note": "window: ten minutes"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return Number.isInteger(x) && (x as number) >= 0",
+  "new": "  return typeof x === \"number\" && (x as number) >= 0",
+  "note": "recentAuthForMs: fractions accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "(x as number) >= 0 &&",
+  "new": "(x as number) >= -1 &&",
+  "note": "recentAuthForMs: -1 accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "(x as number) <= RECENT_AUTH_WINDOW_MS;",
+  "new": "(x as number) < RECENT_AUTH_WINDOW_MS;",
+  "note": "recentAuthForMs: the window's end refused"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "(x as number) <= RECENT_AUTH_WINDOW_MS;",
+  "new": "(x as number) <= RECENT_AUTH_WINDOW_MS + 1;",
+  "note": "recentAuthForMs: past the window accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "x.length <= CREDENTIAL_KEY_MAX_BYTES &&",
+  "new": "x.length <= CREDENTIAL_KEY_MAX_BYTES + 1 &&",
+  "note": "key: 4097 accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "x.length <= CREDENTIAL_KEY_MAX_BYTES &&",
+  "new": "x.length < CREDENTIAL_KEY_MAX_BYTES &&",
+  "note": "key: 4096 refused"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "/^[\\x21-\\x7e]+$/",
+  "new": "/^[\\x20-\\x7e]+$/",
+  "note": "key: space accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "/^[\\x21-\\x7e]+$/",
+  "new": "/^[\\x21-\\x7f]+$/",
+  "note": "key: DEL accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "/^[\\x21-\\x7e]+$/",
+  "new": "/^[\\x22-\\x7e]+$/",
+  "note": "key: ! refused"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "/^[\\x21-\\x7e]+$/",
+  "new": "/^[\\x21-\\x7d]+$/",
+  "note": "key: ~ refused"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "/^[\\x21-\\x7e]+$/",
+  "new": "/[\\x21-\\x7e]+$/",
+  "note": "key: unanchored start"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "/^[\\x21-\\x7e]+$/",
+  "new": "/^[\\x21-\\x7e]+/",
+  "note": "key: unanchored end"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "/^[\\x21-\\x7e]+$/",
+  "new": "/^[\\x21-\\x7e]*$/",
+  "note": "key: empty accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "return typeof x === \"string\" && x.length",
+  "new": "return x != null && (x as string).length",
+  "note": "key: not a string"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "export const CREDENTIAL_STATUSES = Object.freeze([\"none\", \"unchecked\", \"ok\", \"rejected\", \"revoked\", \"error\"] as const);",
+  "new": "export const CREDENTIAL_STATUSES = [\"none\", \"unchecked\", \"ok\", \"rejected\", \"revoked\", \"error\"] as const;",
+  "note": "statuses: not frozen"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "export const CREDENTIAL_REFUSALS = Object.freeze({",
+  "new": "export const CREDENTIAL_REFUSALS = ({",
+  "note": "refusals: not frozen"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "    code: \"reauthenticate\",",
+  "new": "    code: \"forbidden\",",
+  "note": "refusals: reauthenticate as forbidden"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  notByok: {\n    code: \"forbidden\",",
+  "new": "  notByok: {\n    code: \"badRequest\",",
+  "note": "refusals: notByok's code"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  checkUnavailable: {\n    code: \"unavailable\",",
+  "new": "  checkUnavailable: {\n    code: \"providerError\",",
+  "note": "refusals: checkUnavailable's code"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return { error: { code, message } };",
+  "new": "  return { error: { code, message: code } };",
+  "note": "refusal body: words lost"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  reauthenticate: 403,",
+  "new": "  reauthenticate: 401,",
+  "note": "reauthenticate: 401"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "  listCredentials: { method: \"GET\", path: \"/v1/orgs/:orgId/credentials\", access: { auth: \"session\", scope: \"org\", minRole: \"owner\" }",
+  "new": "  listCredentials: { method: \"GET\", path: \"/v1/orgs/:orgId/credentials\", access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" }",
+  "note": "list: any role"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key",
+  "note": "put: below owner"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes",
+  "note": "delete: below owner"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return (CREDENTIAL_STATUSES as readonly unknown[]).includes(x);",
+  "new": "  return typeof x === \"string\";",
+  "note": "status: any string"
  }
 ]

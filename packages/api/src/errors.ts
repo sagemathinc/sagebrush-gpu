@@ -5,6 +5,8 @@ export const ERROR_STATUS = {
   badRequest: 400,
   unauthenticated: 401,
   forbidden: 403,
+  /** The change needs a fresh sign-in (within RECENT_AUTH_WINDOW_MS, see credentials.ts); sign in again with reauth=1. */
+  reauthenticate: 403,
   notFound: 404,
   conflict: 409,
   invalidState: 409,
