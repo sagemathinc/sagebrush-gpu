@@ -3687,12 +3687,6 @@
  },
  {
   "file": "src/container.ts",
-  "old": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating' AND provider_machine_id IS NULL`,",
-  "new": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating'`,",
-  "note": "an id overwritten by another"
- },
- {
-  "file": "src/container.ts",
   "old": "AND provider_machine_id IS NULL AND used_ms IS NULL`,",
   "new": "AND provider_machine_id IS NULL`,",
   "note": "a revoked token takes the id"
