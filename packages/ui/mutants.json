@@ -756,18 +756,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        if (generation === this.#generation) throw err;",
-  "new": "        throw err;"
- },
- {
-  "file": "src/app/store.ts",
   "old": "    if (generation !== this.#generation) return; // navigated meanwhile",
   "new": "    if (this.projectId.value !== projectId) return;"
- },
- {
-  "file": "src/app/store.ts",
-  "old": "    await this.#act(`load:${generation}`, async () => {",
-  "new": "    await this.#act(\"load\", async () => {"
  },
  {
   "file": "src/app/store.ts",
@@ -1068,11 +1058,6 @@
   "file": "src/app/store.ts",
   "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n      });\n    }\n    const generation",
   "new": "      });\n    }\n    const generation"
- },
- {
-  "file": "src/app/store.ts",
-  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n    });\n  }\n\n  isBusy",
-  "new": "    });\n  }\n\n  isBusy"
  },
  {
   "file": "src/app/store.ts",
@@ -2393,5 +2378,175 @@
   "file": "src/app/manage-page.ts",
   "old": "    <${TeamsSection} store=${store} />\n",
   "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        await this.#refresh(generation);\n      } catch (err) {\n        if (generation === this.#generation) throw err;",
+  "new": "        await this.#refresh(generation);\n      } catch (err) {\n        throw err;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    // superseded load neither writes its results nor reports its errors.\n    await this.#act(`load:${generation}`, async () => {",
+  "new": "    // superseded load neither writes its results nor reports its errors.\n    await this.#act(\"load\", async () => {"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n      this.orgId.value = null;",
+  "new": "      this.orgId.value = null;"
+ },
+ {
+  "file": "src/app/router.ts",
+  "old": "if (parts[0] === \"o\" && parts.length === 2 && SEGMENT.test(parts[1] ?? \"\"))",
+  "new": "if (parts[0] === \"o\" && SEGMENT.test(parts[1] ?? \"\"))"
+ },
+ {
+  "file": "src/app/router.ts",
+  "old": "if (parts[0] === \"o\" && parts.length === 2 && SEGMENT.test(parts[1] ?? \"\"))",
+  "new": "if (parts[0] === \"o\" && parts.length === 2)"
+ },
+ {
+  "file": "src/app/router.ts",
+  "old": "      return `/o/${encodeURIComponent(route.orgId)}`;",
+  "new": "      return \"/\";"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (billingMode === \"byok\" && marginBps !== 0) throw new Error(\"a byok organization runs at margin 0\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      name,\n      billingMode,",
+  "new": "      name,\n      billingMode: \"resold\","
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        query.cursor,\n      ),",
+  "new": "        undefined,\n      ),"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (this.orgId.value !== orgId) {\n      batch(() => {\n        this.orgId.value = orgId;",
+  "new": "    if (false) {\n      batch(() => {\n        this.orgId.value = orgId;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.org.value = null;\n        this.orgProjects.value = [];\n      });\n    }\n    const generation",
+  "new": "        this.orgProjects.value = [];\n      });\n    }\n    const generation"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        if (generation !== this.#generation) return;\n        batch(() => {\n          this.org.value = org;",
+  "new": "        batch(() => {\n          this.org.value = org;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (projects.truncated) cut.add(\"orgProjects\");\n          else cut.delete(\"orgProjects\");",
+  "new": "          if (projects.truncated) cut.add(\"orgProjects\");"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (projects.truncated) cut.add(\"orgProjects\");\n          else cut.delete(\"orgProjects\");",
+  "new": "          cut.delete(\"orgProjects\");"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.orgId.value = null;\n      this.org.value = null;\n      this.orgProjects.value = [];",
+  "new": "      this.org.value = null;\n      this.orgProjects.value = [];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.orgId.value = null;\n      this.org.value = null;\n      this.orgProjects.value = [];",
+  "new": "      this.orgId.value = null;\n      this.orgProjects.value = [];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.orgId.value = null;\n      this.org.value = null;\n      this.orgProjects.value = [];",
+  "new": "      this.orgId.value = null;\n      this.org.value = null;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    ${me.orgs.length > 0\n      ? html`<h2>Your organizations</h2>",
+  "new": "    ${true\n      ? html`<h2>Your organizations</h2>"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "          : route.name === \"org\"\n            ? html`<${OrgPage}",
+  "new": "          : false\n            ? html`<${OrgPage}"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "    if (known) void store.openOrg(orgId);",
+  "new": "    void store.openOrg(orgId);"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "  if (!known) {\n    return html`<main><h1>Not found</h1>",
+  "new": "  if (false) {\n    return html`<main><h1>Not found</h1>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "const words = BILLING_WORDS[org.billingMode];",
+  "new": "const words = BILLING_WORDS.resold;"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "<h2>Projects (${projects.length}${cut ? \"+\" : \"\"})</h2>",
+  "new": "<h2>Projects (${projects.length})</h2>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "      ${cut ? html`<p class=\"warn small\">",
+  "new": "      ${false ? html`<p class=\"warn small\">"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "const cut = store.truncated.value.has(\"orgProjects\");",
+  "new": "const cut = store.truncated.value.has(\"members\");"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "      ${projects.length === 0\n        ? html`<p class=\"muted\">No projects yet.</p>`",
+  "new": "      ${false\n        ? html`<p class=\"muted\">No projects yet.</p>`"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "<td>${formatUsd(p.allocated)}</td>",
+  "new": "<td>${formatUsd(p.budget)}</td>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "<td>${formatUsd(p.spent.total)}</td>",
+  "new": "<td>${formatUsd(p.spent.providerCost)}</td>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "<dd>${formatUsd(org.totalCredit)}</dd>",
+  "new": "<dd>${formatUsd(org.unassignedCredit)}</dd>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "  }, [store, orgId, known]);",
+  "new": "  }, [store]);"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          this.truncated.value = cut;\n        });\n      } catch (err) {\n        if (generation === this.#generation) throw err;",
+  "new": "          this.truncated.value = cut;\n        });\n      } catch (err) {\n        throw err;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const generation = ++this.#generation;\n    await this.#act(`load:${generation}`, async () => {",
+  "new": "    const generation = ++this.#generation;\n    await this.#act(\"load\", async () => {"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "Our flat fee is set in your agreement.",
+  "new": "Our fee is set in your agreement."
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "if (org == null || store.orgId.value !== orgId) return",
+  "new": "if (org == null) return"
  }
 ]

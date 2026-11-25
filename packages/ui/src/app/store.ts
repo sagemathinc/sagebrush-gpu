@@ -7,6 +7,7 @@ import {
   projectRoleAtLeast,
   type Machine,
   type Me,
+  type Organization,
   type Member,
   type Micros,
   type SpendCsvGrouping,
@@ -63,6 +64,10 @@ export class Store {
 
   readonly projectId = signal<string | null>(null);
   readonly project = signal<Project | null>(null);
+  /** The organization page's: the organization and its projects. */
+  readonly orgId = signal<string | null>(null);
+  readonly org = signal<Organization | null>(null);
+  readonly orgProjects = signal<Project[]>([]);
   readonly meters = signal<SpendMeter[]>([]);
   readonly machines = signal<Machine[]>([]);
   readonly gpuTypes = signal<PriceListItem[]>([]);
@@ -157,6 +162,9 @@ export class Store {
       this.members.value = [];
       this.teams.value = [];
       this.allMachines.value = [];
+      this.orgId.value = null;
+      this.org.value = null;
+      this.orgProjects.value = [];
     });
   }
 
@@ -195,6 +203,40 @@ export class Store {
     this.#endSession();
     // Only this site's session ends; the person stays signed in to Sagebrush.
     if (ok != null) this.signInNotice.value = "signedOut";
+  }
+
+  // ---------------------------------------------------------------- organization
+
+  /** Load an organization and its projects (for anyone with a role in it). */
+  async openOrg(orgId: string): Promise<void> {
+    if (this.orgId.value !== orgId) {
+      batch(() => {
+        this.orgId.value = orgId;
+        this.org.value = null;
+        this.orgProjects.value = [];
+      });
+    }
+    const generation = ++this.#generation;
+    await this.#act(`load:${generation}`, async () => {
+      try {
+        const params = { orgId };
+        const [org, projects] = await Promise.all([
+          this.client.call("getOrg", { params }),
+          this.#allPages((cursor) => this.client.call("listProjects", { params, query: cursor === undefined ? {} : { cursor } })),
+        ]);
+        if (generation !== this.#generation) return;
+        batch(() => {
+          this.org.value = org;
+          this.orgProjects.value = projects.items;
+          const cut = new Set(this.truncated.value);
+          if (projects.truncated) cut.add("orgProjects");
+          else cut.delete("orgProjects");
+          this.truncated.value = cut;
+        });
+      } catch (err) {
+        if (generation === this.#generation) throw err;
+      }
+    });
   }
 
   // ---------------------------------------------------------------- project

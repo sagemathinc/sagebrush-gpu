@@ -12,6 +12,7 @@ import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
 import { ManagePage } from "./manage-page.ts";
+import { OrgPage } from "./org-page.ts";
 import { TerminalPanel } from "./terminal-panel.ts";
 import { signInHref } from "./signin.ts";
 
@@ -106,6 +107,17 @@ export function Home({ store, nav }: { store: Store; nav: Nav }): VNode {
             </li>`,
           )}
         </ul>`}
+    ${me.orgs.length > 0
+      ? html`<h2>Your organizations</h2>
+          <ul class="cards">
+            ${me.orgs.map(
+              (o) => html`<li class="card">
+                <${Link} nav=${nav} to=${{ name: "org", orgId: o.orgId }}>${o.name}<//>
+                <span class="badge">${o.role}</span>
+              </li>`,
+            )}
+          </ul>`
+      : null}
   </main>`;
 }
 
@@ -302,6 +314,8 @@ export function App({
           ? html`<${ProjectPage} store=${store} projectId=${route.projectId} timers=${timers} nav=${nav} />`
           : route.name === "manage"
             ? html`<${ManagePage} store=${store} projectId=${route.projectId} timers=${timers} nav=${nav} />`
+          : route.name === "org"
+            ? html`<${OrgPage} store=${store} orgId=${route.orgId} nav=${nav} />`
           : html`<main><h1>Not found</h1><p><${Link} nav=${nav} to=${{ name: "home" }}>Your projects<//></p></main>`;
   }
   return html`<div class="app">

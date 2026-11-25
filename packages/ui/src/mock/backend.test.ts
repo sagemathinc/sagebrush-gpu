@@ -1097,3 +1097,26 @@ test("every list pages: members, machines and the ledger, with an offset cursor"
   assert.deepEqual((await m2.call("listMachines", { params: p, query: { all: "1" } })).next, null);
   assert.deepEqual((await m2.call("listMachines", { params: p, query: { all: "1", cursor: "1" } })).items, []);
 });
+
+test("organizations: a byok one runs at margin 0; projects are listed a page at a time", async () => {
+  const d = setup();
+  assert.throws(() => d.backend.addOrg("Own keys", 3000, 0, "byok"), /margin 0/);
+  const own = d.backend.addOrg("Own keys", 0, 1_000_000_000, "byok");
+  assert.equal(own.billingMode, "byok");
+  assert.equal(d.backend.addOrg("Resold", 2000, 0).billingMode, "resold");
+  for (let i = 0; i < PAGE_SIZE + 1; i++) {
+    d.backend.addProject(own.id, { name: `p${i}`, budget: 0, startsAt: "2027-01-01T00:00:00.000Z", endsAt: "2027-06-01T00:00:00.000Z" });
+  }
+  const owner = [...d.backend.users.values()].find((u) => u.email === d.emails.owner)!;
+  d.backend.setOrgRole(own.id, owner.id, "viewer");
+  const c = await d.as(d.emails.owner);
+  assert.equal((await c.call("getOrg", { params: { orgId: own.id } })).billingMode, "byok");
+  const first = await c.call("listProjects", { params: { orgId: own.id } });
+  assert.deepEqual([first.items.length, first.next], [PAGE_SIZE, String(PAGE_SIZE)]);
+  const rest = await c.call("listProjects", { params: { orgId: own.id }, query: { cursor: String(PAGE_SIZE) } });
+  assert.deepEqual([rest.items.map((p) => p.name), rest.next], [[`p${PAGE_SIZE}`], null]);
+  // Someone with no role in the organization sees nothing of it.
+  const ada = await d.as(d.emails.member);
+  await rejects(ada.call("getOrg", { params: { orgId: own.id } }), "notFound", 404);
+  await rejects(ada.call("listProjects", { params: { orgId: own.id } }), "notFound", 404);
+});
