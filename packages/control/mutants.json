@@ -366,13 +366,13 @@
  },
  {
   "file": "src/app.ts",
-  "old": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`",
-  "new": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND expires_ms > ?`"
+  "old": "`SELECT user_id, refresh_version, refresh_sealed, validated_ms FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`",
+  "new": "`SELECT user_id, refresh_version, refresh_sealed, validated_ms FROM sessions WHERE id_sha256 = ? AND expires_ms > ?`"
  },
  {
   "file": "src/app.ts",
-  "old": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`",
-  "new": "`SELECT user_id FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms >= ?`"
+  "old": "`SELECT user_id, refresh_version, refresh_sealed, validated_ms FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`",
+  "new": "`SELECT user_id, refresh_version, refresh_sealed, validated_ms FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms >= ?`"
  },
  {
   "file": "src/app.ts",
@@ -426,16 +426,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "WHERE email = ? AND status = 'invited' AND user_id IS NULL`,",
-  "new": "WHERE email = ? AND user_id IS NULL`,"
- },
- {
-  "file": "src/app.ts",
-  "old": "params: [await sha256Hex(sessionValue), now, now + deps.config.sessionTtlMs, email],",
-  "new": "params: [await sha256Hex(sessionValue), now, now + deps.config.sessionTtlMs + 1, email],"
- },
- {
-  "file": "src/app.ts",
   "old": "await ctx.deps.db.run(`UPDATE sessions SET revoked_ms = ? WHERE id_sha256 = ? AND revoked_ms IS NULL`, [ctx.deps.now(), ctx.sessionHash]);",
   "new": ""
  },
@@ -445,17 +435,17 @@
   "new": "return json(200, { ok: true });"
  },
  {
-  "file": "src/app.ts",
+  "file": "src/http.ts",
   "old": "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=",
   "new": "; Path=/; Secure; SameSite=Strict; Max-Age="
  },
  {
-  "file": "src/app.ts",
+  "file": "src/http.ts",
   "old": "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=",
   "new": "; Path=/; HttpOnly; SameSite=Strict; Max-Age="
  },
  {
-  "file": "src/app.ts",
+  "file": "src/http.ts",
   "old": "; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=",
   "new": "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age="
  },
@@ -480,12 +470,12 @@
   "new": "if (typeof machineDomain !== \"string\") throw"
  },
  {
-  "file": "src/app.ts",
+  "file": "src/http.ts",
   "old": "      out += B64URL[(acc >> bits) & 63];",
   "new": "      out += B64URL[(acc >> bits) & 31];"
  },
  {
-  "file": "src/app.ts",
+  "file": "src/http.ts",
   "old": "  if (bits > 0) out += B64URL[(acc << (6 - bits)) & 63];",
   "new": ""
  },
@@ -495,7 +485,7 @@
   "new": "        return fail(new HttpError(\"internal\", String(e)));"
  },
  {
-  "file": "src/app.ts",
+  "file": "src/http.ts",
   "old": "if (part.slice(0, i).trim() === name) return part.slice(i + 1).trim();",
   "new": "if (part.slice(0, i).trim().endsWith(name)) return part.slice(i + 1).trim();"
  },
@@ -1548,8 +1538,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions]);",
-  "new": "Object.freeze([]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates]);",
+  "new": "Object.freeze([pruneAuthStates]);"
  },
  {
   "file": "migrations/0007_sessions.sql",

@@ -53,6 +53,10 @@ export class FakeWorkos {
   refreshStatus: { status: number; body?: string } | null = null;
   refreshThrows = false;
   refreshNoRt = false;
+  /** Claims laid over a refresh's access token (another client, another subject). */
+  refreshClaims: Record<string, unknown> | null = null;
+  /** The user a refresh answers with, instead of the session's own. */
+  refreshUser: unknown = undefined;
   refreshCalls = 0;
   bodies: Array<Record<string, unknown>> = [];
   urls: string[] = [];
@@ -132,8 +136,8 @@ export class FakeWorkos {
         this.rts.delete(b.refresh_token!);
         const next = "rt_" + randomBytes(9).toString("hex");
         this.rts.set(next, r);
-        const access = this.sign(this.claims(r.subject, r.sid, this.now()));
-        const user = { id: r.subject, email: r.email, email_verified: true };
+        const access = this.sign(this.claims(r.subject, r.sid, this.now(), this.refreshClaims ?? {}));
+        const user = this.refreshUser !== undefined ? this.refreshUser : { id: r.subject, email: r.email, email_verified: true };
         return Response.json(this.refreshNoRt ? { access_token: access, user } : { access_token: access, refresh_token: next, user });
       }
       if (this.authThrows) throw new Error("network");

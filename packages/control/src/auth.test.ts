@@ -177,6 +177,15 @@ test("admitted: a user an operator made (bound to the identity once); a known id
   const res = await finish(await begin(), { sub: "user_01OP", email: "op@example.com" });
   assert.equal(where(res), "/");
   assert.equal((await w.db.all<{ user_id: string }>(`SELECT user_id FROM identities WHERE sub = 'user_01OP'`))[0]!.user_id, userId);
+  // an operator's user who was also invited: bound to the operator's user, the invitation active
+  const both = newId("user");
+  await w.db.batch([stmt(`INSERT INTO users (id, email, created_ms) VALUES (?, 'both@example.com', ?)`, both, T0)]);
+  const inv = await addMember(w, "both@example.com", "assistant");
+  assert.equal(where(await finish(await begin(), { sub: "user_01BOTH", email: "both@example.com" })), "/");
+  assert.deepEqual(
+    (await w.db.all<{ user_id: string; status: string }>(`SELECT user_id, status FROM members WHERE id = ?`, [inv])).map((x) => [x.user_id, x.status]),
+    [[both, "active"]],
+  );
   // another identity with the same email: refused (that user is someone else's now)
   const before = await counts();
   assert.equal(where(await finish(await begin(), { sub: "user_01OTHER", email: "op@example.com" })), "/?signin=refused");
@@ -209,6 +218,8 @@ test("the state: missing, forged, expired, another sign-in's, replayed; no code 
   await check(await finish(await begin(), { query: "" }).then(async () => (await call(w, "GET", `/v1/auth/callback?error=access_denied&state=${(await begin()).state}`)).res), "expired", "no cookie, error");
   const e = await begin();
   await check(await finish(e, { query: `error=access_denied&state=${e.state}` }), "error", "provider error");
+  const both = await begin();
+  await check(await finish(both, { query: `code=x&error=access_denied&state=${both.state}` }), "error", "a code and an error");
   // expired: 10 minutes after the start
   const late = await begin();
   w.clock.t += STATE_TTL_MS;
@@ -326,4 +337,58 @@ test("sign-out ends only our session; WorkOS isn't asked", async () => {
   assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 401);
   assert.equal(fake.urls.length, urls);
   assert.equal(API_KEY.length > 0, true);
+});
+
+test("revalidation ends the session when it can't be trusted: another issuer, an unopenable token, another client's or person's token", async () => {
+  await addMember(w, "ada@example.com");
+  const fresh = async () => sessionOf(await finish(await begin()))!;
+  const hour = () => (w.clock.t += VALIDATE_EVERY_MS);
+  const revoked = async (cookie: string) => {
+    const r = await call(w, "GET", "/v1/me", { cookie });
+    assert.equal(r.res.status, 401);
+    const h = (await w.db.all<{ r: number | null }>(`SELECT revoked_ms AS r FROM sessions ORDER BY created_ms DESC, rowid DESC LIMIT 1`))[0]!;
+    assert.notEqual(h.r, null);
+  };
+  // the identity isn't this environment's (an issuer change)
+  let c = await fresh();
+  hour();
+  await w.db.batch([stmt(`UPDATE identities SET iss = 'https://other.example/user_management/client_01X'`)]);
+  await revoked(c);
+  await w.db.batch([stmt(`UPDATE identities SET iss = ?`, ISSUER)]);
+  // the sealed token doesn't open (tampered)
+  c = await fresh();
+  hour();
+  await w.db.batch([stmt(`UPDATE sessions SET refresh_sealed = 'AAAA' || substr(refresh_sealed, 5) WHERE revoked_ms IS NULL`)]);
+  await revoked(c);
+  // the refreshed token is another client's, or another person's
+  for (const claims of [{ client_id: DEFAULT_CLIENT }, { sub: "user_01EVE" }]) {
+    c = await fresh();
+    hour();
+    fake.refreshClaims = claims;
+    await revoked(c);
+    fake.refreshClaims = null;
+  }
+});
+
+test("revalidation: a refresh naming another user's email leaves the identity's email alone", async () => {
+  await addMember(w, "ada@example.com");
+  const cookie = sessionOf(await finish(await begin()))!;
+  w.clock.t += VALIDATE_EVERY_MS;
+  fake.refreshUser = { id: "user_01EVE", email: "eve@example.com", email_verified: true };
+  assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 200);
+  assert.equal((await w.db.all<{ email: string }>(`SELECT email FROM identities`))[0]!.email, "ada@example.com");
+});
+
+test("schema: a session's WorkOS fields come all together or not at all; one identity per user", async () => {
+  const user = newId("user");
+  await w.db.batch([stmt(`INSERT INTO users (id, email, created_ms) VALUES (?, 'x@example.com', ?)`, user, T0)]);
+  const ins = (i: number, version: string | null, sealed: string | null, validated: number | null) =>
+    w.db.batch([stmt(`INSERT INTO sessions (id_sha256, user_id, created_ms, expires_ms, refresh_version, refresh_sealed, validated_ms) VALUES (?, ?, ?, ?, ?, ?, ?)`, String(i).padStart(64, "0"), user, T0, T0 + 1, version, sealed, validated)]);
+  await ins(1, null, null, null);
+  await ins(2, "v1", "ct", T0);
+  for (const [i, v, s, t] of [[3, "v1", null, null], [4, null, "ct", null], [5, null, null, T0], [6, "v1", "ct", null], [7, null, "ct", T0]] as const) {
+    await assert.rejects(ins(i, v, s, t), /CHECK/, String(i));
+  }
+  await w.db.batch([stmt(`INSERT INTO identities (iss, sub, user_id, email, email_ticket, created_ms) VALUES ('i', 'user_01A', ?, NULL, 0, ?)`, user, T0)]);
+  await assert.rejects(w.db.batch([stmt(`INSERT INTO identities (iss, sub, user_id, email, email_ticket, created_ms) VALUES ('i', 'user_01B', ?, NULL, 0, ?)`, user, T0)]), /UNIQUE/);
 });

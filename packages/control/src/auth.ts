@@ -227,12 +227,12 @@ export const SIGN_IN_HANDLERS: Handlers = {
           sql: `UPDATE identities SET email = ?, email_ticket = ? WHERE iss = ? AND sub = ? AND email_ticket <= ?`,
           params: [email, now, iss, sub, now],
         },
-        // this email's invitations, made active for the identity's user
+        // this email's invitations, made active for the identity's user (there is one whenever
+        // an invitation is waiting: a live invitation admits)
         {
           sql: `UPDATE members SET user_id = (SELECT user_id FROM identities WHERE iss = ? AND sub = ?), status = 'active'
-                WHERE email = ? AND status = 'invited' AND user_id IS NULL
-                  AND EXISTS (SELECT 1 FROM identities WHERE iss = ? AND sub = ?)`,
-          params: [iss, sub, email, iss, sub],
+                WHERE email = ? AND status = 'invited' AND user_id IS NULL`,
+          params: [iss, sub, email],
         },
         {
           sql: `INSERT INTO sessions (id_sha256, user_id, created_ms, expires_ms, refresh_version, refresh_sealed, validated_ms)
