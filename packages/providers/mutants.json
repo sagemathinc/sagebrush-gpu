@@ -1133,7 +1133,7 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "  if (adapter.info.bootTokenEnv !== BOOT_TOKEN_ENV) throw",
+  "old": "  if (delivery.kind !== \"env\" || delivery.name !== BOOT_TOKEN_ENV) throw",
   "new": "  if (false) throw"
  },
  {
@@ -3594,5 +3594,40 @@
   "file": "src/http.ts",
   "old": "  let reader;\n  try {\n    // No stream (undefined or null), a locked one, or not a stream at all: no prefix.\n    reader = (res.body as ReadableStream<Uint8Array>).getReader();\n  } catch {\n    return \"\";\n  }\n",
   "new": "  const reader = (res.body as ReadableStream<Uint8Array>).getReader();\n"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "delivery.name !== BOOT_TOKEN_ENV) throw",
+  "new": "false) throw"
+ },
+ {
+  "file": "src/types.ts",
+  "old": "return delivery.kind === \"env\" ? [delivery.name] : [];",
+  "new": "return [(delivery as { name: string }).name];"
+ },
+ {
+  "file": "src/types.ts",
+  "old": "return delivery.kind === \"env\" ? [delivery.name] : [];",
+  "new": "return [];"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    envNames: bootEnvNames(info.bootDelivery),",
+  "new": "    envNames: [],"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "bootDelivery: { kind: \"announce\" } };",
+  "new": "bootDelivery: { kind: \"env\", name: \"SBGPU_BOOT_TOKEN\" } };"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    bootDelivery: { kind: \"env\", name: BOOT_TOKEN_ENV },\n",
+  "new": "    bootDelivery: { kind: \"announce\" },\n"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "    bootDelivery: { kind: \"env\", name: BOOT_TOKEN_ENV },\n",
+  "new": "    bootDelivery: { kind: \"announce\" },\n"
  }
 ]

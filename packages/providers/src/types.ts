@@ -46,11 +46,23 @@ export interface LaunchResult {
 /** How a machine learns its own provider id (a cross-check at enrollment, not a secret). */
 export type SelfIdentity = { env: string } | { metadataUrl: string } | null;
 
+/**
+ * How a machine gets its boot token, a closed choice per adapter.
+ * - env: a container's provider-side environment carries LaunchSpec.bootToken in this variable.
+ * - announce: a VM gets no provider-side environment at all; its launcher announces itself with
+ *   public values and receives the token in the reply (VM mode). LaunchSpec.bootToken is "".
+ */
+export type BootDelivery = { readonly kind: "env"; readonly name: string } | { readonly kind: "announce" };
+
 export interface AdapterInfo {
   provider: ProviderId;
   selfIdentity: SelfIdentity;
-  /** The environment variable that carries LaunchSpec.bootToken. */
-  bootTokenEnv: string;
+  bootDelivery: BootDelivery;
+}
+
+/** The environment names a machine launched by this adapter must show: the token's variable, or none. */
+export function bootEnvNames(delivery: BootDelivery): string[] {
+  return delivery.kind === "env" ? [delivery.name] : [];
 }
 
 export interface LaunchOptions {

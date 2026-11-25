@@ -263,10 +263,8 @@ export async function perLaunchKeypair(): Promise<{ publicKey: string; privateKe
 }
 
 export class HyperstackAdapter implements ProviderAdapter {
-  // No VM gets a provider-side environment, so "" here matches no variable: the drift check expects
-  // [""] and flags every Hyperstack VM, failing closed, until the launch path brings the announce
-  // delivery form in place of an environment variable name.
-  readonly info: AdapterInfo = { provider: "hyperstack", selfIdentity: null, bootTokenEnv: "" };
+  // A VM gets no provider-side environment: its launcher announces itself and gets the token back.
+  readonly info: AdapterInfo = { provider: "hyperstack", selfIdentity: null, bootDelivery: { kind: "announce" } };
 
   readonly #apiKey: string;
   readonly #fetch: Fetch;

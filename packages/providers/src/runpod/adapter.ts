@@ -307,7 +307,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
   readonly info: AdapterInfo = {
     provider: "runpod",
     selfIdentity: { env: "RUNPOD_POD_ID" },
-    bootTokenEnv: BOOT_TOKEN_ENV,
+    bootDelivery: { kind: "env", name: BOOT_TOKEN_ENV },
   };
 
   readonly #apiKey: string;

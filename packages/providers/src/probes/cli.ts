@@ -305,7 +305,9 @@ async function main(argv: readonly string[]): Promise<number> {
   const plan = planFor(o, randomBytes(32).toString("base64url"), saltHex);
   const preview = new RunPodAdapter({ apiKey: "unused", fetch: (() => Promise.reject(new Error("dry run"))) as Fetch });
   const body = preview.createBody(plan.spec);
-  (body["env"] as Record<string, string>)[preview.info.bootTokenEnv] = "<random, 43 chars>";
+  const delivery = preview.info.bootDelivery;
+  if (delivery.kind !== "env") throw new Error("the RunPod adapter must deliver the boot token by environment");
+  (body["env"] as Record<string, string>)[delivery.name] = "<random, 43 chars>";
   if (!o.execute) {
     const launcherHash = await launcherSha256(plan.spec.launcher);
     const { saltHex: _salt, ...shown } = plan;

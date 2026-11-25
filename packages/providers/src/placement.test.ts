@@ -155,7 +155,7 @@ interface Script {
 /** A scripted adapter; every call is appended to `log`. */
 function scripted(provider: ProviderId, script: Script, log: string[]): ProviderAdapter {
   return {
-    info: { provider, selfIdentity: null, bootTokenEnv: "T" },
+    info: { provider, selfIdentity: null, bootDelivery: { kind: "env", name: "T" } },
     listOffers: async () => [],
     listMachines: async () => [],
     terminate: async (id) => {

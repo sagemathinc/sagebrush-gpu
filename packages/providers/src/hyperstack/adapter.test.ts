@@ -575,7 +575,7 @@ test("launch: refused before any request, whatever the spec", async () => {
   const spec = { machineId: MID } as unknown as LaunchSpec;
   await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "invalid_request" && e.message === "Hyperstack: VM launch is not enabled");
   assert.equal(calls.length, 0);
-  assert.deepEqual(a.info, { provider: "hyperstack", selfIdentity: null, bootTokenEnv: "" });
+  assert.deepEqual(a.info, { provider: "hyperstack", selfIdentity: null, bootDelivery: { kind: "announce" } });
 });
 
 // ---------------------------------------------------------------- status
