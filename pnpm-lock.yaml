@@ -37,6 +37,9 @@ importers:
       '@sbgpu/providers':
         specifier: workspace:*
         version: link:../providers
+      jose:
+        specifier: 6.2.17
+        version: 6.2.17
     devDependencies:
       '@sbgpu/testing':
         specifier: workspace:*
@@ -534,6 +537,9 @@ packages:
   htm@3.1.1:
     resolution: {integrity: sha512-983Vyg8NwUE7JkZ6NmOqpCZ+sh1bKv2iYTlUkzlWmA5JD2acKoxd4KVxbMmxX/85mtfdnDmTFoNKcg5DGAvxNQ==}
 
+  jose@6.2.17:
+    resolution: {integrity: sha512-wOuK9V1yujQFH5S0ZWmLcDZN7+IKh9bUCC2ZPCf2HDlol3WWHy+PPyNjEI75FXRLMp3vDKQcupP59xhVU95hcg==}
+
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
@@ -936,6 +942,8 @@ snapshots:
       - utf-8-validate
 
   htm@3.1.1: {}
+
+  jose@6.2.17: {}
 
   kleur@4.1.5: {}
 
