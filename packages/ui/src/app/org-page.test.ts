@@ -85,7 +85,9 @@ test("a resold organization: credit, bought from us", async () => {
   const text = page.text();
   assert.match(text, /Example Org Billing Credit is bought from us and assigned to projects as budgets\./);
   assert.match(text, /Credit not yet assigned to projects \$2,900\.00 Credit bought in all \$5,000\.00/);
-  assert.match(text, /Projects \(2\) Project Budget Allocated Spent Fine-tuning lab \$2,000\.00 \$200\.20 \$0\.00 Second project \$100\.00 \$5\.00 \$0\.00/);
+  // (an org owner also gets a column to move budget; see budget-move.test.ts)
+  assert.match(text, /Projects \(2\) Project Budget Allocated Spent Move budget Fine-tuning lab \$2,000\.00 \$200\.20 \$0\.00 /);
+  assert.match(text, / Second project \$100\.00 \$5\.00 \$0\.00 /);
   assert.equal(page.q(`a[href="/p/${t.demo.projectId}"]`) === null, false);
   page.unmount();
 });

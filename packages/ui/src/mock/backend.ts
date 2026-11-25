@@ -999,6 +999,28 @@ export class MockBackend {
       return this.#projectView(project);
     },
 
+    moveProjectBudget: ({ params, body, user }) => {
+      // As the control plane moves it (projects.ts, migrations 0003 and 0006): only an owner
+      // of the organization; a non-zero whole amount (negative returns it); then, in the
+      // order its batch applies, the organization's unassigned figure stays in range, the
+      // project's budget stays in range, and the budget never drops below its allocations.
+      const project = this.#project(params.projectId);
+      if (this.#orgRole(project.orgId, (user as User).id) !== "owner") throw new ApiFail("forbidden", "only an owner of the organization moves credit");
+      const amount = body.amount;
+      if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount === 0) {
+        throw new ApiFail("badRequest", "amount is a non-zero whole number of micro-dollars (negative returns credit to the organization)");
+      }
+      const org = this.#org(project.orgId);
+      const unassigned = org.unassignedCredit - amount;
+      if (unassigned < 0 || unassigned > Number.MAX_SAFE_INTEGER) throw new ApiFail("conflict", "the organization doesn't have that much unassigned credit");
+      const budget = project.budget + amount;
+      if (budget < 0 || budget > Number.MAX_SAFE_INTEGER) throw new ApiFail("conflict", "the project's budget isn't that large");
+      if (budget < this.#projectView(project).allocated) throw new ApiFail("conflict", "the budget would be below its allocations");
+      org.unassignedCredit = unassigned;
+      project.budget = budget;
+      return this.#projectView(project);
+    },
+
     listMembers: ({ params, query }) => {
       if (query.teamId === undefined) {
         return pageOf([...this.members.values()].filter((m) => m.projectId === params.projectId), query.cursor);
