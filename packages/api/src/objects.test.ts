@@ -12,6 +12,8 @@ import {
   orgRoleAtLeast,
   projectRoleAtLeast,
   type MachineState,
+  VM_GATE_WORDS,
+  parseGateReport,
 } from "./objects.ts";
 
 test("project role order", () => {
@@ -71,4 +73,38 @@ test("billing modes: exactly resold and byok", () => {
   assert.deepEqual(BILLING_MODES, ["resold", "byok"]);
   for (const m of BILLING_MODES) assert.equal(isBillingMode(m), true);
   for (const x of ["", "Resold", "byok ", "other", null, undefined, 0, ["resold"]]) assert.equal(isBillingMode(x), false, String(x));
+});
+
+test("the VM gate's words: 22, sorted, distinct", () => {
+  assert.equal(VM_GATE_WORDS.length, 22);
+  assert.deepEqual([...VM_GATE_WORDS], [...new Set(VM_GATE_WORDS)].sort());
+});
+
+test("a gate report is accepted only in its canonical form", () => {
+  assert.deepEqual(parseGateReport({ v: 1, pass: true, fail: [] }), { v: 1, pass: true, fail: [] });
+  assert.deepEqual(parseGateReport({ fail: ["imds", "sudo"], pass: false, v: 1 }), { v: 1, pass: false, fail: ["imds", "sudo"] });
+  const all = parseGateReport({ v: 1, pass: false, fail: [...VM_GATE_WORDS] });
+  assert.deepEqual(all?.fail, [...VM_GATE_WORDS]);
+  const bad: unknown[] = [
+    null, undefined, "x", 1, [], [1],
+    { v: 2, pass: true, fail: [] }, // another version
+    { v: "1", pass: true, fail: [] },
+    { pass: true, fail: [] }, // a key missing
+    { v: 1, pass: true, fail: [], extra: 1 }, // an extra key
+    { v: 1, pass: "true", fail: [] },
+    { v: 1, pass: true, fail: {} },
+    { v: 1, pass: true, fail: ["imds"] }, // pass disagrees with fail
+    { v: 1, pass: false, fail: [] },
+    { v: 1, pass: false, fail: ["sudo", "imds"] }, // unsorted
+    { v: 1, pass: false, fail: ["imds", "imds"] }, // a duplicate
+    { v: 1, pass: false, fail: ["nope"] }, // an unknown word
+    { v: 1, pass: false, fail: [1] },
+    { v: 1, pass: false, fail: [...VM_GATE_WORDS, "zzz"] }, // longer than the vocabulary
+  ];
+  for (const b of bad) assert.equal(parseGateReport(b), null, JSON.stringify(b));
+  // the result is a copy: changing the input after parsing changes nothing
+  const input = { v: 1, pass: false, fail: ["imds"] };
+  const r = parseGateReport(input)!;
+  input.fail.push("sudo");
+  assert.deepEqual(r.fail, ["imds"]);
 });

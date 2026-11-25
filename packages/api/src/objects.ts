@@ -432,6 +432,50 @@ export interface AgentEnrollRequest {
   eradication: { ok: boolean; checks: Array<{ name: string; ok: boolean }> };
   gpu: { name: string; count: number; memoryMiB: number } | null;
   hostname: string;
+  /** VM mode only (and required there): the second gate run's report, canonical (see parseGateReport). */
+  gate?: VmGateReport;
+}
+
+/**
+ * The VM gate's failure words: a closed list, the same as the gate's own (vmgate.WORDS),
+ * pinned by a shared fixture that both sides test against. Sorted.
+ */
+export const VM_GATE_WORDS = [
+  "agent-active", "authorized-keys", "config-drive", "console-login", "container-runtime", "credential-shape",
+  "gate-budget", "imds", "known-value", "listener-22", "listener-loopback", "listener-public", "mount-crossing",
+  "password", "process", "process-churn", "provider-agent", "ssh-running", "ssh-unit", "sudo", "unreadable", "user-session",
+] as const;
+export type VmGateWord = (typeof VM_GATE_WORDS)[number];
+
+/**
+ * What the gate printed, as the machine reports it: the machine's own claim about its
+ * in-guest state, never evidence against a hostile guest.
+ */
+export interface VmGateReport {
+  v: 1;
+  pass: boolean;
+  fail: VmGateWord[];
+}
+
+/**
+ * The report if it is canonical, else null: exactly the keys v, pass and fail; v is 1;
+ * fail is sorted, without duplicates, every word known; pass is true exactly when fail is
+ * empty. So one report has one spelling. (An array has no such keys; a longer `fail` than the
+ * vocabulary can't be sorted, distinct and known.)
+ */
+export function parseGateReport(x: unknown): VmGateReport | null {
+  if (typeof x !== "object" || x === null) return null;
+  const o = x as Record<string, unknown>;
+  if (Object.keys(o).sort().join(",") !== "fail,pass,v") return null;
+  if (o.v !== 1 || typeof o.pass !== "boolean" || !Array.isArray(o.fail)) return null;
+  const fail = o.fail as unknown[];
+  for (let i = 0; i < fail.length; i++) {
+    const w = fail[i];
+    if (typeof w !== "string" || !(VM_GATE_WORDS as readonly string[]).includes(w)) return null;
+    if (i > 0 && !((fail[i - 1] as string) < w)) return null;
+  }
+  if (o.pass !== (fail.length === 0)) return null;
+  return { v: 1, pass: o.pass, fail: [...fail] as VmGateWord[] };
 }
 
 /**

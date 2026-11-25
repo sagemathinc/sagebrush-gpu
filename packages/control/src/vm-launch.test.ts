@@ -11,6 +11,7 @@ import { ORIGIN, T0, addMember, world, type World } from "./testing/world.ts";
 const IP = "203.0.113.7";
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const SCRIPT = sha("#!/bin/sh\n# the VM-mode boot script\n");
+const AGENT = sha("the agent");
 
 class FakeVm implements VmProvider {
   facts = new Map<string, InstanceFacts>();
@@ -54,7 +55,7 @@ async function intent(db: Db = w.db) {
       machineId, w.projectId, allocationId, memberId, T0,
     ),
   ]);
-  await recordLaunchIntent(db, { machineId, incarnation: 1, provider: "shadeform", nonceSha256: sha(nonce), bootScriptSha256: SCRIPT, createdMs: T0 });
+  await recordLaunchIntent(db, { machineId, incarnation: 1, provider: "shadeform", nonceSha256: sha(nonce), bootScriptSha256: SCRIPT, agentSha256: AGENT, createdMs: T0 });
   return { machineId, nonce };
 }
 const row = async (machineId: string) =>
@@ -265,4 +266,63 @@ test("the migration refuses to rebuild over existing launches, before changing a
   );
   const cols = (raw as unknown as import("node:sqlite").DatabaseSync).prepare(`SELECT name, "notnull" AS nn FROM pragma_table_info('vm_launches') WHERE name = 'provider_machine_id'`).all() as Array<{ nn: number }>;
   assert.deepEqual(cols.map((c) => c.nn), [1]); // (the old table, untouched)
+});
+
+// ---- 0012: the agent's pin, enroll's terminate reasons, gate reports, the enroll guard
+
+test("schema (0012): a launch pins a well-formed agent hash; enroll's reasons are allowed", async () => {
+  const l = await intent();
+  assert.deepEqual({ ...(await w.db.all<{ agent_sha256: string }>(`SELECT agent_sha256 FROM vm_launches WHERE machine_id = ?`, [l.machineId]))[0] }, { agent_sha256: AGENT });
+  const upd = (set: string, ...p: Array<string | number | null>) => w.db.batch([stmt(`UPDATE vm_launches SET ${set} WHERE machine_id = ?`, ...p, l.machineId)]);
+  for (const bad of [null, "", AGENT.toUpperCase(), AGENT.slice(1), AGENT + "0", "g" + AGENT.slice(1)]) await assert.rejects(upd(`agent_sha256 = ?`, bad), JSON.stringify(bad));
+  for (const reason of ["second-enroll", "gate-failed", "sign-failed"]) await upd(`outcome = 'terminate', terminate_reason = ?`, reason);
+  await assert.rejects(upd(`terminate_reason = 'other'`), /CHECK/);
+  // (the machine exists; only the pin is wrong)
+  await assert.rejects(
+    recordLaunchIntent(w.db, { machineId: l.machineId, incarnation: 2, provider: "shadeform", nonceSha256: AGENT, bootScriptSha256: SCRIPT, agentSha256: "x", createdMs: T0 }),
+    /CHECK/,
+  );
+  await recordLaunchIntent(w.db, { machineId: l.machineId, incarnation: 2, provider: "shadeform", nonceSha256: AGENT, bootScriptSha256: SCRIPT, agentSha256: AGENT, createdMs: T0 });
+});
+
+test("schema (0012): gate reports are one canonical JSON array per launch, never changed; the enroll guard takes no row but ok = 1", async () => {
+  const l = await intent();
+  const report = (words: string, m = l.machineId) => w.db.batch([stmt(`INSERT INTO gate_reports (machine_id, incarnation, words, at_ms) VALUES (?, 1, ?, ?)`, m, words, T0)]);
+  for (const bad of ["", "{}", "\"imds\"", "[", "x".repeat(2049)]) await assert.rejects(report(bad), JSON.stringify(bad.slice(0, 10)));
+  await assert.rejects(report("[]", newId("machine")), /FOREIGN KEY/); // (only for a launch)
+  // (the size cap: a JSON array of exactly 2048 characters is kept, one of 2049 refused)
+  const of = (n: number) => `["${"a".repeat(n - 4)}"]`;
+  assert.equal(of(2049).length, 2049);
+  await assert.rejects(report(of(2049)), /CHECK/);
+  await report(of(2048));
+  await w.db.batch([stmt(`DELETE FROM gate_reports WHERE machine_id = ?`, l.machineId)]);
+  await report(`["imds"]`);
+  await assert.rejects(report("[]"), /UNIQUE|PRIMARY/); // (one per launch)
+  await assert.rejects(w.db.batch([stmt(`UPDATE gate_reports SET words = '[]' WHERE machine_id = ?`, l.machineId)]), /never changed/);
+  await assert.rejects(w.db.batch([stmt(`INSERT INTO enroll_guard (ok) VALUES (0)`)]), /CHECK/);
+  // a batch whose guard fires is rolled back whole
+  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET watchdog_version = 7 WHERE machine_id = ?`, l.machineId), stmt(`INSERT INTO enroll_guard (ok) SELECT 0 WHERE 1`)]));
+  assert.equal((await row(l.machineId)).watchdog_version, 0);
+});
+
+test("the 0012 rebuild refuses existing launches, before changing anything", () => {
+  let raw: import("node:sqlite").DatabaseSync | null = null;
+  assert.throws(
+    () =>
+      sqliteDb({
+        upgrade: {
+          at: "0012",
+          seed(r) {
+            raw = r;
+            r.exec("PRAGMA foreign_keys = OFF");
+            r.prepare(`INSERT INTO vm_launches (machine_id, incarnation, provider, nonce_sha256, boot_script_sha256, outcome, next_ms, created_ms)
+                       VALUES ('mch_x', 1, 'hyperstack', ?, ?, 'creating', 0, 0)`).run(sha("n"), SCRIPT);
+            r.exec("PRAGMA foreign_keys = ON");
+          },
+        },
+      }),
+    /malformed JSON/,
+  );
+  const cols = (raw as unknown as import("node:sqlite").DatabaseSync).prepare(`SELECT name FROM pragma_table_info('vm_launches') WHERE name = 'agent_sha256'`).all();
+  assert.deepEqual(cols, []); // (the old table, untouched)
 });

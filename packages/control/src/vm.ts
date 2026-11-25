@@ -156,17 +156,17 @@ export async function terminateAttempt(env: JobEnv, r: { machine_id: string; inc
 /**
  * The launch-intent row, written BEFORE the create request (no create unless this write
  * succeeded): 'creating', no provider id, no ACTIVE facts, due to the watchdog at the create
- * deadline.
+ * deadline. It pins the agent's hash, which enroll compares with the agent's report.
  */
 export async function recordLaunchIntent(
   db: Db,
-  i: { machineId: string; incarnation: number; provider: VmProviderName; nonceSha256: string; bootScriptSha256: string; createdMs: number },
+  i: { machineId: string; incarnation: number; provider: VmProviderName; nonceSha256: string; bootScriptSha256: string; agentSha256: string; createdMs: number },
 ): Promise<void> {
   await db.batch([
     {
-      sql: `INSERT INTO vm_launches (machine_id, incarnation, provider, nonce_sha256, boot_script_sha256, outcome, next_ms, created_ms)
-            VALUES (?, ?, ?, ?, ?, 'creating', ?, ?)`,
-      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],
+      sql: `INSERT INTO vm_launches (machine_id, incarnation, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms)
+            VALUES (?, ?, ?, ?, ?, ?, 'creating', ?, ?)`,
+      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],
     },
   ]);
 }

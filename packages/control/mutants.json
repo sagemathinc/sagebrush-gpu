@@ -2160,17 +2160,17 @@
   "new": "  FOREIGN KEY"
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),",
   "new": ""
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),\n",
   "new": ""
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  boot_script_sha256 TEXT NOT NULL CHECK (length(boot_script_sha256) = 64 AND boot_script_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  boot_script_sha256 TEXT NOT NULL CHECK (length(boot_script_sha256) = 64),"
  },
@@ -2197,19 +2197,19 @@
   "new": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ? WHERE"
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
   "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms) WHERE next_ms IS NOT NULL;",
   "note": "the index doesn't serve the order: a sort"
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
   "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE outcome IN ('launched', 'issued', 'terminate');",
   "note": "a predicate the query doesn't imply: a scan"
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))\n",
   "new": "  CHECK (1)\n"
  },
@@ -2257,28 +2257,28 @@
   "note": "no guard"
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  CHECK (outcome <> 'creating' OR (ipv4 IS NULL AND first_active_ms IS NULL)),\n",
   "new": ""
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
   "new": ""
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
   "new": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
   "note": "launched without an id"
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "  CHECK ((ipv4 IS NULL) = (first_active_ms IS NULL)),\n",
   "new": ""
  },
  {
-  "file": "migrations/0010_vm_launch_intent.sql",
+  "file": "migrations/0012_vm_enroll.sql",
   "old": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius')),",
   "new": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius', 'runpod')),"
  },
@@ -2539,5 +2539,71 @@
   "old": "  (SELECT billing_mode FROM orgs WHERE orgs.id = projects.org_id) AS billing_mode`;",
   "new": "  (SELECT billing_mode FROM orgs ORDER BY billing_mode LIMIT 1) AS billing_mode`;",
   "note": "some org's mode, not the project's own"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  WHEN EXISTS (SELECT 1 FROM vm_launches) OR EXISTS (SELECT 1 FROM boot_tokens)\n  THEN json('refused: VM launches exist; this rebuild assumes none')",
+  "new": "  WHEN 0\n  THEN json('refused: VM launches exist; this rebuild assumes none')",
+  "note": "no 0012 guard"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  agent_sha256 TEXT NOT NULL CHECK (length(agent_sha256) = 64 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "new": "  agent_sha256 TEXT NOT NULL CHECK (length(agent_sha256) = 64),",
+  "note": "agent hash's form unchecked"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  agent_sha256 TEXT NOT NULL CHECK (length(agent_sha256) = 64 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "new": "  agent_sha256 TEXT CHECK (agent_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "note": "agent hash optional, any length"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed')",
+  "new": "'create-failed', 'create-deadline', 'second-enroll', 'gate-failed', 'sign-failed', 'other')",
+  "note": "an unknown reason allowed"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(words) <= 2048),",
+  "new": "  words TEXT NOT NULL CHECK (json_type(words) IS NOT NULL AND length(words) <= 2048),",
+  "note": "gate words not an array"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(words) <= 2048),",
+  "new": "  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(words) <= 2049),",
+  "note": "gate words unbounded by one"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  PRIMARY KEY (machine_id, incarnation),\n  FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
+  "new": "  FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
+  "note": "more than one gate report per launch"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  PRIMARY KEY (machine_id, incarnation),\n  FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
+  "new": "  PRIMARY KEY (machine_id, incarnation)\n) STRICT;\n\nCREATE TRIGGER",
+  "note": "a gate report for no launch"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "CREATE TRIGGER gate_reports_kept BEFORE UPDATE ON gate_reports\nBEGIN",
+  "new": "CREATE TRIGGER gate_reports_kept BEFORE UPDATE ON gate_reports WHEN 0\nBEGIN",
+  "note": "gate reports changeable"
+ },
+ {
+  "file": "migrations/0012_vm_enroll.sql",
+  "old": "  ok INTEGER NOT NULL CHECK (ok = 1)",
+  "new": "  ok INTEGER NOT NULL CHECK (ok >= 0)",
+  "note": "the guard never fires"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS",
+  "new": "i.bootScriptSha256, i.nonceSha256, i.createdMs + CREATE_DEADLINE_MS",
+  "note": "the pin isn't the agent's hash"
  }
 ]
