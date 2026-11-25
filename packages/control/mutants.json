@@ -386,11 +386,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "if (access.auth === \"agent\") throw new HttpError(\"unauthenticated\", \"agent tokens are not accepted yet\");",
-  "new": "if (access.auth === \"agent\") return;"
- },
- {
-  "file": "src/app.ts",
   "old": "if (!role) throw new HttpError(\"notFound\", \"no such organization\");",
   "new": "if (!role) throw new HttpError(\"forbidden\", \"no such organization\");"
  },
@@ -1523,23 +1518,23 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)",
-  "new": "WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)"
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],"
  },
  {
   "file": "src/jobs.ts",
-  "old": "      [nowMs, PRUNE_BATCH],",
-  "new": "      [nowMs + 3_600_001, PRUNE_BATCH],"
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs + 3_600_001, PRUNE_BATCH],"
  },
  {
   "file": "src/jobs.ts",
-  "old": "      [nowMs, PRUNE_BATCH],",
-  "new": "      [nowMs, PRUNE_BATCH * 2],"
+  "old": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH],",
+  "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH * 2],"
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
-  "new": "Object.freeze([pruneAuthStates, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, vmWatchdog]);"
  },
  {
   "file": "migrations/0007_sessions.sql",
@@ -1921,8 +1916,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, vmWatchdog]);"
  },
  {
   "file": "src/jobs.ts",
@@ -1976,8 +1971,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates]);",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog]);",
   "note": "the VM watchdog left out of the cron"
  },
  {
@@ -2210,8 +2205,8 @@
  },
  {
   "file": "src/app.ts",
-  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES };",
-  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = {};"
+  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };",
+  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };"
  },
  {
   "file": "src/app.ts",
@@ -2320,8 +2315,8 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
-  "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs, i.createdMs],"
+  "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
+  "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs, i.createdMs],"
  },
  {
   "file": "src/vm.ts",
@@ -2446,8 +2441,8 @@
  },
  {
   "file": "src/projects.ts",
-  "old": "    billingMode: r.billing_mode,\n",
-  "new": "    billingMode: \"resold\",\n"
+  "old": "    name: r.name,\n    billingMode: r.billing_mode,\n",
+  "new": "    name: r.name,\n    billingMode: \"resold\",\n"
  },
  {
   "file": "migrations/0011_billing_mode.sql",
@@ -3648,6 +3643,12 @@
   "old": "VALUES (?, ?, 'vm', ?, ?, ?, ?, 'creating', ?, ?)`,",
   "new": "VALUES (?, ?, 'container', ?, ?, ?, ?, 'creating', ?, ?)`,",
   "note": "intent recorded as a container"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "      orgId: r.org_id,\n      billingMode: r.billing_mode,\n",
+  "new": "      orgId: r.org_id,\n      billingMode: \"resold\",\n",
+  "note": "a project's billing mode not read from its row (the list)"
  },
  {
   "file": "migrations/0014_launches.sql",
