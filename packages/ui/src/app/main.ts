@@ -16,6 +16,7 @@ async function boot(root: HTMLElement): Promise<void> {
   let now: () => number = Date.now;
   let demoAccounts: DemoAccount[] | undefined;
   let search = "";
+  let devTerminal: { url: string; token: string } | undefined;
 
   if (SBGPU_MOCK && params.get("mock") === "1") {
     const { seedDemo } = await import("../mock/seed.ts");
@@ -35,9 +36,15 @@ async function boot(root: HTMLElement): Promise<void> {
     const speed = Math.max(1, Math.min(600, Number(params.get("speed") ?? "10") || 10));
     setInterval(() => demo.backend.advance(1000 * speed), 1000);
     search = `?mock=1${params.has("speed") ? `&speed=${speed}` : ""}`;
+    // A local mock terminal (packages/machine's mock-terminal) for every machine: ?relay=ws://127.0.0.1:8790/api/relay/v1/page
+    const relay = params.get("relay");
+    if (relay != null) {
+      devTerminal = { url: relay, token: "dev" };
+      search += `&relay=${encodeURIComponent(relay)}`;
+    }
   }
 
-  const store = new Store(createClient(fetchFn ? { fetch: fetchFn } : {}), now);
+  const store = new Store(createClient(fetchFn ? { fetch: fetchFn } : {}), now, devTerminal ? { devTerminal } : {});
 
   // A sign-in link lands with ?token=...: use it once, then drop it from the address bar.
   const token = params.get("token");
