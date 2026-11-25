@@ -2138,5 +2138,40 @@
   "file": "src/mock/backend.ts",
   "old": "if (body.startsAt !== undefined && !isIsoTime(body.startsAt)) throw",
   "new": "if (false) throw"
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "<input disabled=${busy} id=\"settings-name\"",
+  "new": "<input id=\"settings-name\""
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "<input disabled=${busy} id=${id} inputmode=\"decimal\"",
+  "new": "<input id=${id} inputmode=\"decimal\""
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "<select disabled=${busy} id=\"settings-locality\"",
+  "new": "<select id=\"settings-locality\""
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "<textarea disabled=${busy} id=\"settings-setup-script\"",
+  "new": "<textarea id=\"settings-setup-script\""
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "<input disabled=${busy} type=\"checkbox\" id=${`settings-provider-${id}`}",
+  "new": "<input type=\"checkbox\" id=${`settings-provider-${id}`}"
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "<input disabled=${busy} type=\"checkbox\" id=\"settings-custom-labels\"",
+  "new": "<input type=\"checkbox\" id=\"settings-custom-labels\""
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "<input disabled=${busy} id=${`settings-label-${k}`}",
+  "new": "<input id=${`settings-label-${k}`}"
  }
 ]

@@ -159,3 +159,60 @@ test("moving to another project fills the form from that project", async () => {
   assert.equal(m.input("settings-gpu-types")?.value, "A6000");
   m.page.unmount();
 });
+
+/** Every field of the settings form, and whether each is disabled. */
+function fieldsDisabled(page: ReturnType<typeof mountApp>): boolean[] {
+  return page.qa<HTMLInputElement>("details.settings input, details.settings select, details.settings textarea").map((el) => el.disabled);
+}
+
+test("while a save is in flight nothing can be edited, so no edit is lost when its answer refills the form", async () => {
+  const m = await open();
+  const count = fieldsDisabled(m.page).length;
+  assert.ok(count > 20, String(count));
+  assert.deepEqual(new Set(fieldsDisabled(m.page)), new Set([false]));
+  m.page.type(m.input("settings-name"), "First edit");
+  await settle();
+  m.t.hold(/^PATCH /, true);
+  m.page.button("Save changes")!.click();
+  await settle();
+  assert.deepEqual(new Set(fieldsDisabled(m.page)), new Set([true]));
+  assert.equal(m.page.button("Save changes")?.disabled, true);
+  assert.equal(m.page.button("Discard changes")?.disabled, true);
+  // An input event that gets through anyway changes nothing.
+  m.page.type(m.input("settings-name"), "Second edit");
+  m.page.type(m.input("settings-idleStopMinutes"), "45");
+  await settle();
+  m.t.release();
+  await settle();
+  assert.equal(m.project().name, "First edit");
+  assert.equal(m.project().policy.idleStopMinutes, 30);
+  assert.equal(m.patches(), 1);
+  assert.equal(m.input("settings-name")?.value, "First edit");
+  assert.equal(m.input("settings-idleStopMinutes")?.value, "30");
+  assert.equal(m.status(), "Saved.");
+  assert.deepEqual(new Set(fieldsDisabled(m.page)), new Set([false]));
+  // Editing works again.
+  m.page.type(m.input("settings-name"), "Third edit");
+  await settle();
+  assert.equal(m.page.button("Save changes")?.disabled, false);
+  m.page.unmount();
+});
+
+test("a refused save, answered late, gives the fields back with the edits kept", async () => {
+  const m = await open();
+  m.page.type(m.input("settings-name"), "First edit");
+  await settle();
+  m.t.respondOnce(/^PATCH /, () => Response.json({ error: { code: "badRequest", message: "no" } }, { status: 400 }));
+  m.t.hold(/^PATCH /, true);
+  m.page.button("Save changes")!.click();
+  await settle();
+  assert.deepEqual(new Set(fieldsDisabled(m.page)), new Set([true]));
+  m.t.release();
+  await settle();
+  assert.deepEqual(new Set(fieldsDisabled(m.page)), new Set([false]));
+  assert.equal(m.input("settings-name")?.value, "First edit");
+  assert.equal(m.project().name, "Fine-tuning lab");
+  assert.notEqual(m.status(), "Saved.");
+  assert.equal(m.page.button("Save changes")?.disabled, false);
+  m.page.unmount();
+});
