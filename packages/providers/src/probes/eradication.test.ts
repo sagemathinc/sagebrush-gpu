@@ -2,11 +2,24 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
-import { completeEventsLength, parseArgs, planFor, readLogs } from "./cli.ts";
+import {
+  accountSpendPerHr,
+  AUTHORIZED_KEY_FILE,
+  completeEventsLength,
+  MAX_KEY_FILE_BYTES,
+  parseArgs,
+  planFor,
+  readKeyFile,
+  readLogs,
+  RUNPOD_GRAPHQL,
+  settleSpend,
+} from "./cli.ts";
 import {
   checkPlan,
   judgeStage,
+  judgeStageWithDigest,
   launcherSha256,
+  maskSalt,
   outcomeOf,
   parseLogSse,
   parseProbeLine,
@@ -21,7 +34,10 @@ import {
 
 const line = (check: string, pass = true, extra: Record<string, unknown> = {}) =>
   `SBGPU-PROBE ${JSON.stringify({ v: 1, boot: 1, check, pass, paths: [], detail: pass ? "" : "found-name", ...extra })}`;
-const RUN = ["pid1", "environ", "files", "metadata", "history", "done"].map((c) => line(c));
+const DIG = "d".repeat(64);
+const SHAPE_DETAIL = "v44-rpa-dlsu";
+const pid1 = (digest = DIG, shape = SHAPE_DETAIL) => line("pid1", true, { detail: shape, paths: [`digest:${digest}`] });
+const RUN = [pid1(), ...["environ", "files", "metadata", "history", "done"].map((c) => line(c))];
 
 // ---------------------------------------------------------------- lines and stages
 
@@ -66,7 +82,7 @@ test("parseProbeLine accepts the edges of paths", () => {
 
 test("judgeStage passes a complete, clean, passing run among other log lines", () => {
   const r = judgeStage(["launcher: verified", ...RUN, "agent: idle"]);
-  assert.deepEqual(r, { pass: true, failures: [], failedChecks: [], complete: true });
+  assert.deepEqual(r, { pass: true, failures: [], failedChecks: [], complete: true, shape: SHAPE_DETAIL });
 });
 
 const stageFailures: Array<[string, string[], string]> = [
@@ -148,12 +164,13 @@ test("parseLogSse reads RunPod's log events", () => {
 const TOKEN = "A".repeat(43);
 const HASH = "a".repeat(64);
 const agent = { agentUrl: "https://cdn.example.test/probe-agent.tar.gz", agentSha256: HASH, controlUrl: "https://control.example.test" };
-const LAUNCHER = probeLauncher(agent);
+const SALT = "5".repeat(64);
+const LAUNCHER = probeLauncher(agent, SALT);
 const spec: LaunchSpec = {
   machineId: "mch_pr0bepr0bepr0bepr0be", gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1",
   image: "img", diskGb: 40, bootToken: TOKEN, launcher: LAUNCHER, maxProviderCostPerHour: 3_000_000,
 };
-const plan: ProbePlan = { approval: "William, msg 123", agent, spec, maxSpendMicros: 3_000_000, maxMinutes: 60, stageMinutes: 15, pollSeconds: 30 };
+const plan: ProbePlan = { approval: "William, msg 123", agent, saltHex: SALT, spec, maxSpendMicros: 3_000_000, maxMinutes: 60, stageMinutes: 15, pollSeconds: 30 };
 
 // SEC H1: the launcher can only be the production one for the probe agent.
 test("probeLauncher is renderBootCommand's container argv, with the agent's values in it", () => {
@@ -168,7 +185,7 @@ test("probeLauncher is renderBootCommand's container argv, with the agent's valu
     { ...agent, agentSha256: "a".repeat(63) },
     { ...agent, controlUrl: "ftp://control.example.test" },
   ]) {
-    assert.throws(() => probeLauncher(bad), JSON.stringify(bad));
+    assert.throws(() => probeLauncher(bad, SALT), JSON.stringify(bad));
   }
 });
 
@@ -178,7 +195,9 @@ const hostile: Array<[string, string[]]> = [
   ["a missing argument", LAUNCHER.slice(0, 2)],
   ["an altered script", ["/bin/sh", "-c", LAUNCHER[2]!.replace(HASH, "b".repeat(64))]],
   ["another shell", ["/bin/bash", "-c", LAUNCHER[2]!]],
-  ["the launcher for another agent", probeLauncher({ ...agent, agentUrl: "https://evil.example.test/a.tgz" })],
+  ["the launcher for another agent", probeLauncher({ ...agent, agentUrl: "https://evil.example.test/a.tgz" }, SALT)],
+  ["the launcher with another salt", probeLauncher(agent, "6".repeat(64))],
+  ["the production launcher without the prologue", ["/bin/sh", "-c", LAUNCHER[2]!.slice(LAUNCHER[2]!.indexOf("SBGPU_AGENT_URL="))]],
 ];
 
 for (const [what, launcher] of hostile) {
@@ -238,17 +257,17 @@ test("checkPlan accepts the default plan and refuses unsafe ones", () => {
 });
 
 test("outcomeOf", () => {
-  const ok = { pass: true, failures: [], failedChecks: [], complete: true };
-  const failed = { pass: false, failures: ["check-failed"], failedChecks: [], complete: true };
-  const keyLeak = { pass: false, failures: ["key-name-in-log", "checks-incomplete-or-out-of-order"], failedChecks: [], complete: false };
-  const partial = { pass: false, failures: ["checks-incomplete-or-out-of-order"], failedChecks: [], complete: false };
+  const ok = { pass: true, failures: [], failedChecks: [], complete: true, shape: SHAPE_DETAIL };
+  const failed = { pass: false, failures: ["check-failed"], failedChecks: [], complete: true, shape: null };
+  const keyLeak = { pass: false, failures: ["key-name-in-log", "checks-incomplete-or-out-of-order"], failedChecks: [], complete: false, shape: null };
+  const partial = { pass: false, failures: ["checks-incomplete-or-out-of-order"], failedChecks: [], complete: false, shape: null };
   const all = (r: typeof ok | null) => [{ stage: "first-boot" as const, result: r }, { stage: "after-restart" as const, result: r }, { stage: "after-stop-start" as const, result: r }];
   assert.equal(outcomeOf({ stages: all(ok), aborts: [], terminatedConfirmed: true }), "pass");
   assert.equal(outcomeOf({ stages: all(ok), aborts: ["x"], terminatedConfirmed: true }), "aborted");
   assert.equal(outcomeOf({ stages: all(ok), aborts: [], terminatedConfirmed: false }), "aborted");
   assert.equal(outcomeOf({ stages: all(null), aborts: [], terminatedConfirmed: true }), "aborted");
   assert.equal(outcomeOf({ stages: [{ stage: "first-boot", result: ok }, ...all(null).slice(1)], aborts: [], terminatedConfirmed: true }), "aborted");
-  const twoBoots = { pass: false, failures: ["several-boots-in-one-stage"], failedChecks: [], complete: true };
+  const twoBoots = { pass: false, failures: ["several-boots-in-one-stage"], failedChecks: [], complete: true, shape: null };
   assert.equal(outcomeOf({ stages: [{ stage: "first-boot", result: twoBoots }, ...all(null).slice(1)], aborts: [], terminatedConfirmed: true }), "fail");
   assert.equal(outcomeOf({ stages: [...all(ok).slice(0, 2), { stage: "after-stop-start", result: failed }], aborts: ["x"], terminatedConfirmed: false }), "fail");
   assert.equal(outcomeOf({ stages: [{ stage: "first-boot", result: keyLeak }, ...all(null).slice(1)], aborts: ["stage-timeout"], terminatedConfirmed: true }), "fail");
@@ -582,7 +601,17 @@ test("parseArgs: dry run by default; execute needs an approval; no way to pass a
   assert.equal(o.execute, false);
   assert.equal(o.gpu, "RTX-A4000");
   assert.equal(o.maxUsd, 3);
-  assert.equal(parseArgs([...ARGS, "--execute", "--approval", "William 2026-12-01"]).execute, true);
+  assert.equal(parseArgs([...ARGS, "--execute", "--approval", "William 2026-12-01", "--key-file", AUTHORIZED_KEY_FILE]).execute, true);
+  for (const bad of [
+    [...ARGS, "--execute", "--approval", "William 2026-12-01"],
+    [...ARGS, "--execute", "--approval", "William 2026-12-01", "--key-file", "/tmp/key"],
+    [...ARGS, "--execute", "--approval", "William 2026-12-01", "--key-file", AUTHORIZED_KEY_FILE + "/"],
+    [...ARGS, "--key-file", AUTHORIZED_KEY_FILE],
+    [...ARGS, "--execute", "--key-file", AUTHORIZED_KEY_FILE],
+    [...ARGS, "--execute", "--approval", "ok", "--key-file", AUTHORIZED_KEY_FILE],
+  ]) {
+    assert.throws(() => parseArgs(bad), RangeError, JSON.stringify(bad));
+  }
   for (const bad of [
     [], ARGS.slice(2), ARGS.slice(0, 4), [...ARGS.slice(0, 2), ...ARGS.slice(4)],
     [...ARGS, "--launcher", "l.json"], [...ARGS, "--execute"], [...ARGS, "--execute", "--approval", "ok"],
@@ -594,18 +623,21 @@ test("parseArgs: dry run by default; execute needs an approval; no way to pass a
 });
 
 test("planFor builds the launcher itself and a checked plan whose rate cap fits the spend cap", () => {
-  const p = planFor(parseArgs(ARGS), TOKEN);
+  const p = planFor(parseArgs(ARGS), TOKEN, SALT);
+  assert.equal(p.saltHex, SALT);
+  assert.throws(() => planFor(parseArgs(ARGS), TOKEN, "5".repeat(63)), RangeError);
+  assert.throws(() => planFor(parseArgs(ARGS), TOKEN, "G".repeat(64)), RangeError);
   assert.deepEqual(p.spec.launcher, LAUNCHER);
   assert.deepEqual(p.agent, agent);
   assert.equal(p.maxSpendMicros, 3_000_000);
   assert.equal(p.spec.maxProviderCostPerHour, 3_000_000);
   assert.equal(p.spec.machineId, "mch_pr0bepr0bepr0bepr0be");
-  assert.throws(() => planFor(parseArgs([...ARGS, "--max-usd", "11"]), TOKEN), RangeError);
-  assert.throws(() => planFor(parseArgs(ARGS), "short"), RangeError);
+  assert.throws(() => planFor(parseArgs([...ARGS, "--max-usd", "11"]), TOKEN, SALT), RangeError);
+  assert.throws(() => planFor(parseArgs(ARGS), "short", SALT), RangeError);
   for (const [flag, value] of [["--agent-url", "http://x.test/a.tgz"], ["--agent-sha256", "XYZ"], ["--control-url", "file:///etc"]] as const) {
     const args = [...ARGS];
     args[args.indexOf(flag) + 1] = value;
-    assert.throws(() => planFor(parseArgs(args), TOKEN), `${flag} ${value}`);
+    assert.throws(() => planFor(parseArgs(args), TOKEN, SALT), `${flag} ${value}`);
   }
 });
 
@@ -652,4 +684,168 @@ for (const [what, chunks, expected] of [
 test("readLogs stops on a quiet open stream and keeps what is complete", async () => {
   const lines = await readLogs("k", "pod1", "t", { fetch: streamFetch([ev("hello", "\r\n")], false), quietMs: 20 });
   assert.deepEqual(lines, ["hello"]);
+});
+
+// ---------------------------------------------------------------- the value capture (probe prologue)
+
+test("judgeStageWithDigest: a passing pid1 carries the shape and one digest; the digest stays internal", () => {
+  const { result, digest } = judgeStageWithDigest(RUN);
+  assert.equal(result.pass, true);
+  assert.equal(result.shape, SHAPE_DETAIL);
+  assert.equal(digest, DIG);
+  assert.ok(!JSON.stringify(result).includes(DIG));
+});
+
+const badCaptures: Array<[string, string]> = [
+  ["no digest", line("pid1", true, { detail: SHAPE_DETAIL, paths: [] })],
+  ["two paths", line("pid1", true, { detail: SHAPE_DETAIL, paths: [`digest:${DIG}`, "/x"] })],
+  ["a short digest", line("pid1", true, { detail: SHAPE_DETAIL, paths: [`digest:${"d".repeat(63)}`] })],
+  ["an uppercase digest", line("pid1", true, { detail: SHAPE_DETAIL, paths: [`digest:${"D".repeat(64)}`] })],
+  ["no shape", line("pid1", true, { detail: "", paths: [`digest:${DIG}`] })],
+  ["a malformed shape", line("pid1", true, { detail: "rpa-44", paths: [`digest:${DIG}`] })],
+];
+
+for (const [what, l] of badCaptures) {
+  test(`a passing pid1 with ${what} fails the stage (bad-capture-report), with no digest`, () => {
+    const { result, digest } = judgeStageWithDigest([l, ...RUN.slice(1)]);
+    assert.equal(result.pass, false);
+    assert.ok(result.failures.includes("bad-capture-report"), JSON.stringify(result.failures));
+    assert.equal(digest, null);
+    assert.equal(result.shape, null);
+  });
+}
+
+test("a failed stage gives no digest, and digests never appear in reported paths", () => {
+  const failingPid1 = line("pid1", false, { detail: "bad-capture", paths: [`digest:${DIG}`, "/opt/sbgpu/probe-capture"] });
+  const { result, digest } = judgeStageWithDigest([failingPid1, ...RUN.slice(1)]);
+  assert.equal(digest, null);
+  assert.deepEqual(result.failedChecks, [{ check: "pid1", detail: "bad-capture", paths: ["/opt/sbgpu/probe-capture"] }]);
+  const { digest: d2 } = judgeStageWithDigest([...RUN.slice(0, 2), line("files", false), ...RUN.slice(3)]);
+  assert.equal(d2, null);
+});
+
+test("maskSalt replaces every occurrence of a valid salt, and nothing else", () => {
+  assert.equal(maskSalt(`a${SALT}b${SALT}`, SALT), "a<salt>b<salt>");
+  assert.equal(maskSalt("no salt here", SALT), "no salt here");
+  assert.equal(maskSalt("abc", "abc"), "abc");
+  assert.ok(!maskSalt(JSON.stringify(LAUNCHER), SALT).includes(SALT));
+  assert.ok(JSON.stringify(LAUNCHER).includes(SALT));
+});
+
+test("a clean run with the same capture in every stage passes; the report has the shape, never the digest or salt", async () => {
+  const w: World = { log: [], stages: [RUN, RUN, RUN] };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.equal(r.outcome, "pass");
+  assert.equal(r.observedShape, SHAPE_DETAIL);
+  assert.equal(r.captureConsistent, true);
+  const text = JSON.stringify(r);
+  assert.ok(!text.includes(DIG));
+  assert.ok(!text.includes(SALT));
+});
+
+for (const [what, stage3] of [
+  ["a different digest", [pid1("e".repeat(64)), ...RUN.slice(1)]],
+  ["a different shape", [pid1(DIG, "v45-rpa-dlsu"), ...RUN.slice(1)]],
+] as const) {
+  test(`${what} after stop/start is inconsistent: aborted, never pass`, async () => {
+    const w: World = { log: [], stages: [RUN, RUN, [...stage3]] };
+    const h = harness(w);
+    const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+    assert.equal(r.captureConsistent, false);
+    assert.ok(r.aborts.includes("capture-inconsistent"));
+    assert.equal(r.outcome, "aborted");
+    assert.ok(!JSON.stringify(r).includes("e".repeat(64)));
+  });
+}
+
+test("captureConsistent stays null unless all three stages passed; observedShape comes from the first boot", async () => {
+  const w: World = { log: [], stages: [RUN, [...RUN, "x RUNPOD_API_KEY=y"]] };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.equal(r.captureConsistent, null);
+  assert.equal(r.observedShape, SHAPE_DETAIL);
+  assert.equal(outcomeOf({ ...r, captureConsistent: false, aborts: [] }), "fail");
+  const okStages = r.stages.map((s) => ({ ...s, result: { pass: true, failures: [], failedChecks: [], complete: true, shape: SHAPE_DETAIL } }));
+  assert.equal(outcomeOf({ stages: okStages, aborts: [], terminatedConfirmed: true, captureConsistent: true }), "pass");
+  assert.equal(outcomeOf({ stages: okStages, aborts: [], terminatedConfirmed: true, captureConsistent: false }), "aborted");
+  assert.equal(outcomeOf({ stages: okStages, aborts: [], terminatedConfirmed: true, captureConsistent: null }), "aborted");
+});
+
+// ---------------------------------------------------------------- the CLI: key file and spend check
+
+test("readKeyFile: only the authorized path, one line, no whitespace, bounded; errors never carry content", () => {
+  const read = (content: string) => (path: string) => {
+    assert.equal(path, AUTHORIZED_KEY_FILE);
+    return new TextEncoder().encode(content);
+  };
+  assert.equal(readKeyFile(AUTHORIZED_KEY_FILE, read("rpa_SECRETVALUE1234567890")), "rpa_SECRETVALUE1234567890");
+  assert.equal(readKeyFile(AUTHORIZED_KEY_FILE, read("rpa_SECRETVALUE1234567890\n")), "rpa_SECRETVALUE1234567890");
+  assert.equal(readKeyFile(AUTHORIZED_KEY_FILE, read("rpa_SECRETVALUE1234567890\r\n")), "rpa_SECRETVALUE1234567890");
+  assert.equal(readKeyFile(AUTHORIZED_KEY_FILE, read("k".repeat(MAX_KEY_FILE_BYTES))).length, MAX_KEY_FILE_BYTES);
+  for (const bad of ["", "\n", " ", "rpa_SECRET VALUE", "rpa_SECRET\nSECOND", "\trpa_SECRET", "rpa_SECRET\n\n", "k".repeat(MAX_KEY_FILE_BYTES + 1)]) {
+    assert.throws(
+      () => readKeyFile(AUTHORIZED_KEY_FILE, read(bad)),
+      (e: unknown) => e instanceof RangeError && !e.message.includes("SECRET"),
+      JSON.stringify(bad),
+    );
+  }
+  assert.throws(() => readKeyFile(AUTHORIZED_KEY_FILE, () => new Uint8Array([0xff, 0xfe])), TypeError);
+  assert.throws(() => readKeyFile("/tmp/other", read("k")), RangeError);
+});
+
+function spendFetch(status: number, body: string, seen: Array<{ url: string; init: RequestInit }> = []): typeof fetch {
+  return (async (url: string, init: RequestInit) => {
+    seen.push({ url, init });
+    return new Response(body, { status });
+  }) as unknown as typeof fetch;
+}
+
+test("accountSpendPerHr reads myself.currentSpendPerHr, with the key only in the Authorization header", async () => {
+  const seen: Array<{ url: string; init: RequestInit }> = [];
+  assert.equal(await accountSpendPerHr("KEYVALUE", spendFetch(200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } } }), seen)), 0);
+  assert.equal(seen[0]!.url, RUNPOD_GRAPHQL);
+  assert.equal((seen[0]!.init.headers as Record<string, string>)["Authorization"], "Bearer KEYVALUE");
+  assert.ok(!String(seen[0]!.init.body).includes("KEYVALUE"));
+  assert.equal(await accountSpendPerHr("k", spendFetch(200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0.25 } } }))), 0.25);
+  for (const [status, body] of [
+    [401, '{"errors":[{"message":"KEYVALUE is bad"}]}'],
+    [500, ""],
+    [500, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } } })],
+    [201, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } } })],
+    [200, "not json"],
+    [200, "{}"],
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: -1 } } })],
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: "0" } } })],
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: null } } })],
+  ] as const) {
+    await assert.rejects(
+      accountSpendPerHr("KEYVALUE", spendFetch(status, body)),
+      (e: unknown) => e instanceof Error && !e.message.includes("KEYVALUE"),
+      `${status} ${body}`,
+    );
+  }
+});
+
+test("settleSpend: settled only on a successful read of exactly 0, within the polls", async () => {
+  const seq = (values: Array<number | Error>) => {
+    let i = 0;
+    return async () => {
+      const v = values[Math.min(i++, values.length - 1)]!;
+      if (v instanceof Error) throw v;
+      return v;
+    };
+  };
+  const sleeps: number[] = [];
+  const sleep = async (ms: number) => { sleeps.push(ms); };
+  assert.deepEqual(await settleSpend(seq([0]), sleep), { settled: true, lastSpendPerHr: 0 });
+  assert.deepEqual(sleeps, []);
+  assert.deepEqual(await settleSpend(seq([0.25, new Error("x"), 0]), sleep, 6, 10), { settled: true, lastSpendPerHr: 0 });
+  assert.deepEqual(sleeps, [10, 10]);
+  assert.deepEqual(await settleSpend(seq([0.25]), async () => {}, 3, 1), { settled: false, lastSpendPerHr: 0.25 });
+  assert.deepEqual(await settleSpend(seq([0.005]), async () => {}, 2, 1), { settled: false, lastSpendPerHr: 0.005 });
+  assert.deepEqual(await settleSpend(seq([new Error("x")]), async () => {}, 3, 1), { settled: false, lastSpendPerHr: null });
+  let calls = 0;
+  await settleSpend(async () => { calls++; return 1; }, async () => {}, 4, 1);
+  assert.equal(calls, 4);
 });

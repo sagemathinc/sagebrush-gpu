@@ -18,7 +18,7 @@
 // Running it costs money: it needs William's approval, recorded as an approval reference. The
 // CLI (cli.ts) is a dry run unless given --execute and that reference.
 
-import { BOOT_TOKEN_ENV, renderBootCommand } from "@sbgpu/machine";
+import { BOOT_TOKEN_ENV, renderBootScript, renderProbePrologue } from "@sbgpu/machine";
 import { specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError } from "../errors.ts";
 import { machineName } from "../machine-name.ts";
@@ -97,7 +97,17 @@ export interface StageResult {
   /** Checks that failed, with the paths the probe reported. */
   failedChecks: Array<{ check: ProbeCheck; detail: string; paths: string[] }>;
   complete: boolean;
+  /**
+   * The injected key's shape, as the probe's pid1 check reports it (e.g. "v44-rpa-dlsu":
+   * byte length, prefix or "none", character classes), or null if pid1 didn't pass.
+   */
+  shape: string | null;
 }
+
+/** pid1's paths carry the capture's salted digest as one "digest:<64 hex>" entry. */
+const DIGEST_PATH = /^digest:([0-9a-f]{64})$/;
+/** A passing pid1's detail is the key's shape: v<bytes>-<prefix>-<classes>. */
+const SHAPE = /^v[0-9]{1,4}-[a-z0-9]{1,16}-[a-z]{1,8}$/;
 
 /**
  * Judge the log lines of one stage (one boot of the probe agent): container and system lines
@@ -105,7 +115,18 @@ export interface StageResult {
  * one boot number, no other probe output and nothing key-like in any line.
  */
 export function judgeStage(lines: readonly string[]): StageResult {
+  return judgeStageWithDigest(lines).result;
+}
+
+/**
+ * judgeStage, and the capture's salted digest from pid1 (null unless the stage passed). The
+ * digest is for comparing stages inside the driver only: it never goes into the report, and it is
+ * stripped from every reported path.
+ */
+export function judgeStageWithDigest(lines: readonly string[]): { result: StageResult; digest: string | null } {
   const failures: string[] = [];
+  let digest: string | null = null;
+  let shape: string | null = null;
   const failedChecks: StageResult["failedChecks"] = [];
   const probe: ProbeLine[] = [];
   for (const line of lines) {
@@ -126,14 +147,24 @@ export function judgeStage(lines: readonly string[]): StageResult {
       if (field.includes(KEY_NAME)) failures.push("key-name-in-log");
     }
     probe.push(p);
-    if (!p.pass) failedChecks.push({ check: p.check, detail: p.detail, paths: p.paths });
+    if (p.check === "pid1" && p.pass) {
+      // A passing pid1 must carry exactly the shape and one digest, nothing else.
+      const m = p.paths.length === 1 ? DIGEST_PATH.exec(p.paths[0]!) : null;
+      if (m === null || !SHAPE.test(p.detail)) failures.push("bad-capture-report");
+      else {
+        digest = m[1]!;
+        shape = p.detail;
+      }
+    }
+    if (!p.pass) failedChecks.push({ check: p.check, detail: p.detail, paths: p.paths.filter((x) => !x.startsWith("digest:")) });
   }
   const order = probe.map((p) => p.check).join(",");
   const complete = order === PROBE_CHECKS.join(",");
   if (!complete) failures.push(probe.length === 0 ? "no-probe-output" : "checks-incomplete-or-out-of-order");
   if (new Set(probe.map((p) => p.boot)).size > 1) failures.push("several-boots-in-one-stage");
   if (failedChecks.length > 0) failures.push("check-failed");
-  return { pass: failures.length === 0, failures: [...new Set(failures)], failedChecks, complete };
+  const result = { pass: failures.length === 0, failures: [...new Set(failures)], failedChecks, complete, shape };
+  return { result, digest: result.pass ? digest : null };
 }
 
 // ---------------------------------------------------------------- the plan
@@ -148,14 +179,23 @@ export interface ProbeAgent {
   controlUrl: string;
 }
 
+export const SALT_HEX = /^[0-9a-f]{64}$/;
+
 /**
- * The production launcher argv for a probe agent: exactly what renderBootCommand builds in
- * container mode. There is no other way to give the driver a launcher.
+ * The probe's launcher argv: the probe-only prologue (it captures the injected key's salted
+ * digest and shape) followed by the unchanged production launcher script for the probe agent,
+ * run by /bin/sh as PID 1. Built only from these typed values; there is no other way to give the
+ * driver a launcher.
  */
-export function probeLauncher(agent: ProbeAgent): string[] {
-  const r = renderBootCommand({ agentUrl: agent.agentUrl, agentSha256: agent.agentSha256, controlUrl: agent.controlUrl, mode: "container" });
-  if (!("argv" in r)) throw new RangeError("renderBootCommand gave no argv for container mode");
-  return r.argv;
+export function probeLauncher(agent: ProbeAgent, saltHex: string): string[] {
+  if (!SALT_HEX.test(saltHex)) throw new RangeError("the salt must be 64 lowercase hex");
+  const script = renderBootScript({ agentUrl: agent.agentUrl, agentSha256: agent.agentSha256, controlUrl: agent.controlUrl, mode: "container" });
+  return ["/bin/sh", "-c", renderProbePrologue(saltHex) + script];
+}
+
+/** `text` with every occurrence of the salt replaced: for anything printed. */
+export function maskSalt(text: string, saltHex: string): string {
+  return SALT_HEX.test(saltHex) ? text.split(saltHex).join("<salt>") : text;
 }
 
 /** Lowercase hex SHA-256 of the launcher argv, as JSON: the report's record of what ran. */
@@ -168,8 +208,10 @@ export async function launcherSha256(argv: readonly string[]): Promise<string> {
 export interface ProbePlan {
   /** Who approved the spend, and where (e.g. a message reference). Required to execute. */
   approval: string;
-  /** The probe agent; the launch's launcher must be probeLauncher(agent), byte for byte. */
+  /** The probe agent; the launch's launcher must be probeLauncher(agent, saltHex), byte for byte. */
   agent: ProbeAgent;
+  /** This run's salt: 32 random bytes as 64 lowercase hex. Never printed or reported. */
+  saltHex: string;
   /** The production launch. */
   spec: LaunchSpec;
   /** Hard cap on the estimated spend, in micro-USD. At most $10. */
@@ -217,7 +259,7 @@ export function checkPlan(plan: ProbePlan): void {
   }
   if (!/^[A-Za-z0-9_-]{43}$/.test(plan.spec.bootToken)) throw new RangeError("the boot token must be 43 base64url characters");
   // The launcher is the production one for this probe agent, or nothing runs.
-  const expected = probeLauncher(plan.agent);
+  const expected = probeLauncher(plan.agent, plan.saltHex);
   if (plan.spec.launcher.length !== expected.length || plan.spec.launcher.some((a, i) => a !== expected[i])) {
     throw new RangeError("the launcher is not the production launcher for this probe agent");
   }
@@ -259,6 +301,13 @@ export interface ProbeReport {
   launcherSha256: string;
   providerMachineId: string | null;
   stages: Array<{ stage: Stage; result: StageResult | null }>;
+  /** The injected key's shape seen at the first boot (e.g. "v44-rpa-dlsu"), or null. */
+  observedShape: string | null;
+  /**
+   * Every stage reported the same shape and the same salted digest (compared inside the driver;
+   * the digest itself is never reported). null unless all three stages passed.
+   */
+  captureConsistent: boolean | null;
   /** Fixed words, e.g. "spend-cap", "lifetime", "drift:image", "launch-failed". */
   aborts: string[];
   /** Upper bound: the highest rate seen times the pod's whole lifetime, stopped time included. */
@@ -300,12 +349,16 @@ export async function runEradicationProbe(
     launcherSha256: await launcherSha256(plan.spec.launcher),
     providerMachineId: null,
     stages: STAGES.map((stage) => ({ stage, result: null })),
+    observedShape: null,
+    captureConsistent: null,
     aborts: [],
     estimatedSpendMicros: 0,
     withinCap: true,
     terminatedConfirmed: true,
     exposure: null,
   };
+  // Each stage's capture digest, compared across stages here and never reported.
+  const digests: Array<string | null> = STAGES.map(() => null);
   const t0 = clock.now();
   let rate = plan.spec.maxProviderCostPerHour;
   const spend = () => costFor(rate, clock.now() - t0);
@@ -415,7 +468,8 @@ export async function runEradicationProbe(
         report.aborts.push("logs-unreadable");
         return false;
       }
-      const result = judgeStage(lines);
+      const { result, digest } = judgeStageWithDigest(lines);
+      digests[index] = digest;
       if (result.complete || result.failures.some((f) => f !== "checks-incomplete-or-out-of-order" && f !== "no-probe-output")) {
         report.stages[index]!.result = result;
         return result.pass;
@@ -467,6 +521,13 @@ export async function runEradicationProbe(
   } catch {
     report.aborts.push("driver-error");
   }
+  report.observedShape = report.stages[0]!.result?.shape ?? null;
+  if (report.stages.every((s) => s.result?.pass === true)) {
+    const shapes = report.stages.map((s) => s.result!.shape);
+    report.captureConsistent =
+      digests.every((d) => d !== null && d === digests[0]) && shapes.every((x) => x !== null && x === shapes[0]);
+    if (!report.captureConsistent) report.aborts.push("capture-inconsistent");
+  }
   return finish(id);
 }
 
@@ -474,12 +535,21 @@ export async function runEradicationProbe(
  * "fail" if any stage's checks failed (the probe found something); "pass" only if every stage
  * passed, nothing aborted and the pod is confirmed gone; otherwise "aborted" (inconclusive).
  */
-export function outcomeOf(r: Pick<ProbeReport, "stages" | "aborts" | "terminatedConfirmed">): ProbeOutcome {
+export function outcomeOf(
+  r: Pick<ProbeReport, "stages" | "aborts" | "terminatedConfirmed"> & { captureConsistent?: boolean | null },
+): ProbeOutcome {
   if (r.stages.some((s) => s.result !== null && !s.result.pass && s.result.complete)) return "fail";
   if (r.stages.some((s) => s.result !== null && s.result.failures.some((f) => f.startsWith("key-") || f === "check-failed"))) {
     return "fail";
   }
-  if (r.stages.every((s) => s.result?.pass === true) && r.aborts.length === 0 && r.terminatedConfirmed) return "pass";
+  if (
+    r.stages.every((s) => s.result?.pass === true) &&
+    r.aborts.length === 0 &&
+    r.terminatedConfirmed &&
+    (r.captureConsistent === undefined || r.captureConsistent === true)
+  ) {
+    return "pass";
+  }
   return "aborted";
 }
 

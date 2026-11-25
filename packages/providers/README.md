@@ -183,20 +183,27 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
 `packages/machine`). **It costs money and needs William's approval to run; it has not been run.**
 
 - `eradication.ts`, the driver:
-  - **Launch:** one pod, exactly as production does (`RunPodAdapter`). The launcher argv is built
-    inside the driver by `@sbgpu/machine`'s `renderBootCommand` from three closed values: the
-    probe agent's https URL, its pinned sha256 and the control URL. So the unchanged production
-    launcher fetches, verifies and execs the probe. There is no way to pass a launcher in, and a
-    plan whose launcher differs from that argv in any byte is refused before launch. The report
-    records the URL, the pin and the sha256 of the complete argv. The boot token is random;
-    nothing exchanges it.
+  - **Launch:** one pod, exactly as production does (`RunPodAdapter`), with one probe-only
+    addition. The launcher argv is `/bin/sh -c` with `@sbgpu/machine`'s probe prologue
+    (`renderProbePrologue(salt)`) followed by the unchanged production launcher script for the
+    pinned probe agent (`renderBootScript`). The prologue captures only a salted digest, the byte
+    length and a coarse shape of RunPod's injected key into a 0600 file, for the probe agent's
+    search by value. The driver builds this argv itself from three closed values (the agent's
+    https URL, its pinned sha256, the control URL) and a fresh 32-byte salt per run, and refuses a
+    plan whose launcher differs in any byte. The salt goes only into the pod's entrypoint: it is
+    masked from all output and never reported. The report records the URL, the pin and the sha256
+    of the complete argv. The boot token is random; nothing exchanges it.
   - **Results:** read from the container log (`SBGPU-PROBE {v, boot, check, pass, paths,
     detail}` lines). `judgeStage` passes a stage only if it holds exactly one run of pid1, environ,
     files, metadata, history and done, in that order, all passing and in one boot. Every raw log
     line, probe lines included, is scanned before parsing, and every decoded field of an accepted
     probe line again after it (JSON escapes such as `\u0052` hide from a raw scan): the key's name
-    or a key-shaped string anywhere fails the stage. The key formats must be confirmed
-    from RunPod's documentation before a paid admission run.
+    or a key-shaped string anywhere fails the stage, and the probe agent searches by the captured
+    value itself (`found-value`), whatever its format.
+  - **Capture:** each stage's passing pid1 reports the key's shape (e.g. `v44-rpa-dlsu`) and the
+    salted digest. The driver compares shape and digest across the three stages internally; the
+    report carries only `observedShape` and the boolean `captureConsistent`, never a digest. An
+    inconsistent or malformed capture is never a pass.
   - **Restart paths:** three stages: first boot, after a restart, and after a stop followed by a
     start (RunPod's v2 API has no separate reset).
   - **Budget:** a reserve of 387 s is kept at every step: one provider call in flight (every call
@@ -228,9 +235,14 @@ The provider side of SEC's release gate for RunPod (the in-pod side is the probe
     write-up should name them.
 - `cli.ts`, the command line: `--agent-url`, `--agent-sha256` and `--control-url` (required; no
   `--launcher`). A **dry run by default**: it prints the plan, the launcher's sha256 and the exact
-  create body, with the token masked. `--execute` needs `--approval "<who and where>"`, the API key in the
-  `RUNPOD_API_KEY` environment variable, and a spend cap of at most $10 (default $3). The pod's rate
-  cap is the spend cap spread over the lifetime, so a pricier placement is refused at launch.
+  create body, with the token and the salt masked. `--execute` needs `--approval "<who and
+  where>"`, `--key-file /run/secrets/cocalc/runpod` (the only path accepted) and a spend cap of at
+  most $10 (default $3). The key is read inside the process, checked (one line, no whitespace, at
+  most 512 bytes) and used only in Authorization headers. The pod's rate cap is the spend cap
+  spread over the lifetime, so a pricier placement is refused at launch. After the pod is
+  confirmed gone, the CLI reads the account's `currentSpendPerHr` (GraphQL `myself`) up to 6 times,
+  30 s apart; `spendSettled` is true only on a successful read of exactly 0, and the exit code is 0
+  only for a pass that settled.
 
 ## Not yet
 

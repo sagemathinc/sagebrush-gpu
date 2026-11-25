@@ -15,11 +15,11 @@ const agent = { agentUrl: "https://cdn.example.test/probe-agent.tar.gz", agentSh
 const MID = "mch_pr0bepr0bepr0bepr0be";
 const spec: LaunchSpec = {
   machineId: MID, gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1", image: "img", diskGb: 40,
-  bootToken: "A".repeat(43), launcher: probeLauncher(agent), maxProviderCostPerHour: 3_600_000,
+  bootToken: "A".repeat(43), launcher: probeLauncher(agent, "5".repeat(64)), maxProviderCostPerHour: 3_600_000,
 };
 // At 3.6M micro-USD per hour one millisecond costs one micro. Budget: elapsed + 387 s reserve
 // must stay within min(600 s lifetime, 500000 micro), so calls stop after 113 s.
-const plan: ProbePlan = { approval: "William, msg 123", agent, spec, maxSpendMicros: 500_000, maxMinutes: 10, stageMinutes: 1, pollSeconds: 10 };
+const plan: ProbePlan = { approval: "William, msg 123", agent, saltHex: "5".repeat(64), spec, maxSpendMicros: 500_000, maxMinutes: 10, stageMinutes: 1, pollSeconds: 10 };
 
 type Reply = { status: number; body?: unknown; raw?: string } | "network-error";
 
