@@ -9,6 +9,9 @@ test("return paths: relative, on the app's own origin, bounded", () => {
   for (const bad of [
     "",
     "p/x",
+    "px",
+    "/a\\b", // (same origin to URL, but a backslash all the same)
+    "/a\\\\evil.example",
     "//evil.example/x",
     "/\\evil.example",
     "/\\/evil.example",
@@ -26,6 +29,22 @@ test("return paths: relative, on the app's own origin, bounded", () => {
   ]) {
     assert.equal(isSafeReturnPath(bad), false, JSON.stringify(bad));
   }
+});
+
+test("every accepted return path stays on the origin (checked with URL)", () => {
+  const base = "https://origin.invalid";
+  const chars = ["/", "a", ".", "?", "#", "@", ":", "%", "%2f", "%5c", "\u3000", "\uff0f"];
+  // every path of up to 4 pieces from these, that the check accepts
+  let n = 0;
+  const walk = (s: string, depth: number) => {
+    if (isSafeReturnPath(s)) {
+      n++;
+      assert.equal(new URL(s, base).origin, base, s);
+    }
+    if (depth < 4) for (const c of chars) walk(s + c, depth + 1);
+  };
+  walk("/", 0);
+  assert.ok(n > 1000, String(n));
 });
 
 test("sign-in outcomes: the closed list", () => {

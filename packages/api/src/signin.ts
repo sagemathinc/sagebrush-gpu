@@ -18,17 +18,13 @@ export function isSignInOutcome(x: unknown): x is SignInOutcome {
 }
 
 /**
- * Whether `x` is a return path the server keeps (else it uses "/"): a relative URL on the
- * app's own origin (path, query and fragment), starting with exactly one "/", with no
- * backslash or control character, at most MAX_RETURN_PATH_LENGTH characters.
+ * Whether `x` is a return path the server keeps (else it uses "/"): a path on the app's own
+ * origin (with any query and fragment), at most MAX_RETURN_PATH_LENGTH characters. It starts
+ * with exactly one "/" (so "//host" can't name another origin), and has no backslash
+ * (browsers read "/\host" as "//host") and no control character (URL parsers drop tabs and
+ * newlines). Such a path can't leave the origin, which a test checks with URL itself.
  */
 export function isSafeReturnPath(x: unknown): x is string {
-  if (typeof x !== "string" || x.length < 1 || x.length > MAX_RETURN_PATH_LENGTH) return false;
-  if (x[0] !== "/" || x[1] === "/" || /[\\\u0000-\u001f\u007f]/.test(x)) return false;
-  const base = "https://origin.invalid";
-  try {
-    return new URL(x, base).origin === base;
-  } catch {
-    return false;
-  }
+  if (typeof x !== "string" || x.length > MAX_RETURN_PATH_LENGTH) return false;
+  return x[0] === "/" && x[1] !== "/" && !/[\\\u0000-\u001f\u007f]/.test(x);
 }
