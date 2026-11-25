@@ -86,6 +86,55 @@ function nonblocking(flaw?: "retries-twice" | "retries-twice-after-a-hold") {
   };
 }
 
+/** A blocking lifecycle whose FIRST attempt, if acknowledged, still answers "stopping" (only a revoke held in flight
+ * gets there: a failed first attempt doesn't), completing on the next stop(), which revokes again: compliant unless a
+ * flaw opens minting in that window or after it. */
+function ackThenStopping(flaw?: "reopens-before-retry" | "mints-after-stopped") {
+  return async (revoke: RevokeFn): Promise<LifecycleUnderTest> => {
+    let requested = false;
+    let stopped = false;
+    let attempts = 0;
+    let ackedStopping = false;
+    const lc: LifecycleUnderTest = {
+      mch: "mch_ack",
+      inc: 7,
+      async stop() {
+        if (stopped) return "stopped";
+        requested = true;
+        attempts++;
+        let ok = false;
+        try {
+          ok = await revoke(lc.mch, lc.inc);
+        } catch {
+          ok = false;
+        }
+        if (!ok) return "stopping";
+        if (attempts === 1) {
+          ackedStopping = true;
+          if (flaw === "reopens-before-retry") requested = false;
+          return "stopping";
+        }
+        stopped = true;
+        if (flaw === "mints-after-stopped" && ackedStopping) requested = false; // (only on the held path)
+        return "stopped";
+      },
+      async mintPageToken() {
+        if (flaw === "mints-after-stopped") return requested ? null : "tok";
+        return requested || stopped ? null : "tok";
+      },
+    };
+    return lc;
+  };
+}
+
+test("a lifecycle that answers stopping once after its ack keeps the contract; minting around that ack breaks it", async () => {
+  await assertRelayLifecycleContract(ackThenStopping());
+  await assert.rejects(assertRelayLifecycleContract(ackThenStopping("reopens-before-retry")),
+    /a page token minted after the revoke in flight answered/);
+  await assert.rejects(assertRelayLifecycleContract(ackThenStopping("mints-after-stopped")),
+    /a page token minted for a machine stopped after a revoke in flight/);
+});
+
 test("a lifecycle that keeps the contract passes it, blocking or not", async () => {
   await assertRelayLifecycleContract(toy());
   await assertRelayLifecycleContract(nonblocking());
