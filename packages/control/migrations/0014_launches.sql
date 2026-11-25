@@ -3,7 +3,8 @@
 -- - the VM matrix and every VM bound carry over unchanged, now for mode = 'vm' only;
 -- - a container goes creating -> issued -> enrolled (no announce, so never 'launched'), plus
 --   terminate -> terminated, and carries first_running_ms, max_end_ms and credential_kind;
--- - the intent's pins (mode, provider, created_ms and the hashes) and credential_kind are fixed;
+-- - a launch's identity (machine and incarnation), the intent's pins (mode, provider, created_ms
+--   and the hashes) and credential_kind are fixed;
 --   a provider id, the ACTIVE facts and max_end_ms are fixed once set (the ACTIVE facts only by
 --   the ACTIVE transition); a set first_running_ms only ever moves earlier (triggers below);
 -- - boot_tokens carries the launch's mode (a composite key to the launch), and once its
@@ -111,6 +112,14 @@ CREATE TRIGGER launches_mode_fixed BEFORE UPDATE OF mode ON launches
 WHEN NEW.mode IS NOT OLD.mode
 BEGIN
   SELECT RAISE(ABORT, 'a launch''s mode is fixed');
+END;
+
+-- which launch a row is (its machine and incarnation), from its insertion: every other fact on
+-- the row, and every key that refers to it, means that launch
+CREATE TRIGGER launches_identity_fixed BEFORE UPDATE OF machine_id, incarnation ON launches
+WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation
+BEGIN
+  SELECT RAISE(ABORT, 'a launch''s identity is fixed');
 END;
 
 -- the provider, from the intent on: a provider id, a boot token and a rate are all read as that
