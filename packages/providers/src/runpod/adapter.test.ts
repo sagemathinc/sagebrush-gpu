@@ -787,3 +787,16 @@ test("#call: a 2xx body that can't be read is outcome_unknown, naming no key", a
     return true;
   });
 });
+
+test("#call: a 400 whose body stream is locked is still HTTP 400 unplaceable", async () => {
+  const locked = new Response("There are no longer any instances available").body!;
+  locked.getReader();
+  const f: Fetch = async (_url, init) => {
+    assert.equal(init.redirect, "manual");
+    return { status: 400, headers: { get: () => null }, text: async () => { throw new Error("no"); }, body: locked };
+  };
+  const a = new RunPodAdapter({ apiKey: KEY, fetch: f });
+  for (const call of [() => a.status("pod1"), () => a.listOffers({ gpuCount: 1 })]) {
+    await assert.rejects(call(), (e: unknown) => e instanceof ProviderError && e.kind === "unplaceable" && e.httpStatus === 400);
+  }
+});

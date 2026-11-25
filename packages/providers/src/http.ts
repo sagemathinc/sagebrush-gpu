@@ -29,33 +29,34 @@ export function isSuccess(status: number): boolean {
 
 /**
  * At most `maxBytes` of a response body, as text, for classifying an error reply; the rest is
- * never read (the stream is cancelled). Without a stream, or if reading fails, it is "".
+ * never read (the stream is cancelled). Without a stream, or if reading fails, it is "". Nothing
+ * past `maxBytes` is copied or kept: one buffer of `maxBytes`, filled from views of each chunk.
  */
 export async function readPrefix(res: HttpResponse, maxBytes: number): Promise<string> {
-  const stream = res.body;
-  if (stream === undefined || stream === null) return "";
-  const reader = stream.getReader();
-  const parts: Uint8Array[] = [];
+  let reader;
+  try {
+    // No stream (undefined or null), a locked one, or not a stream at all: no prefix.
+    reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  } catch {
+    return "";
+  }
+  const buf = new Uint8Array(maxBytes);
   let size = 0;
   try {
     while (size < maxBytes) {
       const next = await reader.read();
       if (next.done) break;
-      parts.push(next.value);
-      size += next.value.length;
+      // A view, not a copy: only the bytes still needed are copied into buf.
+      const take = next.value.subarray(0, maxBytes - size);
+      buf.set(take, size);
+      size += take.length;
     }
   } catch {
     return "";
   } finally {
     reader.cancel().catch(() => {});
   }
-  const all = new Uint8Array(size);
-  let at = 0;
-  for (const p of parts) {
-    all.set(p, at);
-    at += p.length;
-  }
-  return new TextDecoder().decode(all.subarray(0, maxBytes));
+  return new TextDecoder().decode(buf.subarray(0, size));
 }
 
 export type Fetch = (url: string, init: HttpRequest) => Promise<HttpResponse>;

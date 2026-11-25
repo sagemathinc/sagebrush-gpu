@@ -86,22 +86,101 @@ test("readPrefix: at most maxBytes, the stream cancelled; '' without a stream or
   assert.equal(await readPrefix(response(new Response("").body), 5), "");
   assert.equal(await readPrefix(response(null), 5), "");
   assert.equal(await readPrefix(response(undefined), 5), "");
-  let pulled = 0;
-  let cancelled = false;
-  const endless = new ReadableStream<Uint8Array>({
-    pull(ctl) {
-      pulled++;
-      ctl.enqueue(new Uint8Array(1000).fill(0x61));
-    },
-    cancel() {
-      cancelled = true;
-    },
-  }, { highWaterMark: 0 });
-  assert.equal(await readPrefix(response(endless), 2500), "a".repeat(2500));
-  assert.equal(pulled, 3);
-  assert.equal(cancelled, true);
+  // A finite source of 8 KiB (8 chunks of 1000): a prefix pulls only the chunks it needs, then
+  // cancels. Finite, so a reader that never stops fails by assertion, not by a timeout.
+  const eight = chunks(Array.from({ length: 8 }, () => fill(1000, "a")));
+  assert.equal(await readPrefix(response(eight.stream), 2500), "a".repeat(2500));
+  assert.equal(eight.stats.pulls, 3);
+  assert.equal(eight.stats.cancelled, true);
   const failing = new ReadableStream<Uint8Array>({ pull(ctl) { ctl.error(new Error("cut")); } });
   assert.equal(await readPrefix(response(failing), 10), "");
+});
+
+/**
+ * Runs `f` with the global Uint8Array replaced by a subclass that records the length of every
+ * array readPrefix allocates (views made from the source chunks keep their own class). Returns
+ * f's result and the largest allocation seen.
+ */
+async function withAllocationSpy<T>(f: () => Promise<T>): Promise<{ result: T; largest: number; count: number }> {
+  const Real = globalThis.Uint8Array;
+  const seen: number[] = [];
+  class Spy extends Real {
+    constructor(...args: unknown[]) {
+      super(...(args as unknown as [number]));
+      seen.push(this.length);
+    }
+  }
+  globalThis.Uint8Array = Spy as unknown as typeof Uint8Array;
+  try {
+    const result = await f();
+    return { result, largest: Math.max(0, ...seen), count: seen.length };
+  } finally {
+    globalThis.Uint8Array = Real;
+  }
+}
+
+/** A stream of the given chunks (made before any spy), one per pull, counting pulls and cancels. */
+function chunks(parts: Uint8Array[]) {
+  const stats = { pulls: 0, cancelled: false };
+  let i = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(ctl) {
+      stats.pulls++;
+      if (i >= parts.length) return ctl.close();
+      ctl.enqueue(parts[i++]!);
+    },
+    cancel() {
+      stats.cancelled = true;
+    },
+  }, { highWaterMark: 0 });
+  return { stream, stats };
+}
+
+const fill = (n: number, c: string) => new Uint8Array(n).fill(c.charCodeAt(0));
+
+test("readPrefix: one oversized chunk: 4096 bytes back, nothing larger allocated, one read, cancelled", async () => {
+  const { stream, stats } = chunks([fill(1 << 20, "a")]);
+  const { result, largest } = await withAllocationSpy(() => readPrefix(response(stream), 4096));
+  assert.equal(result, "a".repeat(4096));
+  assert.ok(largest <= 4096, `allocated ${largest}`);
+  assert.equal(stats.pulls, 1);
+  assert.equal(stats.cancelled, true);
+});
+
+test("readPrefix: chunks crossing the limit: only what's needed is copied; the third is never pulled", async () => {
+  const { stream, stats } = chunks([fill(3000, "a"), fill(3000, "b"), fill(3000, "c")]);
+  const { result, largest } = await withAllocationSpy(() => readPrefix(response(stream), 4096));
+  assert.equal(result, "a".repeat(3000) + "b".repeat(1096));
+  assert.ok(largest <= 4096, `allocated ${largest}`);
+  assert.equal(stats.pulls, 2);
+  assert.equal(stats.cancelled, true);
+});
+
+test("readPrefix: exactly 4096, 4097 and 4095 bytes", async () => {
+  const exact = chunks([fill(4096, "a")]);
+  assert.equal(await readPrefix(response(exact.stream), 4096), "a".repeat(4096));
+  assert.equal(exact.stats.cancelled, true);
+  const over = chunks([new Uint8Array([...fill(4096, "a"), "z".charCodeAt(0)])]);
+  const o = await withAllocationSpy(() => readPrefix(response(over.stream), 4096));
+  assert.equal(o.result, "a".repeat(4096));
+  assert.ok(o.largest <= 4096, `allocated ${o.largest}`);
+  const under = chunks([fill(4095, "a")]);
+  assert.equal(await readPrefix(response(under.stream), 4096), "a".repeat(4095));
+  assert.equal(under.stats.pulls, 2);
+});
+
+test("readPrefix: a locked stream gives '' (it would throw on getReader)", async () => {
+  const locked = new Response("no capacity").body!;
+  locked.getReader();
+  // Control: a second reader really is refused.
+  assert.throws(() => locked.getReader(), TypeError);
+  assert.equal(await readPrefix(response(locked), 4096), "");
+  assert.equal(await readPrefix(response({ getReader: () => { throw new Error("not a stream"); } } as unknown as ReadableStream<Uint8Array>), 4096), "");
+});
+
+test("readPrefix: the spy sees an allocation as large as the chunk when one is made (control)", async () => {
+  const { largest } = await withAllocationSpy(async () => new Uint8Array(1 << 20).length);
+  assert.equal(largest, 1 << 20);
 });
 
 // ---------------------------------------------------------------- adapters, natively
