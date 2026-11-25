@@ -3542,5 +3542,17 @@
   "old": "    this.#writes++;\n",
   "new": "",
   "note": "list: changes don't make older snapshots stale"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return \"Launches are paused: the organization's provider key isn't working.\";\n    case \"noCapacity\":",
+  "new": "    case \"noCapacity\":",
+  "note": "refusalText: credentialUnusable reads as noCapacity"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      return { items, asOf: toIso(this.#now), paused: [] };",
+  "new": "      return { items, asOf: toIso(this.#now) } as never;",
+  "note": "mock listGpuTypes: no paused list"
  }
 ]
