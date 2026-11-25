@@ -75,13 +75,13 @@ test("buildPath refuses missing or unsafe parameters", () => {
 
 test("access rules", () => {
   const publicRoutes = NAMES.filter((n) => ROUTES[n].access.auth === "public").sort();
-  assert.deepEqual(publicRoutes, ["agentAbort", "agentEnroll", "signInCallback", "startSignIn"]);
+  assert.deepEqual(publicRoutes, ["agentAbort", "agentAnnounce", "agentEnroll", "signInCallback", "startSignIn"]);
   const system = NAMES.filter((n) => ROUTES[n].access.auth === "system");
   assert.deepEqual(system, ["addOrgCredit"]);
   for (const n of NAMES) {
     const r = ROUTES[n];
     const isAgentPath = r.path.startsWith("/v1/agent/");
-    assert.equal(isAgentPath, r.access.auth === "agent" || n === "agentEnroll" || n === "agentAbort", n);
+    assert.equal(isAgentPath, r.access.auth === "agent" || n === "agentEnroll" || n === "agentAbort" || n === "agentAnnounce", n);
     // machine routes are checked against the machine's project; project routes against the project
     if (r.access.auth === "session" && r.access.scope === "machine") assert.ok(r.path.startsWith("/v1/machines/:machineId"), n);
     if (r.access.auth === "session" && r.access.scope === "project") assert.ok(r.path.startsWith("/v1/projects/:projectId"), n);

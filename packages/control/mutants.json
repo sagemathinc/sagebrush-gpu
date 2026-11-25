@@ -526,13 +526,13 @@
  },
  {
   "file": "src/app.ts",
-  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
   "new": "if (false) {"
  },
  {
   "file": "src/app.ts",
-  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
-  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= MAX_BODY_BYTES) {"
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
+  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= cap) {"
  },
  {
   "file": "src/app.ts",
@@ -1538,8 +1538,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates]);",
-  "new": "Object.freeze([pruneAuthStates]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, vmWatchdog]);"
  },
  {
   "file": "migrations/0007_sessions.sql",
@@ -1921,8 +1921,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates]);",
-  "new": "Object.freeze([pruneSessions]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, vmWatchdog]);"
  },
  {
   "file": "src/jobs.ts",
@@ -1973,5 +1973,281 @@
   "file": "src/workos.ts",
   "old": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 400;",
   "new": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 307;"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates]);",
+  "note": "the VM watchdog left out of the cron"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (keys !== \"bootScriptSha256,machineId,nonce\") throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "typeof nonce !== \"string\" || !ANNOUNCE_NONCE_PATTERN.test(nonce) ||",
+  "new": "typeof nonce !== \"string\" ||"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "typeof bootScriptSha256 !== \"string\" || !SHA256_HEX_PATTERN.test(bootScriptSha256)) {",
+  "new": "typeof bootScriptSha256 !== \"string\") {"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation",
+  "new": "JOIN machines m ON m.id = v.machine_id"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const ip = canonicalIpv4(ctx.req.headers.get(\"cf-connecting-ip\"));",
+  "new": "const ip = canonicalIpv4(ctx.req.headers.get(\"cf-connecting-ip\") ?? ctx.req.headers.get(\"x-forwarded-for\"));",
+  "note": "a client-set header as the IP"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const nonceOk = sameText(await sha256Hex(nonce), r.nonce_sha256);",
+  "new": "const nonceOk = true;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const scriptOk = sameText(bootScriptSha256, r.boot_script_sha256);",
+  "new": "const scriptOk = true;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (!nonceOk || !scriptOk || ip === null || !sameText(ip, r.ipv4)) throw REFUSED();",
+  "new": "if (!nonceOk || !scriptOk || ip === null) throw REFUSED();"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "  if (a.length !== b.length) return false;\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);",
+  "new": "  for (let i = 0; i < a.length - 1; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const IPV4 = new RegExp(`^${OCTET}(?:\\\\.${OCTET}){3}$`);",
+  "new": "const IPV4 = new RegExp(`${OCTET}(?:\\\\.${OCTET}){3}`);"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const OCTET = \"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\";",
+  "new": "const OCTET = \"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[0-9]?[0-9])\";",
+  "note": "a leading zero accepted"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    if (r.announce_ms !== null) return end(\"second-announce\", false);\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (now >= r.first_active_ms + ANNOUNCE_DEADLINE_MS) return end(\"deadline\", true);",
+  "new": "if (now > r.first_active_ms + ANNOUNCE_DEADLINE_MS) return end(\"deadline\", true);"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) return end(\"provider-facts\", true);",
+  "new": "if (facts.state !== \"active\" || facts.ipv4 !== r.ipv4) return end(\"provider-facts\", true);"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) return end(\"provider-facts\", true);",
+  "new": "if (facts.state !== \"active\" || !facts.exclusive) return end(\"provider-facts\", true);"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) return end(\"provider-facts\", true);",
+  "new": "if (!facts.exclusive || facts.ipv4 !== r.ipv4) return end(\"provider-facts\", true);"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (facts === \"unavailable\") return end(\"provider-unavailable\", true);",
+  "new": "if (facts === \"unavailable\") return end(\"provider-facts\", true);"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    if (mine.length !== 1) return end(\"second-announce\", false);\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const expires = now + BOOT_TOKEN_TTL_MS;",
+  "new": "const expires = now + BOOT_TOKEN_TTL_MS + 1;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "return json(200, { bootToken: token, expiresAt: toIso(expires) });",
+  "new": "return json(200, { bootToken: token, expiresAt: toIso(expires) }, { \"cache-control\": \"max-age=60\" });"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      if (cur[0]) deps.waitUntil(terminateAttempt(env, { ...r, watchdog_version: cur[0].watchdog_version }, reason));\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND watchdog_version = ? AND outcome <> 'terminated' AND outcome <> 'enrolled'`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND outcome <> 'terminated' AND outcome <> 'enrolled' AND ? IS NOT NULL`,",
+  "note": "the claim not conditional on the version read"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
+  "new": "UPDATE vm_launches SET watchdog_version = watchdog_version, next_ms = ?,",
+  "note": "a claim that writes the value it read"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "  if (claimed.changes !== 1) return false;\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "if (facts !== \"unavailable\" && facts.state === \"absent\") {",
+  "new": "if (facts !== \"unavailable\") {"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND outcome = 'terminate'`,\n        params: [env.now, r.machine_id, r.incarnation],\n      },\n      ...closeAccrual(r.machine_id, r.incarnation, env.now),",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND outcome = 'terminate'`,\n        params: [env.now, r.machine_id, r.incarnation],\n      },"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) break;\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) break;\n",
+  "new": "    if (env.elapsedMs() > WATCHDOG_BUDGET_MS) break;\n"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "ORDER BY v.next_ms, v.watchdog_version, v.machine_id, v.incarnation",
+  "new": "ORDER BY v.next_ms, v.machine_id, v.incarnation"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "ORDER BY v.next_ms, v.watchdog_version, v.machine_id, v.incarnation",
+  "new": "ORDER BY v.next_ms DESC, v.watchdog_version, v.machine_id, v.incarnation"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
+  "new": "WHERE v.next_ms IS NOT NULL AND v.next_ms < ?"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "export const WATCHDOG_BATCH = 20;",
+  "new": "export const WATCHDOG_BATCH = 21;"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "  CHECK (expires_ms > issued_ms AND expires_ms - issued_ms <= 120000),",
+  "new": "  CHECK (expires_ms > issued_ms),"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "  UNIQUE (machine_id, incarnation),\n  FOREIGN KEY",
+  "new": "  FOREIGN KEY"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "  CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),",
+  "new": ""
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "  boot_script_sha256 TEXT NOT NULL CHECK (length(boot_script_sha256) = 64 AND boot_script_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "new": "  boot_script_sha256 TEXT NOT NULL CHECK (length(boot_script_sha256) = 64),"
+ },
+ {
+  "file": "wrangler.json",
+  "old": "  \"workers_dev\": false,\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
+  "new": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = next_ms + 0 * ?,",
+  "note": "an attempt doesn't move the row back"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = MIN(next_ms, ?) WHERE",
+  "new": "sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = next_ms + 0 * ? WHERE",
+  "note": "an unused token never falls due"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE",
+  "new": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ? WHERE"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
+  "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms) WHERE next_ms IS NOT NULL;",
+  "note": "the index doesn't serve the order: a sort"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
+  "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE outcome IN ('launched', 'issued', 'terminate');",
+  "note": "a predicate the query doesn't imply: a scan"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))\n",
+  "new": "  CHECK (1)\n"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    return performance.now() - start < deadlineMs ? v : fallback;",
+  "new": "    return v;",
+  "note": "no check of the answer's arrival time"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    return performance.now() - start < deadlineMs ? v : fallback;",
+  "new": "    return performance.now() - start <= deadlineMs + 1000 ? v : fallback;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      Promise.resolve()\n        .then(p)\n        .catch(() => fallback),",
+  "new": "      p().catch(() => fallback),",
+  "note": "a synchronous throw escapes"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "export const ANNOUNCE_MAX_BODY_BYTES = 1024;",
+  "new": "export const ANNOUNCE_MAX_BODY_BYTES = 1025;"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES };",
+  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = {};"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > cap) {",
+  "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  const buf = await readCapped(req.body, cap);",
+  "new": "  const buf = await readCapped(req.body, MAX_BODY_BYTES);"
  }
 ]

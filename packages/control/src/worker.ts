@@ -64,6 +64,7 @@ export function createWorker(o: WorkerOptions = {}) {
         randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
         config,
         fetch: (input, init) => fetch(input, init),
+        vm: null,
         waitUntil: guardedWaitUntil(ctx, log),
       });
       return app.fetch(req);
@@ -99,10 +100,13 @@ export function createWorker(o: WorkerOptions = {}) {
     async scheduled(_controller: { scheduledTime: number; cron: string }, env: WorkerEnv, _ctx: WorkerContext): Promise<void> {
       const db: Db = d1Db(env.DB);
       const t = now();
+      const began = Date.now();
+      // (no VM provider is wired yet: VM mode stays unreachable until its adapter and gate land)
+      const jobEnv = { db, now: t, vm: null, elapsedMs: () => Date.now() - began };
       const failed: string[] = [];
       for (const job of jobs) {
         try {
-          const n = await job.run(db, t);
+          const n = await job.run(jobEnv);
           if (n > 0) log(`control: ${job.name}: ${n}`);
         } catch (e) {
           failed.push(job.name);

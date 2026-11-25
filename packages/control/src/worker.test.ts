@@ -55,6 +55,8 @@ function secured(res: Response, what: string) {
 
 test("the deploy config: the Worker runs before every asset, the SPA fallback, a cron every minute, placeholders only", () => {
   assert.equal(WRANGLER.assets.run_worker_first, true);
+  // no workers.dev route around the zone's edge (the VM announce trusts the edge's client-IP header)
+  assert.equal((WRANGLER as unknown as { workers_dev: unknown }).workers_dev, false);
   assert.equal(WRANGLER.assets.not_found_handling, "single-page-application");
   assert.deepEqual(WRANGLER.triggers.crons, ["* * * * *"]);
   const text = readFileSync(new URL("../wrangler.json", import.meta.url), "utf8");
@@ -209,7 +211,7 @@ test("scheduled: every job runs even if one fails; then the run fails, naming it
     now: () => 123,
     log: (l) => logs.push(l),
     jobs: [
-      { name: "one", run: async (_db, t) => (ran.push(`one@${t}`), 2) },
+      { name: "one", run: async (e) => (ran.push(`one@${e.now}`), 2) },
       { name: "two", run: async () => { ran.push("two"); throw new Error("secret detail"); } },
       { name: "three", run: async () => (ran.push("three"), 0) },
     ],
