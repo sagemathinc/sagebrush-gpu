@@ -1981,5 +1981,455 @@
   "old": "return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));",
   "new": "return drift.filter((m): m is string => isDriftMarker(m)).slice(0, 32);",
   "note": "cap before filtering"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "if (typeof gpuType !== \"string\") return null;",
+  "new": "",
+  "note": "gpu: non-string"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "if (Object.hasOwn(SHADEFORM_GPUS, gpuType)) return",
+  "new": "if (gpuType in SHADEFORM_GPUS) return",
+  "note": "gpu: own keys"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "if (!Object.hasOwn(BY_INTERCONNECT, gpuType) || typeof interconnect !== \"string\") return null;",
+  "new": "if (!Object.hasOwn(BY_INTERCONNECT, gpuType)) return null;",
+  "note": "gpu: interconnect type"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "return Object.hasOwn(forms, interconnect) ? forms[interconnect]! : null;",
+  "new": "return forms[interconnect] ?? null;",
+  "note": "gpu: proto interconnect"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "A100_80G: { pcie: \"A100-80GB-PCIE\", sxm4: \"A100-80GB-SXM\" },",
+  "new": "A100_80G: { pcie: \"A100-80GB-PCIE\", sxm4: \"A100-80GB-SXM\", sxm5: \"A100-80GB-SXM\" },",
+  "note": "gpu: sxm5 A100"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;",
+  "new": "const NAME = /^[A-Za-z0-9_.-]{1,64}$/;",
+  "note": "dc: leading char"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;",
+  "new": "const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,64}$/;",
+  "note": "dc: length"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;",
+  "new": "const NAME = /^[A-Za-z0-9][A-Za-z0-9_.\\/-]{0,63}$/;",
+  "note": "dc: slash"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;",
+  "new": "const NAME = /[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;",
+  "note": "dc: anchor"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "NAME.test(cloud) && NAME.test(region)",
+  "new": "NAME.test(cloud)",
+  "note": "dc: region check"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "typeof cloud === \"string\" && typeof region === \"string\" && NAME.test(cloud)",
+  "new": "typeof region === \"string\" && NAME.test(String(cloud))",
+  "note": "dc: cloud type"
+ },
+ {
+  "file": "src/shadeform/catalog.ts",
+  "old": "return Object.hasOwn(SHADEFORM_REGIONS, dataCenter) ? SHADEFORM_REGIONS[dataCenter]! : null;",
+  "new": "return SHADEFORM_REGIONS[dataCenter] ?? null;",
+  "note": "country: proto"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "status === 400 || status === 422\n      ? \"invalid_request\"",
+  "new": "status === 400\n      ? \"invalid_request\"",
+  "note": "err 422"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "status === 409\n                ? \"unplaceable\"",
+  "new": "status === 409\n                ? \"unknown\"",
+  "note": "err 409"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "status >= 500 && status <= 599",
+  "new": "status >= 500",
+  "note": "err 5xx upper"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "status === 429 ? retryAfterSeconds(retryAfter) : null",
+  "new": "retryAfterSeconds(retryAfter)",
+  "note": "retry-after only 429"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "  deleting: \"stopping\",",
+  "new": "  deleting: \"terminated\",",
+  "note": "deleting is not gone"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "  pending_provider: \"provisioning\",\n",
+  "new": "",
+  "note": "pending_provider"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "state: Object.hasOwn(STATES, rawStatus) ? STATES[rawStatus]! : \"unknown\"",
+  "new": "state: STATES[rawStatus] ?? \"unknown\"",
+  "note": "state proto"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0 ? x : Number.NaN;",
+  "new": "return typeof x === \"number\" ? x : Number.NaN;",
+  "note": "count"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "Number.isSafeInteger(x) && x >= 0 && Number.isSafeInteger(x * 10_000) ? x * 10_000 : null;",
+  "new": "Number.isSafeInteger(x) && x >= 0 ? x * 10_000 : null;",
+  "note": "cents overflow"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0 && Number",
+  "new": "return typeof x === \"number\" && Number.isFinite(x) && x >= 0 && Number",
+  "note": "cents whole"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "  if (x === null || x === undefined) return [];\n  if (!Array.isArray(x)) return null;",
+  "new": "  if (x === undefined) return [];\n  if (!Array.isArray(x)) return null;",
+  "note": "env null"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (!isObject(e) || typeof e[\"name\"] !== \"string\" || typeof e[\"value\"] !== \"string\") return null;",
+  "new": "if (!isObject(e) || typeof e[\"name\"] !== \"string\") return null;",
+  "note": "env value"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (!Array.isArray(x)) return [UNREADABLE];\n  return x.length === 0",
+  "new": "if (!Array.isArray(x)) return [];\n  return x.length === 0",
+  "note": "emptyList malformed"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (inst[\"ssh_key_id\"] !== null && inst[\"ssh_key_id\"] !== undefined) out.push(\"ssh:key\");",
+  "new": "if (inst[\"ssh_key_id\"]) out.push(\"ssh:key\");",
+  "note": "ssh empty string"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (inst[\"shade_cloud\"] !== true) out.push",
+  "new": "if (inst[\"shade_cloud\"] === false) out.push",
+  "note": "shade_cloud"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (rental !== \"on_demand\") out.push",
+  "new": "if (rental === \"spot\") out.push",
+  "note": "rental"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "for (const k of [\"template_id\", \"cluster_id\", \"commitment_id\"]) {",
+  "new": "for (const k of [\"template_id\", \"cluster_id\"]) {",
+  "note": "commitment"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "names.every((n) => n !== null) ? names.flat() : [UNREADABLE]",
+  "new": "names.flat().filter((n) => n !== null)",
+  "note": "env unreadable"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "const names = [envNames(inst[\"envs\"]), envNames(docker[\"envs\"])];",
+  "new": "const names = [envNames(inst[\"envs\"])];",
+  "note": "docker envs"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "    ...emptyList(docker[\"port_mappings\"], (n) => [`port_mappings:${n}`]),\n",
+  "new": "",
+  "note": "docker ports"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "          ? Number.POSITIVE_INFINITY\n          : Number.NaN,",
+  "new": "          ? Number.POSITIVE_INFINITY\n          : 0,",
+  "note": "volume malformed"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "volumes === null || volumes === undefined || (Array.isArray(volumes) && volumes.length === 0)",
+  "new": "volumes === null || volumes === undefined",
+  "note": "volume empty"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "command: [...VM_COMMAND],",
+  "new": "command: [],",
+  "note": "vm command"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "machineId: typeof inst[\"name\"] === \"string\" ? parseMachineName(inst[\"name\"]) : null,",
+  "new": "machineId: parseMachineName(String(inst[\"name\"])),",
+  "note": "name type"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "image: typeof conf[\"os\"] === \"string\" ? conf[\"os\"] : UNREADABLE,",
+  "new": "image: String(conf[\"os\"]),",
+  "note": "os"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (!isObject(inst) || typeof inst[\"id\"] !== \"string\" || inst[\"id\"] === \"\") {",
+  "new": "if (!isObject(inst) || typeof inst[\"id\"] !== \"string\") {",
+  "note": "empty id"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "headers: { \"X-API-KEY\": this.#apiKey, Accept: \"application/json\" },",
+  "new": "headers: { \"X-API-KEY\": this.#apiKey, Authorization: `Bearer ${this.#apiKey}`, Accept: \"application/json\" },",
+  "note": "one header"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "      signal: AbortSignal.timeout(this.#timeoutMs),\n    };\n    let res;",
+  "new": "    };\n    let res;",
+  "note": "timeout"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (res.status >= 300) throw shadeformError",
+  "new": "if (res.status >= 400) throw shadeformError",
+  "note": "3xx"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "const kind: ProviderErrorKind = \"unknown\";",
+  "note": "POST unreadable"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "throw new ProviderError(\"shadeform\", \"outcome_unknown\", `Shadeform ${method} ${path.split(\"?\")[0]}: no response (${name})`);",
+  "new": "throw new ProviderError(\"shadeform\", \"transient\", `Shadeform ${method} ${path.split(\"?\")[0]}: no response (${name})`);",
+  "note": "no response kind"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "const qs = new URLSearchParams({ num_gpus: String(query.gpuCount), shade_cloud: \"true\" });",
+  "new": "const qs = new URLSearchParams({ num_gpus: String(query.gpuCount) });",
+  "note": "shade_cloud filter"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (!Number.isInteger(query.gpuCount) || query.gpuCount < 1) throw",
+  "new": "if (query.gpuCount < 1) throw",
+  "note": "gpuCount int"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (conf[\"num_gpus\"] !== query.gpuCount) continue;",
+  "new": "",
+  "note": "count check"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (gpuType === null || price === null || price === 0) continue;",
+  "new": "if (gpuType === null || price === null) continue;",
+  "note": "price 0"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (!isObject(a) || a[\"rental_type\"] !== \"on_demand\" || typeof a[\"available\"] !== \"boolean\") continue;",
+  "new": "if (!isObject(a) || typeof a[\"available\"] !== \"boolean\") continue;",
+  "note": "spot"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (!isObject(a) || a[\"rental_type\"] !== \"on_demand\" || typeof a[\"available\"] !== \"boolean\") continue;",
+  "new": "if (!isObject(a) || a[\"rental_type\"] !== \"on_demand\") continue;",
+  "note": "available type"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (dataCenter === null || country === null) continue;",
+  "new": "if (dataCenter === null) continue;",
+  "note": "unknown country"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "stock: a[\"available\"] ? \"unknown\" : \"none\",",
+  "new": "stock: \"unknown\",",
+  "note": "stock none"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "price < prev.providerCostPerHour ||",
+  "new": "price <= prev.providerCostPerHour ||",
+  "note": "cheapest tie"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "(price === prev.providerCostPerHour && prev.stock === \"none\")",
+  "new": "false",
+  "note": "tie prefers available"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "const key = `${gpuType}\\u0000${dataCenter}`;",
+  "new": "const key = dataCenter;",
+  "note": "key per gpu"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "throw new ProviderError(\"shadeform\", \"invalid_request\", \"Shadeform: VM mode is not supported\");",
+  "new": "return this.status(\"x\") as never;",
+  "note": "launch refuses"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (s.providerMachineId !== providerMachineId) {",
+  "new": "if (false) {",
+  "note": "other instance"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (e instanceof ProviderError && e.kind === \"not_found\") return goneStatus",
+  "new": "if (e instanceof ProviderError && e.kind !== \"transient\") return goneStatus",
+  "note": "status gone only 404"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "`/v1/instances/${encodeURIComponent(providerMachineId)}/info`",
+  "new": "`/v1/instances/${providerMachineId}/info`",
+  "note": "encode"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "      if (e.kind === \"not_found\") return;\n",
+  "new": "",
+  "note": "terminate 404"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "      if (e.kind !== \"unplaceable\") throw e;\n",
+  "new": "",
+  "note": "terminate only 409 checks"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (s.state === \"terminated\" || s.state === \"stopping\") return;",
+  "new": "if (s.state === \"terminated\") return;",
+  "note": "terminate deleting"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (s.state === \"terminated\" || s.state === \"stopping\") return;",
+  "new": "if (s.state !== \"running\") return;",
+  "note": "terminate live"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "!Number.isSafeInteger(json[\"total\"]) || (json[\"total\"] as number) < 0",
+  "new": "!Number.isSafeInteger(json[\"total\"])",
+  "note": "negative total"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (total !== null && t !== total) throw",
+  "new": "if (false) throw",
+  "note": "moving total"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (instances.length !== Math.max(0, expected)) {",
+  "new": "if (instances.length > Math.max(0, expected)) {",
+  "note": "short page"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (instances.length !== Math.max(0, expected)) {",
+  "new": "if (instances.length < Math.max(0, expected)) {",
+  "note": "long page"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (s.machineId !== null) out.push(s);",
+  "new": "out.push(s);",
+  "note": "ours only"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "if (offset >= total) return out;",
+  "new": "if (offset > total) return out;",
+  "note": "last page"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "for (let page = 0; page < MAX_PAGES; page++) {",
+  "new": "for (let page = 0; page <= MAX_PAGES; page++) {",
+  "note": "max pages"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "const PAGE = 100;",
+  "new": "const PAGE = 50;",
+  "note": "page size"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "      const name = failureName(e);",
+  "new": "      const name = e instanceof Error ? e.name : \"error\";",
+  "note": "SEC H1: e.name verbatim"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "        if (seen.has(s.providerMachineId)) {",
+  "new": "        if (false) {",
+  "note": "H1: duplicate ids"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "        seen.add(s.providerMachineId);\n",
+  "new": "",
+  "note": "H1: ids recorded"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "        if (typeof (inst as Record<string, unknown>)[\"name\"] !== \"string\") {",
+  "new": "        if (false) {",
+  "note": "H2: nameless rows"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "    const seen = new Set<string>();\n    for (let page = 0; page < MAX_PAGES; page++) {",
+  "new": "    for (let page = 0; page < MAX_PAGES; page++) {\n      const seen = new Set<string>();",
+  "note": "H1: seen across pages"
  }
 ]
