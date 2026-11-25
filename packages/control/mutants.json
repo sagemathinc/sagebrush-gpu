@@ -2249,5 +2249,110 @@
   "file": "src/app.ts",
   "old": "  const buf = await readCapped(req.body, cap);",
   "new": "  const buf = await readCapped(req.body, MAX_BODY_BYTES);"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "UPDATE orgs SET billing_mode = 'resold';",
+  "new": "UPDATE orgs SET billing_mode = 'byok';"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "UPDATE orgs SET billing_mode = 'resold';",
+  "new": "SELECT 1;"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "CHECK (billing_mode IN ('resold', 'byok'))",
+  "new": "CHECK (billing_mode IN ('resold', 'byok', 'other', ''))"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "WHEN NEW.billing_mode IS NULL\n",
+  "new": "WHEN 0\n"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "WHEN NEW.billing_mode IS NOT OLD.billing_mode\n",
+  "new": "WHEN NEW.billing_mode IS NULL\n"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "WHEN NEW.billing_mode IS NOT OLD.billing_mode\n",
+  "new": "WHEN OLD.billing_mode = 'byok' AND NEW.billing_mode IS NOT OLD.billing_mode\n"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "CREATE TRIGGER orgs_byok_margin_insert BEFORE INSERT ON orgs\nWHEN NEW.billing_mode IS 'byok' AND NEW.margin_bps <> 0",
+  "new": "CREATE TRIGGER orgs_byok_margin_insert BEFORE INSERT ON orgs\nWHEN 0"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "CREATE TRIGGER orgs_byok_margin_update BEFORE UPDATE OF margin_bps ON orgs\nWHEN NEW.billing_mode IS 'byok' AND NEW.margin_bps <> 0",
+  "new": "CREATE TRIGGER orgs_byok_margin_update BEFORE UPDATE OF margin_bps ON orgs\nWHEN 0"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "CREATE TRIGGER projects_byok_margin_insert BEFORE INSERT ON projects\nWHEN COALESCE(NEW.margin_bps_override, 0) <> 0 AND",
+  "new": "CREATE TRIGGER projects_byok_margin_insert BEFORE INSERT ON projects\nWHEN 0 AND"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "CREATE TRIGGER projects_byok_margin_insert BEFORE INSERT ON projects\nWHEN COALESCE(NEW.margin_bps_override, 0) <> 0 AND (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) IS NOT 'resold'",
+  "new": "CREATE TRIGGER projects_byok_margin_insert BEFORE INSERT ON projects\nWHEN COALESCE(NEW.margin_bps_override, 0) <> 0 AND 0"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "BEFORE UPDATE OF margin_bps_override, org_id ON projects",
+  "new": "BEFORE UPDATE OF margin_bps_override ON projects"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "CREATE TRIGGER projects_byok_margin_update BEFORE UPDATE OF margin_bps_override, org_id ON projects\nWHEN COALESCE(NEW.margin_bps_override, 0) <> 0 AND",
+  "new": "CREATE TRIGGER projects_byok_margin_update BEFORE UPDATE OF margin_bps_override, org_id ON projects\nWHEN 0 AND"
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": "WHEN NEW.margin_bps <> 0 AND (",
+  "new": "WHEN 0 AND ("
+ },
+ {
+  "file": "migrations/0011_billing_mode.sql",
+  "old": ") IS NOT 'resold'\nBEGIN\n  SELECT RAISE(ABORT, 'only a resold organization''s machines accrue a margin');",
+  "new": ") IS 'byok'\nBEGIN\n  SELECT RAISE(ABORT, 'only a resold organization''s machines accrue a margin');"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (!isProviderId(provider)) return { use: \"none\", reason: \"unknown-provider\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (!isBillingMode(mode)) return { use: \"none\", reason: \"no-such-org\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (mode === \"resold\") return { use: \"ours\", provider };",
+  "new": "  if (mode !== \"byok\") return { use: \"ours\", provider };"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  return { use: \"none\", reason: \"byok-unavailable\" };",
+  "new": "  return { use: \"ours\", provider: provider as ProviderId };"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "FROM orgs WHERE id = ?`, [orgId]",
+  "new": "FROM orgs LIMIT 1`, []"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ?`",
+  "new": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ? OR 1 ORDER BY o.billing_mode DESC`"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "    billingMode: r.billing_mode,\n",
+  "new": "    billingMode: \"resold\",\n"
  }
 ]

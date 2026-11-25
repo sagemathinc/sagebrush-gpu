@@ -6,6 +6,7 @@
 
 import {
   DEFAULT_POLICY,
+  type BillingMode,
   isIsoTime,
   isNonNegativeMicros,
   mergePolicy,
@@ -28,9 +29,12 @@ export const MAX_CREDIT_REFERENCE_LENGTH = 200;
 const ID_CHUNK = D1_MAX_BOUND_PARAMETERS - 2;
 const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",");
 
+const ORG_COLUMNS = `id, name, billing_mode, margin_bps, unassigned_credit, total_credit, created_ms`;
+
 interface OrgRow {
   id: string;
   name: string;
+  billing_mode: BillingMode;
   margin_bps: number;
   unassigned_credit: number;
   total_credit: number;
@@ -57,6 +61,7 @@ function toOrg(r: OrgRow): Organization {
   return {
     id: r.id,
     name: r.name,
+    billingMode: r.billing_mode,
     marginBps: r.margin_bps,
     unassignedCredit: r.unassigned_credit,
     totalCredit: r.total_credit,
@@ -180,7 +185,7 @@ export async function addOrgCredit(db: Db, orgId: string, amount: number, refere
       params: [newId("creditEvent"), orgId, amount, reference, nowMs],
     },
   ]);
-  const r = await db.all<OrgRow>(`SELECT id, name, margin_bps, unassigned_credit, total_credit, created_ms FROM orgs WHERE id = ?`, [orgId]);
+  const r = await db.all<OrgRow>(`SELECT ${ORG_COLUMNS} FROM orgs WHERE id = ?`, [orgId]);
   return toOrg(r[0]!);
 }
 
@@ -188,7 +193,7 @@ const creditEventId = () => newId("creditEvent");
 
 export const PROJECT_HANDLERS: Handlers = {
   async getOrg(ctx: Ctx) {
-    const r = await ctx.deps.db.all<OrgRow>(`SELECT id, name, margin_bps, unassigned_credit, total_credit, created_ms FROM orgs WHERE id = ?`, [ctx.params.orgId as string]);
+    const r = await ctx.deps.db.all<OrgRow>(`SELECT ${ORG_COLUMNS} FROM orgs WHERE id = ?`, [ctx.params.orgId as string]);
     if (!r[0]) throw new HttpError("notFound", "no such organization");
     return json(200, toOrg(r[0]));
   },
