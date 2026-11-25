@@ -7,7 +7,7 @@
 // see and clean up anything that exists.
 
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { retryAfterSeconds, type Fetch } from "../http.ts";
+import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
 import { parseMachineName } from "../machine-name.ts";
 import type {
   AdapterInfo,
@@ -222,8 +222,8 @@ export class ShadeformAdapter implements ProviderAdapter {
       res = await this.#fetch(this.#base + path, init);
       text = await res.text();
     } catch (e) {
-      // Never include the request (it carries the key); the error's own name is enough.
-      const name = e instanceof Error ? e.name : "error";
+      // Never include the request (it carries the key), nor the exception's text: a fixed name.
+      const name = failureName(e);
       throw new ProviderError("shadeform", "outcome_unknown", `Shadeform ${method} ${path.split("?")[0]}: no response (${name})`);
     }
     if (res.status >= 300) throw shadeformError(res.status, res.headers.get("Retry-After"));
@@ -329,13 +329,15 @@ export class ShadeformAdapter implements ProviderAdapter {
 
   /**
    * Every machine of ours Shadeform lists (deleted ones are not listed). Pages are read by offset;
-   * the list must keep the same total throughout and fill every page but the last, or it fails:
-   * a list that moved while we read it may have skipped a machine.
+   * the list must keep the same total throughout, fill every page but the last, never repeat an
+   * instance and name every row, or it fails: a list that moved while we read it may have skipped
+   * a machine, and a row without a name may be one of ours.
    */
   async listMachines(): Promise<ProviderMachineStatus[]> {
     const out: ProviderMachineStatus[] = [];
     let total: number | null = null;
     let offset = 0;
+    const seen = new Set<string>();
     for (let page = 0; page < MAX_PAGES; page++) {
       const qs = new URLSearchParams({ limit: String(PAGE), offset: String(offset) });
       const json = await this.#call("GET", `/v1/instances?${qs}`);
@@ -353,6 +355,16 @@ export class ShadeformAdapter implements ProviderAdapter {
       }
       for (const inst of instances) {
         const s = instanceStatus(inst, observedAt);
+        // Every row counts, foreign ones too: a repeated id means pages overlapped, and the
+        // machines they pushed out of the list are missing from it.
+        if (seen.has(s.providerMachineId)) {
+          throw new ProviderError("shadeform", "unknown", "Shadeform instance list has an instance twice");
+        }
+        seen.add(s.providerMachineId);
+        // Only a readable name can say whether a machine is ours: a row without one fails the list.
+        if (typeof (inst as Record<string, unknown>)["name"] !== "string") {
+          throw new ProviderError("shadeform", "unknown", "Shadeform instance list has an instance without a name");
+        }
         if (s.machineId !== null) out.push(s);
       }
       offset += instances.length;

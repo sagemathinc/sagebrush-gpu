@@ -286,9 +286,9 @@ Shadeform.
 
   `deleting` is `stopping` (billing has stopped, but the machine isn't gone); only `deleted` or a 404 is `terminated`.
 - **List and terminate.**
-  - The list is read by offset, 100 per page, at most 50 pages. It fails if the total changes or a page has the wrong length.
+  - The list is read by offset, 100 per page, at most 50 pages. It fails if the total changes, a page has the wrong length, any instance id appears twice (foreign rows included), or any row's name isn't a string: such a list may be missing one of ours.
   - Terminate is `POST .../delete`, idempotent on 404. A 409 counts as done only if a fresh status shows the instance deleting or gone.
-- **Errors** keep no provider text (bodies can echo request values). An unreadable reply to a POST is `outcome_unknown`.
+- **Errors** keep no provider text (bodies can echo request values), and name a fetch failure only by a fixed word (`failureName`). An unreadable reply to a POST is `outcome_unknown`.
 
 ## Not yet
 

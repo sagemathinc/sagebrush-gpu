@@ -2401,5 +2401,35 @@
   "old": "const PAGE = 100;",
   "new": "const PAGE = 50;",
   "note": "page size"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "      const name = failureName(e);",
+  "new": "      const name = e instanceof Error ? e.name : \"error\";",
+  "note": "SEC H1: e.name verbatim"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "        if (seen.has(s.providerMachineId)) {",
+  "new": "        if (false) {",
+  "note": "H1: duplicate ids"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "        seen.add(s.providerMachineId);\n",
+  "new": "",
+  "note": "H1: ids recorded"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "        if (typeof (inst as Record<string, unknown>)[\"name\"] !== \"string\") {",
+  "new": "        if (false) {",
+  "note": "H2: nameless rows"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "    const seen = new Set<string>();\n    for (let page = 0; page < MAX_PAGES; page++) {",
+  "new": "    for (let page = 0; page < MAX_PAGES; page++) {\n      const seen = new Set<string>();",
+  "note": "H1: seen across pages"
  }
 ]

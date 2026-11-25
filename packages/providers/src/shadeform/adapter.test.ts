@@ -131,6 +131,15 @@ test("errors never carry the provider's text or the API key", async () => {
   }
   const { a } = adapter([new Error(`connect failed with ${KEY}`)]);
   await assert.rejects(a.listMachines(), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && !e.message.includes(KEY));
+  // SEC H1: a fetch error with the key in both its name and its message.
+  const poisoned = Object.assign(new Error(`failed ${KEY}`), { name: `X-API-KEY ${KEY}` });
+  const p = adapter([poisoned]);
+  await assert.rejects(
+    p.a.status(IID),
+    (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && !e.message.includes(KEY) && e.message.endsWith("no response (error)"),
+  );
+  const t = adapter([Object.assign(new Error(KEY), { name: "TimeoutError" })]);
+  await assert.rejects(t.a.terminate(IID), (e: unknown) => e instanceof ProviderError && e.message.endsWith("no response (TimeoutError)"));
 });
 
 test("the key goes only in the X-API-KEY header, never in the URL", async () => {
@@ -444,6 +453,18 @@ test("listMachines fails on a list that is malformed, short, moving or too long"
     ["a total that shrank", [page(full, 103), page([ours(100), ours(101)], 102)]],
     ["an instance without an id", [page([{ name: "x" }], 1)]],
     ["an error on page two", [page(full, 103), { status: 500 }]],
+    // LIMITS H1: a repeated instance, within a page or across pages, foreign ones included.
+    ["the same full page twice", [page(full, 200), page(full, 200)]],
+    ["one row repeated on the next page", [page(full, 101), page([ours(0)], 101)]],
+    ["a row twice in one page", [page([ours(1), ours(1)], 2)]],
+    ["a foreign row twice", [page([instance({ id: "f", name: "a" }), instance({ id: "f", name: "b" })], 2)]],
+    ["a foreign id reused by one of ours", [page([instance({ id: "i1", name: "x" }), ours(1)], 2)]],
+    // LIMITS H2: a row whose name doesn't read as a string fails the whole list, even after a good page.
+    ["a row without a name", [page([instance({ id: "n", name: undefined })], 1)]],
+    ["a row with a null name", [page([instance({ id: "n", name: null })], 1)]],
+    ["a row with a numeric name", [page([instance({ id: "n", name: 42 })], 1)]],
+    ["a row with an array name", [page([instance({ id: "n", name: [`sbg-${MID}`] })], 1)]],
+    ["a nameless row on page two", [page(full, 101), page([instance({ id: "n", name: null })], 101)]],
   ];
   for (const [what, replies] of bad) {
     const { a } = adapter(replies);
@@ -454,6 +475,21 @@ test("listMachines fails on a list that is malformed, short, moving or too long"
   const { a, calls } = adapter(huge);
   await assert.rejects(a.listMachines(), (e: unknown) => e instanceof ProviderError && /more than 50 pages/.test(e.message));
   assert.equal(calls.length, 50);
+});
+
+test("listMachines: names that read as strings but aren't ours are skipped, not refused", async () => {
+  const rows = [instance({ id: "a", name: "" }), instance({ id: "b", name: "web-1" }), instance({ id: "c", name: "sbg-bad" }), ours(1)];
+  const { a } = adapter([page(rows, 4)]);
+  assert.deepEqual((await a.listMachines()).map((s) => s.providerMachineId), ["i1"]);
+});
+
+test("listMachines: a failure on a later page returns nothing, not the earlier pages", async () => {
+  const full = Array.from({ length: 100 }, (_, i) => ours(i));
+  const { a, calls } = adapter([page(full, 101), page([ours(0)], 101)]);
+  let result: unknown = "unset";
+  await a.listMachines().then((r) => { result = r; }, () => {});
+  assert.equal(result, "unset");
+  assert.equal(calls.length, 2);
 });
 
 test("listMachines reads exactly 50 full pages when that is the whole list", async () => {
