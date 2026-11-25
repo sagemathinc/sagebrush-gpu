@@ -3137,11 +3137,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "    if (res.status >= 300) throw",
-  "new": "    if (res.status >= 400) throw"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
   "new": "const kind: ProviderErrorKind = \"unknown\";"
  },
@@ -3152,8 +3147,28 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "    if (res.status >= 300) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n",
-  "new": "    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n    if (res.status >= 300) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n"
+  "old": "      redirect: \"manual\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!(res.status >= 200 && res.status < 300)) throw",
+  "new": "if (res.status >= 300) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!(res.status >= 200 && res.status < 300)) throw",
+  "new": "if (!(res.status >= 0 && res.status < 300)) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!(res.status >= 200 && res.status < 300)) throw",
+  "new": "if (!(res.status >= 200 && res.status < 400)) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (!(res.status >= 200 && res.status < 300)) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n",
+  "new": "    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n    if (!(res.status >= 200 && res.status < 300)) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n"
  },
  {
   "file": "src/hyperstack/adapter.ts",

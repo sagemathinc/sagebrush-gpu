@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
 import type { Fetch, HttpRequest } from "../http.ts";
@@ -29,6 +31,8 @@ function mockFetch(replies: Reply[]) {
   const reads = { n: 0 };
   const fetch: Fetch = async (url, init) => {
     calls.push({ url, init });
+    // Every request, in every test: a redirect is never followed.
+    if (init.redirect !== "manual") throw new Error(`request without redirect: "manual": ${init.method} ${url}`);
     const r = replies.shift();
     if (r === undefined) throw new Error(`unexpected request ${init.method} ${url}`);
     if (r instanceof Error) throw r;
@@ -140,6 +144,7 @@ test("#call: api_key header carries the key and nothing else does; GETs send no 
   assert.equal(calls[0]!.url, "https://infrahub-api.nexgencloud.com/v1/core/virtual-machines/4242");
   assert.equal(calls[0]!.init.method, "GET");
   assert.deepEqual(calls[0]!.init.headers, { api_key: KEY, Accept: "application/json" });
+  assert.equal(calls[0]!.init.redirect, "manual");
   assert.equal(calls[0]!.init.body, undefined);
   assert.ok(!calls[0]!.url.includes(KEY));
   assert.ok(calls[0]!.init.signal instanceof AbortSignal);
@@ -164,6 +169,8 @@ test("#call: an error status is classified with no body read; status and Retry-A
     [{ status: 429, textThrows: true, headers: { "Retry-After": "7" } }, "rate_limited", 7],
     [{ status: 500, textThrows: true, headers: { "Retry-After": "7" } }, "transient", null],
     [{ status: 302, textThrows: true }, "unknown", null],
+    [{ status: 0, textThrows: true }, "unknown", null],
+    [{ status: 199, textThrows: true }, "unknown", null],
   ];
   for (const [r, kind, retry] of cases) {
     const status = (r as { status: number }).status;
@@ -781,5 +788,47 @@ test("deleteKeypair: one DELETE; 404 is done; a bad id throws before any request
     const b = adapter([]);
     await assert.rejects(b.a.deleteKeypair(id), RangeError);
     assert.equal(b.calls.length, 0);
+  }
+});
+
+// ---------------------------------------------------------------- redirects, natively
+
+/** A local HTTP server that records each request's path and headers and answers with `reply`. */
+async function origin(reply: (path: string) => { status: number; headers?: Record<string, string>; body?: string }) {
+  const seen: Array<{ method: string; path: string; headers: IncomingHttpHeaders }> = [];
+  const server: Server = createServer((req, res) => {
+    seen.push({ method: req.method ?? "", path: req.url ?? "", headers: req.headers });
+    const r = reply(req.url ?? "");
+    res.writeHead(r.status, r.headers ?? {});
+    res.end(r.body ?? "");
+  });
+  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return { url, seen, close: () => new Promise<void>((ok) => server.close(() => ok())) };
+}
+
+test("redirects: with Node's own fetch, a redirect to a second origin is refused and the key never reaches it", async () => {
+  const b = await origin(() => ({ status: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instance: vm() }) }));
+  const a = await origin((path) => ({ status: path.includes("keypairs") ? 307 : 302, headers: { Location: `${b.url}${path}` } }));
+  try {
+    const hs = new HyperstackAdapter({ apiKey: KEY, fetch: globalThis.fetch as unknown as Fetch, baseUrl: `${a.url}/v1`, now: () => NOW });
+    const refused = (kind: string, status: number) => (e: unknown) => e instanceof ProviderError && e.kind === kind && e.httpStatus === status && !e.message.includes(b.url);
+    await assert.rejects(hs.status("4242"), refused("unknown", 302));
+    await assert.rejects(hs.terminate("4242"), refused("unknown", 302));
+    assert.equal(await hs.instanceFacts("4242"), "unavailable");
+    await assert.rejects(hs.listMachines(), refused("unknown", 302));
+    await assert.rejects(hs.importKeypair("sbg-k-1", "sbg-canada", (await perLaunchKeypair()).publicKey), refused("unknown", 307));
+    assert.equal(a.seen.length, 5);
+    for (const r of a.seen) assert.equal(r.headers["api_key"], KEY);
+    assert.equal(b.seen.length, 0);
+    // Control: the same pair with fetch's default (follow) does deliver the header to the second
+    // origin, so the rows above can't pass by the harness never redirecting.
+    const followed = await globalThis.fetch(`${a.url}/v1/core/virtual-machines/4242`, { headers: { api_key: KEY } });
+    assert.equal(followed.status, 200);
+    assert.equal(b.seen.length, 1);
+    assert.equal(b.seen[0]!.headers["api_key"], KEY);
+  } finally {
+    await a.close();
+    await b.close();
   }
 });

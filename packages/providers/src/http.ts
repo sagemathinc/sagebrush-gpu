@@ -6,6 +6,12 @@ export interface HttpRequest {
   headers: Record<string, string>;
   body?: string;
   signal?: AbortSignal;
+  /**
+   * "manual": a redirect is never followed, so no header (an API key) reaches a second origin.
+   * Workers don't implement "error" (it throws), so "manual" is the one mode for every runtime;
+   * the adapter refuses the 3xx (or a browser's status-0 opaque redirect) as a non-2xx status.
+   */
+  redirect?: "manual";
 }
 
 export interface HttpResponse {

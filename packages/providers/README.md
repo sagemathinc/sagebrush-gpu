@@ -367,6 +367,10 @@ reviewed, but no VM launch is.
 - **Per-launch keypair.**
   - `perLaunchKeypair()` makes an Ed25519 pair whose private key can't be exported, with its OpenSSH public line.
   - `importKeypair` accepts only our names (`sbg-…`) and that one line shape; `deleteKeypair` is idempotent on 404.
+- **Redirects are never followed.** Every request sets `redirect: "manual"`; Workers don't
+  implement `"error"`. Any non-2xx status, a 3xx or a status 0 included, is refused, so the
+  `api_key` header never reaches a second origin. A native test with two local origins checks this,
+  with a follow-mode control.
 - **Errors** are classified by HTTP status before any body read, so an error reply's body is
   never read. They keep no provider text and name a fetch failure only by a fixed word. A 2xx
   body that can't be read is `outcome_unknown`; an unreadable reply to a POST or DELETE is too.

@@ -291,6 +291,8 @@ export class HyperstackAdapter implements ProviderAdapter {
       method,
       headers: { api_key: this.#apiKey, Accept: "application/json" },
       signal: AbortSignal.timeout(this.#timeoutMs),
+      // Never follow a redirect: the key header would go to wherever it points.
+      redirect: "manual",
     };
     if (body !== undefined) {
       init.headers["Content-Type"] = "application/json";
@@ -302,7 +304,7 @@ export class HyperstackAdapter implements ProviderAdapter {
     } catch (e) {
       throw new ProviderError("hyperstack", "outcome_unknown", `Hyperstack ${method} ${path.split("?")[0]}: no response (${failureName(e)})`);
     }
-    if (res.status >= 300) throw hyperstackError(res.status, res.headers.get("Retry-After"));
+    if (!(res.status >= 200 && res.status < 300)) throw hyperstackError(res.status, res.headers.get("Retry-After"));
     let text;
     try {
       text = await res.text();
