@@ -3787,23 +3787,8 @@
  },
  {
   "file": "src/http.ts",
-  "old": "if (next.value.length > maxBytes - size) return { ok: false, why: \"too_large\" };",
-  "new": "if (next.value.length >= maxBytes - size) return { ok: false, why: \"too_large\" };"
- },
- {
-  "file": "src/http.ts",
-  "old": "if (next.value.length > maxBytes - size) return { ok: false, why: \"too_large\" };",
-  "new": "if (size > maxBytes) return { ok: false, why: \"too_large\" };"
- },
- {
-  "file": "src/http.ts",
   "old": "new TextDecoder(\"utf-8\", { fatal: true })",
   "new": "new TextDecoder(\"utf-8\")"
- },
- {
-  "file": "src/http.ts",
-  "old": "    reader.cancel().catch(() => {});\n  }\n  const all = new Uint8Array(size);",
-  "new": "  }\n  const all = new Uint8Array(size);"
  },
  {
   "file": "src/http.ts",
@@ -4017,11 +4002,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "    stopBefore();\n    // Only the public",
-  "new": "    // Only the public"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "if (stop?.() === true) {\n      // No request after a stop",
   "new": "if (false) {\n      // No request after a stop"
  },
@@ -4104,5 +4084,55 @@
   "file": "src/hyperstack/adapter.ts",
   "old": "        const left = await this.#removeKey(keyId, keyName, stop);\n        throw",
   "new": "        const left = await this.#removeKey(keyId, keyName, undefined);\n        throw"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "if (n > maxBytes - size) return { ok: false, why: \"too_large\" };",
+  "new": "if (n >= maxBytes - size) return { ok: false, why: \"too_large\" };"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "if (n > maxBytes - size) return { ok: false, why: \"too_large\" };",
+  "new": ""
+ },
+ {
+  "file": "src/http.ts",
+  "old": "    reader.cancel().catch(() => {});\n  }\n  try {\n    return { ok: true",
+  "new": "  }\n  try {\n    return { ok: true"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "      if (next === \"late\" || Date.now() >= deadline) return { ok: false, why: \"timeout\" };",
+  "new": "      if (next === \"late\") return { ok: false, why: \"timeout\" };"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "      if (n === 0) continue;\n",
+  "new": ""
+ },
+ {
+  "file": "src/http.ts",
+  "old": "Math.max(size + n, 2 * have, 64 * 1024)",
+  "new": "Math.max(size + n, have, 64 * 1024)"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "new Uint8Array(Math.min(maxBytes, Math.max(size + n, 2 * have, 64 * 1024)))",
+  "new": "new Uint8Array(Math.max(size + n, 2 * have, 64 * 1024))"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "        if (buf !== null) grown.set(buf.subarray(0, size));\n",
+  "new": ""
+ },
+ {
+  "file": "src/http.ts",
+  "old": "NO_BYTES : buf.subarray(0, size))",
+  "new": "NO_BYTES : buf)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    const { publicKey } = await perLaunchKeypair();\n    stopBefore();\n",
+  "new": "    const { publicKey } = await perLaunchKeypair();\n"
  }
 ]

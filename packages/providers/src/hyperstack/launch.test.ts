@@ -611,3 +611,69 @@ test("launch: a create reply over MAX_REPLY_BYTES is a lost response: recovery b
   const found = launcher(routes({ create: { status: 200, body: big }, list: { status: 200, body: { count: 1, instances: [vm()] } } }));
   assert.equal((await found.a.launch(spec)).providerMachineId, "4242");
 });
+
+test("launch: a stop that arrives during key generation or hashing stops the very next request", async () => {
+  // Every async crypto step of a launch is hooked; the stop flag flips when the k-th one completes.
+  const subtle = crypto.subtle as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+  const names = ["digest", "generateKey", "exportKey"] as const;
+  const real = Object.fromEntries(names.map((n) => [n, subtle[n]!.bind(crypto.subtle)]));
+  let done = 0;
+  let flipAt = Number.POSITIVE_INFINITY;
+  let stopped = false;
+  // The requests made so far, when the stop flips: no request may follow it.
+  let current: unknown[] = [];
+  let atFlip = -1;
+  for (const n of names) {
+    subtle[n] = async (...args: unknown[]) => {
+      const r = await real[n]!(...args);
+      if (++done === flipAt) {
+        stopped = true;
+        atFlip = current.length;
+      }
+      return r;
+    };
+  }
+  try {
+    // How many crypto steps a whole launch takes, unstopped.
+    const control = launcher(routes());
+    await control.a.launch(spec);
+    const steps = done;
+    assert.ok(steps >= 4, `crypto steps ${steps}`);
+    for (let k = 1; k <= steps; k++) {
+      done = 0;
+      flipAt = k;
+      stopped = false;
+      const { a, calls } = launcher(routes());
+      current = calls;
+      atFlip = -1;
+      const outcome = await a.launch(spec, { shouldStop: () => stopped }).then(() => "launched", (e: unknown) => e);
+      assert.ok(outcome instanceof ProviderError, `step ${k}: ${String(outcome)}`);
+      assert.ok(atFlip >= 0, `step ${k}: the stop never flipped`);
+      assert.equal(calls.length, atFlip, `step ${k}: a request after the stop (${trail(calls).join(", ")})`);
+    }
+  } finally {
+    for (const n of names) subtle[n] = real[n]!;
+  }
+});
+
+test("launch: a stop during key generation sends no key; a stop during the request hash sends no key either", async () => {
+  const subtle = crypto.subtle as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+  for (const hook of ["generateKey", "digest"] as const) {
+    const real = subtle[hook]!.bind(crypto.subtle);
+    let stopped = false;
+    let n = 0;
+    subtle[hook] = async (...args: unknown[]) => {
+      const r = await real(...args);
+      // generateKey: the per-launch key. digest: the second one, the request body's hash.
+      if (hook === "generateKey" || ++n === 2) stopped = true;
+      return r;
+    };
+    try {
+      const { a, calls } = launcher(routes());
+      await assert.rejects(a.launch(spec, { shouldStop: () => stopped }), fails("unknown", { id: null, message: /before creating a VM$/ }), hook);
+      assert.deepEqual(trail(calls), ["GET /core/flavors"], hook);
+    } finally {
+      subtle[hook] = real;
+    }
+  }
+});

@@ -87,14 +87,19 @@ export function failureName(e: unknown): string {
   return "error";
 }
 
+const NO_BYTES = new Uint8Array(0);
+
 /** How reading a whole reply body ended. */
 export type BodyRead = { ok: true; text: string } | { ok: false; why: "too_large" | "unreadable" | "timeout" };
 
 /**
  * A whole reply body, at most `maxBytes`, by `deadline` (a Date.now() time), as strict UTF-8.
- * A chunk that would take the body past `maxBytes` is never kept or copied: the read stops and
- * the stream is cancelled. So does a body still open at the deadline (a stalled stream), one that
- * can't be read, or one that isn't UTF-8. text() is never called.
+ * The bytes are copied into one buffer of our own, grown up to `maxBytes`: no chunk (nor the
+ * larger buffer a small chunk may view) is kept, empty chunks cost nothing, and a chunk that would
+ * take the body past `maxBytes` is never copied. The read stops, and the stream is cancelled, at
+ * that chunk, at the deadline (checked before each read and again on each answer, so a late
+ * chunk or a late end is refused too), when the stream fails, and for a body that isn't UTF-8.
+ * text() is never called.
  */
 export async function readBody(res: HttpResponse, maxBytes: number, deadline: number): Promise<BodyRead> {
   let reader;
@@ -103,7 +108,7 @@ export async function readBody(res: HttpResponse, maxBytes: number, deadline: nu
   } catch {
     return { ok: false, why: "unreadable" };
   }
-  const parts: Uint8Array[] = [];
+  let buf: Uint8Array | null = null;
   let size = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<"late">((ok) => {
@@ -111,15 +116,23 @@ export async function readBody(res: HttpResponse, maxBytes: number, deadline: nu
   });
   try {
     for (;;) {
-      // Checked before every read too: a chunk that is always ready can't outrun the deadline.
       if (Date.now() >= deadline) return { ok: false, why: "timeout" };
       const next = await Promise.race([reader.read(), late]);
-      if (next === "late") return { ok: false, why: "timeout" };
+      // An answer that arrives after the deadline is refused, end of stream included.
+      if (next === "late" || Date.now() >= deadline) return { ok: false, why: "timeout" };
       if (next.done) break;
-      // Checked before the chunk is kept: nothing past maxBytes is ever held or copied.
-      if (next.value.length > maxBytes - size) return { ok: false, why: "too_large" };
-      parts.push(next.value);
-      size += next.value.length;
+      const n = next.value.length;
+      // Checked before any copy: nothing past maxBytes is ever copied.
+      if (n > maxBytes - size) return { ok: false, why: "too_large" };
+      if (n === 0) continue;
+      const have: number = buf === null ? 0 : buf.length;
+      if (size + n > have) {
+        const grown: Uint8Array = new Uint8Array(Math.min(maxBytes, Math.max(size + n, 2 * have, 64 * 1024)));
+        if (buf !== null) grown.set(buf.subarray(0, size));
+        buf = grown;
+      }
+      (buf as Uint8Array).set(next.value, size);
+      size += n;
     }
   } catch {
     return { ok: false, why: "unreadable" };
@@ -127,14 +140,8 @@ export async function readBody(res: HttpResponse, maxBytes: number, deadline: nu
     clearTimeout(timer);
     reader.cancel().catch(() => {});
   }
-  const all = new Uint8Array(size);
-  let at = 0;
-  for (const p of parts) {
-    all.set(p, at);
-    at += p.length;
-  }
   try {
-    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(all) };
+    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(buf === null ? NO_BYTES : buf.subarray(0, size)) };
   } catch {
     return { ok: false, why: "unreadable" };
   }

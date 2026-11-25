@@ -98,7 +98,8 @@ test("readPrefix: at most maxBytes, the stream cancelled; '' without a stream or
 
 /**
  * Runs `f` with the global Uint8Array replaced by a subclass that records the length of every
- * array readPrefix allocates (views made from the source chunks keep their own class). Returns
+ * new buffer the helper allocates (one built from a length; views onto existing memory, such as
+ * subarray(), allocate nothing and aren't counted; source chunks keep their own class). Returns
  * f's result and the largest allocation seen.
  */
 async function withAllocationSpy<T>(f: () => Promise<T>): Promise<{ result: T; largest: number; count: number }> {
@@ -107,7 +108,7 @@ async function withAllocationSpy<T>(f: () => Promise<T>): Promise<{ result: T; l
   class Spy extends Real {
     constructor(...args: unknown[]) {
       super(...(args as unknown as [number]));
-      seen.push(this.length);
+      if (typeof args[0] === "number") seen.push(this.length);
     }
   }
   globalThis.Uint8Array = Spy as unknown as typeof Uint8Array;
@@ -205,10 +206,11 @@ test("readBody: an oversized single chunk is refused without keeping or copying 
   assert.equal(count, 0, `allocated ${largest}`);
   assert.equal(stats.pulls, 1);
   assert.equal(stats.cancelled, true);
-  // Control: an accepted body is copied once, at its own size.
+  // Control: an accepted body is copied into one buffer of our own, never larger than the cap.
   const ok = chunks([fill(2000, "a"), fill(2000, "b")]);
   const r = await withAllocationSpy(() => readBody(response(ok.stream), 4096, LATER()));
-  assert.equal(r.largest, 4000);
+  assert.equal(r.count, 1);
+  assert.equal(r.largest, 4096);
 });
 
 test("readBody: a stalled body ends at the deadline, cancelled", async () => {
@@ -240,6 +242,110 @@ test("readBody: a stalled body ends at the deadline, cancelled", async () => {
   }, { highWaterMark: 0 });
   assert.deepEqual(await readBody(response(trickle), 1 << 20, Date.now() + 60), { ok: false, why: "timeout" });
   assert.ok(pulls < 100, `pulls ${pulls}`);
+});
+
+test("readBody: an answer that arrives after the deadline is refused, a late end of stream included", async () => {
+  // "null" at once, then the end of the stream only after the deadline.
+  const lateEnd = (closeAfterMs: number) => {
+    let first = true;
+    return new ReadableStream<Uint8Array>({
+      async pull(ctl) {
+        if (first) {
+          first = false;
+          ctl.enqueue(new TextEncoder().encode("null"));
+          return;
+        }
+        await new Promise((ok) => setTimeout(ok, closeAfterMs));
+        ctl.close();
+      },
+    }, { highWaterMark: 0 });
+  };
+  assert.deepEqual(await readBody(response(lateEnd(50)), 4096, Date.now() + 30), { ok: false, why: "timeout" });
+  // Control: the same end before the deadline is a whole body.
+  assert.deepEqual(await readBody(response(lateEnd(1)), 4096, Date.now() + 1_000), { ok: true, text: "null" });
+  // An empty body whose end comes late, and a late chunk, the same.
+  const lateEmpty = new ReadableStream<Uint8Array>({
+    async pull(ctl) {
+      await new Promise((ok) => setTimeout(ok, 50));
+      ctl.close();
+    },
+  }, { highWaterMark: 0 });
+  assert.deepEqual(await readBody(response(lateEmpty), 4096, Date.now() + 30), { ok: false, why: "timeout" });
+  // A busy event loop at the end: a chunk in time, then the end of the stream produced while the
+  // event loop is blocked past the deadline, so the end is ready before the timer can fire. The
+  // check on the answer refuses it.
+  const blockedEnd = (blockMs: number) => {
+    let first = true;
+    return new ReadableStream<Uint8Array>({
+      pull(ctl) {
+        if (first) {
+          first = false;
+          ctl.enqueue(new TextEncoder().encode("null"));
+          return;
+        }
+        const until = Date.now() + blockMs;
+        while (Date.now() < until) {
+          // the event loop is blocked
+        }
+        ctl.close();
+      },
+    }, { highWaterMark: 0 });
+  };
+  assert.deepEqual(await readBody(response(blockedEnd(40)), 4096, Date.now() + 20), { ok: false, why: "timeout" });
+  // Control: blocked for less than the deadline, the same body is whole.
+  assert.deepEqual(await readBody(response(blockedEnd(1)), 4096, Date.now() + 1_000), { ok: true, text: "null" });
+  // The same with a first chunk produced while blocked past the deadline.
+  const busy = new ReadableStream<Uint8Array>({
+    pull(ctl) {
+      const until = Date.now() + 40;
+      while (Date.now() < until) {
+        // the event loop is blocked past the deadline
+      }
+      ctl.enqueue(new TextEncoder().encode("{}"));
+      ctl.close();
+    },
+  }, { highWaterMark: 0 });
+  assert.deepEqual(await readBody(response(busy), 4096, Date.now() + 20), { ok: false, why: "timeout" });
+});
+
+test("readBody: storage depends on the cap, not on how many chunks arrive or what they view", async () => {
+  const empty = new Uint8Array(0);
+  const one = new Uint8Array([0x78]);
+  // 10000 empty chunks, then one byte, with a cap of 1: accepted, and one buffer of our own.
+  const parts: Uint8Array[] = [...Array.from({ length: 10_000 }, () => empty), one];
+  const many = chunks(parts);
+  const r = await withAllocationSpy(() => readBody(response(many.stream), 1, LATER()));
+  assert.deepEqual(r.result, { ok: true, text: "x" });
+  assert.equal(r.count, 1);
+  assert.equal(r.largest, 1);
+  // Only empty chunks: nothing is allocated at all.
+  const none = chunks(Array.from({ length: 1_000 }, () => empty));
+  const n = await withAllocationSpy(() => readBody(response(none.stream), 4096, LATER()));
+  assert.deepEqual(n.result, { ok: true, text: "" });
+  assert.equal(n.count, 0);
+  // A tiny view of a large backing buffer: its bytes are copied into a buffer of at most the cap,
+  // so nothing holds on to the 1 MiB behind the view.
+  const backing = new Uint8Array(1 << 20).fill(0x61);
+  const views = chunks([backing.subarray(0, 3), backing.subarray(10, 13)]);
+  const v = await withAllocationSpy(() => readBody(response(views.stream), 16, LATER()));
+  assert.deepEqual(v.result, { ok: true, text: "aaaaaa" });
+  assert.equal(v.count, 1);
+  assert.equal(v.largest, 16);
+  // Many 1-byte chunks: copied into one growing buffer, not kept one object each.
+  const bytes = chunks(Array.from({ length: 5_000 }, () => one));
+  const b = await withAllocationSpy(() => readBody(response(bytes.stream), 1 << 20, LATER()));
+  assert.deepEqual(b.result, { ok: true, text: "x".repeat(5_000) });
+  assert.equal(b.count, 1);
+  assert.ok(b.largest <= 1 << 20);
+  // Growth past the first block doubles, each allocation within the cap.
+  const big = chunks(Array.from({ length: 5 }, () => new Uint8Array(40_000).fill(0x79)));
+  const g = await withAllocationSpy(() => readBody(response(big.stream), 150_000, LATER()));
+  assert.deepEqual(g.result, { ok: false, why: "too_large" });
+  const three = chunks(Array.from({ length: 3 }, () => new Uint8Array(40_000).fill(0x79)));
+  const g2 = await withAllocationSpy(() => readBody(response(three.stream), 150_000, LATER()));
+  assert.deepEqual(g2.result, { ok: true, text: "y".repeat(120_000) });
+  assert.equal(g2.count, 2);
+  assert.equal(g2.largest, 131_072);
 });
 
 test("readBody: a failing, locked, missing or non-UTF-8 body is unreadable", async () => {

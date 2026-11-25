@@ -536,9 +536,13 @@ export class HyperstackAdapter implements ProviderAdapter {
 
     stopBefore();
     const flavorName = await this.#flavorFor(gpu, spec);
-    stopBefore();
+    // The exact body and its hash come before the key: from here on, every stop check is
+    // immediately followed by its request, with nothing awaited between them.
+    const body = createBody({ name, environmentName, imageName: spec.image, flavorName, keyName, script });
+    const integrity = { bootScriptSha256: bootSha, requestSha256: await sha256Hex(body), echo: "unobservable" as const };
     // Only the public half is kept: the private key, never exportable, is dropped right here.
     const { publicKey } = await perLaunchKeypair();
+    stopBefore();
     let keyId: number;
     try {
       keyId = await this.importKeypair(keyName, environmentName, publicKey);
@@ -554,8 +558,6 @@ export class HyperstackAdapter implements ProviderAdapter {
       throw new ProviderError("hyperstack", "unknown", `stopped at the caller's deadline before creating a VM; keypair ${keyName} kept`);
     }
 
-    const body = createBody({ name, environmentName, imageName: spec.image, flavorName, keyName, script });
-    const integrity = { bootScriptSha256: bootSha, requestSha256: await sha256Hex(body), echo: "unobservable" as const };
     let id: string;
     try {
       id = createdVmId(await this.#call("POST", "/core/virtual-machines", body), name);
