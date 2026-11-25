@@ -2626,5 +2626,11 @@
   "old": "    return sorted(out)  # (in pid order, whatever order the directory lists them)",
   "new": "    return out",
   "note": "neutralise: user pids in listing order"
+ },
+ {
+  "file": "src/mock/mock-terminal.ts",
+  "old": "  ring: 1024 * 1024, // scrollback per session",
+  "new": "  ring: 128 * 1024, // scrollback per session",
+  "note": "credit: a ring smaller than the high-water mark (a takeover of a paused session stalls)"
  }
 ]
