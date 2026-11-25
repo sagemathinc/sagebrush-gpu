@@ -116,6 +116,23 @@ Every token carries a `kind` claim and is refused anywhere else. Signed tokens u
 
 - **The boot token's TTL: at most 120 s, first exchange wins** (SEC rulings of Nov 16 and Nov 24). For containers, the 120 s start when the provider first reports the machine running, which is when our launcher starts; image pulls before that don't count. The watchdog's "billed but not enrolled" stop starts from the same moment.
 - **VM mode stays refused** until a design keeps the boot credential's exchange window within 2 minutes. In a VM, cloud-init runs well after the provider reports the VM running, and an instance id is a claim checked against a known string, not attestation: anyone who reads the metadata knows what to claim in the first-exchange race. Acceptable designs: provider-verifiable instance identity; a fresh credential injected when cloud-init is ready; or another design that keeps the 2-minute cap.
+  - **The design is now cleared** (SEC, Nov 25): an IP-bound first announce, with the boot token in that request's TLS response (120 s, single use). The launcher is still unreachable in VM mode until every part below, and the announce, have landed and been reviewed together.
+  - **The VM gate** (`sbgpu_agent/vmgate.py`) runs before the announce, with the nonce's digest, and again before enroll, with the boot token's digest too. It only checks:
+    - ssh, sshd and the ssh socket resolve, through systemd's unit search path and aliases, to a mask or to nothing;
+    - no sshd runs;
+    - every `authorized_keys`/`authorized_keys2` is absent or an empty regular file, reached without following links;
+    - nothing listens on port 22, and nothing listens or is bound off loopback (TCP or UDP, IPv4 or IPv6);
+    - loopback listeners only from the image allowlist's exact `{process, protocol, address, port}`;
+    - every process runs an allowlisted executable;
+    - no environment or command line holds a credential shape (a closed list) or a known value (matched by digest);
+    - no provider agent: no hyperstack-agent unit, user, process or install directory;
+    - nothing answers on 169.254.169.254, and no config drive (both fail closed until the provider's contents are reviewed).
+  - **How the gate reads and reports:** every read is bounded. Unreadable, malformed or vanishing data fails the gate unless the process exited, and the listing repeats until stable. It prints `SBGPU-GATE {"v":1,"pass":…,"fail":[fixed words]}`. The image allowlist is data, reviewed per image.
+  - **Still to come before VM mode is reachable:**
+    - the files, logs, cloud-init, systemd-credential and keyring checks;
+    - the launcher's lockdown, announce and tmpfs boot file;
+    - the agent's bounded poweroff;
+    - the VM probe stages.
   - **VM user data** carries public values only, plus the machine's id and the launch's nonce (`SBGPU_MACHINE_ID`, `SBGPU_NONCE`; `renderBootScript` requires both in VM mode and refuses them in container mode). The announce names the script by `bootScriptSha256`: the sha256 of its exact UTF-8 bytes, final newline included. `BOOT_SCRIPT_VECTOR` is the shared test vector: control, the provider adapter and the launcher all test against it, and it changes whenever the launcher's bytes do.
 - The token is in pod metadata that the provider's API shows, so it's readable by anyone with the account key, and by the pod's own `RUNPOD_API_KEY` until eradication. Single use, first exchange wins, the exact pod-id binding and the short TTL are what protect it. The self-identity cross-check (`RUNPOD_POD_ID`, read by the launcher before the exec, sent at enroll) only catches mistakes: user code could fake it, but no user code runs before enroll.
 - **Incarnation:** each enroll for a machine increments `inc`. The relay and the gateway refuse a token from an older incarnation.
