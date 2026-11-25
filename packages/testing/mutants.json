@@ -154,5 +154,17 @@
   "old": "    assert.ok(made <= 1, `a stop attempt made ${made} revoke calls, more than one (the retry after the one in flight)`);",
   "new": "    assert.ok(true, `a stop attempt made ${made} revoke calls, more than one (the retry after the one in flight)`);",
   "note": "relay contract: any number of calls on the retry after a hold"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    assert.equal(await within(lc.mintPageToken(), \"mintPageToken()\"), null, \"a page token minted after the revoke in flight answered\");\n",
+  "new": "",
+  "note": "relay contract: no mint check after the revoke in flight answers"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    assert.equal(await within(lc.mintPageToken(), \"mintPageToken()\"), null, \"a page token minted for a machine stopped after a revoke in flight\");\n",
+  "new": "",
+  "note": "relay contract: no mint check once stopped after a revoke in flight"
  }
 ]
