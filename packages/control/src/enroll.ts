@@ -44,21 +44,20 @@ function isInt(x: unknown, lo: number, hi: number): x is number {
 interface VmEnroll {
   bootToken: string;
   agentSha256: string;
-  providerMachineId: string;
   gate: VmGateReport;
 }
 
 /** A VM enroll request in its exact shape, else null (the fixed refusal). */
 function parseVmEnroll(b: Record<string, unknown>): VmEnroll | null {
   const keys = Object.keys(b).sort();
-  const base = ["agentSha256", "agentVersion", "bootToken", "gate", "gpu", "hostname", "mode", "providerMachineId"];
+  // (no providerMachineId: a VM can't know it, and the token's launch has it)
+  const base = ["agentSha256", "agentVersion", "bootToken", "gate", "gpu", "hostname", "mode"];
   const withEradication = [...base, "eradication"].sort();
   if (keys.join(",") !== base.join(",") && keys.join(",") !== withEradication.join(",")) return null;
   if (b.mode !== "vm" || !isBootTokenShape(b.bootToken)) return null;
-  // (the hash and the provider id are compared with the launch's own, so their forms need no check here)
+  // (the hash is compared with the launch's own, so its form needs no check here)
   if (typeof b.agentSha256 !== "string") return null;
   if (typeof b.agentVersion !== "string" || !PRINTABLE.test(b.agentVersion)) return null;
-  if (typeof b.providerMachineId !== "string") return null;
   if (typeof b.hostname !== "string" || !HOSTNAME.test(b.hostname)) return null;
   if (b.gpu !== null) {
     const g = b.gpu as Record<string, unknown>;
@@ -72,7 +71,7 @@ function parseVmEnroll(b: Record<string, unknown>): VmEnroll | null {
   }
   const gate = parseGateReport(b.gate);
   if (!gate) return null;
-  return { bootToken: b.bootToken, agentSha256: b.agentSha256, providerMachineId: b.providerMachineId, gate };
+  return { bootToken: b.bootToken, agentSha256: b.agentSha256, gate };
 }
 
 interface TokenRow {
@@ -179,7 +178,7 @@ export const ENROLL_HANDLERS: Handlers = {
     if (!live) throw REFUSED();
     const providerMachineId = r.provider_machine_id as string;
     // 4. the request's claims, then the gate's report (a failing one is definitive)
-    if (!sameText(req.providerMachineId, providerMachineId) || !sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();
+    if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();
     if (!req.gate.pass) return definitiveFailure(ctx, r, "gate-failed", req.gate);
     // 5. a fresh provider read: unavailable is retryable (token untouched); a disagreeing answer is definitive
     const vm = deps.vm;
