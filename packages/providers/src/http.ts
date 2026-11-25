@@ -102,24 +102,22 @@ export type BodyRead = { ok: true; text: string } | { ok: false; why: "too_large
  * text() is never called.
  */
 export async function readBody(res: HttpResponse, maxBytes: number, deadline: number): Promise<BodyRead> {
-  let reader;
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
     reader = (res.body as ReadableStream<Uint8Array>).getReader();
   } catch {
     return { ok: false, why: "unreadable" };
   }
-  let buf: Uint8Array | null = null;
-  let size = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<"late">((ok) => {
-    timer = setTimeout(() => ok("late"), Math.max(0, deadline - Date.now()));
-  });
-  try {
+  const timeout: BodyRead = { ok: false, why: "timeout" };
+  // The reads, start to end. Its own deadline checks (before each read, and on each answer) refuse
+  // a late answer; the single race below ends a read that never answers.
+  const pump = async (): Promise<BodyRead> => {
+    let buf: Uint8Array | null = null;
+    let size = 0;
     for (;;) {
-      if (Date.now() >= deadline) return { ok: false, why: "timeout" };
-      const next = await Promise.race([reader.read(), late]);
-      // An answer that arrives after the deadline is refused, end of stream included.
-      if (next === "late" || Date.now() >= deadline) return { ok: false, why: "timeout" };
+      if (Date.now() >= deadline) return timeout;
+      const next = await reader.read();
+      if (Date.now() >= deadline) return timeout;
       if (next.done) break;
       const n = next.value.length;
       // Checked before any copy: nothing past maxBytes is ever copied.
@@ -134,15 +132,22 @@ export async function readBody(res: HttpResponse, maxBytes: number, deadline: nu
       (buf as Uint8Array).set(next.value, size);
       size += n;
     }
-  } catch {
-    return { ok: false, why: "unreadable" };
+    try {
+      return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(buf === null ? NO_BYTES : buf.subarray(0, size)) };
+    } catch {
+      return { ok: false, why: "unreadable" };
+    }
+  };
+  // One race for the whole read, so waiting costs one timer and one reaction, however many chunks.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<BodyRead>((ok) => {
+    timer = setTimeout(() => ok(timeout), Math.max(0, deadline - Date.now()));
+  });
+  try {
+    return await Promise.race([pump().catch((): BodyRead => ({ ok: false, why: "unreadable" })), late]);
   } finally {
     clearTimeout(timer);
+    // Ends the stream, and with it a pump still waiting on a read.
     reader.cancel().catch(() => {});
-  }
-  try {
-    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(buf === null ? NO_BYTES : buf.subarray(0, size)) };
-  } catch {
-    return { ok: false, why: "unreadable" };
   }
 }

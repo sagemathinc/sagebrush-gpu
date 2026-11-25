@@ -348,6 +348,41 @@ test("readBody: storage depends on the cap, not on how many chunks arrive or wha
   assert.equal(g2.largest, 131_072);
 });
 
+test("readBody: waiting for the deadline costs one race, however many chunks are read", async () => {
+  // Every Promise.race registers a reaction on each promise it races, and a reaction on a promise
+  // that is still pending can't be removed: racing one deadline promise per read would keep one
+  // per read. So the whole read is one race.
+  const race = Promise.race.bind(Promise);
+  let races = 0;
+  Promise.race = ((values: Iterable<unknown>) => {
+    races++;
+    return race(values);
+  }) as typeof Promise.race;
+  try {
+    const empty = new Uint8Array(0);
+    const parts = [...Array.from({ length: 1_000 }, () => empty), new Uint8Array([0x78])];
+    const { stream, stats } = chunks(parts);
+    assert.deepEqual(await readBody(response(stream), 1, LATER()), { ok: true, text: "x" });
+    assert.equal(stats.pulls, 1_002);
+    assert.equal(races, 1);
+    // The same for a body cut off at the deadline after many reads.
+    races = 0;
+    let pulls = 0;
+    const trickle = new ReadableStream<Uint8Array>({
+      async pull(ctl) {
+        pulls++;
+        await new Promise((ok) => setTimeout(ok, 1));
+        ctl.enqueue(empty);
+      },
+    }, { highWaterMark: 0 });
+    assert.deepEqual(await readBody(response(trickle), 1, Date.now() + 40), { ok: false, why: "timeout" });
+    assert.ok(pulls > 3, `pulls ${pulls}`);
+    assert.equal(races, 1);
+  } finally {
+    Promise.race = race;
+  }
+});
+
 test("readBody: a failing, locked, missing or non-UTF-8 body is unreadable", async () => {
   const failing = new ReadableStream<Uint8Array>({ pull(ctl) { ctl.error(new Error("cut")); } });
   assert.deepEqual(await readBody(response(failing), 4096, LATER()), { ok: false, why: "unreadable" });
