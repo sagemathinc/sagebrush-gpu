@@ -159,7 +159,7 @@ before(async () => {
     writeFileSync(p, readFileSync(p, "utf8").replace("def announce(prefix,", `def announce(prefix, *a):
     import time
     d, st = make_dir(prefix)
-    os.write(os.open("boot.json", os.O_CREAT | os.O_WRONLY, 0o600, dir_fd=d), b"T" * 20 + b"o-_" + b"k" * 20)
+    os.write(os.open("boot.json", os.O_CREAT | os.O_WRONLY, 0o600, dir_fd=d), ("T" * int("20") + "o-_" + "k" * int("20")).encode())  # (built at run time: no literal in the .pyc)
     print("dir %d %d" % (st.st_dev, st.st_ino), flush=True)
     time.sleep(600)
 
