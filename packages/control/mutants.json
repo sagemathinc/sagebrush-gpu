@@ -426,36 +426,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "if (await knownEmail(deps.db, email)) {",
-  "new": "if (true) {"
- },
- {
-  "file": "src/app.ts",
-  "old": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ? AND status <> 'removed') AS n`",
-  "new": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ?) AS n`"
- },
- {
-  "file": "src/app.ts",
-  "old": "now + deps.config.signInLinkTtlMs,",
-  "new": "now + deps.config.signInLinkTtlMs + 1,"
- },
- {
-  "file": "src/app.ts",
-  "old": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms > ?`",
-  "new": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND expires_ms > ?`"
- },
- {
-  "file": "src/app.ts",
-  "old": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms > ?`",
-  "new": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms >= ?`"
- },
- {
-  "file": "src/app.ts",
-  "old": "if (used.changes !== 1) throw",
-  "new": "if (used.changes < 0) throw"
- },
- {
-  "file": "src/app.ts",
   "old": "WHERE email = ? AND status = 'invited' AND user_id IS NULL`,",
   "new": "WHERE email = ? AND user_id IS NULL`,"
  },
@@ -573,36 +543,6 @@
   "file": "src/app.ts",
   "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
   "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= MAX_BODY_BYTES) {"
- },
- {
-  "file": "src/app.ts",
-  "old": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) < ?`,",
-  "new": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) <= ?`,"
- },
- {
-  "file": "src/app.ts",
-  "old": "      if (inserted.changes === 1) {",
-  "new": "      if (inserted.changes >= 0) {"
- },
- {
-  "file": "src/app.ts",
-  "old": "now - 3_600_000, deps.config.maxLinksPerEmailPerHour]",
-  "new": "now - 60_000, deps.config.maxLinksPerEmailPerHour]"
- },
- {
-  "file": "src/app.ts",
-  "old": "now + deps.config.signInLinkTtlMs, email,",
-  "new": "now + deps.config.signInLinkTtlMs + 1, email,"
- },
- {
-  "file": "src/app.ts",
-  "old": "          Promise.resolve()\n            .then(() => deps.mailer.sendSignInLink(email, url))\n            .catch(() => {}),",
-  "new": "          deps.mailer.sendSignInLink(email, url),"
- },
- {
-  "file": "src/app.ts",
-  "old": "        deps.waitUntil(\n",
-  "new": "        await ((work: Promise<unknown>) => work)(\n"
  },
  {
   "file": "src/app.ts",

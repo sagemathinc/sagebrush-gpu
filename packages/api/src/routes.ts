@@ -97,11 +97,15 @@ export interface AddCreditRequest {
   reference: string;
 }
 
+/** A 302 the browser follows: these routes are navigated to, never fetched by a client. */
+export type Redirect = never;
+
 /** Path parameters are named `:name` in ROUTES and appear here with the same names. */
 export interface Endpoints {
   // auth
-  requestSignInLink: { method: "POST"; path: "/v1/auth/email-link"; params: {}; query: {}; body: { email: string }; response: Ok };
-  verifySignInLink: { method: "POST"; path: "/v1/auth/verify"; params: {}; query: {}; body: { token: string }; response: Me };
+  // (sign-in goes through WorkOS AuthKit: the browser navigates to startSignIn, never fetches it; see signin.ts)
+  startSignIn: { method: "GET"; path: "/v1/auth/start"; params: {}; query: { return?: string }; body: undefined; response: Redirect };
+  signInCallback: { method: "GET"; path: "/v1/auth/callback"; params: {}; query: { code?: string; state?: string; error?: string }; body: undefined; response: Redirect };
   signOut: { method: "POST"; path: "/v1/auth/sign-out"; params: {}; query: {}; body: {}; response: Ok };
   getMe: { method: "GET"; path: "/v1/me"; params: {}; query: {}; body: undefined; response: Me };
 
@@ -181,8 +185,8 @@ const machineMember = { auth: "session", scope: "machine", minRole: "member" } a
 const OWN = "a member may act only on their own machines; assistants and above on any in the project";
 
 export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } = {
-  requestSignInLink: { method: "POST", path: "/v1/auth/email-link", access: { auth: "public" }, note: "always answers ok, whether or not the email is known" },
-  verifySignInLink: { method: "POST", path: "/v1/auth/verify", access: { auth: "public" }, note: "one-time; sets the session cookie" },
+  startSignIn: { method: "GET", path: "/v1/auth/start", access: { auth: "public" }, note: "a 302 to WorkOS AuthKit; `return` is kept only if isSafeReturnPath" },
+  signInCallback: { method: "GET", path: "/v1/auth/callback", access: { auth: "public" }, note: "WorkOS's redirect back: a 302 to the return path with the session cookie, or to /?signin=<SignInOutcome>" },
   signOut: { method: "POST", path: "/v1/auth/sign-out", access: { auth: "session", scope: "none" } },
   getMe: { method: "GET", path: "/v1/me", access: { auth: "session", scope: "none" } },
 

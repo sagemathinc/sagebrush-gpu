@@ -1,10 +1,11 @@
 // A test world for the control plane's HTTP API: the app over node:sqlite with a fixed
-// clock, deterministic randomness, a recording mailer, one org and one project, and
-// helpers to call it and to sign people in through the real flow.
+// clock, deterministic randomness, one org and one project, and helpers to call it and to
+// sign people in (as the sign-in callback does).
 
 import assert from "node:assert/strict";
 import { newId } from "@sbgpu/api";
-import { DEFAULT_CONFIG, HANDLERS, createApp, type AppDeps, type Handlers } from "../app.ts";
+import { DEFAULT_CONFIG, HANDLERS, createApp, startSession, type AppDeps, type Handlers } from "../app.ts";
+import { normalizeEmail } from "../validate.ts";
 import { stmt } from "../db.ts";
 import { sqliteDb, type TestDb } from "./sqlite.ts";
 import type { DatabaseSync } from "node:sqlite";
@@ -16,7 +17,6 @@ export interface World {
   db: TestDb;
   pending: Promise<unknown>[];
   deps: AppDeps;
-  mail: Array<{ email: string; url: string }>;
   clock: { t: number };
   app: ReturnType<typeof createApp>;
   orgId: string;
@@ -25,7 +25,6 @@ export interface World {
 
 export async function world(o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void } } = {}): Promise<World> {
   const db = sqliteDb(o.upgrade ? { upgrade: o.upgrade } : {});
-  const mail: Array<{ email: string; url: string }> = [];
   const pending: Promise<unknown>[] = [];
   const clock = { t: T0 };
   let counter = 0;
@@ -37,11 +36,6 @@ export async function world(o: { handlers?: Handlers; budget?: number; upgrade?:
       counter++;
       for (let i = 0; i < n; i++) b[i] = (counter * 31 + i * 7 + (counter >> 8)) & 255;
       return b;
-    },
-    mailer: {
-      async sendSignInLink(email, url) {
-        mail.push({ email, url });
-      },
     },
     config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test" },
     waitUntil: (p) => {
@@ -65,7 +59,7 @@ export async function world(o: { handlers?: Handlers; budget?: number; upgrade?:
         ]
       : []),
   ]);
-  return { db, pending, deps, mail, clock, app: createApp(deps, o.handlers ? { ...HANDLERS, ...o.handlers } : HANDLERS), orgId, projectId };
+  return { db, pending, deps, clock, app: createApp(deps, o.handlers ? { ...HANDLERS, ...o.handlers } : HANDLERS), orgId, projectId };
 }
 
 export interface Req {
@@ -111,15 +105,11 @@ export async function addMember(
   return id;
 }
 
-/** Sign in through the real flow (the email must be known); returns the cookie header. */
+/** Signed in, as the sign-in callback leaves a person; returns the cookie header. */
 export async function signIn(w: World, email: string): Promise<string> {
-  const n = w.mail.length;
-  await call(w, "POST", "/v1/auth/email-link", { body: { email } });
-  assert.equal(w.mail.length, n + 1, `a link was mailed to ${email}`);
-  const token = new URL(w.mail.at(-1)!.url).searchParams.get("token")!;
-  const r = await call(w, "POST", "/v1/auth/verify", { body: { token } });
-  assert.equal(r.res.status, 200);
-  return r.res.headers.get("set-cookie")!.split(";")[0]!;
+  const e = normalizeEmail(email);
+  assert.ok(e, email);
+  return (await startSession(w.deps, e)).setCookie.split(";")[0]!;
 }
 
 /** A signed-in person with this project role (active). */

@@ -59,3 +59,23 @@ test("startWorker: a failed start (a bad migration) rejects and leaves nothing r
   assert.equal(out.trim(), "rejected");
   assert.ok(Date.now() - t0 < 30_000, `${Date.now() - t0} ms`);
 });
+
+test("startWorker: static assets behind a binding, the Worker first", async () => {
+  const w = await startWorker({
+    entry: "packages/testing/fixtures/entry.ts",
+    durableObjects: { COUNTER: "Counter" },
+    bindings: { GREETING: "hi" },
+    assets: { directory: "packages/testing/fixtures/assets", binding: "ASSETS", runWorkerFirst: true },
+  });
+  try {
+    const res = await w.mf.dispatchFetch("https://test.invalid/assets/hello.txt");
+    assert.equal(res.headers.get("x-through-worker"), "1");
+    assert.equal((await res.text()).trim(), "hello asset");
+    // (worker first: an asset's own path still reaches the Worker, which answers it)
+    const direct = await w.mf.dispatchFetch("https://test.invalid/hello.txt");
+    assert.equal(direct.status, 404);
+    assert.equal(await direct.text(), "not found");
+  } finally {
+    await w.dispose();
+  }
+});

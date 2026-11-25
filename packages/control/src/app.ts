@@ -1,6 +1,6 @@
 // The control plane's HTTP API: dispatch through the contract's route table, body and
 // origin checks, sessions, role checks, and the handlers. createApp takes its
-// dependencies (database, clock, randomness, mailer, config) so tests run it as is.
+// dependencies (database, clock, randomness, config) so tests run it as is.
 //
 // Every response carries the security headers, including Referrer-Policy: no-referrer
 // (the sign-in landing page has a one-time token in its URL). Errors are always the
@@ -38,16 +38,11 @@ export interface AppConfig {
   appOrigin: string;
   /** Machines are served at https://m-<machineId>.<machineDomain>/ (the deploy config's MACHINE_DOMAIN). */
   machineDomain: string;
-  signInLinkTtlMs: number;
   sessionTtlMs: number;
-  /** Sign-in links per email per hour; requests beyond it are answered ok and dropped. */
-  maxLinksPerEmailPerHour: number;
 }
 
 export const DEFAULT_CONFIG: Omit<AppConfig, "appOrigin" | "machineDomain"> = {
-  signInLinkTtlMs: 15 * 60_000,
   sessionTtlMs: 30 * 24 * 60 * 60_000,
-  maxLinksPerEmailPerHour: 5,
 };
 
 const HOSTNAME = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -68,21 +63,12 @@ export function configFromEnv(env: Record<string, unknown>): AppConfig {
 
 // ---------------------------------------------------------------- deps
 
-export interface Mailer {
-  sendSignInLink(email: string, url: string): Promise<void>;
-}
-
 export interface AppDeps {
   db: Db;
   now(): number;
   randomBytes(n: number): Uint8Array;
-  mailer: Mailer;
   config: AppConfig;
-  /**
-   * Runs work after the response (the Worker's ctx.waitUntil). Mail goes through it, so
-   * no response waits on delivery: a slow mail can't tell a known address from an
-   * unknown one.
-   */
+  /** Runs work after the response (the Worker's ctx.waitUntil). */
   waitUntil(work: Promise<unknown>): void;
 }
 
@@ -301,76 +287,32 @@ async function buildMe(db: Db, userId: string): Promise<Me> {
   };
 }
 
-/** Whether anyone expects this email to sign in: a user, or a live invitation. */
-async function knownEmail(db: Db, email: string): Promise<boolean> {
-  const r = await db.all<{ n: number }>(
-    `SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ? AND status <> 'removed') AS n`,
-    [email, email],
-  );
-  return (r[0]?.n ?? 0) > 0;
+/**
+ * A signed-in person's first steps, in one batch: their user (created on the first sign-in,
+ * by verified email), their invitations to projects made active, and a new session.
+ * Returns the session's cookie (Set-Cookie value) and the user. `email` must be normalized
+ * and verified by whoever signed the person in (WorkOS's callback); nothing here checks it.
+ */
+export async function startSession(deps: AppDeps, email: string): Promise<{ setCookie: string; userId: string }> {
+  const now = deps.now();
+  const sessionValue = base64url(deps.randomBytes(32));
+  await deps.db.batch([
+    { sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING`, params: [newId("user"), email, now] },
+    {
+      sql: `UPDATE members SET user_id = (SELECT id FROM users WHERE email = ?), status = 'active'
+            WHERE email = ? AND status = 'invited' AND user_id IS NULL`,
+      params: [email, email],
+    },
+    {
+      sql: `INSERT INTO sessions (id_sha256, user_id, created_ms, expires_ms) SELECT ?, id, ?, ? FROM users WHERE email = ?`,
+      params: [await sha256Hex(sessionValue), now, now + deps.config.sessionTtlMs, email],
+    },
+  ]);
+  const user = await deps.db.all<{ id: string }>(`SELECT id FROM users WHERE email = ?`, [email]);
+  return { setCookie: sessionCookie(sessionValue, Math.floor(deps.config.sessionTtlMs / 1000)), userId: user[0]!.id };
 }
 
 const AUTH_HANDLERS: Handlers = {
-  async requestSignInLink(ctx) {
-    const { deps } = ctx;
-    const email = normalizeEmail(ctx.body.email);
-    if (!email) throw new HttpError("badRequest", "a valid email address is required");
-    const now = deps.now();
-    // Always the same answer, so the endpoint doesn't reveal who is known.
-    if (await knownEmail(deps.db, email)) {
-      const token = base64url(deps.randomBytes(32));
-      // One statement reserves the hour's slot and stores the link, so concurrent
-      // requests can't all pass a count taken before any of them inserted.
-      const inserted = await deps.db.run(
-        `INSERT INTO sign_in_links (token_sha256, email, created_ms, expires_ms)
-         SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) < ?`,
-        [await sha256Hex(token), email, now, now + deps.config.signInLinkTtlMs, email, now - 3_600_000, deps.config.maxLinksPerEmailPerHour],
-      );
-      if (inserted.changes === 1) {
-        // Only the request that won the reservation sends mail, after the response; a
-        // failure (rejected or thrown) leaves the link unused and the answer unchanged.
-        const url = `${deps.config.appOrigin}/?token=${token}`;
-        deps.waitUntil(
-          Promise.resolve()
-            .then(() => deps.mailer.sendSignInLink(email, url))
-            .catch(() => {}),
-        );
-      }
-    }
-    return json(200, { ok: true });
-  },
-
-  async verifySignInLink(ctx) {
-    const { deps } = ctx;
-    const token = ctx.body.token;
-    // a malformed token hashes to nothing stored, so it fails the compare-and-set below
-    if (typeof token !== "string") throw new HttpError("unauthenticated", "this sign-in link is not valid");
-    const now = deps.now();
-    const hash = await sha256Hex(token);
-    // Consume the link: one compare-and-set, so a link works exactly once.
-    const used = await deps.db.run(`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms > ?`, [now, hash, now]);
-    if (used.changes !== 1) throw new HttpError("unauthenticated", "this sign-in link is not valid, used or expired");
-    const link = await deps.db.all<{ email: string }>(`SELECT email FROM sign_in_links WHERE token_sha256 = ?`, [hash]);
-    const email = link[0]!.email;
-    const sessionValue = base64url(deps.randomBytes(32));
-    const newUserId = newId("user");
-    await deps.db.batch([
-      { sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING`, params: [newUserId, email, now] },
-      {
-        sql: `UPDATE members SET user_id = (SELECT id FROM users WHERE email = ?), status = 'active'
-              WHERE email = ? AND status = 'invited' AND user_id IS NULL`,
-        params: [email, email],
-      },
-      {
-        sql: `INSERT INTO sessions (id_sha256, user_id, created_ms, expires_ms) SELECT ?, id, ?, ? FROM users WHERE email = ?`,
-        params: [await sha256Hex(sessionValue), now, now + deps.config.sessionTtlMs, email],
-      },
-    ]);
-    const user = await deps.db.all<{ id: string }>(`SELECT id FROM users WHERE email = ?`, [email]);
-    const me = await buildMe(deps.db, user[0]!.id);
-    return json(200, me, { "set-cookie": sessionCookie(sessionValue, Math.floor(deps.config.sessionTtlMs / 1000)) });
-  },
-
   async signOut(ctx) {
     await ctx.deps.db.run(`UPDATE sessions SET revoked_ms = ? WHERE id_sha256 = ? AND revoked_ms IS NULL`, [ctx.deps.now(), ctx.sessionHash]);
     return json(200, { ok: true }, { "set-cookie": sessionCookie("", 0) });
