@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { FakeTimers } from "../app/testkit.ts";
 import {
   ACK_EVERY_BYTES,
+  MAX_PENDING_INPUT_BYTES,
   PING_EVERY_MS,
   base64ToBytes,
   bytesToBase64,
@@ -13,6 +14,7 @@ import {
   reconnectDelayMs,
   terminalUrl,
   TerminalSession,
+  type InputNotice,
   type SocketHandlers,
   type TerminalStatus,
 } from "./session.ts";
@@ -542,4 +544,112 @@ test("a newer connection supersedes one still waiting for its token", async () =
   gives[0]!({ token: "old", url: "wss://ui.example/old" });
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(urls, ["wss://ui.example/new"]);
+});
+
+/** A live session whose agent never acks input, with its notices recorded. */
+async function stalled() {
+  const t = setup();
+  const s = await t.connect();
+  s.msg({ t: "opened", session: SID });
+  s.msg({ t: "live" });
+  return { t, s, inBytes: () => s.ofType("in").reduce((n, m) => n + base64ToBytes(m.b as string).length, 0) };
+}
+
+test("input: with no ack, repeated pastes stop at the cap; nothing past it is kept", async () => {
+  const { t, s, inBytes } = await stalled();
+  assert.equal(MAX_PENDING_INPUT_BYTES, 1024 * 1024);
+  const paste = "p".repeat(512 * 1024);
+  assert.equal(t.term.input(paste), true);
+  assert.equal(inBytes(), INPUT_CREDIT_BYTES); // 64 KiB on the wire
+  assert.equal(t.term.pendingInputBytes, 512 * 1024 - INPUT_CREDIT_BYTES);
+  assert.equal(t.term.input(paste), true); // still fits: 960 KiB waiting
+  assert.equal(t.term.pendingInputBytes, 1024 * 1024 - INPUT_CREDIT_BYTES);
+  for (let i = 0; i < 4; i++) assert.equal(t.term.input(paste), false); // four more: all refused
+  assert.equal(t.term.pendingInputBytes, 1024 * 1024 - INPUT_CREDIT_BYTES);
+  assert.equal(inBytes(), INPUT_CREDIT_BYTES);
+  // Up to the cap exactly is fine; one byte more is not.
+  assert.equal(t.term.input("q".repeat(INPUT_CREDIT_BYTES)), true);
+  assert.equal(t.term.pendingInputBytes, MAX_PENDING_INPUT_BYTES);
+  assert.equal(t.term.input("r"), false);
+  // Once the machine takes it, everything queued goes out, in order, and nothing else.
+  let acked = 0;
+  while (inBytes() > acked) {
+    acked = inBytes();
+    s.msg({ t: "inack", upto: acked });
+  }
+  assert.equal(inBytes(), 2 * 512 * 1024 + INPUT_CREDIT_BYTES);
+  assert.equal(t.term.pendingInputBytes, 0);
+});
+
+test("input: one oversized paste is refused whole, before it is encoded", async () => {
+  const { t, inBytes } = await stalled();
+  const encodes: number[] = [];
+  const realEncode = TextEncoder.prototype.encode;
+  TextEncoder.prototype.encode = function (this: TextEncoder, s?: string) {
+    encodes.push(s?.length ?? 0);
+    return realEncode.call(this, s);
+  };
+  try {
+    assert.equal(t.term.input("z".repeat(MAX_PENDING_INPUT_BYTES + 1)), false);
+    // Multi-byte text that fits as UTF-16 but not as UTF-8 is measured, then refused.
+    assert.equal(t.term.input("é".repeat(MAX_PENDING_INPUT_BYTES / 2 + 1)), false);
+  } finally {
+    TextEncoder.prototype.encode = realEncode;
+  }
+  assert.deepEqual(encodes, [MAX_PENDING_INPUT_BYTES / 2 + 1]); // the first was never encoded
+  assert.equal(inBytes(), 0);
+  assert.equal(t.term.pendingInputBytes, 0);
+  // Control: a paste that fits is taken.
+  assert.equal(t.term.input("ok"), true);
+  assert.equal(inBytes(), 2);
+});
+
+test("input: the cap is exact in UTF-8 bytes, also when the text is short in UTF-16", async () => {
+  const { t } = await stalled();
+  const half = "é".repeat(MAX_PENDING_INPUT_BYTES / 2); // 2 bytes each: exactly the cap
+  assert.equal(t.term.input(half + "x"), false); // one byte over, though only half as many characters
+  assert.equal(t.term.pendingInputBytes, 0);
+  assert.equal(t.term.input(half), true);
+  assert.equal(t.term.pendingInputBytes + INPUT_CREDIT_BYTES, MAX_PENDING_INPUT_BYTES);
+});
+
+test("input notices: waiting while held back, refused when too large, gone when drained or closed", async () => {
+  const notices: Array<InputNotice | null> = [];
+  const sockets: Array<{ h: SocketHandlers; sent: Record<string, unknown>[] }> = [];
+  const term = new TerminalSession({
+    machineId: "mch_1",
+    connect: (_url, h) => {
+      const s = { h, sent: [] as Record<string, unknown>[] };
+      sockets.push(s);
+      return { send: (x) => s.sent.push(JSON.parse(x)), close: () => {} };
+    },
+    open: async () => ({ token: "t", url: "wss://ui.example/" }),
+    sink: { write: (_b, done) => done(), reset: () => {} },
+    storage: { get: () => null, set: () => {} },
+    timers: new FakeTimers(),
+    size: () => ({ rows: 24, cols: 80 }),
+    onStatus: () => {},
+    onInputNotice: (n) => notices.push(n),
+  });
+  term.start();
+  await new Promise((r) => setTimeout(r, 0));
+  const s = sockets[0]!;
+  s.h.onOpen();
+  for (const m of [{ relay: "ready", gen: 1 }, { t: "opened", session: SID }, { t: "live" }]) s.h.onMessage(JSON.stringify(m));
+  term.input("a".repeat(INPUT_CREDIT_BYTES + 10));
+  assert.deepEqual(notices, [{ kind: "waiting", bytes: 10 }]);
+  term.input("b".repeat(MAX_PENDING_INPUT_BYTES));
+  assert.deepEqual(notices.at(-1), { kind: "refused", bytes: MAX_PENDING_INPUT_BYTES, limit: MAX_PENDING_INPUT_BYTES });
+  s.h.onMessage(JSON.stringify({ t: "inack", upto: 0 })); // back to "waiting" after the refusal
+  assert.deepEqual(notices.at(-1), { kind: "waiting", bytes: 10 });
+  const before = notices.length;
+  s.h.onMessage(JSON.stringify({ t: "inack", upto: 0 })); // an ack that changes nothing
+  assert.equal(notices.length, before); // the same notice isn't sent twice
+  s.h.onMessage(JSON.stringify({ t: "inack", upto: INPUT_CREDIT_BYTES }));
+  assert.equal(notices.at(-1), null); // the last 10 bytes went out
+  term.input("c".repeat(INPUT_CREDIT_BYTES)); // 10 bytes in flight: three 16 KiB frames go, one waits
+  assert.deepEqual(notices.at(-1), { kind: "waiting", bytes: 16 * 1024 });
+  s.h.onClose(4001, "");
+  assert.equal(notices.at(-1), null); // a closed connection holds nothing
+  assert.equal(term.pendingInputBytes, 0);
 });

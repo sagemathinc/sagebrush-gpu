@@ -16,6 +16,8 @@ export interface TermLike {
   focus(): void;
   /** Stop or allow keyboard input (after an exit, nothing typed goes anywhere). */
   setInputEnabled(enabled: boolean): void;
+  /** What the screen's buffer holds, line by line (trailing blank lines dropped). */
+  bufferText(): string;
   dispose(): void;
 }
 
@@ -62,6 +64,13 @@ export const createXterm: CreateTerm = async () => {
     focus: () => term.focus(),
     setInputEnabled: (enabled) => {
       term.options.disableStdin = !enabled;
+    },
+    bufferText: () => {
+      const buffer = term.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < buffer.length; i++) lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
+      while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+      return lines.join("\n");
     },
     dispose: () => term.dispose(),
   };

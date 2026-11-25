@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { REAL_TIMERS, type PollTimers } from "./polling.ts";
 import { html } from "./html.ts";
 import type { Store } from "./store.ts";
-import { TerminalSession, type Connect, type SessionIdStore, type TerminalStatus } from "../terminal/session.ts";
+import { TerminalSession, type Connect, type InputNotice, type SessionIdStore, type TerminalStatus } from "../terminal/session.ts";
+import { formatBytes } from "../view.ts";
 import { createXterm, type CreateTerm, type TermLike } from "../terminal/xterm.ts";
 
 /** The browser's WebSocket as the session's socket. */
@@ -60,6 +61,12 @@ export function statusText(status: TerminalStatus): string {
   }
 }
 
+export function inputNoticeText(notice: InputNotice | null): string {
+  if (notice == null) return "";
+  if (notice.kind === "waiting") return `Waiting for the machine to take ${formatBytes(notice.bytes)} of input…`;
+  return `That paste is too large (${formatBytes(notice.bytes)}): at most ${formatBytes(notice.limit)} of input can wait at a time. Nothing of it was sent.`;
+}
+
 export interface TerminalPanelProps {
   store: Store;
   machineId: string;
@@ -75,6 +82,7 @@ export function TerminalPanel({ store, machineId, onClose, createTerm, connect, 
   const screen = useRef<HTMLDivElement>(null);
   const session = useRef<TerminalSession | null>(null);
   const [status, setStatus] = useState<TerminalStatus>({ kind: "connecting" });
+  const [notice, setNotice] = useState<InputNotice | null>(null);
 
   useEffect(() => {
     let term: TermLike | null = null;
@@ -100,6 +108,7 @@ export function TerminalPanel({ store, machineId, onClose, createTerm, connect, 
           t.setInputEnabled(next.kind === "live");
           setStatus(next);
         },
+        onInputNotice: setNotice,
       });
       session.current = s;
       listeners.push(t.onData((data) => s.input(data)));
@@ -122,7 +131,7 @@ export function TerminalPanel({ store, machineId, onClose, createTerm, connect, 
     };
   }, [machineId]);
 
-  const text = statusText(status);
+  const text = [statusText(status), inputNoticeText(notice)].filter((x) => x !== "").join(" ");
   return html`<section class="terminal" aria-label="Terminal">
     <header>
       <strong>Terminal</strong>

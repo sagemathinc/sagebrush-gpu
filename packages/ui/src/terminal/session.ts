@@ -18,6 +18,12 @@ export const ACK_EVERY_BYTES = 32 * 1024;
 export const INPUT_CREDIT_BYTES = 64 * 1024;
 /** Decoded bytes per `in` frame. */
 export const IN_FRAME_BYTES = 16 * 1024;
+/**
+ * At most this much typed or pasted input waits on the page for the machine to take it
+ * (beyond the 64 KiB in flight). More is refused, and the user is told, so a machine that
+ * stops taking input can't make the page hold pastes without limit.
+ */
+export const MAX_PENDING_INPUT_BYTES = 1024 * 1024;
 /** Reconnect waits after the agent goes away or the network drops: 1, 2, 4 ... 30 s. */
 export const RECONNECT_MAX_MS = 30_000;
 /** Ping the relay this often; it closes a page that's silent for 40 s. */
@@ -124,6 +130,9 @@ export type TerminalStatus =
   /** Closed for good: access revoked or the machine stopped, too many shells, or a fault. */
   | { kind: "closed"; reason: "revoked" | "sessions" | "spawn" | "unavailable" | "fault"; detail: string };
 
+/** Input held back, for the status line: waiting for the machine, or refused as too large. */
+export type InputNotice = { kind: "waiting"; bytes: number } | { kind: "refused"; bytes: number; limit: number };
+
 export interface TerminalOptions {
   machineId: string;
   connect: Connect;
@@ -134,6 +143,8 @@ export interface TerminalOptions {
   timers: PollTimers;
   size: () => { rows: number; cols: number };
   onStatus: (status: TerminalStatus) => void;
+  /** Input waiting or refused; null when nothing is held back. */
+  onInputNotice?: (notice: InputNotice | null) => void;
 }
 
 // ---------------------------------------------------------------- the connection
@@ -164,8 +175,10 @@ export class TerminalSession {
   #attempt = 0;
   #timer: unknown;
   #disposed = false;
-  /** Input waiting for credit, as encoded frames. */
+  /** Input waiting for credit, as encoded frames (each its own copy), and their total. */
   #queue: Uint8Array[] = [];
+  #queued = 0;
+  #notice: InputNotice | null = null;
   /** Connections started; an older one's late events are ignored. */
   #epoch = 0;
 
@@ -181,12 +194,51 @@ export class TerminalSession {
     void this.#connect();
   }
 
-  /** Type or paste: sent in frames of at most 16 KiB, never past 64 KiB unacknowledged. */
-  input(data: string): void {
-    if (this.#status.kind !== "live" || this.#leg == null) return;
+  /** Input bytes held on the page, waiting for the machine to take them. */
+  get pendingInputBytes(): number {
+    return this.#queued;
+  }
+
+  /**
+   * Type or paste: sent in frames of at most 16 KiB, never past 64 KiB unacknowledged, and
+   * at most MAX_PENDING_INPUT_BYTES held back on the page. False (and a "refused" notice)
+   * when it doesn't fit: nothing of it is kept.
+   */
+  input(data: string): boolean {
+    if (this.#status.kind !== "live" || this.#leg == null) return false;
+    const room = MAX_PENDING_INPUT_BYTES - this.#queued;
+    // UTF-8 takes at least one byte per UTF-16 unit, so a string longer than the room can't
+    // fit: refuse it before encoding anything.
+    if (data.length > room) return this.#refuse(data.length);
     const bytes = encoder.encode(data);
-    for (let i = 0; i < bytes.length; i += IN_FRAME_BYTES) this.#queue.push(bytes.subarray(i, i + IN_FRAME_BYTES));
+    if (bytes.length > room) return this.#refuse(bytes.length);
+    for (let i = 0; i < bytes.length; i += IN_FRAME_BYTES) {
+      const frame = bytes.slice(i, i + IN_FRAME_BYTES); // a copy: queued frames don't pin the whole paste
+      this.#queue.push(frame);
+      this.#queued += frame.length;
+    }
     this.#flushInput();
+    return true;
+  }
+
+  #refuse(bytes: number): false {
+    this.#setNotice({ kind: "refused", bytes, limit: MAX_PENDING_INPUT_BYTES });
+    return false;
+  }
+
+  #setNotice(notice: InputNotice | null): void {
+    const same =
+      notice === this.#notice ||
+      (notice != null && this.#notice != null && notice.kind === this.#notice.kind && notice.bytes === this.#notice.bytes);
+    if (same) return;
+    this.#notice = notice;
+    this.#o.onInputNotice?.(notice);
+  }
+
+  #dropInput(): void {
+    this.#queue = [];
+    this.#queued = 0;
+    this.#setNotice(null);
   }
 
   resize(rows: number, cols: number): void {
@@ -228,7 +280,7 @@ export class TerminalSession {
     this.#epoch++;
     const leg = this.#leg;
     this.#leg = null;
-    this.#queue = [];
+    this.#dropInput();
     if (leg) {
       this.#stopPing(leg);
       try {
@@ -399,7 +451,7 @@ export class TerminalSession {
       case "exit": {
         const code = typeof m.code === "number" ? m.code : null;
         const signal = typeof m.signal === "string" ? m.signal : null;
-        this.#queue = [];
+        this.#dropInput();
         this.#setStatus({ kind: "exited", code, signal, earlier: leg.justLive });
         return;
       }
@@ -439,7 +491,7 @@ export class TerminalSession {
   #onClose(code: number, reason: string): void {
     if (this.#leg) this.#stopPing(this.#leg);
     this.#leg = null;
-    this.#queue = [];
+    this.#dropInput();
     if (this.#disposed) return;
     if (code === 4009) return this.#setStatus({ kind: "elsewhere" });
     if (code === 4403) {
@@ -458,10 +510,12 @@ export class TerminalSession {
     const leg = this.#leg;
     while (leg && this.#queue.length > 0) {
       const next = this.#queue[0] as Uint8Array;
-      if (leg.inSent - leg.inAcked + next.length > INPUT_CREDIT_BYTES) return;
+      if (leg.inSent - leg.inAcked + next.length > INPUT_CREDIT_BYTES) break;
       this.#queue.shift();
+      this.#queued -= next.length;
       leg.inSent += next.length;
       this.#send({ t: "in", b: bytesToBase64(next) });
     }
+    this.#setNotice(this.#queued > 0 ? { kind: "waiting", bytes: this.#queued } : null);
   }
 }

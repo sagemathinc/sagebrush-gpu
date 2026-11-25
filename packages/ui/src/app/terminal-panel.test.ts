@@ -10,7 +10,7 @@ import type { SocketHandlers } from "../terminal/session.ts";
 import { cjsExport, type TermLike } from "../terminal/xterm.ts";
 import { installDom, mountApp, settle, unmountAll } from "./domkit.ts";
 import { html } from "./html.ts";
-import { statusText, TerminalPanel, tabSessionIds } from "./terminal-panel.ts";
+import { inputNoticeText, statusText, TerminalPanel, tabSessionIds } from "./terminal-panel.ts";
 import { controllable, FakeTimers } from "./testkit.ts";
 import { Store } from "./store.ts";
 
@@ -64,6 +64,9 @@ class FakeTerm implements TermLike {
   }
   setInputEnabled(enabled: boolean) {
     this.inputEnabled = enabled;
+  }
+  bufferText() {
+    return this.screen;
   }
   dispose() {
     this.disposed = true;
@@ -332,4 +335,30 @@ test("cjsExport finds a CommonJS export on the namespace or on its default", () 
   assert.equal(cjsExport({ Terminal: A, default: { Terminal: 1 } }, "Terminal"), A);
   assert.throws(() => cjsExport({ default: {} }, "Terminal"), /Terminal isn't exported/);
   assert.throws(() => cjsExport({}, "FitAddon"), /FitAddon/);
+});
+
+test("input notices: waiting for the machine, and a paste too large", async () => {
+  assert.equal(inputNoticeText(null), "");
+  assert.equal(inputNoticeText({ kind: "waiting", bytes: 120 * 1024 }), "Waiting for the machine to take 120.0 KB of input…");
+  assert.equal(
+    inputNoticeText({ kind: "refused", bytes: 4 * 1024 * 1024, limit: 1024 * 1024 }),
+    "That paste is too large (4.0 MB): at most 1.0 MB of input can wait at a time. Nothing of it was sent.",
+  );
+  const p = await panel();
+  await p.live();
+  p.term.type("x".repeat(200 * 1024)); // more than the 64 KiB in flight: the rest waits
+  await settle();
+  assert.match(p.status(), /^Waiting for the machine to take 136\.0 KB of input…$/);
+  p.msg({ t: "inack", upto: 64 * 1024 });
+  await settle();
+  assert.match(p.status(), /^Waiting for the machine to take 72\.0 KB of input…$/);
+  p.term.type("y".repeat(2 * 1024 * 1024));
+  await settle();
+  assert.match(p.status(), /That paste is too large \(2\.0 MB\)/);
+  p.msg({ t: "inack", upto: 128 * 1024 });
+  p.msg({ t: "inack", upto: 192 * 1024 });
+  p.msg({ t: "inack", upto: 200 * 1024 });
+  await settle();
+  assert.equal(p.status(), ""); // all taken: no notice
+  p.unmount();
 });

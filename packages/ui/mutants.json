@@ -1361,13 +1361,13 @@
  },
  {
   "file": "src/terminal/session.ts",
-  "old": "    if (this.#status.kind !== \"live\" || this.#leg == null) return;",
-  "new": "    if (this.#leg == null) return;"
+  "old": "    if (this.#status.kind !== \"live\" || this.#leg == null) return false;",
+  "new": "    if (this.#leg == null) return false;"
  },
  {
   "file": "src/terminal/session.ts",
-  "old": "      if (leg.inSent - leg.inAcked + next.length > INPUT_CREDIT_BYTES) return;",
-  "new": "      if (leg.inSent + next.length > INPUT_CREDIT_BYTES * 100) return;"
+  "old": "      if (leg.inSent - leg.inAcked + next.length > INPUT_CREDIT_BYTES) break;",
+  "new": "      if (leg.inSent + next.length > INPUT_CREDIT_BYTES * 100) break;"
  },
  {
   "file": "src/terminal/session.ts",
@@ -1533,5 +1533,80 @@
   "file": "src/app/terminal-panel.ts",
   "old": "        if (!disposed) setStatus({ kind: \"closed\", reason: \"fault\", detail: `The terminal couldn't load:",
   "new": "        if (false) setStatus({ kind: \"closed\", reason: \"fault\", detail: `The terminal couldn't load:"
+ },
+ {
+  "file": "src/terminal/xterm.ts",
+  "old": "    write: (bytes, done) => term.write(bytes, done),",
+  "new": "    write: (_bytes, done) => done(),"
+ },
+ {
+  "file": "src/terminal/xterm.ts",
+  "old": "    write: (bytes, done) => term.write(bytes, done),",
+  "new": "    write: (bytes, done) => (term.write(bytes), done()),"
+ },
+ {
+  "file": "src/terminal/xterm.ts",
+  "old": "    reset: () => term.reset(),",
+  "new": "    reset: () => {},"
+ },
+ {
+  "file": "src/terminal/xterm.ts",
+  "old": "      while (lines.length > 0 && lines[lines.length - 1] === \"\") lines.pop();\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "export const MAX_PENDING_INPUT_BYTES = 1024 * 1024;",
+  "new": "export const MAX_PENDING_INPUT_BYTES = 2 * 1024 * 1024;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (data.length > room) return this.#refuse(data.length);\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (bytes.length > room) return this.#refuse(bytes.length);",
+  "new": "    if (bytes.length > room + 1) return this.#refuse(bytes.length);"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "      this.#queued += frame.length;",
+  "new": "      this.#queued += 0;"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "      this.#queued -= next.length;\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    this.#setNotice(this.#queued > 0 ? { kind: \"waiting\", bytes: this.#queued } : null);",
+  "new": "    this.#setNotice(null);"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    this.#setNotice({ kind: \"refused\", bytes, limit: MAX_PENDING_INPUT_BYTES });\n",
+  "new": ""
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    this.#queue = [];\n    this.#queued = 0;\n    this.#setNotice(null);",
+  "new": "    this.#queue = [];\n    this.#setNotice(null);"
+ },
+ {
+  "file": "src/terminal/session.ts",
+  "old": "    if (same) return;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "        onInputNotice: setNotice,\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/terminal-panel.ts",
+  "old": "  if (notice.kind === \"waiting\") return `Waiting for the machine to take ${formatBytes(notice.bytes)} of input…`;",
+  "new": "  if (notice.kind === \"waiting\") return \"\";"
  }
 ]
