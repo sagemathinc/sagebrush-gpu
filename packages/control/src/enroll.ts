@@ -79,7 +79,6 @@ interface TokenRow {
   token_sha256: string;
   machine_id: string;
   incarnation: number;
-  token_provider_machine_id: string;
   issued_ms: number;
   expires_ms: number;
   used_ms: number | null;
@@ -95,14 +94,14 @@ interface TokenRow {
   final_save_reserve_minutes: number;
 }
 
-const TOKEN_SELECT = `SELECT b.token_sha256, b.machine_id, b.incarnation, b.provider_machine_id AS token_provider_machine_id, b.issued_ms, b.expires_ms, b.used_ms,
+const TOKEN_SELECT = `SELECT b.token_sha256, b.machine_id, b.incarnation, b.issued_ms, b.expires_ms, b.used_ms,
        v.provider, v.provider_machine_id, v.agent_sha256, v.ipv4, v.outcome, v.watchdog_version,
        m.state AS machine_state, m.incarnation AS machine_incarnation, p.policy_json, p.final_save_reserve_minutes
      FROM boot_tokens b
-     JOIN vm_launches v ON v.machine_id = b.machine_id AND v.incarnation = b.incarnation
+     JOIN launches v ON v.machine_id = b.machine_id AND v.incarnation = b.incarnation
      JOIN machines m ON m.id = b.machine_id
      JOIN projects p ON p.id = m.project_id
-     WHERE b.token_sha256 = ?`;
+     WHERE b.token_sha256 = ? AND v.mode = 'vm'`;
 
 /** The statement that uses the token: only this token, only unused. */
 function useToken(r: TokenRow, nowMs: number, inWindow: boolean): Stmt {
@@ -124,7 +123,7 @@ async function definitiveFailure(ctx: Ctx, r: TokenRow, reason: EnrollFailure, g
   const stmts: Stmt[] = [];
   if (reason !== "second-enroll") stmts.push(useToken(r, now, false));
   stmts.push({
-    sql: `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, ?), next_ms = ?, watchdog_version = watchdog_version + 1
+    sql: `UPDATE launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, ?), next_ms = ?, watchdog_version = watchdog_version + 1
           WHERE machine_id = ? AND incarnation = ? AND outcome IN ('issued', 'enrolled')`,
     params: [reason, now, r.machine_id, r.incarnation],
   });
@@ -144,7 +143,7 @@ async function definitiveFailure(ctx: Ctx, r: TokenRow, reason: EnrollFailure, g
   }
   deps.alert(`vm-enroll: ${reason}`);
   const cur = await deps.db.all<{ watchdog_version: number; provider_machine_id: string | null; outcome: string }>(
-    `SELECT watchdog_version, provider_machine_id, outcome FROM vm_launches WHERE machine_id = ? AND incarnation = ?`,
+    `SELECT watchdog_version, provider_machine_id, outcome FROM launches WHERE machine_id = ? AND incarnation = ?`,
     [r.machine_id, r.incarnation],
   );
   const c = cur[0];
@@ -176,7 +175,7 @@ export const ENROLL_HANDLERS: Handlers = {
     const now = deps.now();
     const live =
       r.issued_ms <= now && now < r.expires_ms && r.outcome === "issued" && r.machine_state === "starting" && r.machine_incarnation === r.incarnation &&
-      r.provider_machine_id !== null && r.ipv4 !== null && sameText(r.token_provider_machine_id, r.provider_machine_id);
+      r.provider_machine_id !== null && r.ipv4 !== null; // (the token's provider id is its launch's: the database's key)
     if (!live) throw REFUSED();
     const providerMachineId = r.provider_machine_id as string;
     // 4. the request's claims, then the gate's report (a failing one is definitive)
@@ -198,7 +197,7 @@ export const ENROLL_HANDLERS: Handlers = {
         useToken(r, at, true),
         took,
         {
-          sql: `UPDATE vm_launches SET outcome = 'enrolled', next_ms = NULL, heartbeat_due_ms = ?, watchdog_version = watchdog_version + 1
+          sql: `UPDATE launches SET outcome = 'enrolled', next_ms = NULL, heartbeat_due_ms = ?, watchdog_version = watchdog_version + 1
                 WHERE machine_id = ? AND incarnation = ? AND provider = ? AND provider_machine_id = ? AND outcome = 'issued' AND watchdog_version = ?`,
           params: [at + HEARTBEAT_LOST_MS, r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],
         },

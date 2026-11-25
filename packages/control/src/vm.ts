@@ -101,7 +101,7 @@ const REFUSED = () => new HttpError("forbidden", "refused");
 /** Mark a launch for termination (keeping an earlier reason), unless it's already terminated. */
 async function markTerminate(db: Db, r: LaunchRow, reason: TerminateReason, nowMs: number, claimAnnounce: boolean): Promise<void> {
   await db.run(
-    `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, ?), next_ms = MIN(COALESCE(next_ms, ?), ?)${claimAnnounce ? ", announce_ms = COALESCE(announce_ms, ?)" : ""}
+    `UPDATE launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, ?), next_ms = MIN(COALESCE(next_ms, ?), ?)${claimAnnounce ? ", announce_ms = COALESCE(announce_ms, ?)" : ""}
      WHERE machine_id = ? AND incarnation = ? AND outcome <> 'terminated'`,
     claimAnnounce ? [reason, nowMs, nowMs, nowMs, r.machine_id, r.incarnation] : [reason, nowMs, nowMs, r.machine_id, r.incarnation],
   );
@@ -124,7 +124,7 @@ export interface JobEnv {
  */
 export async function terminateAttempt(env: JobEnv, r: { machine_id: string; incarnation: number; provider_machine_id: string | null; watchdog_version: number }, reason: string): Promise<boolean> {
   const claimed = await env.db.run(
-    `UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,
+    `UPDATE launches SET watchdog_version = watchdog_version + 1, next_ms = ?,
        outcome = CASE WHEN outcome IN ('creating', 'launched', 'issued') THEN 'terminate' ELSE outcome END,
        terminate_reason = COALESCE(terminate_reason, ?)
      WHERE machine_id = ? AND incarnation = ? AND watchdog_version = ? AND outcome <> 'terminated' AND outcome <> 'enrolled'`,
@@ -142,7 +142,7 @@ export async function terminateAttempt(env: JobEnv, r: { machine_id: string; inc
   if (facts !== "unavailable" && facts.state === "absent") {
     await env.db.batch([
       {
-        sql: `UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE machine_id = ? AND incarnation = ? AND outcome = 'terminate'`,
+        sql: `UPDATE launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE machine_id = ? AND incarnation = ? AND outcome = 'terminate'`,
         params: [env.now, r.machine_id, r.incarnation],
       },
       ...closeAccrual(r.machine_id, r.incarnation, env.now),
@@ -164,8 +164,8 @@ export async function recordLaunchIntent(
 ): Promise<void> {
   await db.batch([
     {
-      sql: `INSERT INTO vm_launches (machine_id, incarnation, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms)
-            VALUES (?, ?, ?, ?, ?, ?, 'creating', ?, ?)`,
+      sql: `INSERT INTO launches (machine_id, incarnation, mode, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms)
+            VALUES (?, ?, 'vm', ?, ?, ?, ?, 'creating', ?, ?)`,
       params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],
     },
   ]);
@@ -182,7 +182,7 @@ const PROVIDER_ID = /^[\x21-\x7e]{1,64}$/;
 export async function recordProviderId(db: Db, machineId: string, incarnation: number, providerMachineId: string): Promise<"recorded" | "refused"> {
   if (!PROVIDER_ID.test(providerMachineId)) return "refused";
   const r = await db.run(
-    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'
+    `UPDATE launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'
        AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,
     [providerMachineId, machineId, incarnation, providerMachineId],
   );
@@ -202,7 +202,7 @@ export async function recordActive(
 ): Promise<"launched" | "refused"> {
   if (!PROVIDER_ID.test(f.providerMachineId) || canonicalIpv4(f.ipv4) === null || !Number.isSafeInteger(f.firstActiveMs) || f.firstActiveMs < 0) return "refused";
   const r = await db.run(
-    `UPDATE vm_launches SET outcome = 'launched', provider_machine_id = ?, ipv4 = ?, first_active_ms = ?, next_ms = ?,
+    `UPDATE launches SET outcome = 'launched', provider_machine_id = ?, ipv4 = ?, first_active_ms = ?, next_ms = ?,
        watchdog_version = watchdog_version + 1
      WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating' AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,
     [f.providerMachineId, f.ipv4, f.firstActiveMs, f.firstActiveMs + ANNOUNCE_DEADLINE_MS, machineId, incarnation, f.providerMachineId],
@@ -222,7 +222,7 @@ export async function abandonLaunch(env: JobEnv, machineId: string, incarnation:
   const known = providerMachineId !== null && PROVIDER_ID.test(providerMachineId) ? providerMachineId : null;
   try {
     await env.db.run(
-      `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, 'create-failed'), next_ms = MIN(COALESCE(next_ms, ?), ?),
+      `UPDATE launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, 'create-failed'), next_ms = MIN(COALESCE(next_ms, ?), ?),
          provider_machine_id = COALESCE(provider_machine_id, ?), watchdog_version = watchdog_version + 1
        WHERE machine_id = ? AND incarnation = ? AND outcome IN ('creating', 'launched')`,
       [env.now, env.now, known, machineId, incarnation],
@@ -252,8 +252,8 @@ export const VM_HANDLERS: Handlers = {
     // after enroll terminates too.
     const rows = await deps.db.all<LaunchRow>(
       `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.nonce_sha256, v.boot_script_sha256, v.ipv4, v.first_active_ms, v.announce_ms, v.watchdog_version
-       FROM vm_launches v JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation
-       WHERE v.machine_id = ? AND v.outcome <> 'terminated' AND v.ipv4 IS NOT NULL AND v.provider_machine_id IS NOT NULL`,
+       FROM launches v JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation
+       WHERE v.machine_id = ? AND v.mode = 'vm' AND v.outcome <> 'terminated' AND v.ipv4 IS NOT NULL AND v.provider_machine_id IS NOT NULL`,
       [machineId],
     );
     const r = rows[0];
@@ -266,7 +266,7 @@ export const VM_HANDLERS: Handlers = {
     const end = async (reason: TerminateReason, claim: boolean) => {
       await markTerminate(deps.db, r, reason, now, claim);
       const env: JobEnv = { db: deps.db, now, vm: deps.vm, elapsedMs: () => 0 };
-      const cur = await deps.db.all<{ watchdog_version: number }>(`SELECT watchdog_version FROM vm_launches WHERE machine_id = ? AND incarnation = ?`, [r.machine_id, r.incarnation]);
+      const cur = await deps.db.all<{ watchdog_version: number }>(`SELECT watchdog_version FROM launches WHERE machine_id = ? AND incarnation = ?`, [r.machine_id, r.incarnation]);
       if (cur[0]) deps.waitUntil(terminateAttempt(env, { ...r, watchdog_version: cur[0].watchdog_version }, reason));
       throw REFUSED();
     };
@@ -285,13 +285,13 @@ export const VM_HANDLERS: Handlers = {
     try {
       await deps.db.batch([
         {
-          sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = MIN(next_ms, ?) WHERE machine_id = ? AND incarnation = ? AND announce_ms IS NULL AND outcome = 'launched'`,
+          sql: `UPDATE launches SET announce_ms = ?, outcome = 'issued', next_ms = MIN(next_ms, ?) WHERE machine_id = ? AND incarnation = ? AND announce_ms IS NULL AND outcome = 'launched'`,
           params: [now, expires, r.machine_id, r.incarnation],
         },
         {
-          sql: `INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, provider_machine_id, nonce_sha256, issued_ms, expires_ms)
-                SELECT ?, machine_id, incarnation, provider_machine_id, nonce_sha256, ?, ? FROM vm_launches
-                WHERE machine_id = ? AND incarnation = ? AND announce_ms = ? AND outcome = 'issued'`,
+          sql: `INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, mode, provider_machine_id, nonce_sha256, issued_ms, expires_ms)
+                SELECT ?, machine_id, incarnation, mode, provider_machine_id, nonce_sha256, ?, ? FROM launches
+                WHERE machine_id = ? AND incarnation = ? AND announce_ms = ? AND outcome = 'issued' AND mode = 'vm'`,
           params: [tokenHash, now, expires, r.machine_id, r.incarnation, now],
         },
       ]);
@@ -316,8 +316,8 @@ export const WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.provider_m
             WHEN v.outcome = 'creating' THEN 'create-deadline'
             WHEN v.outcome = 'issued' AND EXISTS (SELECT 1 FROM boot_tokens b WHERE b.machine_id = v.machine_id AND b.incarnation = v.incarnation AND b.used_ms IS NULL AND b.expires_ms <= ?) THEN 'token-expired'
             ELSE 'watchdog-deadline' END AS reason
-     FROM vm_launches v
-     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?
+     FROM launches v
+     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'vm'
      ORDER BY v.next_ms, v.watchdog_version, v.machine_id, v.incarnation
      LIMIT ?`;
 

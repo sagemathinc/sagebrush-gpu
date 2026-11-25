@@ -1,10 +1,9 @@
 // Agent authentication (heartbeat design r2, SEC clear): routes with `auth: "agent"` take the
 // machine's agent token from `Authorization: Bearer <token>` only, verified against the
 // deployment's pinned public keys, for a machine still at the token's incarnation in a state
-// where its agent may act. A VM's launch must also still be enrolled: any other launch state
-// kills its agent's authorization at once, whatever the token's expiry. (No container path
-// exists yet, so a machine without an enrolled VM launch is refused too.) Every refusal is the
-// same 401, with no state change.
+// where its agent may act. Its launch (either mode) must also still be enrolled: any other
+// launch state kills its agent's authorization at once, whatever the token's expiry, and a
+// machine with no enrolled launch is refused. Every refusal is the same 401, with no state change.
 
 import { machineTokenStateOk, verifyToken, type AgentClaims, type MachineState } from "@sbgpu/api";
 import type { Ctx } from "./app.ts";
@@ -28,7 +27,7 @@ export async function agentAuth(ctx: Ctx): Promise<AgentClaims> {
   const c = v.claims;
   const rows = await deps.db.all<{ state: MachineState; incarnation: number; outcome: string | null }>(
     `SELECT m.state, m.incarnation, v.outcome FROM machines m
-     LEFT JOIN vm_launches v ON v.machine_id = m.id AND v.incarnation = m.incarnation
+     LEFT JOIN launches v ON v.machine_id = m.id AND v.incarnation = m.incarnation
      WHERE m.id = ?`,
     [c.mch],
   );
