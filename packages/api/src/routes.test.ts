@@ -75,7 +75,7 @@ test("buildPath refuses missing or unsafe parameters", () => {
 
 test("access rules", () => {
   const publicRoutes = NAMES.filter((n) => ROUTES[n].access.auth === "public").sort();
-  assert.deepEqual(publicRoutes, ["agentAbort", "agentEnroll", "requestSignInLink", "verifySignInLink"]);
+  assert.deepEqual(publicRoutes, ["agentAbort", "agentEnroll", "signInCallback", "startSignIn"]);
   const system = NAMES.filter((n) => ROUTES[n].access.auth === "system");
   assert.deepEqual(system, ["addOrgCredit"]);
   for (const n of NAMES) {

@@ -44,6 +44,9 @@ ul.cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem;
 .warn { color: var(--warn); }
 
 button { font: inherit; padding: 0.4rem 0.9rem; border-radius: 0.375rem; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+a.button { display: inline-block; padding: 0.4rem 0.9rem; border-radius: 0.375rem; background: var(--accent); color: var(--accent-fg); text-decoration: none; }
+.notice { padding: 0.6rem 1rem; border-radius: 0.375rem; background: #eef3f8; }
+.notice.warn { background: #fdf3e1; }
 button.secondary { background: transparent; color: var(--accent); }
 button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
 button.link { background: none; border: none; color: var(--accent); padding: 0; text-decoration: underline; }

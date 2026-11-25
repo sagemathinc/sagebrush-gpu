@@ -15,6 +15,7 @@ import {
   type Project,
   type ProjectRole,
   type Quote,
+  type SignInOutcome,
   type SpendMeter,
 } from "@sbgpu/api";
 import { ApiError, type Client } from "../client.ts";
@@ -52,6 +53,8 @@ export class Store {
 
   readonly me = signal<Me | null>(null);
   readonly meLoaded = signal(false);
+  /** Why the sign-in screen is showing: a sign-in that didn't work, or a sign-out. */
+  readonly signInNotice = signal<SignInOutcome | "signedOut" | null>(null);
   /** The last failed action's message, shown until dismissed or the next success. */
   readonly error = signal<string | null>(null);
   /** Keys of actions in flight ("start:L4", "stop:mch_..."), to disable their buttons. */
@@ -175,27 +178,22 @@ export class Store {
     }
   }
 
-  async requestSignInLink(email: string): Promise<boolean> {
-    return (await this.#act("signin", () => this.client.call("requestSignInLink", { body: { email } }))) != null;
-  }
-
-  async verifySignIn(token: string): Promise<boolean> {
-    const me = await this.#act("signin", () => this.client.call("verifySignInLink", { body: { token } }));
-    if (me != null) {
-      // A new session: answers still owed to an older one (a 401 included) don't apply.
-      this.#generation++;
-      this.#sessionGeneration++;
-      batch(() => {
-        this.me.value = me;
-        this.meLoaded.value = true;
-      });
-    }
-    return me != null;
+  /**
+   * A sign-in that happened outside the store (the demo's accounts; a real one reloads the
+   * page): answers still owed to an older session (a 401 included) don't apply, then /me.
+   */
+  async sessionStarted(): Promise<void> {
+    this.#generation++;
+    this.#sessionGeneration++;
+    this.signInNotice.value = null;
+    await this.loadMe();
   }
 
   async signOut(): Promise<void> {
-    await this.#act("signout", () => this.client.call("signOut", { body: {} }));
+    const ok = await this.#act("signout", () => this.client.call("signOut", { body: {} }));
     this.#endSession();
+    // Only this site's session ends; the person stays signed in to Sagebrush.
+    if (ok != null) this.signInNotice.value = "signedOut";
   }
 
   // ---------------------------------------------------------------- project

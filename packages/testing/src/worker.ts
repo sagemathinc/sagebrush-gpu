@@ -31,6 +31,12 @@ export interface WorkerOptions {
   d1Databases?: string[];
   /** Per D1 binding, migration directories (relative to the repo root); each one's *.sql files apply in name order. */
   migrations?: Record<string, string[]>;
+  /**
+   * Static assets (Workers static assets): a directory (relative to the repo root) behind a
+   * binding, with the deploy config's not-found handling, and whether the Worker runs before
+   * the assets for every request (run_worker_first).
+   */
+  assets?: { directory: string; binding: string; notFoundHandling?: "single-page-application" | "404-page" | "none"; runWorkerFirst?: boolean };
   /** A directory for Durable Object and D1 storage, so state survives a dispose and a new start (a restart). */
   persist?: string;
 }
@@ -69,6 +75,16 @@ export async function startWorker(o: WorkerOptions): Promise<StartedWorker> {
     durableObjects,
     bindings: o.bindings ?? {},
     d1Databases: o.d1Databases ?? [],
+    ...(o.assets
+      ? {
+          assets: {
+            directory: join(ROOT, o.assets.directory),
+            binding: o.assets.binding,
+            routerConfig: { has_user_worker: true, invoke_user_worker_ahead_of_assets: o.assets.runWorkerFirst ?? false },
+            assetConfig: { not_found_handling: o.assets.notFoundHandling ?? "none" },
+          },
+        }
+      : {}),
     ...(o.persist ? { durableObjectsPersist: join(o.persist, "do"), d1Persist: join(o.persist, "d1") } : {}),
   });
   try {

@@ -744,5 +744,54 @@
   "old": "maxMachinesPerMember: [0, 16],",
   "new": "maxMachinesPerMember: [0, 17],",
   "note": "the bounds are part of the contract, pinned by a literal"
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "x.length > MAX_RETURN_PATH_LENGTH) return false;",
+  "new": "x.length > MAX_RETURN_PATH_LENGTH + 1) return false;"
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "return x[0] === \"/\" && ",
+  "new": "return "
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "x[1] !== \"/\" && ",
+  "new": ""
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "return x[0] === \"/\" && x[1] !== \"/\" && !/[\\\\\\u0000-\\u001f\\u007f]/.test(x);",
+  "new": "return x[0] === \"/\" && x[1] !== \"/\";",
+  "note": "no character check"
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "[\\\\\\u0000",
+  "new": "[\\u0000",
+  "note": "backslashes allowed"
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "\\u001f\\u007f]",
+  "new": "\\u0008]",
+  "note": "tabs, newlines allowed"
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "\\u001f\\u007f]",
+  "new": "\\u001f]",
+  "note": "DEL allowed"
+ },
+ {
+  "file": "src/signin.ts",
+  "old": "return typeof x === \"string\" && (SIGN_IN_OUTCOMES as readonly string[]).includes(x);",
+  "new": "return typeof x === \"string\";"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "startSignIn: { method: \"GET\", path: \"/v1/auth/start\", access: { auth: \"public\" }",
+  "new": "startSignIn: { method: \"GET\", path: \"/v1/auth/start\", access: { auth: \"session\", scope: \"none\" }"
  }
 ]

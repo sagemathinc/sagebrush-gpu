@@ -6,6 +6,7 @@ import { render } from "preact";
 import { signal } from "@preact/signals";
 import { createClient, type FetchFn } from "../client.ts";
 import { Store } from "./store.ts";
+import { takeSignInOutcome } from "./signin.ts";
 import { App, html, type DemoAccount, type Nav } from "./components.ts";
 
 declare const SBGPU_MOCK: boolean;
@@ -24,7 +25,14 @@ async function boot(root: HTMLElement): Promise<void> {
     const demo = seedDemo();
     fetchFn = mockFetch(demo.backend);
     now = () => demo.backend.now();
-    const account = (label: string, email: string): DemoAccount => ({ label, email, token: `mock:${email}` });
+    const account = (label: string, email: string): DemoAccount => ({
+      label,
+      email,
+      signIn: async () => {
+        if (demo.backend.signInAs(email)) await store.sessionStarted();
+        else store.signInNotice.value = "refused";
+      },
+    });
     demoAccounts = [
       account("A member", demo.emails.member),
       account("A member low on allocation", demo.emails.lowMember),
@@ -46,15 +54,14 @@ async function boot(root: HTMLElement): Promise<void> {
 
   const store = new Store(createClient(fetchFn ? { fetch: fetchFn } : {}), now, devTerminal ? { devTerminal } : {});
 
-  // A sign-in link lands with ?token=...: use it once, then drop it from the address bar.
-  const token = params.get("token");
-  if (token != null) {
-    params.delete("token");
-    history.replaceState(null, "", location.pathname + (params.size > 0 ? `?${params}` : ""));
-    if (!(await store.verifySignIn(token))) await store.loadMe();
-  } else {
-    await store.loadMe();
+  // A sign-in that didn't work comes back as ?signin=<outcome>: show it once, then drop it
+  // from the address bar (a reload doesn't show it again).
+  const taken = takeSignInOutcome(location.search);
+  if (taken != null) {
+    history.replaceState(null, "", location.pathname + taken.search + location.hash);
+    store.signInNotice.value = taken.outcome;
   }
+  await store.loadMe();
 
   const path = signal(location.pathname);
   const go = (to: string) => {

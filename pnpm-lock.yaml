@@ -31,9 +31,16 @@ importers:
       '@sbgpu/api':
         specifier: workspace:*
         version: link:../api
+      '@sbgpu/machine':
+        specifier: workspace:*
+        version: link:../machine
       '@sbgpu/providers':
         specifier: workspace:*
         version: link:../providers
+    devDependencies:
+      '@sbgpu/testing':
+        specifier: workspace:*
+        version: link:../testing
 
   packages/machine:
     dependencies:

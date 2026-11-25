@@ -15,7 +15,7 @@ function setup(): Demo & { as: (email: string) => Promise<Client> } {
     ...demo,
     // The mock keeps one session; signing in switches it.
     as: async (email: string) => {
-      await client.call("verifySignInLink", { body: { token: `mock:${email}` } });
+      assert.ok(demo.backend.signInAs(email), email);
       return client;
     },
   };
@@ -34,16 +34,48 @@ async function startL4(c: Client, projectId: string): Promise<Machine> {
   return c.call("startMachine", { params: { projectId }, body: { gpuType: "L4" } });
 }
 
-test("sign-in: unauthenticated until signed in; bad tokens refused", async () => {
+test("sign-in: unauthenticated until signed in; an account with no invitation is refused", async () => {
   const d = setup();
   const c = createClient({ fetch: mockFetch(d.backend) });
   await rejects(c.call("getMe"), "unauthenticated", 401);
-  await rejects(c.call("verifySignInLink", { body: { token: "nope" } }), "unauthenticated");
-  const me = await c.call("verifySignInLink", { body: { token: `mock:${d.emails.member}` } });
+  assert.equal(d.backend.signInAs("stranger@example.org"), false);
+  await rejects(c.call("getMe"), "unauthenticated", 401);
+  assert.equal([...d.backend.users.values()].some((u) => u.email === "stranger@example.org"), false);
+  assert.equal(d.backend.signInAs(` ${d.emails.member.toUpperCase()} `), true);
+  const me = await c.call("getMe");
   assert.equal(me.user.email, d.emails.member);
   assert.deepEqual(me.projects.map((p) => [p.projectId, p.role]), [[d.projectId, "member"]]);
+  // A refusal leaves the current session as it was.
+  assert.equal(d.backend.signInAs("stranger@example.org"), false);
+  assert.equal((await c.call("getMe")).user.email, d.emails.member);
   await c.call("signOut", { body: {} });
   await rejects(c.call("getMe"), "unauthenticated");
+});
+
+test("sign-in: an invited address is admitted, becomes a user, and its invitations turn active", async () => {
+  const d = setup();
+  const p = { projectId: d.projectId };
+  const manager = await d.as(d.emails.manager);
+  await manager.call("inviteMembers", { params: p, body: { members: [{ email: "new@example.org" }] } });
+  await manager.call("signOut", { body: {} });
+  const users = d.backend.users.size;
+  assert.equal(d.backend.signInAs("New@Example.org"), true);
+  assert.equal(d.backend.users.size, users + 1);
+  const c = createClient({ fetch: mockFetch(d.backend) });
+  const me = await c.call("getMe");
+  assert.equal(me.user.email, "new@example.org");
+  assert.deepEqual(me.projects.map((x) => x.role), ["member"]);
+  const member = [...d.backend.members.values()].find((m) => m.email === "new@example.org");
+  assert.deepEqual([member?.status, member?.userId], ["active", me.user.id]);
+  // Signing in again reuses the user.
+  assert.equal(d.backend.signInAs("new@example.org"), true);
+  assert.equal(d.backend.users.size, users + 1);
+  // Someone removed from a project is still a user here, and signing in doesn't bring them back.
+  const ada = [...d.backend.members.values()].find((m) => m.email === d.emails.member)!;
+  await (await d.as(d.emails.manager)).call("removeMember", { params: { projectId: d.projectId, memberId: ada.id } });
+  assert.equal(d.backend.signInAs(d.emails.member), true);
+  assert.equal(ada.status, "removed");
+  assert.deepEqual((await c.call("getMe")).projects, []);
 });
 
 test("an org owner is owner of the org's projects", async () => {
@@ -268,6 +300,7 @@ test("members see and act on their own machines only", async () => {
   assert.equal(forced.stopReason, "manager");
   assert.equal(forced.finalSaveIncomplete, true);
 
+  d.backend.addUser("someone@else.example"); // a user here, in none of this org's projects
   const outsider = await d.as("someone@else.example");
   await rejects(outsider.call("getProject", { params: p }), "notFound");
   await rejects(outsider.call("getOrg", { params: { orgId: d.orgId } }), "notFound");

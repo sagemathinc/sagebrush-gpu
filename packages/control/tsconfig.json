@@ -1,5 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src"], "references": [{ "path": "../api" }, { "path": "../providers" }]
+  "include": ["src"], "exclude": ["src/entry.ts"],
+  "references": [{ "path": "../api" }, { "path": "../providers" }, { "path": "../machine" }, { "path": "../testing" }]
 }

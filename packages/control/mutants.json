@@ -426,36 +426,6 @@
  },
  {
   "file": "src/app.ts",
-  "old": "if (await knownEmail(deps.db, email)) {",
-  "new": "if (true) {"
- },
- {
-  "file": "src/app.ts",
-  "old": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ? AND status <> 'removed') AS n`",
-  "new": "`SELECT (SELECT COUNT(*) FROM users WHERE email = ?) + (SELECT COUNT(*) FROM members WHERE email = ?) AS n`"
- },
- {
-  "file": "src/app.ts",
-  "old": "now + deps.config.signInLinkTtlMs,",
-  "new": "now + deps.config.signInLinkTtlMs + 1,"
- },
- {
-  "file": "src/app.ts",
-  "old": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms > ?`",
-  "new": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND expires_ms > ?`"
- },
- {
-  "file": "src/app.ts",
-  "old": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms > ?`",
-  "new": "`UPDATE sign_in_links SET used_ms = ? WHERE token_sha256 = ? AND used_ms IS NULL AND expires_ms >= ?`"
- },
- {
-  "file": "src/app.ts",
-  "old": "if (used.changes !== 1) throw",
-  "new": "if (used.changes < 0) throw"
- },
- {
-  "file": "src/app.ts",
   "old": "WHERE email = ? AND status = 'invited' AND user_id IS NULL`,",
   "new": "WHERE email = ? AND user_id IS NULL`,"
  },
@@ -573,36 +543,6 @@
   "file": "src/app.ts",
   "old": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) > MAX_BODY_BYTES) {",
   "new": "if (declared !== null && /^[0-9]+$/.test(declared) && Number(declared) >= MAX_BODY_BYTES) {"
- },
- {
-  "file": "src/app.ts",
-  "old": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) < ?`,",
-  "new": "SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM sign_in_links WHERE email = ? AND created_ms > ?) <= ?`,"
- },
- {
-  "file": "src/app.ts",
-  "old": "      if (inserted.changes === 1) {",
-  "new": "      if (inserted.changes >= 0) {"
- },
- {
-  "file": "src/app.ts",
-  "old": "now - 3_600_000, deps.config.maxLinksPerEmailPerHour]",
-  "new": "now - 60_000, deps.config.maxLinksPerEmailPerHour]"
- },
- {
-  "file": "src/app.ts",
-  "old": "now + deps.config.signInLinkTtlMs, email,",
-  "new": "now + deps.config.signInLinkTtlMs + 1, email,"
- },
- {
-  "file": "src/app.ts",
-  "old": "          Promise.resolve()\n            .then(() => deps.mailer.sendSignInLink(email, url))\n            .catch(() => {}),",
-  "new": "          deps.mailer.sendSignInLink(email, url),"
- },
- {
-  "file": "src/app.ts",
-  "old": "        deps.waitUntil(\n",
-  "new": "        await ((work: Promise<unknown>) => work)(\n"
  },
  {
   "file": "src/app.ts",
@@ -1498,5 +1438,122 @@
   "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'credit'",
   "new": "SELECT 'cre_' || lower(hex(randomblob(9))), org_id, 'credit'",
   "note": "18 digits: not an id"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (url.origin !== config.appOrigin) return",
+  "new": "if (url.hostname !== new URL(config.appOrigin).hostname) return",
+  "note": "host only: plain http and another port would pass"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (url.origin !== config.appOrigin) return fail(404, \"notFound\", \"no such host\");",
+  "new": ""
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (url.pathname === \"/v1\" || url.pathname.startsWith(\"/v1/\")) {",
+  "new": "if (url.pathname.startsWith(\"/v1/\")) {"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (url.pathname === \"/v1\" || url.pathname.startsWith(\"/v1/\")) {",
+  "new": "if (url.pathname.startsWith(\"/v1\")) {"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (relay) return relay.status === 101 ? relay : withSecurityHeaders(relay);",
+  "new": "if (relay) return relay;"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (relay) return relay.status === 101 ? relay : withSecurityHeaders(relay);",
+  "new": "if (relay) return withSecurityHeaders(relay);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (url.pathname.startsWith(\"/api/\")) return fail(404, \"notFound\", \"no such endpoint\");",
+  "new": ""
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (req.method !== \"GET\" && req.method !== \"HEAD\") return",
+  "new": "if (req.method !== \"GET\") return"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (req.method !== \"GET\" && req.method !== \"HEAD\") return",
+  "new": "if (false) return"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "return withSecurityHeaders(await env.ASSETS.fetch(req));",
+  "new": "return env.ASSETS.fetch(req);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "return fail(500, \"internal\", \"the service is misconfigured\");",
+  "new": "return env.ASSETS.fetch(req);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "return `control: background work failed (${e instanceof Error ? e.name : typeof e})`;",
+  "new": "return `control: background work failed (${e instanceof Error ? e.message : typeof e})`;"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "return (work) => ctx.waitUntil(work.catch((e: unknown) => log(backgroundFailureLine(e))));",
+  "new": "return (work) => ctx.waitUntil(work);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (n > 0) log(`control: ${job.name}: ${n}`);",
+  "new": "if (n >= 0) log(`control: ${job.name}: ${n}`);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "failed.push(job.name);",
+  "new": ""
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (failed.length) throw new Error",
+  "new": "if (false) throw new Error"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "log(`control: scheduled job ${job.name} failed (${e instanceof Error ? e.name : typeof e})`);",
+  "new": "log(`control: scheduled job ${job.name} failed (${String(e)})`);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "      } catch (e) {\n          failed.push(job.name);",
+  "new": "      } catch (e) {\n          throw e;\n          failed.push(job.name);",
+  "note": "a failing job stops the later ones"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)",
+  "new": "WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "      [nowMs, PRUNE_BATCH],",
+  "new": "      [nowMs + 3_600_001, PRUNE_BATCH],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "      [nowMs, PRUNE_BATCH],",
+  "new": "      [nowMs, PRUNE_BATCH * 2],"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions]);",
+  "new": "Object.freeze([]);"
+ },
+ {
+  "file": "migrations/0007_sessions.sql",
+  "old": "DROP TABLE sign_in_links;",
+  "new": ""
  }
 ]

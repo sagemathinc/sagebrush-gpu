@@ -11,7 +11,7 @@ import { cjsExport, type TermLike } from "../terminal/xterm.ts";
 import { installDom, mountApp, settle, unmountAll } from "./domkit.ts";
 import { html } from "./html.ts";
 import { inputNoticeText, statusText, TerminalPanel, tabSessionIds } from "./terminal-panel.ts";
-import { controllable, FakeTimers } from "./testkit.ts";
+import { controllable, FakeTimers, signInAs } from "./testkit.ts";
 import { Store } from "./store.ts";
 
 let win: Window;
@@ -88,7 +88,7 @@ async function panel() {
   const t = await controllable();
   // The mock's relay URL is wss://mock.invalid/..., so the "UI host" here is mock.invalid.
   const store = new Store(t.store.client, t.store.now, { uiHost: "mock.invalid" });
-  await store.verifySignIn(`mock:${t.demo.emails.member}`);
+  await signInAs(store, t.demo.backend, t.demo.emails.member);
   await store.openProject(t.demo.projectId);
   await store.start("L4");
   t.demo.backend.advance(90_000);
@@ -252,7 +252,7 @@ test("terminalAccess: a fresh token each time; a relay off the UI's host is refu
   const b = await p.store.terminalAccess(p.machineId);
   assert.notEqual(a!.token, b!.token);
   const other = new Store(p.store.client, p.store.now, { uiHost: "ui.example" });
-  await other.verifySignIn(`mock:${p.t.demo.emails.member}`);
+  await signInAs(other, p.t.demo.backend, p.t.demo.emails.member);
   assert.equal(await other.terminalAccess(p.machineId), null);
   assert.match(other.error.value ?? "", /isn't this site's relay/);
   p.unmount();
@@ -261,7 +261,7 @@ test("terminalAccess: a fresh token each time; a relay off the UI's host is refu
 test("terminalAccess: no session, no access; a 401 ends the session", async () => {
   const p = await panel();
   const s = new Store(p.store.client, p.store.now, { uiHost: "mock.invalid" });
-  await s.verifySignIn(`mock:${p.t.demo.emails.teamMember}`); // not this machine's member
+  await signInAs(s, p.t.demo.backend, p.t.demo.emails.teamMember); // not this machine's member
   assert.equal(await s.terminalAccess(p.machineId), null);
   assert.notEqual(s.me.value, null);
   p.t.demo.backend.currentUserId = null;
