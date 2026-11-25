@@ -41,6 +41,9 @@ export const WATCHDOG_BUDGET_MS = 60_000;
 
 type TerminateReason = "second-announce" | "provider-facts" | "provider-unavailable" | "deadline" | "issue-failed";
 
+export const CREATE_DEADLINE_MS = 10 * 60_000;
+export type VmProviderName = "hyperstack" | "shadeform" | "nebius";
+
 interface LaunchRow {
   machine_id: string;
   incarnation: number;
@@ -119,10 +122,10 @@ export interface JobEnv {
  * terminate, then one facts read; confirmed absent marks it terminated and closes its accrual.
  * Returns whether the claim was won.
  */
-export async function terminateAttempt(env: JobEnv, r: { machine_id: string; incarnation: number; provider_machine_id: string; watchdog_version: number }, reason: string): Promise<boolean> {
+export async function terminateAttempt(env: JobEnv, r: { machine_id: string; incarnation: number; provider_machine_id: string | null; watchdog_version: number }, reason: string): Promise<boolean> {
   const claimed = await env.db.run(
     `UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,
-       outcome = CASE WHEN outcome IN ('launched', 'issued') THEN 'terminate' ELSE outcome END,
+       outcome = CASE WHEN outcome IN ('creating', 'launched', 'issued') THEN 'terminate' ELSE outcome END,
        terminate_reason = COALESCE(terminate_reason, ?)
      WHERE machine_id = ? AND incarnation = ? AND watchdog_version = ? AND outcome <> 'terminated' AND outcome <> 'enrolled'`,
     [env.now, reason, r.machine_id, r.incarnation, r.watchdog_version],
@@ -130,8 +133,12 @@ export async function terminateAttempt(env: JobEnv, r: { machine_id: string; inc
   if (claimed.changes !== 1) return false;
   const vm = env.vm;
   if (!vm) return true; // (no adapter: the row stays eligible)
-  await withDeadline(() => vm.terminate(r.provider_machine_id), undefined);
-  const facts = await withDeadline<InstanceFacts>(() => vm.instanceFacts(r.provider_machine_id), "unavailable");
+  // (no id recorded: the create's answer was lost. Finding the VM by its name is a provider
+  // lookup not built yet, so the row stays eligible, and an orphan sweep will catch it.)
+  const id = r.provider_machine_id;
+  if (id === null) return true;
+  await withDeadline(() => vm.terminate(id), undefined);
+  const facts = await withDeadline<InstanceFacts>(() => vm.instanceFacts(id), "unavailable");
   if (facts !== "unavailable" && facts.state === "absent") {
     await env.db.batch([
       {
@@ -142,6 +149,88 @@ export async function terminateAttempt(env: JobEnv, r: { machine_id: string; inc
     ]);
   }
   return true;
+}
+
+// ---------------------------------------------------------------- the launch, before announce
+
+/**
+ * The launch-intent row, written BEFORE the create request (no create unless this write
+ * succeeded): 'creating', no provider id, no ACTIVE facts, due to the watchdog at the create
+ * deadline.
+ */
+export async function recordLaunchIntent(
+  db: Db,
+  i: { machineId: string; incarnation: number; provider: VmProviderName; nonceSha256: string; bootScriptSha256: string; createdMs: number },
+): Promise<void> {
+  await db.batch([
+    {
+      sql: `INSERT INTO vm_launches (machine_id, incarnation, provider, nonce_sha256, boot_script_sha256, outcome, next_ms, created_ms)
+            VALUES (?, ?, ?, ?, ?, 'creating', ?, ?)`,
+      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],
+    },
+  ]);
+}
+
+const PROVIDER_ID = /^[^\s]{1,64}$/;
+
+/**
+ * The provider's id for a creating launch, once the create returned it: idempotent for the
+ * same id, refused for a different one (or a launch past creating). "refused" means the
+ * caller must not go on: it abandons the launch with the id it holds.
+ */
+export async function recordProviderId(db: Db, machineId: string, incarnation: number, providerMachineId: string): Promise<"recorded" | "refused"> {
+  if (!PROVIDER_ID.test(providerMachineId)) return "refused";
+  const r = await db.run(
+    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'
+       AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,
+    [providerMachineId, machineId, incarnation, providerMachineId],
+  );
+  return r.changes === 1 ? "recorded" : "refused";
+}
+
+/**
+ * The move to ACTIVE, in one statement: it sets (or confirms) the id together with the
+ * ACTIVE facts, and starts the announce deadline. Refused for another id, a malformed IPv4,
+ * or a launch that isn't creating.
+ */
+export async function recordActive(
+  db: Db,
+  machineId: string,
+  incarnation: number,
+  f: { providerMachineId: string; ipv4: string; firstActiveMs: number },
+): Promise<"launched" | "refused"> {
+  if (!PROVIDER_ID.test(f.providerMachineId) || canonicalIpv4(f.ipv4) === null || !Number.isSafeInteger(f.firstActiveMs) || f.firstActiveMs < 0) return "refused";
+  const r = await db.run(
+    `UPDATE vm_launches SET outcome = 'launched', provider_machine_id = ?, ipv4 = ?, first_active_ms = ?, next_ms = ?,
+       watchdog_version = watchdog_version + 1
+     WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating' AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,
+    [f.providerMachineId, f.ipv4, f.firstActiveMs, f.firstActiveMs + ANNOUNCE_DEADLINE_MS, machineId, incarnation, f.providerMachineId],
+  );
+  return r.changes === 1 ? "launched" : "refused";
+}
+
+/**
+ * A launch that failed before its announce (the create failed, an id or ACTIVE write was
+ * refused or failed, the VM never came up right): marked to terminate, and terminated now
+ * with the id the caller holds, even if that id never reached the database. The mark stores
+ * that id when the row has none, so the watchdog retries by it if this terminate fails (a row
+ * that already has an id keeps its own). The durable row stays the watchdog's until the
+ * provider confirms the VM absent.
+ */
+export async function abandonLaunch(env: JobEnv, machineId: string, incarnation: number, providerMachineId: string | null): Promise<void> {
+  const known = providerMachineId !== null && PROVIDER_ID.test(providerMachineId) ? providerMachineId : null;
+  try {
+    await env.db.run(
+      `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, 'create-failed'), next_ms = MIN(COALESCE(next_ms, ?), ?),
+         provider_machine_id = COALESCE(provider_machine_id, ?), watchdog_version = watchdog_version + 1
+       WHERE machine_id = ? AND incarnation = ? AND outcome IN ('creating', 'launched')`,
+      [env.now, env.now, known, machineId, incarnation],
+    );
+  } catch {
+    // (the row stays as it was: creating, due at its create deadline; the provider call below still goes)
+  }
+  const vm = env.vm;
+  if (vm && known !== null) await withDeadline(() => vm.terminate(known), undefined);
 }
 
 export const VM_HANDLERS: Handlers = {
@@ -156,12 +245,14 @@ export const VM_HANDLERS: Handlers = {
       throw new HttpError("badRequest", "an announce is exactly machineId, nonce and bootScriptSha256");
     }
     const now = deps.now();
-    // the machine's VM launch for its current incarnation, unless it's already terminated
-    // (an enrolled one included: a valid second announce after enroll terminates too)
+    // the machine's VM launch for its current incarnation, unless it's already terminated or
+    // was never ACTIVE (a creating launch, or one that failed before ACTIVE: nothing can
+    // authenticate against it yet). An enrolled one is included: a valid second announce
+    // after enroll terminates too.
     const rows = await deps.db.all<LaunchRow>(
       `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.nonce_sha256, v.boot_script_sha256, v.ipv4, v.first_active_ms, v.announce_ms, v.watchdog_version
        FROM vm_launches v JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation
-       WHERE v.machine_id = ? AND v.outcome <> 'terminated'`,
+       WHERE v.machine_id = ? AND v.outcome <> 'terminated' AND v.ipv4 IS NOT NULL AND v.provider_machine_id IS NOT NULL`,
       [machineId],
     );
     const r = rows[0];
@@ -221,6 +312,7 @@ export const VM_HANDLERS: Handlers = {
  */
 export const WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.watchdog_version,
        CASE WHEN v.outcome = 'terminate' THEN v.terminate_reason
+            WHEN v.outcome = 'creating' THEN 'create-deadline'
             WHEN v.outcome = 'issued' AND EXISTS (SELECT 1 FROM boot_tokens b WHERE b.machine_id = v.machine_id AND b.incarnation = v.incarnation AND b.used_ms IS NULL AND b.expires_ms <= ?) THEN 'token-expired'
             ELSE 'watchdog-deadline' END AS reason
      FROM vm_launches v
@@ -237,7 +329,7 @@ export const WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.provider_m
  * many it attempted.
  */
 export async function runVmWatchdog(env: JobEnv): Promise<number> {
-  const rows = await env.db.all<{ machine_id: string; incarnation: number; provider_machine_id: string; watchdog_version: number; reason: string }>(
+  const rows = await env.db.all<{ machine_id: string; incarnation: number; provider_machine_id: string | null; watchdog_version: number; reason: string }>(
     WATCHDOG_SELECT,
     [env.now, env.now, WATCHDOG_BATCH],
   );

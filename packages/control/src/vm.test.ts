@@ -62,8 +62,8 @@ async function launch(o: { firstActiveMs?: number; ipv4?: string } = {}) {
       machineId, w.projectId, allocationId, memberId, providerMachineId, T0,
     ),
     stmt(
-      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, ipv4, first_active_ms, next_ms, created_ms)
-       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, ipv4, first_active_ms, next_ms, created_ms, outcome)
+       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?, 'launched')`,
       machineId, providerMachineId, sha(nonce), SCRIPT, o.ipv4 ?? IP, o.firstActiveMs ?? T0, (o.firstActiveMs ?? T0) + ANNOUNCE_DEADLINE_MS, T0,
     ),
   ]);

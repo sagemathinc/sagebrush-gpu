@@ -2160,17 +2160,17 @@
   "new": "  FOREIGN KEY"
  },
  {
-  "file": "migrations/0009_vm_launches.sql",
+  "file": "migrations/0010_vm_launch_intent.sql",
   "old": "  CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),",
   "new": ""
  },
  {
-  "file": "migrations/0009_vm_launches.sql",
+  "file": "migrations/0010_vm_launch_intent.sql",
   "old": "  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),\n",
   "new": ""
  },
  {
-  "file": "migrations/0009_vm_launches.sql",
+  "file": "migrations/0010_vm_launch_intent.sql",
   "old": "  boot_script_sha256 TEXT NOT NULL CHECK (length(boot_script_sha256) = 64 AND boot_script_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  boot_script_sha256 TEXT NOT NULL CHECK (length(boot_script_sha256) = 64),"
  },
@@ -2197,19 +2197,19 @@
   "new": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ? WHERE"
  },
  {
-  "file": "migrations/0009_vm_launches.sql",
+  "file": "migrations/0010_vm_launch_intent.sql",
   "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
   "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms) WHERE next_ms IS NOT NULL;",
   "note": "the index doesn't serve the order: a sort"
  },
  {
-  "file": "migrations/0009_vm_launches.sql",
+  "file": "migrations/0010_vm_launch_intent.sql",
   "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
   "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE outcome IN ('launched', 'issued', 'terminate');",
   "note": "a predicate the query doesn't imply: a scan"
  },
  {
-  "file": "migrations/0009_vm_launches.sql",
+  "file": "migrations/0010_vm_launch_intent.sql",
   "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))\n",
   "new": "  CHECK (1)\n"
  },
@@ -2249,5 +2249,157 @@
   "file": "src/app.ts",
   "old": "  const buf = await readCapped(req.body, cap);",
   "new": "  const buf = await readCapped(req.body, MAX_BODY_BYTES);"
+ },
+ {
+  "file": "migrations/0010_vm_launch_intent.sql",
+  "old": "  WHEN EXISTS (SELECT 1 FROM vm_launches) OR EXISTS (SELECT 1 FROM boot_tokens)\n  THEN json('refused: VM launches exist; this rebuild assumes none')",
+  "new": "  WHEN 0\n  THEN json('refused: VM launches exist; this rebuild assumes none')",
+  "note": "no guard"
+ },
+ {
+  "file": "migrations/0010_vm_launch_intent.sql",
+  "old": "  CHECK (outcome <> 'creating' OR (ipv4 IS NULL AND first_active_ms IS NULL)),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0010_vm_launch_intent.sql",
+  "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0010_vm_launch_intent.sql",
+  "old": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (provider_machine_id IS NOT NULL AND ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
+  "new": "  CHECK (outcome NOT IN ('launched', 'issued', 'enrolled') OR (ipv4 IS NOT NULL AND first_active_ms IS NOT NULL)),\n",
+  "note": "launched without an id"
+ },
+ {
+  "file": "migrations/0010_vm_launch_intent.sql",
+  "old": "  CHECK ((ipv4 IS NULL) = (first_active_ms IS NULL)),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0010_vm_launch_intent.sql",
+  "old": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius')),",
+  "new": "provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius', 'runpod')),"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "AND outcome = 'creating'\n       AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,",
+  "new": "AND outcome = 'creating'\n       AND ? IS NOT NULL`,",
+  "note": "a different id overwrites"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "`UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating'\n",
+  "new": "`UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ? AND incarnation = ? AND 1\n",
+  "note": "past creating"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const PROVIDER_ID = /^[^\\s]{1,64}$/;",
+  "new": "const PROVIDER_ID = /^[^\\s]{1,65}$/;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const PROVIDER_ID = /^[^\\s]{1,64}$/;",
+  "new": "const PROVIDER_ID = /^.{1,64}$/;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating' AND (provider_machine_id IS NULL OR provider_machine_id = ?)`,\n    [f.providerMachineId, f.ipv4,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND outcome = 'creating' AND ? IS NOT NULL`,\n    [f.providerMachineId, f.ipv4,"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "|| canonicalIpv4(f.ipv4) === null ||",
+  "new": "||"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "|| !Number.isSafeInteger(f.firstActiveMs) || f.firstActiveMs < 0) return \"refused\";",
+  "new": ") return \"refused\";"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "[f.providerMachineId, f.ipv4, f.firstActiveMs, f.firstActiveMs + ANNOUNCE_DEADLINE_MS, machineId,",
+  "new": "[f.providerMachineId, f.ipv4, f.firstActiveMs, f.firstActiveMs, machineId,"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "  if (vm && known !== null) await withDeadline(() => vm.terminate(known), undefined);\n",
+  "new": "",
+  "note": "no terminate with the id in hand"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "  } catch {\n    // (the row stays as it was: creating, due at its create deadline; the provider call below still goes)\n  }",
+  "new": "  } catch (e) {\n    throw e;\n  }",
+  "note": "a failed mark stops the terminate"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "  if (id === null) return true;\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "       outcome = CASE WHEN outcome IN ('creating', 'launched', 'issued') THEN 'terminate' ELSE outcome END,",
+  "new": "       outcome = CASE WHEN outcome IN ('launched', 'issued') THEN 'terminate' ELSE outcome END,"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "AND v.ipv4 IS NOT NULL AND v.provider_machine_id IS NOT NULL`,",
+  "new": "`,"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "            WHEN v.outcome = 'creating' THEN 'create-deadline'\n",
+  "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "export const CREATE_DEADLINE_MS = 10 * 60_000;",
+  "new": "export const CREATE_DEADLINE_MS = 10 * 60_000 + 1;"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
+  "new": "      params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.createdMs, i.createdMs],"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version + 1 WHERE",
+  "new": "    `UPDATE vm_launches SET provider_machine_id = ?, watchdog_version = watchdog_version WHERE",
+  "note": "the id write leaves snapshots valid"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "next_ms = ?,\n       watchdog_version = watchdog_version + 1\n     WHERE",
+  "new": "next_ms = ?,\n       watchdog_version = watchdog_version\n     WHERE",
+  "note": "ACTIVE leaves snapshots valid"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "provider_machine_id = COALESCE(provider_machine_id, ?), watchdog_version = watchdog_version + 1",
+  "new": "provider_machine_id = COALESCE(provider_machine_id, ?), watchdog_version = watchdog_version",
+  "note": "abandon leaves snapshots valid"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "provider_machine_id = COALESCE(provider_machine_id, ?), watchdog",
+  "new": "provider_machine_id = COALESCE(?, provider_machine_id), watchdog",
+  "note": "abandon overrides the row's own id"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "      [env.now, env.now, known, machineId, incarnation],",
+  "new": "      [env.now, env.now, null, machineId, incarnation],",
+  "note": "abandon doesn't store the known id"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "const known = providerMachineId !== null && PROVIDER_ID.test(providerMachineId) ? providerMachineId : null;",
+  "new": "const known = providerMachineId;",
+  "note": "a malformed id stored and called"
  }
 ]
