@@ -36,22 +36,24 @@ const TEAM_SELECT = `SELECT t.id, t.project_id, t.name, t.created_ms, a.id AS al
 /** Ids per IN-list, leaving room for a statement's other parameters (D1 allows 100 in all). */
 const ID_CHUNK = D1_MAX_BOUND_PARAMETERS - 2;
 
+/**
+ * Teams as the API returns them: a member COUNT per team, never the member ids (a team
+ * can grow without bound; its members are listed, paged, by listMembers?teamId=).
+ */
 async function toTeams(db: Db, rows: TeamRow[]): Promise<Team[]> {
-  const members: Array<{ id: string; team_id: string }> = [];
+  const counts = new Map<string, number>();
   for (const ids of chunks(rows.map((r) => r.id), ID_CHUNK)) {
-    members.push(
-      ...(await db.all<{ id: string; team_id: string }>(
-        `SELECT id, team_id FROM members WHERE team_id IN (${placeholders(ids.length)}) AND status <> 'removed'`,
-        ids,
-      )),
+    const r = await db.all<{ team_id: string; n: number }>(
+      `SELECT team_id, COUNT(*) AS n FROM members WHERE team_id IN (${placeholders(ids.length)}) AND status <> 'removed' GROUP BY team_id`,
+      ids,
     );
+    for (const x of r) counts.set(x.team_id, x.n);
   }
-  members.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return rows.map((r) => ({
     id: r.id,
     projectId: r.project_id,
     name: r.name,
-    memberIds: members.filter((m) => m.team_id === r.id).map((m) => m.id),
+    memberCount: counts.get(r.id) ?? 0,
     allocationId: r.allocation_id,
     createdAt: toIso(r.created_ms),
   }));

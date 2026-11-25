@@ -122,9 +122,13 @@ export const MEMBER_HANDLERS: Handlers = {
   async listMembers(ctx: Ctx) {
     const projectId = ctx.params.projectId as string;
     const cursor = ctx.query.get("cursor");
+    // ?teamId= lists one team's members (removed ones excluded), with the same paging
+    const team = ctx.query.get("teamId");
     const rows = await ctx.deps.db.all<MemberRow>(
-      `${MEMBER_SELECT} WHERE m.project_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`,
-      [projectId, cursor ?? "", MEMBERS_PAGE_SIZE + 1],
+      team === null
+        ? `${MEMBER_SELECT} WHERE m.project_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`
+        : `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,
+      team === null ? [projectId, cursor ?? "", MEMBERS_PAGE_SIZE + 1] : [projectId, team, cursor ?? "", MEMBERS_PAGE_SIZE + 1],
     );
     const items = rows.slice(0, MEMBERS_PAGE_SIZE).map(toMember);
     const next = rows.length > MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;

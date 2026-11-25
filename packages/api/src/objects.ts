@@ -167,7 +167,8 @@ export interface Team {
   id: TeamId;
   projectId: ProjectId;
   name: string;
-  memberIds: MemberId[];
+  /** How many members (not removed) the team has; list them with listMembers?teamId=. */
+  memberCount: number;
   allocationId: AllocationId;
   createdAt: IsoTime;
 }

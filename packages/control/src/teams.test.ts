@@ -10,6 +10,20 @@ const create = (w: World, cookie: string, body: unknown) => call(w, "POST", TP(w
 const count = async (w: World, sql: string, params: (string | number)[] = []) => (await w.db.all<{ n: number }>(sql, params))[0]!.n;
 const teamOf = async (w: World, memberId: string) => (await w.db.all<{ t: string | null }>(`SELECT team_id AS t FROM members WHERE id = ?`, [memberId]))[0]!.t;
 
+/** A team's member ids, read the paged way (listMembers?teamId=). */
+async function teamMembers(w: World, cookie: string, teamId: string): Promise<string[]> {
+  const out: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const r: Awaited<ReturnType<typeof call>> = await call(w, "GET", `/v1/projects/${w.projectId}/members?teamId=${teamId}${cursor ? `&cursor=${cursor}` : ""}`, { cookie });
+    assert.equal(r.res.status, 200);
+    const page = r.json as unknown as { items: Member[]; next: string | null };
+    out.push(...page.items.map((m) => m.id));
+    cursor = page.next;
+  } while (cursor);
+  return out;
+}
+
 async function otherProject(w: World, budget = 0): Promise<string> {
   const p = newId("project");
   await w.db.batch([stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'P2', ?, ?, ?, ?)`, p, w.orgId, T0, T0 + 1, budget, T0)]);
@@ -26,7 +40,8 @@ test("createTeam: a named team with members and its own allocation", async () =>
   const t = r.json as unknown as Team;
   assert.equal(t.name, "Red team");
   assert.equal(t.projectId, w.projectId);
-  assert.deepEqual(t.memberIds, [a, b].sort());
+  assert.equal(t.memberCount, 2);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t.id), [a, b].sort());
   assert.match(t.id, /^team_/);
   assert.match(t.allocationId, /^alc_/);
   assert.equal(t.createdAt, new Date(T0).toISOString());
@@ -37,11 +52,12 @@ test("createTeam: a named team with members and its own allocation", async () =>
   const elsewhere = await addMember(w, "else@example.com", "member", { projectId: await otherProject(w) });
   const c = await addMember(w, "c@example.com");
   const t3 = (await create(w, mgr.cookie, { name: "Blue", memberIds: [c] })).json as unknown as Team;
-  assert.deepEqual(t3.memberIds, [c]);
+  assert.equal(t3.memberCount, 1);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t3.id), [c]);
   assert.equal(await teamOf(w, elsewhere), null);
   // without members or allocation
   const e = (await create(w, mgr.cookie, { name: "Empty" })).json as unknown as Team;
-  assert.deepEqual(e.memberIds, []);
+  assert.equal(e.memberCount, 0);
   assert.equal((await w.db.all<{ amount: number }>(`SELECT amount FROM allocations WHERE id = ?`, [e.allocationId]))[0]!.amount, 0);
 });
 
@@ -84,7 +100,7 @@ test("createTeam: managers and up; malformed requests refused whole", async () =
   }
   await w.db.batch(stmts);
   assert.equal(code(await create(w, mgr.cookie, { name: "too many", memberIds: many })), "badRequest");
-  assert.equal(((await create(w, mgr.cookie, { name: "full", memberIds: many.slice(1) })).json as unknown as Team).memberIds.length, MAX_TEAM_MEMBERS_PER_REQUEST);
+  assert.equal(((await create(w, mgr.cookie, { name: "full", memberIds: many.slice(1) })).json as unknown as Team).memberCount, MAX_TEAM_MEMBERS_PER_REQUEST);
 });
 
 test("a team deleted between the check and the write: a conflict, nothing half-done", async () => {
@@ -172,13 +188,16 @@ test("updateTeam: rename, and the member list replaces the team's members", asyn
   const up = (id: string, body: unknown) => call(w, "PATCH", `${TP(w)}/${id}`, { cookie: mgr.cookie, body });
   const r = await up(t1.id, { name: "Uno", memberIds: [b, c] });
   assert.equal(r.res.status, 200);
-  assert.deepEqual([(r.json as unknown as Team).name, (r.json as unknown as Team).memberIds], ["Uno", [b, c].sort()]);
+  assert.deepEqual([(r.json as unknown as Team).name, (r.json as unknown as Team).memberCount], ["Uno", 2]);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t1.id), [b, c].sort());
   // a left, c moved from team Two
   assert.deepEqual([await teamOf(w, a), await teamOf(w, b), await teamOf(w, c)], [null, t1.id, t1.id]);
-  assert.deepEqual(((await up(t2.id, {})).json as unknown as Team).memberIds, []);
+  assert.equal(((await up(t2.id, {})).json as unknown as Team).memberCount, 0);
   // the name alone leaves members; an empty list clears them
-  assert.deepEqual(((await up(t1.id, { name: "Ein" })).json as unknown as Team).memberIds, [b, c].sort());
-  assert.deepEqual(((await up(t1.id, { memberIds: [] })).json as unknown as Team).memberIds, []);
+  assert.equal(((await up(t1.id, { name: "Ein" })).json as unknown as Team).memberCount, 2);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t1.id), [b, c].sort());
+  assert.equal(((await up(t1.id, { memberIds: [] })).json as unknown as Team).memberCount, 0);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t1.id), []);
   assert.equal(code(await up(t1.id, { name: "" })), "badRequest");
   assert.equal(code(await up(t1.id, { memberIds: [newId("member")] })), "badRequest");
   assert.equal(code(await up(newId("team"), { name: "x" })), "notFound");
@@ -196,15 +215,72 @@ test("large member lists stay within D1's parameter cap: 150 members created, re
   const ids: string[] = [];
   for (let i = 0; i < 300; i++) ids.push(await addMember(w, `p${String(i).padStart(3, "0")}@example.com`));
   const t = (await create(w, mgr.cookie, { name: "Big", memberIds: ids.slice(0, 150) })).json as unknown as Team;
-  assert.equal(t.memberIds.length, 150);
-  assert.deepEqual(t.memberIds, [...t.memberIds].sort()); // member ids come back sorted
+  assert.equal(t.memberCount, 150);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t.id), [...ids.slice(0, 150)].sort());
   const r = await call(w, "PATCH", `${TP(w)}/${t.id}`, { cookie: mgr.cookie, body: { memberIds: ids.slice(100, 300) } });
   assert.equal(r.res.status, 200);
-  assert.equal((r.json as unknown as Team).memberIds.length, 200);
+  assert.equal((r.json as unknown as Team).memberCount, 200);
   assert.equal(await count(w, `SELECT COUNT(*) AS n FROM members WHERE team_id = ?`, [t.id]), 200);
   const list = (await call(w, "GET", TP(w), { cookie: mgr.cookie })).json as unknown as { teams: Team[] };
-  assert.equal(list.teams[0]!.memberIds.length, 200);
-  assert.deepEqual(list.teams[0]!.memberIds, [...ids.slice(100, 300)].sort());
+  assert.equal(list.teams[0]!.memberCount, 200);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t.id), [...ids.slice(100, 300)].sort());
+});
+
+test("a team that grows past any request's cap: team responses stay small, members are paged", async () => {
+  const w = await world();
+  const own = await person(w, "own@example.com", "owner");
+  const t = (await create(w, own.cookie, { name: "Huge" })).json as unknown as Team;
+  // three 500-invite requests into the same team
+  for (let k = 0; k < 3; k++) {
+    const list = Array.from({ length: 500 }, (_, i) => ({ email: `k${k}-${String(i).padStart(3, "0")}@example.com`, teamId: t.id }));
+    assert.equal((await call(w, "POST", `/v1/projects/${w.projectId}/members`, { cookie: own.cookie, body: { members: list } })).res.status, 200);
+  }
+  const small = (r: Awaited<ReturnType<typeof call>>) => JSON.stringify(r.json).length;
+  const listed = await call(w, "GET", TP(w), { cookie: own.cookie });
+  const renamed = await call(w, "PATCH", `${TP(w)}/${t.id}`, { cookie: own.cookie, body: { name: "Huger" } });
+  const created = await create(w, own.cookie, { name: "Other" });
+  for (const [name, r] of [["list", listed], ["rename", renamed], ["create", created]] as const) {
+    assert.equal(r.res.status, 200, name);
+    assert.ok(small(r) < 1000, `${name}: ${small(r)} bytes`);
+  }
+  assert.equal((listed.json as unknown as { teams: Team[] }).teams.find((x) => x.id === t.id)!.memberCount, 1500);
+  assert.equal((renamed.json as unknown as Team).memberCount, 1500);
+  // the members themselves: 1500 in pages of at most 200
+  let pages = 0;
+  let cursor: string | null = null;
+  let seen = 0;
+  do {
+    const r: Awaited<ReturnType<typeof call>> = await call(w, "GET", `/v1/projects/${w.projectId}/members?teamId=${t.id}${cursor ? `&cursor=${cursor}` : ""}`, { cookie: own.cookie });
+    const page = r.json as unknown as { items: Member[]; next: string | null };
+    assert.ok(page.items.length <= 200);
+    assert.ok(page.items.every((m) => m.teamId === t.id));
+    seen += page.items.length;
+    cursor = page.next;
+    pages++;
+  } while (cursor);
+  assert.deepEqual([seen, pages], [1500, 8]);
+});
+
+test("listMembers?teamId= lists only that team's current members, of this project", async () => {
+  const w = await world();
+  const mgr = await person(w, "mgr@example.com", "manager");
+  const [a, b, c] = [await addMember(w, "a@example.com"), await addMember(w, "b@example.com"), await addMember(w, "c@example.com")];
+  const t1 = (await create(w, mgr.cookie, { name: "One", memberIds: [a, b] })).json as unknown as Team;
+  const t2 = (await create(w, mgr.cookie, { name: "Two", memberIds: [c] })).json as unknown as Team;
+  await w.db.batch([stmt(`UPDATE members SET status = 'removed' WHERE id = ?`, b)]);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t1.id), [a]);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, t2.id), [c]);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, newId("team")), []);
+  // another project's team, through this project's path: nothing of theirs
+  const p2 = await otherProject(w);
+  const foreignTeam = newId("team");
+  await w.db.batch([stmt(`INSERT INTO teams (id, project_id, name, created_ms) VALUES (?, ?, 'F', ?)`, foreignTeam, p2, T0)]);
+  const fm = await addMember(w, "f@example.com", "member", { projectId: p2 });
+  await w.db.batch([stmt(`UPDATE members SET team_id = ? WHERE id = ?`, foreignTeam, fm)]);
+  assert.deepEqual(await teamMembers(w, mgr.cookie, foreignTeam), []);
+  // without the filter, the whole project (removed members included, as before)
+  const all = (await call(w, "GET", `/v1/projects/${w.projectId}/members`, { cookie: mgr.cookie })).json as unknown as { items: Member[] };
+  assert.equal(all.items.length, 4);
 });
 
 test("deleteTeam: members leave, the allocation returns to the project, the team stays on record", async () => {
@@ -280,7 +356,7 @@ test("listTeams: assistants see every live team; members only their own", async 
   assert.deepEqual((await list(asst.cookie)).map((t) => t.name), ["Amber", "Blue", "Green", "Orange", "Red", "Yellow"]); // live only, by name
   const own = await list(mem.cookie);
   assert.deepEqual(own.map((t) => t.id), [red.id]);
-  assert.deepEqual(own[0]!.memberIds, [mem.memberId]); // removed members aren't listed
+  assert.equal(own[0]!.memberCount, 1); // removed members aren't counted
   assert.deepEqual(await list(lone.cookie), []);
   void blue;
 });

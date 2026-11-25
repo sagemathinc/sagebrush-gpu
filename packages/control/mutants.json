@@ -834,18 +834,8 @@
  },
  {
   "file": "src/members.ts",
-  "old": "`${MEMBER_SELECT} WHERE m.project_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`,",
-  "new": "`${MEMBER_SELECT} WHERE m.project_id = ? AND m.id >= ? ORDER BY m.id LIMIT ?`,"
- },
- {
-  "file": "src/members.ts",
   "old": "const next = rows.length > MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;",
   "new": "const next = rows.length >= MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;"
- },
- {
-  "file": "src/members.ts",
-  "old": "[projectId, cursor ?? \"\", MEMBERS_PAGE_SIZE + 1],",
-  "new": "[projectId, cursor ?? \"\", MEMBERS_PAGE_SIZE],"
  },
  {
   "file": "migrations/0003_members.sql",
@@ -1098,16 +1088,6 @@
  },
  {
   "file": "src/teams.ts",
-  "old": "`SELECT id, team_id FROM members WHERE team_id IN (${placeholders(ids.length)}) AND status <> 'removed'`,",
-  "new": "`SELECT id, team_id FROM members WHERE team_id IN (${placeholders(ids.length)})`,"
- },
- {
-  "file": "src/teams.ts",
-  "old": "  members.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));\n",
-  "new": ""
- },
- {
-  "file": "src/teams.ts",
   "old": "if (projectRoleAtLeast(ctx.projectRole as ProjectRole, \"assistant\")) {",
   "new": "if (projectRoleAtLeast(ctx.projectRole as ProjectRole, \"member\")) {"
  },
@@ -1205,5 +1185,30 @@
   "file": "src/members.ts",
   "old": "if (typeof x !== \"string\") throw new HttpError(\"badRequest\", \"teamId is a team id or null\");",
   "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    memberCount: counts.get(r.id) ?? 0,",
+  "new": "    memberCount: counts.get(r.id) ?? 0,\n    memberIds: Array.from({ length: counts.get(r.id) ?? 0 }, (_, i) => `mbr_${i}`),"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "`SELECT team_id, COUNT(*) AS n FROM members WHERE team_id IN (${placeholders(ids.length)}) AND status <> 'removed' GROUP BY team_id`,",
+  "new": "`SELECT team_id, COUNT(*) AS n FROM members WHERE team_id IN (${placeholders(ids.length)}) GROUP BY team_id`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,",
+  "new": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,",
+  "new": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id IS NOT NULL AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,",
+  "new": ": `${MEMBER_SELECT} WHERE (m.project_id = ? OR 1) AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,"
  }
 ]

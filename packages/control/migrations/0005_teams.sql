@@ -14,6 +14,9 @@ CREATE TABLE teams (
 -- Names are unique among a project's live teams (case-insensitively).
 CREATE UNIQUE INDEX teams_live_name ON teams (project_id, lower(name)) WHERE deleted_ms IS NULL;
 
+-- A team's members, counted and listed without scanning the project's members.
+CREATE INDEX members_by_team ON members (team_id, id) WHERE team_id IS NOT NULL;
+
 -- A member's team is a live team of the member's own project.
 CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members
 WHEN NEW.team_id IS NOT NULL AND NOT EXISTS (
