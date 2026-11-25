@@ -117,7 +117,7 @@ export interface Endpoints {
   moveProjectBudget: { method: "POST"; path: "/v1/projects/:projectId/budget"; params: { projectId: ProjectId }; query: {}; body: MoveBudgetRequest; response: Project };
 
   // members and teams
-  listMembers: { method: "GET"; path: "/v1/projects/:projectId/members"; params: { projectId: ProjectId }; query: { cursor?: string }; body: undefined; response: Page<Member> };
+  listMembers: { method: "GET"; path: "/v1/projects/:projectId/members"; params: { projectId: ProjectId }; query: { cursor?: string; teamId?: TeamId }; body: undefined; response: Page<Member> };
   inviteMembers: { method: "POST"; path: "/v1/projects/:projectId/members"; params: { projectId: ProjectId }; query: {}; body: InviteMembersRequest; response: { members: Member[] } };
   updateMember: { method: "PATCH"; path: "/v1/projects/:projectId/members/:memberId"; params: { projectId: ProjectId; memberId: MemberId }; query: {}; body: UpdateMemberRequest; response: Member };
   removeMember: { method: "DELETE"; path: "/v1/projects/:projectId/members/:memberId"; params: { projectId: ProjectId; memberId: MemberId }; query: {}; body: undefined; response: Ok };

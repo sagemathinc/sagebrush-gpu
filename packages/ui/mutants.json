@@ -166,11 +166,6 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "return { teams: teams.filter((t) => t.id === own) };",
-  "new": "return { teams };"
- },
- {
-  "file": "src/mock/backend.ts",
   "old": "if (user == null || this.#callerMember(rec.m.projectId, user.id)?.id !== rec.m.memberId) {",
   "new": "if (false) {"
  },
@@ -198,11 +193,6 @@
   "file": "src/mock/backend.ts",
   "old": "        if (m.email === email && m.status === \"invited\") {",
   "new": "        if (false) {"
- },
- {
-  "file": "src/mock/backend.ts",
-  "old": "        if (old) old.memberIds = old.memberIds.filter((x) => x !== id);\n",
-  "new": ""
  },
  {
   "file": "src/mock/backend.ts",
@@ -1273,5 +1263,50 @@
   "file": "src/app/manage-page.ts",
   "old": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.memberId);",
   "new": "if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.email);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "filter((m) => m.projectId === team.projectId && m.teamId === team.id && m.status !== \"removed\");",
+  "new": "filter((m) => m.projectId === team.projectId && m.teamId === team.id);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return { ...team, memberCount: this.#teamMembers(team).length };",
+  "new": "    return { ...team };"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (m.teamId === team.id && !ids.includes(m.id)) m.teamId = null;",
+  "new": "      if (false) m.teamId = null;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      return { items: all.slice(offset, end), next: end < all.length ? String(end) : null };",
+  "new": "      return { items: all.slice(offset, end), next: end <= all.length ? String(end) : null };"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "export const MEMBERS_PAGE = 200;",
+  "new": "export const MEMBERS_PAGE = 201;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!Number.isSafeInteger(offset) || offset < 0) throw",
+  "new": "      if (false) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        if (inv.teamId !== undefined) member.teamId = this.#team(params.projectId, inv.teamId).id;",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (body.teamId !== undefined) member.teamId = body.teamId;",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "return { teams: teams.filter((t) => t.id === own).map((t) => this.#teamView(t)) };",
+  "new": "return { teams: teams.map((t) => this.#teamView(t)) };"
  }
 ]

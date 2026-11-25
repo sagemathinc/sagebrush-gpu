@@ -64,6 +64,7 @@ function asConflict(e: unknown): never {
   if (msg.includes("over-allocation")) throw new HttpError("conflict", "allocations would exceed the project budget");
   if (msg.includes("last-owner")) throw new HttpError("conflict", "a project keeps at least one active owner");
   if (msg.includes("UNIQUE") && msg.includes("members.")) throw new HttpError("conflict", "already a member of this project");
+  if (msg.includes("team:")) throw new HttpError("badRequest", "no such team in this project");
   throw e;
 }
 
@@ -109,17 +110,25 @@ function optionalName(x: unknown): string | null {
   return x.trim() || null;
 }
 
-function noTeam(x: unknown): void {
-  if (x !== undefined && x !== null) throw new HttpError("badRequest", "teams aren't available yet");
+/** A team id, null for none, or undefined when absent. (The database checks it is a live team of the project.) */
+function teamId(x: unknown): string | null | undefined {
+  // (an unknown id is refused by the database; a non-string couldn't even be bound)
+  if (x === undefined || x === null) return x;
+  if (typeof x !== "string") throw new HttpError("badRequest", "teamId is a team id or null");
+  return x;
 }
 
 export const MEMBER_HANDLERS: Handlers = {
   async listMembers(ctx: Ctx) {
     const projectId = ctx.params.projectId as string;
     const cursor = ctx.query.get("cursor");
+    // ?teamId= lists one team's members (removed ones excluded), with the same paging
+    const team = ctx.query.get("teamId");
     const rows = await ctx.deps.db.all<MemberRow>(
-      `${MEMBER_SELECT} WHERE m.project_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`,
-      [projectId, cursor ?? "", MEMBERS_PAGE_SIZE + 1],
+      team === null
+        ? `${MEMBER_SELECT} WHERE m.project_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`
+        : `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,
+      team === null ? [projectId, cursor ?? "", MEMBERS_PAGE_SIZE + 1] : [projectId, team, cursor ?? "", MEMBERS_PAGE_SIZE + 1],
     );
     const items = rows.slice(0, MEMBERS_PAGE_SIZE).map(toMember);
     const next = rows.length > MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;
@@ -135,7 +144,7 @@ export const MEMBER_HANDLERS: Handlers = {
     }
     const t = now();
     const seen = new Set<string>();
-    const rows: Array<{ id: string; email: string; name: string | null; role: ProjectRole; allocation: number }> = [];
+    const rows: Array<{ id: string; email: string; name: string | null; role: ProjectRole; allocation: number; team: string | null }> = [];
     for (const raw of list) {
       if (typeof raw !== "object" || raw === null) throw new HttpError("badRequest", "each invitation is an object");
       const o = raw as Record<string, unknown>;
@@ -146,19 +155,19 @@ export const MEMBER_HANDLERS: Handlers = {
       const role = o.role === undefined ? "member" : o.role;
       if (!isRole(role)) throw new HttpError("badRequest", "invalid role");
       decide(canInvite(ctx.projectRole as ProjectRole, role));
-      noTeam(o.teamId);
+      const team = teamId(o.teamId) ?? null;
       const allocation = o.allocation === undefined ? 0 : o.allocation;
       if (!isNonNegativeMicros(allocation)) throw new HttpError("badRequest", "an allocation is a non-negative whole number of micro-dollars");
-      rows.push({ id: newId("member"), email, name: optionalName(o.name), role, allocation });
+      rows.push({ id: newId("member"), email, name: optionalName(o.name), role, allocation, team });
     }
     const stmts: Stmt[] = [];
     for (const r of rows) {
       // A person who already has an account joins as active; others when they sign in.
       stmts.push({
-        sql: `INSERT INTO members (id, project_id, user_id, email, name, role, status, created_ms)
-              SELECT ?, ?, u.id, ?, ?, ?, CASE WHEN u.id IS NULL THEN 'invited' ELSE 'active' END, ?
+        sql: `INSERT INTO members (id, project_id, user_id, email, name, role, status, team_id, created_ms)
+              SELECT ?, ?, u.id, ?, ?, ?, CASE WHEN u.id IS NULL THEN 'invited' ELSE 'active' END, ?, ?
               FROM (SELECT (SELECT id FROM users WHERE email = ?) AS id) u`,
-        params: [r.id, projectId, r.email, r.name, r.role, t, r.email],
+        params: [r.id, projectId, r.email, r.name, r.role, r.team, t, r.email],
       });
       stmts.push({
         sql: `INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', ?, ?, ?)`,
@@ -185,13 +194,14 @@ export const MEMBER_HANDLERS: Handlers = {
     const b = ctx.body;
     // (an invalid role is refused by authz as badInput)
     const role = b.role === undefined ? undefined : (b.role as ProjectRole);
-    noTeam(b.teamId);
+    const team = teamId(b.teamId);
     const name = b.name === undefined ? undefined : optionalName(b.name);
     decide(canUpdateMember(ctx.projectRole as ProjectRole, target.role, role, await ownerCountFor(db, target)));
     await batchOrConflict(db, [
       {
-        sql: `UPDATE members SET role = COALESCE(?, role), name = CASE WHEN ? THEN ? ELSE name END WHERE id = ?`,
-        params: [role ?? null, name === undefined ? 0 : 1, name ?? null, target.id],
+        sql: `UPDATE members SET role = COALESCE(?, role), name = CASE WHEN ? THEN ? ELSE name END,
+                team_id = CASE WHEN ? THEN ? ELSE team_id END WHERE id = ?`,
+        params: [role ?? null, name === undefined ? 0 : 1, name ?? null, team === undefined ? 0 : 1, team ?? null, target.id],
       },
     ]);
     return json(200, toMember(await loadMember(db, target.project_id, target.id)));

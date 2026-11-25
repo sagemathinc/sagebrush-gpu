@@ -759,11 +759,6 @@
  },
  {
   "file": "src/members.ts",
-  "old": "  if (x !== undefined && x !== null) throw new HttpError(\"badRequest\", \"teams aren't available yet\");",
-  "new": ""
- },
- {
-  "file": "src/members.ts",
   "old": "if (!Array.isArray(list) || list.length === 0 || list.length > MAX_INVITES_PER_REQUEST) {",
   "new": "if (!Array.isArray(list) || list.length > MAX_INVITES_PER_REQUEST) {"
  },
@@ -839,23 +834,8 @@
  },
  {
   "file": "src/members.ts",
-  "old": "`${MEMBER_SELECT} WHERE m.project_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`,",
-  "new": "`${MEMBER_SELECT} WHERE m.project_id = ? AND m.id >= ? ORDER BY m.id LIMIT ?`,"
- },
- {
-  "file": "src/members.ts",
   "old": "const next = rows.length > MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;",
   "new": "const next = rows.length >= MEMBERS_PAGE_SIZE ? (items.at(-1)?.id ?? null) : null;"
- },
- {
-  "file": "src/members.ts",
-  "old": "[projectId, cursor ?? \"\", MEMBERS_PAGE_SIZE + 1],",
-  "new": "[projectId, cursor ?? \"\", MEMBERS_PAGE_SIZE],"
- },
- {
-  "file": "src/members.ts",
-  "old": "params: [role ?? null, name === undefined ? 0 : 1, name ?? null, target.id],",
-  "new": "params: [role ?? null, 1, name ?? null, target.id],"
  },
  {
   "file": "migrations/0003_members.sql",
@@ -970,5 +950,285 @@
   "old": "  const prunedThroughMs = marks.length > 0 ? marks[0]!.pruned_through_ms : null;",
   "new": "  const prunedThroughMs = null;",
   "note": ""
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100 AND name = trim(name)),",
+  "new": "  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 101),"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE UNIQUE INDEX teams_live_name ON teams (project_id, lower(name)) WHERE deleted_ms IS NULL;",
+  "new": "CREATE UNIQUE INDEX teams_live_name ON teams (project_id, name) WHERE deleted_ms IS NULL;"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE UNIQUE INDEX teams_live_name ON teams (project_id, lower(name)) WHERE deleted_ms IS NULL;",
+  "new": "CREATE UNIQUE INDEX teams_live_name ON teams (project_id, lower(name));"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE UNIQUE INDEX teams_live_name ON teams (project_id, lower(name)) WHERE deleted_ms IS NULL;",
+  "new": "CREATE UNIQUE INDEX teams_live_name ON teams (lower(name)) WHERE deleted_ms IS NULL;"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id AND t.deleted_ms IS NULL",
+  "new": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.deleted_ms IS NULL"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER members_team_live_update BEFORE UPDATE OF team_id ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id AND t.deleted_ms IS NULL",
+  "new": "CREATE TRIGGER members_team_live_update BEFORE UPDATE OF team_id ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER members_team_live_update BEFORE UPDATE OF team_id ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id AND t.deleted_ms IS NULL",
+  "new": "CREATE TRIGGER members_team_live_update BEFORE UPDATE OF team_id ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.deleted_ms IS NULL"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.deleted_ms IS NOT NULL AND EXISTS (SELECT 1 FROM members m WHERE m.team_id = NEW.id)",
+  "new": "WHEN NEW.deleted_ms IS NOT NULL AND EXISTS (SELECT 1 FROM members m WHERE m.team_id = NEW.id AND m.status <> 'removed')"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.deleted_ms IS NOT NULL AND EXISTS (SELECT 1 FROM members m WHERE m.team_id = NEW.id)",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.project_id <> OLD.project_id OR (OLD.deleted_ms IS NOT NULL AND NEW.deleted_ms IS NOT OLD.deleted_ms)",
+  "new": "WHEN NEW.project_id <> OLD.project_id"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.project_id <> OLD.project_id OR (OLD.deleted_ms IS NOT NULL AND NEW.deleted_ms IS NOT OLD.deleted_ms)",
+  "new": "WHEN (OLD.deleted_ms IS NOT NULL AND NEW.deleted_ms IS NOT OLD.deleted_ms)"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER teams_kept BEFORE DELETE ON teams\n",
+  "new": "CREATE TRIGGER teams_kept BEFORE DELETE ON teams WHEN 0\n"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN (SELECT COUNT(*) FROM teams WHERE project_id = NEW.project_id AND deleted_ms IS NULL) >= 200",
+  "new": "WHEN (SELECT COUNT(*) FROM teams WHERE project_id = NEW.project_id AND deleted_ms IS NULL) > 200"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN (SELECT COUNT(*) FROM teams WHERE project_id = NEW.project_id AND deleted_ms IS NULL) >= 200",
+  "new": "WHEN (SELECT COUNT(*) FROM teams WHERE project_id = NEW.project_id) >= 200"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN (SELECT COUNT(*) FROM teams WHERE project_id = NEW.project_id AND deleted_ms IS NULL) >= 200",
+  "new": "WHEN (SELECT COUNT(*) FROM teams WHERE deleted_ms IS NULL) >= 200"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (msg.includes(\"team-cap\")) throw new HttpError(\"conflict\", `a project has at most ${MAX_TEAMS_PER_PROJECT} teams`);",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (msg.includes(\"teams_live_name\")) throw new HttpError(\"conflict\", \"a team with that name exists\");",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (msg.includes(\"team:\")) throw new HttpError(\"conflict\", \"the team was deleted\");",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (msg.includes(\"over-allocation\")) throw new HttpError(\"conflict\", \"allocations would exceed the project budget\");",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "  const name = x.trim();",
+  "new": "  const name = x;"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) {",
+  "new": "if (name.length > MAX_TEAM_NAME_LENGTH) {"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) {",
+  "new": "if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH + 1) {"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "  const ids = [...new Set(x as string[])];",
+  "new": "  const ids = x as string[];"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (found !== ids.length) throw new HttpError(\"badRequest\", \"memberIds names a member that isn't in this project\");",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "`SELECT COUNT(*) AS n FROM members WHERE project_id = ? AND status <> 'removed' AND id IN (${placeholders(part.length)})`,",
+  "new": "`SELECT COUNT(*) AS n FROM members WHERE project_id = ? AND id IN (${placeholders(part.length)})`,"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "`SELECT COUNT(*) AS n FROM members WHERE project_id = ? AND status <> 'removed' AND id IN (${placeholders(part.length)})`,",
+  "new": "`SELECT COUNT(*) AS n FROM members WHERE status <> 'removed' AND id IN (${placeholders(part.length)})`,"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "const ID_CHUNK = D1_MAX_BOUND_PARAMETERS - 2;",
+  "new": "const ID_CHUNK = D1_MAX_BOUND_PARAMETERS;"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (projectRoleAtLeast(ctx.projectRole as ProjectRole, \"assistant\")) {",
+  "new": "if (projectRoleAtLeast(ctx.projectRole as ProjectRole, \"member\")) {"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "           AND t.id = (SELECT team_id FROM members WHERE project_id = ? AND user_id = ? AND status = 'active')`,",
+  "new": "           AND t.id IS NOT NULL`,"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "`${TEAM_SELECT} WHERE t.project_id = ? AND t.deleted_ms IS NULL ORDER BY t.name, t.id`, [projectId]);",
+  "new": "`${TEAM_SELECT} WHERE t.project_id = ? ORDER BY t.name, t.id`, [projectId]);"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "`${TEAM_SELECT} WHERE t.project_id = ? AND t.deleted_ms IS NULL ORDER BY t.name, t.id`, [projectId]);",
+  "new": "`${TEAM_SELECT} WHERE t.project_id = ? AND t.deleted_ms IS NULL ORDER BY t.id`, [projectId]);"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "const r = await db.all<TeamRow>(`${TEAM_SELECT} WHERE t.project_id = ? AND t.id = ? AND t.deleted_ms IS NULL`, [projectId, teamId]);",
+  "new": "const r = await db.all<TeamRow>(`${TEAM_SELECT} WHERE t.project_id = ? AND t.id = ?`, [projectId, teamId]);"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "const r = await db.all<TeamRow>(`${TEAM_SELECT} WHERE t.project_id = ? AND t.id = ? AND t.deleted_ms IS NULL`, [projectId, teamId]);",
+  "new": "const r = await db.all<TeamRow>(`${TEAM_SELECT} WHERE t.id = ? AND t.deleted_ms IS NULL`, [teamId]);"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "const allocation = ctx.body.allocation === undefined ? 0 : ctx.body.allocation;",
+  "new": "const allocation = ctx.body.allocation === undefined ? 1 : ctx.body.allocation;"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (!isNonNegativeMicros(allocation)) throw new HttpError(\"badRequest\", \"an allocation is a non-negative whole number of micro-dollars\");",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    stmts.push(...joinTeam(id, projectId, ids));\n",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    sql: `UPDATE members SET team_id = ? WHERE project_id = ? AND id IN (${placeholders(part.length)})`,",
+  "new": "    sql: `UPDATE members SET team_id = ? WHERE project_id <> ? OR id IN (${placeholders(part.length)})`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (msg.includes(\"team:\")) throw new HttpError(\"badRequest\", \"no such team in this project\");",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "params: [role ?? null, name === undefined ? 0 : 1, name ?? null, team === undefined ? 0 : 1, team ?? null, target.id],",
+  "new": "params: [role ?? null, name === undefined ? 0 : 1, name ?? null, 1, team ?? null, target.id],"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "      const team = teamId(o.teamId) ?? null;",
+  "new": "      const team = null;"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (!Array.isArray(x) || x.length > MAX_TEAM_MEMBERS_PER_REQUEST || x.some((v) => typeof v !== \"string\")) {",
+  "new": "if (!Array.isArray(x) || x.some((v) => typeof v !== \"string\")) {"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "if (!Array.isArray(x) || x.length > MAX_TEAM_MEMBERS_PER_REQUEST || x.some((v) => typeof v !== \"string\")) {",
+  "new": "if (!Array.isArray(x) || x.length > MAX_TEAM_MEMBERS_PER_REQUEST) {"
+ },
+ {
+  "file": "src/members.ts",
+  "old": "if (typeof x !== \"string\") throw new HttpError(\"badRequest\", \"teamId is a team id or null\");",
+  "new": ""
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    memberCount: counts.get(r.id) ?? 0,",
+  "new": "    memberCount: counts.get(r.id) ?? 0,\n    memberIds: Array.from({ length: counts.get(r.id) ?? 0 }, (_, i) => `mbr_${i}`),"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "`SELECT team_id, COUNT(*) AS n FROM members WHERE team_id IN (${placeholders(ids.length)}) AND status <> 'removed' GROUP BY team_id`,",
+  "new": "`SELECT team_id, COUNT(*) AS n FROM members WHERE team_id IN (${placeholders(ids.length)}) GROUP BY team_id`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,",
+  "new": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.id > ? ORDER BY m.id LIMIT ?`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,",
+  "new": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id IS NOT NULL AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,"
+ },
+ {
+  "file": "src/members.ts",
+  "old": ": `${MEMBER_SELECT} WHERE m.project_id = ? AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,",
+  "new": ": `${MEMBER_SELECT} WHERE (m.project_id = ? OR 1) AND m.team_id = ? AND m.status <> 'removed' AND m.id > ? ORDER BY m.id LIMIT ?`,"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id AND t.deleted_ms IS NULL",
+  "new": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER teams_tombstone_fixed BEFORE UPDATE OF name ON teams\nWHEN OLD.deleted_ms IS NOT NULL",
+  "new": "CREATE TRIGGER teams_tombstone_fixed BEFORE UPDATE OF name ON teams\nWHEN 0"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.holder_kind = 'team' AND NEW.amount <> 0\n  AND EXISTS",
+  "new": "WHEN 0\n  AND EXISTS"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.holder_kind = 'team' AND NEW.amount <> 0\n  AND EXISTS",
+  "new": "WHEN NEW.holder_kind = 'team'\n  AND EXISTS"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "  AND EXISTS (SELECT 1 FROM teams t WHERE t.id = NEW.holder_id AND t.deleted_ms IS NOT NULL)",
+  "new": "  AND EXISTS (SELECT 1 FROM teams t WHERE t.id = NEW.holder_id)"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    const stmts: Stmt[] = [live(team)];",
+  "new": "    const stmts: Stmt[] = [];"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    await batch(db, [\n      live(team),\n      { sql: `UPDATE members SET team_id = NULL",
+  "new": "    await batch(db, [\n      { sql: `UPDATE members SET team_id = NULL"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    await batch(db, [\n      live(team),\n      { sql: `UPDATE allocations SET amount = ?",
+  "new": "    await batch(db, [\n      { sql: `UPDATE allocations SET amount = ?"
  }
 ]

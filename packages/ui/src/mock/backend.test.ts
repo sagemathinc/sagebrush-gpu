@@ -4,7 +4,7 @@ import { isId, isPriceSplit, addSplits, type Machine } from "@sbgpu/api";
 import { ApiError, createClient, type Client } from "../client.ts";
 import { mockFetch } from "./fetch.ts";
 import { demoOffers, seedDemo, type Demo } from "./seed.ts";
-import { MockBackend, SAVE_BYTES } from "./backend.ts";
+import { MEMBERS_PAGE, MockBackend, SAVE_BYTES } from "./backend.ts";
 
 const MIN = 60_000;
 
@@ -309,13 +309,19 @@ test("teams: members see their own team; a member is in one team at a time", asy
   const { teams } = await manager.call("listTeams", { params: p });
   const [llama, qwen] = teams;
   assert.ok(llama && qwen);
-  const adaId = qwen.memberIds[0] as string;
+  assert.deepEqual([llama.memberCount, qwen.memberCount], [2, 1]);
+  const inTeam = async (teamId: string) => (await manager.call("listMembers", { params: p, query: { teamId } })).items.map((m) => m.email);
+  assert.deepEqual(await inTeam(qwen.id), ["ada@example.org"]);
+  const adaId = (await manager.call("listMembers", { params: p, query: { teamId: qwen.id } })).items[0]!.id;
   await manager.call("updateMember", { params: { ...p, memberId: adaId }, body: { teamId: llama.id } });
   const after = (await manager.call("listTeams", { params: p })).teams;
-  assert.equal(after.find((t) => t.id === qwen.id)?.memberIds.length, 0);
-  assert.equal(after.find((t) => t.id === llama.id)?.memberIds.includes(adaId), true);
+  assert.equal(after.find((t) => t.id === qwen.id)?.memberCount, 0);
+  assert.equal(after.find((t) => t.id === llama.id)?.memberCount, 3);
+  assert.deepEqual(await inTeam(qwen.id), []);
+  assert.ok((await inTeam(llama.id)).includes("ada@example.org"));
   await manager.call("updateMember", { params: { ...p, memberId: adaId }, body: { teamId: null } });
-  assert.equal((await manager.call("listTeams", { params: p })).teams.find((t) => t.id === llama.id)?.memberIds.includes(adaId), false);
+  assert.equal((await manager.call("listTeams", { params: p })).teams.find((t) => t.id === llama.id)?.memberCount, 2);
+  assert.ok(!(await inTeam(llama.id)).includes("ada@example.org"));
   const t = await manager.call("createTeam", { params: p, body: { name: " New ", allocation: 5 } });
   assert.equal(t.name, "New");
   await rejects(manager.call("createTeam", { params: p, body: { name: " " } }), "badRequest");
@@ -899,4 +905,46 @@ test("pinned minute: a teammate's quote counts a running machine's pinned minute
   const edsger = await d.as("edsger@example.org");
   // Two machines for 28 minutes at 100 = 5600, but Alan's rest of 09:00 is pinned at 1: 5501.
   assert.equal((await edsger.call("quote", { params, body: { gpuType: "L4", chargeTo: "team" } })).requiredToStart, 5501);
+});
+
+test("teams report a member count; their members page through listMembers?teamId=", async () => {
+  const d = setup();
+  const p = { projectId: d.projectId };
+  const manager = await d.as(d.emails.manager);
+  const team = await manager.call("createTeam", { params: p, body: { name: "Big" } });
+  assert.equal(team.memberCount, 0);
+  assert.equal("memberIds" in team, false); // never the list itself
+  for (let i = 0; i < MEMBERS_PAGE + 5; i++) d.backend.addMember(d.projectId, { email: `p${i}@example.org` });
+  const ids = [...d.backend.members.values()].filter((m) => m.email.startsWith("p")).map((m) => m.id);
+  const updated = await manager.call("updateTeam", { params: { ...p, teamId: team.id }, body: { memberIds: ids } });
+  assert.equal(updated.memberCount, MEMBERS_PAGE + 5);
+  const first = await manager.call("listMembers", { params: p, query: { teamId: team.id } });
+  assert.equal(first.items.length, MEMBERS_PAGE);
+  assert.equal(first.next, String(MEMBERS_PAGE));
+  const second = await manager.call("listMembers", { params: p, query: { teamId: team.id, cursor: first.next! } });
+  assert.equal(second.items.length, 5);
+  assert.equal(second.next, null);
+  assert.equal(new Set([...first.items, ...second.items].map((m) => m.id)).size, MEMBERS_PAGE + 5);
+  // Removed members don't count and aren't listed.
+  await manager.call("removeMember", { params: { ...p, memberId: ids[0]! } });
+  assert.equal((await manager.call("listTeams", { params: p })).teams.find((t) => t.id === team.id)?.memberCount, MEMBERS_PAGE + 4);
+  assert.equal((await manager.call("listMembers", { params: p, query: { teamId: team.id, cursor: String(MEMBERS_PAGE) } })).items.length, 4);
+  assert.equal(MEMBERS_PAGE, 200); // the control plane's page size
+  // Exactly one full page: no next.
+  for (const id of ids.slice(1, 5)) await manager.call("removeMember", { params: { ...p, memberId: id } });
+  const full = await manager.call("listMembers", { params: p, query: { teamId: team.id } });
+  assert.deepEqual([full.items.length, full.next], [MEMBERS_PAGE, null]);
+  // Replacing the list drops whoever isn't on it.
+  const two = await manager.call("updateTeam", { params: { ...p, teamId: team.id }, body: { memberIds: ids.slice(10, 12) } });
+  assert.equal(two.memberCount, 2);
+  assert.deepEqual((await manager.call("listMembers", { params: p, query: { teamId: team.id } })).items.map((m) => m.id), ids.slice(10, 12));
+  await manager.call("updateTeam", { params: { ...p, teamId: team.id }, body: { memberIds: ids.slice(5) } });
+  await rejects(manager.call("listMembers", { params: p, query: { teamId: team.id, cursor: "-1" } }), "badRequest");
+  await rejects(manager.call("listMembers", { params: p, query: { teamId: "team_zzzzzzzzzzzzzzzzzzzz" } }), "notFound");
+  // Invites into a team count toward it; the team CSV counts the same way.
+  await manager.call("inviteMembers", { params: p, body: { members: [{ email: "late@example.org", teamId: team.id }] } });
+  assert.equal((await manager.call("listTeams", { params: p })).teams.find((t) => t.id === team.id)?.memberCount, MEMBERS_PAGE + 1); // 200 still active, plus one
+  const ta = await d.as(d.emails.assistant);
+  const csv = await ta.call("getSpendCsv", { params: p, query: { by: "team" } });
+  assert.ok(csv.includes(`\r\nBig,${MEMBERS_PAGE + 1},`), csv.slice(0, 300));
 });

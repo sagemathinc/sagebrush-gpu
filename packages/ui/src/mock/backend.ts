@@ -88,6 +88,8 @@ export const PROVIDER_STOP_SECONDS = 15;
 export const SAVE_BYTES = 120 * 1024 * 1024;
 export const SAVE_BYTES_PER_SECOND = 20 * 1024 * 1024;
 export const PAGE_TOKEN_SECONDS = 60;
+/** listMembers?teamId= pages, as the control plane does. */
+export const MEMBERS_PAGE = 200;
 
 /** Mock-only country sets for the locality presets; the real table is @sbgpu/providers' localityFor. */
 const EU = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"];
@@ -308,7 +310,7 @@ export class MockBackend {
   addTeam(projectId: string, name: string, memberIds: string[], allocation: Micros): Team {
     for (const id of memberIds) this.#member(projectId, id);
     const allocationId = this.newId("allocation");
-    const team: Team = { id: this.newId("team"), projectId, name, memberIds: [], allocationId, createdAt: toIso(this.#now) };
+    const team: Team = { id: this.newId("team"), projectId, name, memberCount: 0, allocationId, createdAt: toIso(this.#now) };
     this.teams.set(team.id, team);
     this.allocations.set(allocationId, {
       id: allocationId,
@@ -318,7 +320,7 @@ export class MockBackend {
       updatedAt: toIso(this.#now),
     });
     this.#setTeamMembers(team, memberIds);
-    return team;
+    return this.#teamView(team);
   }
 
   /** Test hook: the agent reports the machine idle; it saves and stops. */
@@ -798,7 +800,7 @@ export class MockBackend {
         const a = this.allocations.get(team.allocationId);
         if (team.projectId !== project.id || a == null) continue;
         const meter = this.#meter(a);
-        rows.push([team.name, team.memberIds.length, usd(a.amount), usd(meter.spent.providerCost), usd(meter.spent.margin), usd(meter.spent.total), usd(meter.remaining)]);
+        rows.push([team.name, this.#teamMembers(team).length, usd(a.amount), usd(meter.spent.providerCost), usd(meter.spent.margin), usd(meter.spent.total), usd(meter.remaining)]);
       }
     } else {
       rows.push(["date_utc", "provider_cost_usd", "margin_usd", "total_usd"]);
@@ -817,22 +819,28 @@ export class MockBackend {
 
   // ---------------------------------------------------------------- teams and allocations
 
-  /** Make `memberIds` exactly the team's members; a member is in at most one team. */
+  // A member's teamId is the one record of membership (a member is in at most one team);
+  // a team's members and its memberCount are derived from it, counting only members who
+  // haven't been removed, as the contract says.
+
+  /** The team's members who haven't been removed. */
+  #teamMembers(team: Team): Member[] {
+    return [...this.members.values()].filter((m) => m.projectId === team.projectId && m.teamId === team.id && m.status !== "removed");
+  }
+
+  /** The team as the API returns it: with a member count, never the member list. */
+  #teamView(team: Team): Team {
+    return { ...team, memberCount: this.#teamMembers(team).length };
+  }
+
+  /** Make `memberIds` exactly the team's members (moving them out of any other team). */
   #setTeamMembers(team: Team, memberIds: string[]): void {
     const ids = [...new Set(memberIds)];
     for (const id of ids) this.#member(team.projectId, id);
     for (const m of this.members.values()) {
       if (m.teamId === team.id && !ids.includes(m.id)) m.teamId = null;
     }
-    for (const id of ids) {
-      const m = this.#member(team.projectId, id);
-      if (m.teamId != null && m.teamId !== team.id) {
-        const old = this.teams.get(m.teamId);
-        if (old) old.memberIds = old.memberIds.filter((x) => x !== id);
-      }
-      m.teamId = team.id;
-    }
-    team.memberIds = ids;
+    for (const id of ids) this.#member(team.projectId, id).teamId = team.id;
   }
 
   /** Refuse (conflict) when the project's allocations would add up to more than its budget. */
@@ -938,10 +946,18 @@ export class MockBackend {
       return this.#projectView(project);
     },
 
-    listMembers: ({ params }) => ({
-      items: [...this.members.values()].filter((m) => m.projectId === params.projectId),
-      next: null,
-    }),
+    listMembers: ({ params, query }) => {
+      if (query.teamId === undefined) {
+        return { items: [...this.members.values()].filter((m) => m.projectId === params.projectId), next: null };
+      }
+      // One team's members who haven't been removed, a page at a time.
+      const team = this.#team(params.projectId, query.teamId);
+      const offset = query.cursor === undefined ? 0 : Number(query.cursor);
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new ApiFail("badRequest", "bad cursor");
+      const all = this.#teamMembers(team);
+      const end = offset + MEMBERS_PAGE;
+      return { items: all.slice(offset, end), next: end < all.length ? String(end) : null };
+    },
 
     inviteMembers: ({ params, body, user }) => {
       if (!Array.isArray(body.members)) throw new ApiFail("badRequest", "members must be a list");
@@ -978,10 +994,7 @@ export class MockBackend {
           allocation: inv.allocation ?? 0,
           userId: known?.id ?? null,
         });
-        if (inv.teamId !== undefined) {
-          const team = this.#team(params.projectId, inv.teamId);
-          this.#setTeamMembers(team, [...team.memberIds, member.id]);
-        }
+        if (inv.teamId !== undefined) member.teamId = this.#team(params.projectId, inv.teamId).id;
         out.push(member);
       }
       return { members: out };
@@ -994,13 +1007,7 @@ export class MockBackend {
       if (body.teamId != null) this.#team(params.projectId, body.teamId);
       if (body.role !== undefined) member.role = body.role;
       if (body.name !== undefined) member.name = body.name;
-      if (body.teamId === null && member.teamId != null) {
-        const old = this.#team(params.projectId, member.teamId);
-        this.#setTeamMembers(old, old.memberIds.filter((x) => x !== member.id));
-      } else if (body.teamId != null) {
-        const team = this.#team(params.projectId, body.teamId);
-        this.#setTeamMembers(team, [...team.memberIds, member.id]);
-      }
+      if (body.teamId !== undefined) member.teamId = body.teamId;
       return member;
     },
 
@@ -1023,9 +1030,9 @@ export class MockBackend {
       const userId = (user as User).id;
       if (this.#projectRole(params.projectId, userId) === "member") {
         const own = this.#callerMember(params.projectId, userId)?.teamId ?? null;
-        return { teams: teams.filter((t) => t.id === own) };
+        return { teams: teams.filter((t) => t.id === own).map((t) => this.#teamView(t)) };
       }
-      return { teams };
+      return { teams: teams.map((t) => this.#teamView(t)) };
     },
 
     createTeam: ({ params, body }) => {
@@ -1039,7 +1046,7 @@ export class MockBackend {
       const team = this.#team(params.projectId, params.teamId);
       if (body.name !== undefined) team.name = body.name;
       if (body.memberIds !== undefined) this.#setTeamMembers(team, body.memberIds);
-      return team;
+      return this.#teamView(team);
     },
 
     deleteTeam: ({ params }) => {

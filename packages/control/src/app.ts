@@ -25,6 +25,7 @@ import {
 import type { Db } from "./db.ts";
 import { HttpError, SECURITY_HEADERS, json } from "./http.ts";
 import { MEMBER_HANDLERS } from "./members.ts";
+import { TEAM_HANDLERS } from "./teams.ts";
 import { normalizeEmail } from "./validate.ts";
 
 export { HttpError, SECURITY_HEADERS, json, normalizeEmail };
@@ -379,7 +380,7 @@ const AUTH_HANDLERS: Handlers = {
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...MEMBER_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 
