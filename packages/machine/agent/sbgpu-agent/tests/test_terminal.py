@@ -124,7 +124,10 @@ async def test_open_refusals_before_any_effect():
         await asyncio.sleep(0.1)
         assert (sc.rows, sc.cols) == (1000, 1) and not t.runner.pages[pc.gen].closed
         sc.stop()
-        assert await until(lambda: sc.exit is not None, 5)
+        # (its exit reaches its page once the PTY is drained and closed: taken here, so the next open's answer is next)
+        g, m = await recv(leg)
+        assert (g, m["t"]) == (pc.gen, "exit"), (g, m)
+        assert sc.exit is not None
         # (after an open, a message that isn't a terminal message closes the page: 1002)
         gen += 1
         pb = await tpaired(t, leg, gen)

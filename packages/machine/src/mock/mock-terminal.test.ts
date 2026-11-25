@@ -122,9 +122,9 @@ test("a bad hello closes 4403; errors and closes as the agent's protocol has the
   assert.equal(e.closed!.code, 4009);
   assert.ok(e.msgs.some((m) => m.t === "error" && m.error === "elsewhere"));
   await f.until(() => f.msgs.some((m) => m.t === "live"));
-  // an ack past what was sent closes 1008
+  // an ack past what was sent closes 1008 (well past: output still on its way, the shell's prompt, counts as sent)
   const sent = f.msgs.filter((m) => m.t === "out").reduce((n, m) => n + Buffer.from(m.b as string, "base64").length, 0);
-  f.send({ t: "ack", upto: sent + 1 });
+  f.send({ t: "ack", upto: sent + 1_000_000 });
   await f.until(() => f.closed !== null);
   assert.equal(f.closed!.code, 1008);
 });
