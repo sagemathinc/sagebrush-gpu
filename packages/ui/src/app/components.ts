@@ -4,8 +4,9 @@
 import type { ComponentChildren, VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.ts";
-import type { Machine, PriceListItem, ProjectLabels, Quote, SignInOutcome, SpendMeter } from "@sbgpu/api";
+import type { BillingMode, Machine, PriceListItem, ProjectLabels, Quote, SignInOutcome, SpendMeter } from "@sbgpu/api";
 import { capitalize, withArticle } from "../labels.ts";
+import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
 import { ago, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "../view.ts";
 import type { Store } from "./store.ts";
@@ -123,8 +124,8 @@ export function Home({ store, nav }: { store: Store; nav: Nav }): VNode {
 
 // ---------------------------------------------------------------- spend meter
 
-export function MeterCard({ title, meter, now }: { title: string; meter: SpendMeter; now: number }): VNode {
-  const v = meterView(meter);
+export function MeterCard({ title, meter, now, mode = "resold" }: { title: string; meter: SpendMeter; now: number; mode?: BillingMode }): VNode {
+  const v = meterView(meter, mode);
   return html`<section class=${`card meter band-${v.band}`} aria-label=${title}>
     <h2>${title}</h2>
     <div class="bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${v.usedPercent}
@@ -156,7 +157,7 @@ export function GpuRow({ store, item, quote, labels }: { store: Store; item: Pri
   return html`<tr>
     <th scope="row">${item.gpuCount}× ${item.gpuType} <span class="muted">${item.gpuMemoryGb} GB</span></th>
     <td>${price
-      ? html`<strong>${priceText(price.providerCost, price.margin).total}</strong><br /><span class="small muted">${priceText(price.providerCost, price.margin).parts}</span>`
+      ? html`<strong>${priceText(price.providerCost, price.margin, store.billingMode.value).total}</strong><br /><span class="small muted">${priceText(price.providerCost, price.margin, store.billingMode.value).parts}</span>`
       : html`<span class="muted">not available</span>`}</td>
     <td class="small">${quote && !quote.canStart && quote.reason ? refusalText(quote.reason, labels) : item.stock === "low" ? "Few left" : ""}</td>
     <td><button disabled=${!canStart || store.isBusy(key)} onClick=${() => store.start(item.gpuType)}>
@@ -199,8 +200,8 @@ export function MachineCard({ store, machine: m, labels, now }: { store: Store; 
       <strong>${m.gpuCount}× ${m.gpuType}</strong>
       <span class="badge">${machineStateLabel(m)}</span>
     </header>
-    <p class="small muted">${m.provider} · ${m.dataCenter} · ${formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin)}</p>
-    <p>Cost so far: ${formatUsd(m.spent.total)}${m.startedAt && m.state === "running" ? html` · started ${ago(m.startedAt, now)}` : null}</p>
+    <p class="small muted">${m.provider} · ${m.dataCenter} · ${formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin, store.billingMode.value)}</p>
+    <p>${BILLING_WORDS[store.billingMode.value].costSoFar}: ${formatUsd(m.spent.total)}${m.startedAt && m.state === "running" ? html` · started ${ago(m.startedAt, now)}` : null}</p>
     ${pct != null
       ? html`<p><label>Saving workspace: ${pct}% <progress max="100" value=${pct}>${pct}%</progress></label></p>`
       : m.save.lastSavedAt
@@ -279,8 +280,8 @@ export function ProjectPage({ store, projectId, timers, nav }: { store: Store; p
       ${nav && store.isStaff.value ? html`<${Link} nav=${nav} to=${{ name: "manage", projectId }}>Manage this ${labels.project}<//>` : null}
     </header>
     <div class="grid">
-      ${mine ? html`<${MeterCard} title="Your allocation" meter=${mine} now=${now} />` : null}
-      ${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`} meter=${team} now=${now} />` : null}
+      ${mine ? html`<${MeterCard} title="Your allocation" meter=${mine} now=${now} mode=${store.billingMode.value} />` : null}
+      ${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`} meter=${team} now=${now} mode=${store.billingMode.value} />` : null}
     </div>
     <${StartPanel} store=${store} />
     <${MachineList} store=${store} />

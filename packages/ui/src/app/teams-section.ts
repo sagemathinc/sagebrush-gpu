@@ -6,6 +6,7 @@ import type { VNode } from "preact";
 import { useState } from "preact/hooks";
 import { capitalize, plural } from "../labels.ts";
 import { checkTeamName, teamRows, type TeamRow } from "../manage.ts";
+import { BILLING_WORDS } from "../billing.ts";
 import { formatUsd, parseUsd } from "../money.ts";
 import { html } from "./html.ts";
 import type { Store } from "./store.ts";
@@ -107,7 +108,7 @@ export function TeamsSection({ store }: { store: Store }): VNode {
       : html`<table class="teams">
           <thead><tr>
             <th scope="col">Name</th><th scope="col">${capitalize(plural(labels.member))}</th><th scope="col">Allocation</th>
-            <th scope="col">Spent</th><th scope="col">Remaining</th>${manage ? html`<th scope="col"><span class="visually-hidden">Actions</span></th>` : null}
+            <th scope="col">${BILLING_WORDS[store.billingMode.value].spent}</th><th scope="col">Remaining</th>${manage ? html`<th scope="col"><span class="visually-hidden">Actions</span></th>` : null}
           </tr></thead>
           <tbody>${rows.map(
             (row) => html`<tr key=${row.teamId} class=${`band-${row.band}`}>

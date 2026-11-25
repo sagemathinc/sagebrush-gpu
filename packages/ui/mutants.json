@@ -726,7 +726,7 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "? html`<strong>${priceText(price.providerCost, price.margin).total}</strong>",
+  "old": "? html`<strong>${priceText(price.providerCost, price.margin, store.billingMode.value).total}</strong>",
   "new": "? html`<strong>${formatUsd(price.total)}/h</strong>"
  },
  {
@@ -2540,7 +2540,7 @@
   "new": "    const generation = ++this.#generation;\n    await this.#act(\"load\", async () => {"
  },
  {
-  "file": "src/app/org-page.ts",
+  "file": "src/billing.ts",
   "old": "Our flat fee is set in your agreement.",
   "new": "Our fee is set in your agreement."
  },
@@ -2674,5 +2674,90 @@
   "old": "      billingMode: org.billingMode, // (an organization's mode is fixed, so the copy stays right)",
   "new": "      billingMode: \"resold\",",
   "note": "mock project's mode not from its org"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (mode === \"byok\") return { total: formatRate(providerPerHour + marginPerHour), parts: BILLING_WORDS.byok.billedBy ?? \"\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (mode === \"byok\") return formatRate(providerPerHour + marginPerHour);\n",
+  "new": ""
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (mode === \"byok\") return formatRate(providerPerHour + marginPerHour);",
+  "new": "  if (mode === \"byok\") return formatRate(providerPerHour);"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "formatPriceSplit(rate.providerCost, rate.margin, mode)",
+  "new": "formatPriceSplit(rate.providerCost, rate.margin)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "computed(() => this.project.value?.billingMode ?? \"resold\");",
+  "new": "computed(() => \"resold\" as const);"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "priceText(price.providerCost, price.margin, store.billingMode.value).parts",
+  "new": "priceText(price.providerCost, price.margin).parts"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin, store.billingMode.value)}</p>",
+  "new": "formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin)}</p>"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "<p>${BILLING_WORDS[store.billingMode.value].costSoFar}:",
+  "new": "<p>${\"Cost so far\"}:"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "meter=${mine} now=${now} mode=${store.billingMode.value} />",
+  "new": "meter=${mine} now=${now} />"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const v = meterView(meter, mode);",
+  "new": "  const v = meterView(meter);"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "      ${store.billingMode.value === \"byok\"\n        ? html`<div><dt>${BILLING_WORDS.byok.spent}",
+  "new": "      ${false\n        ? html`<div><dt>${BILLING_WORDS.byok.spent}"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "<th scope=\"col\">${BILLING_WORDS[store.billingMode.value].costSoFar}</th>",
+  "new": "<th scope=\"col\">Cost so far</th>"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin, store.billingMode.value)}</td>",
+  "new": "formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin)}</td>"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "[key, key === \"spent\" ? BILLING_WORDS[store.billingMode.value].spent : column] as const",
+  "new": "[key, column] as const"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "<th scope=\"col\">${BILLING_WORDS[store.billingMode.value].spent}</th>",
+  "new": "<th scope=\"col\">Spent</th>"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "    costSoFar: \"Metered so far\",",
+  "new": "    costSoFar: \"Cost so far\","
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "    billedBy: \"billed by the provider to your organization\",",
+  "new": "    billedBy: \"billed to you\","
  }
 ]

@@ -1,6 +1,9 @@
 // Money in the UI is integer micro-USD, exactly as the API sends it.
 // Nothing here uses floating-point arithmetic on amounts.
 
+import type { BillingMode } from "@sbgpu/api";
+import { BILLING_WORDS } from "./billing.ts";
+
 export const MICRO_PER_USD = 1_000_000;
 
 function assertMicro(micro: number): void {
@@ -68,7 +71,10 @@ export interface PriceText {
 }
 
 // A price per hour as its total and its two parts, rounded alike so the parts add up.
-export function priceText(providerPerHour: number, marginPerHour: number): PriceText {
+// Under byok there is no service part (the provider bills the organization): the parts
+// say who bills instead.
+export function priceText(providerPerHour: number, marginPerHour: number, mode: BillingMode = "resold"): PriceText {
+  if (mode === "byok") return { total: formatRate(providerPerHour + marginPerHour), parts: BILLING_WORDS.byok.billedBy ?? "" };
   const d = splitDecimals(providerPerHour, marginPerHour);
   return {
     total: formatUsd(providerPerHour + marginPerHour, d) + "/h",
@@ -76,8 +82,10 @@ export function priceText(providerPerHour: number, marginPerHour: number): Price
   };
 }
 
-// "provider $0.48/h + service $0.14/h = $0.62/h", with parts that add up.
-export function formatPriceSplit(providerPerHour: number, marginPerHour: number): string {
+// "provider $0.48/h + service $0.14/h = $0.62/h", with parts that add up; under byok just
+// the rate (there is no service part to show).
+export function formatPriceSplit(providerPerHour: number, marginPerHour: number, mode: BillingMode = "resold"): string {
+  if (mode === "byok") return formatRate(providerPerHour + marginPerHour);
   const d = splitDecimals(providerPerHour, marginPerHour);
   const rate = (x: number) => formatUsd(x, d) + "/h";
   return `provider ${rate(providerPerHour)} + service ${rate(marginPerHour)} = ${rate(providerPerHour + marginPerHour)}`;

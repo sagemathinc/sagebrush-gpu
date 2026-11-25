@@ -8,6 +8,7 @@ import { useState } from "preact/hooks";
 import { SPEND_CSV_GROUPINGS, canRemoveMember, canUpdateMember, type Machine, type SpendCsvGrouping } from "@sbgpu/api";
 import { capitalize, plural } from "../labels.ts";
 import { bulkPlan, csvFilename, filterRows, invitePreview, memberRows, sortRows, teamRows, type MemberRow, type SortKey } from "../manage.ts";
+import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, parseUsd } from "../money.ts";
 import { formatBytes, machineStateLabel } from "../view.ts";
 import { Link, useProjectLoad, type Nav } from "./components.ts";
@@ -47,7 +48,9 @@ function Summary({ store }: { store: Store }): VNode | null {
       <div><dt>Budget</dt><dd class="big">${formatUsd(p.budget)}</dd></div>
       <div><dt>Allocated</dt><dd>${formatUsd(p.allocated)}</dd></div>
       <div><dt>Not yet allocated</dt><dd>${formatUsd(p.budget - p.allocated)}</dd></div>
-      <div><dt>Spent</dt><dd>${formatUsd(p.spent.total)} <span class="muted small">(provider ${formatUsd(p.spent.providerCost)} + service ${formatUsd(p.spent.margin)})</span></dd></div>
+      ${store.billingMode.value === "byok"
+        ? html`<div><dt>${BILLING_WORDS.byok.spent}</dt><dd>${formatUsd(p.spent.total)}</dd></div>`
+        : html`<div><dt>Spent</dt><dd>${formatUsd(p.spent.total)} <span class="muted small">(provider ${formatUsd(p.spent.providerCost)} + service ${formatUsd(p.spent.margin)})</span></dd></div>`}
       <div><dt>Running now</dt><dd>${running}</dd></div>
     </dl>
     <div class="actions">
@@ -140,6 +143,8 @@ function MembersTable({ store }: { store: Store }): VNode {
       <thead><tr>
         ${canManage ? html`<th scope="col"><span class="visually-hidden">Select</span></th>` : null}
         ${COLUMNS.map(
+          ([key, column]) => [key, key === "spent" ? BILLING_WORDS[store.billingMode.value].spent : column] as const,
+        ).map(
           ([key, title]) => html`<th scope="col" aria-sort=${sort.key === key ? (sort.descending ? "descending" : "ascending") : "none"}>
             <button class="link" onClick=${() => setSort({ key, descending: sort.key === key ? !sort.descending : false })}>${title}</button>
           </th>`,
@@ -255,13 +260,13 @@ function AllMachines({ store }: { store: Store }): VNode {
     ${machines.length === 0
       ? html`<p class="muted">No machines yet.</p>`
       : html`<table class="machines">
-          <thead><tr><th scope="col">Member</th><th scope="col">GPU</th><th scope="col">State</th><th scope="col">Price</th><th scope="col">Cost so far</th><th scope="col"></th></tr></thead>
+          <thead><tr><th scope="col">Member</th><th scope="col">GPU</th><th scope="col">State</th><th scope="col">Price</th><th scope="col">${BILLING_WORDS[store.billingMode.value].costSoFar}</th><th scope="col"></th></tr></thead>
           <tbody>${machines.map(
             (m) => html`<tr key=${m.id}>
               <td>${email.get(m.memberId) ?? m.memberId}</td>
               <td>${m.gpuCount}× ${m.gpuType} <span class="muted small">${m.provider}</span></td>
               <td>${machineStateLabel(m)}</td>
-              <td class="small">${formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin)}</td>
+              <td class="small">${formatPriceSplit(m.pricePerHour.providerCost, m.pricePerHour.margin, store.billingMode.value)}</td>
               <td>${formatUsd(m.spent.total)}</td>
               <td>${stoppable(m) ? html`<button class="secondary" disabled=${store.isBusy(`stop:${m.id}`)} onClick=${() => store.stop(m.id)}>Stop</button>` : null}</td>
             </tr>`,

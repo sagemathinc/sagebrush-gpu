@@ -82,6 +82,8 @@ export class Store {
   readonly membership = computed(() => this.me.value?.projects.find((p) => p.projectId === this.projectId.value) ?? null);
   readonly role = computed<ProjectRole | null>(() => this.membership.value?.role ?? null);
   readonly labels = computed(() => resolveLabels(this.project.value?.labels));
+  /** How the project's organization pays for machines: the words for prices and spend follow it. */
+  readonly billingMode = computed(() => this.project.value?.billingMode ?? "resold");
   readonly myMeter = computed(() => {
     const memberId = this.membership.value?.memberId;
     return this.meters.value.find((m) => m.holder.kind === "member" && m.holder.memberId === memberId) ?? null;
