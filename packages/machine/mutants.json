@@ -1402,5 +1402,11 @@
   "old": "    if len(data) > 4 * 1024 * 1024 or rows[0].split()[:1] != [b\"sl\"]:",
   "new": "    if rows[0].split()[:1] != [b\"sl\"]:",
   "note": "listen22 prologue: no size bound"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/main.py",
+  "old": "    plan = (\n        (\"listen22-start\", lambda: checks.check_listen22(net)),\n        (\"pid1\", lambda: pid1_with_capture(proc, pid, capture_file)),\n        (\"environ\", lambda: checks.check_environ(proc=proc)),\n        (\"files\", lambda: checks.check_files(root=root, proc=proc, deadline=clock() + FILES_LIMIT_S, clock=clock)),\n        (\"metadata\", lambda: checks.check_metadata(get=get)),\n        (\"history\", lambda: checks.check_history(root=root)),\n        (\"listen22-end\", lambda: checks.check_listen22(net)),\n",
+  "new": "    net_result = checks.check_listen22(net)\n    plan = (\n        (\"listen22-start\", lambda: net_result),\n        (\"pid1\", lambda: pid1_with_capture(proc, pid, capture_file)),\n        (\"environ\", lambda: checks.check_environ(proc=proc)),\n        (\"files\", lambda: checks.check_files(root=root, proc=proc, deadline=clock() + FILES_LIMIT_S, clock=clock)),\n        (\"metadata\", lambda: checks.check_metadata(get=get)),\n        (\"history\", lambda: checks.check_history(root=root)),\n        (\"listen22-end\", lambda: net_result),\n",
+  "note": "listen22: one look reused for both ends (cached)"
  }
 ]

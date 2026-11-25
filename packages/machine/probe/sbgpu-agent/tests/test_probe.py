@@ -523,6 +523,30 @@ class RunTest(Base):
             else:
                 self.assertTrue(o["pass"], o)
 
+    def test_listen22_end_looks_again_rather_than_reusing_the_start(self):
+        # (the tables change while the checks run: a listener appearing, one going away, the tables becoming unreadable;
+        # listen22-end must see the tables as they are then, not the start's answer)
+        listener = [row4(0, "00000000", "0016", "0A")]
+        for before, during, want in (
+                ([], lambda proc: write_net(proc, listener), [(True, "no-listener"), (False, "listener")]),
+                (listener, lambda proc: write_net(proc), [(False, "listener"), (True, "no-listener")]),
+                ([], lambda proc: os.unlink(proc + "/net/tcp6"), [(True, "no-listener"), (False, "unreadable")])):
+            t = self.tree()
+            t.process(1)
+            write_net(t.proc, before)
+            real = checks.check_history
+
+            def history(*a, **kw):
+                during(t.proc)
+                return real(*a, **kw)
+            checks.check_history = history
+            try:
+                boot, lines = self.run_once(t, t.dir + "/opt/sbgpu/probe-boots")
+            finally:
+                checks.check_history = real
+            got = {o["check"]: o for o in (json.loads(x[len("SBGPU-PROBE "):]) for x in lines)}
+            self.assertEqual([(got[c]["pass"], got[c]["detail"]) for c in ("listen22-start", "listen22-end")], want)
+
     def test_a_finding_and_an_error(self):
         t = self.tree()
         t.process(1, environ=NAME.encode() + b"=x\0")
