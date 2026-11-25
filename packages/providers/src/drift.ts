@@ -75,3 +75,47 @@ export function specDrift(expected: ExpectedSpec, observed: ProviderMachineStatu
   }
   return out;
 }
+
+/** The fields specDrift can report: every marker starts with one of these. */
+const DRIFT_FIELDS: ReadonlySet<string> = new Set([
+  "provider", "providerMachineId", "machineId", "gpuType", "gpuCount", "dataCenter", "image", "diskGb",
+  "volumeGb", "envNames", "exposedPorts", "unexpectedSettings", "command", "providerCostPerHour",
+]);
+
+/** The words an adapter's unexpectedSettings entries are built from; any other word reads "other". */
+const SETTING_WORDS: ReadonlySet<string> = new Set([
+  // RunPod
+  "cloud", "ssh", "proxy", "direct", "template", "globalNetworking", "enabled",
+  // Shadeform
+  "key", "shade_cloud", "false", "rental", "template_id", "cluster_id", "commitment_id", "set",
+]);
+
+/** The token adapters use for a field they couldn't read (their UNREADABLE). */
+const UNREADABLE_TOKEN = "<unreadable>";
+
+/**
+ * Where a machine drifted, as fixed words only, safe to report anywhere: the drifted fields'
+ * names and, for unexpectedSettings, each setting with every word outside a fixed vocabulary
+ * replaced by "other" (and an unreadable value by "unreadable"). Never an observed value: those
+ * can be provider text, environment names or ids.
+ */
+export function driftMarkers(drift: readonly Drift[], observed: ProviderMachineStatus): string[] {
+  const out: string[] = [];
+  for (const d of drift) {
+    if (!DRIFT_FIELDS.has(d.field)) {
+      out.push("other");
+      continue;
+    }
+    if (d.field !== "unexpectedSettings") {
+      out.push(d.field);
+      continue;
+    }
+    const settings = Array.isArray(observed.unexpectedSettings) ? observed.unexpectedSettings : [];
+    if (settings.length === 0) out.push("unexpectedSettings");
+    for (const s of settings) {
+      const words = String(s).split(":").map((w) => (w === UNREADABLE_TOKEN ? "unreadable" : SETTING_WORDS.has(w) ? w : "other"));
+      out.push(["unexpectedSettings", ...words].join(":"));
+    }
+  }
+  return out;
+}

@@ -182,7 +182,9 @@ launched with `startSsh: false` reports `ssh: {proxy: null, direct: null}`.
 The provider side of SEC's release gate for RunPod (the in-pod side is the probe agent in
 `packages/machine`). **It costs money and needs William's approval for each run.** The first
 approved run (Nov 24 2026) created no pod: RunPod refused the launch (RTX A4000 in EU-SE-1,
-which the catalog didn't list), and the spend rate settled at 0.
+which the catalog didn't list), and the spend rate settled at 0. The second (A40 in EU-SE-1)
+created a pod that the launch's drift check rejected (`spec_mismatch`); it was terminated within
+seconds and confirmed gone, with the spend rate back at 0. `launchError.drift` now says where.
 
 - `eradication.ts`, the driver:
   - **Launch:** one pod, exactly as production does (`RunPodAdapter`), with one probe-only
@@ -224,7 +226,10 @@ which the catalog didn't list), and the spend rate settled at 0.
     pod: the report says `terminatedConfirmed: false` and an `exposure` with the machine name and
     no provider id, never "nothing exists". A failed launch is reported as `launchError`: the
     ProviderError's kind and HTTP status (our own fixed words, never the provider's text), or
-    `driver-error` for anything else.
+    `driver-error` for anything else. For a pod rejected at launch (`spec_mismatch`,
+    `price_above_cap`) it also carries `drift`: drift.ts's `driftMarkers`, the drifted fields' names
+    and, for unexpected settings, words from a fixed vocabulary (anything else reads `other`), so it
+    says where a pod differed and never what RunPod reported.
   - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
     the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.
   - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing

@@ -39,6 +39,8 @@ export class ProviderError extends Error {
   readonly retryAfterSeconds: number | null;
   /** Set when the failed call left a machine behind that the caller must clean up. */
   readonly providerMachineId: string | null;
+  /** For a machine that didn't match its spec: where, as drift.ts's driftMarkers (fixed words only). */
+  readonly drift: readonly string[] | null;
 
   constructor(
     provider: ProviderId,
@@ -47,6 +49,7 @@ export class ProviderError extends Error {
     httpStatus: number | null = null,
     retryAfterSeconds: number | null = null,
     providerMachineId: string | null = null,
+    drift: readonly string[] | null = null,
   ) {
     super(message);
     this.name = "ProviderError";
@@ -55,6 +58,7 @@ export class ProviderError extends Error {
     this.httpStatus = httpStatus;
     this.retryAfterSeconds = retryAfterSeconds;
     this.providerMachineId = providerMachineId;
+    this.drift = drift === null ? null : Object.freeze([...drift]);
   }
 }
 

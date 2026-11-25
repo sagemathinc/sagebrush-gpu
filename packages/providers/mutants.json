@@ -406,7 +406,7 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "const name = e instanceof Error ? e.name : \"error\";",
+  "old": "const name = failureName(e);",
   "new": "const name = e instanceof Error ? e.message : \"error\";"
  },
  {
@@ -611,8 +611,8 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "        status.providerMachineId,\n      );\n    }\n    return",
-  "new": "        null,\n      );\n    }\n    return"
+  "old": "        status.providerMachineId,\n        driftMarkers(drift, status),\n      );\n    }\n    return",
+  "new": "        null,\n        driftMarkers(drift, status),\n      );\n    }\n    return"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -1822,19 +1822,19 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "    report.launchError = e instanceof ProviderError ? { kind: e.kind, httpStatus: e.httpStatus } : { kind: \"driver-error\", httpStatus: null };\n",
+  "old": "    report.launchError =\n      e instanceof ProviderError\n        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift) }\n        : { kind: \"driver-error\", httpStatus: null, drift: null };\n",
   "new": "",
   "note": "launchError recorded"
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "{ kind: e.kind, httpStatus: e.httpStatus }",
-  "new": "{ kind: e.kind, httpStatus: null }",
+  "old": "{ kind: e.kind, httpStatus: e.httpStatus, drift:",
+  "new": "{ kind: e.kind, httpStatus: null, drift:",
   "note": "launchError status"
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": ": { kind: \"driver-error\", httpStatus: null };",
+  "old": ": { kind: \"driver-error\", httpStatus: null, drift: null };",
   "new": ": null;",
   "note": "launchError driver-error"
  },
@@ -1855,5 +1855,89 @@
   "old": "  } catch {\n    // A throwing getter (or a proxy that throws on instanceof) names nothing.\n  }\n  return \"error\";",
   "new": "  } finally {\n  }\n  return \"error\";",
   "note": "failureName: throwing getter"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    if (!DRIFT_FIELDS.has(d.field)) {\n      out.push(\"other\");\n      continue;\n    }\n",
+  "new": "",
+  "note": "markers: unknown field"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    if (settings.length === 0) out.push(\"unexpectedSettings\");\n",
+  "new": "",
+  "note": "markers: bare field"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "(w === UNREADABLE_TOKEN ? \"unreadable\" : SETTING_WORDS.has(w) ? w : \"other\")",
+  "new": "(SETTING_WORDS.has(w) ? w : \"other\")",
+  "note": "markers: unreadable"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "SETTING_WORDS.has(w) ? w : \"other\"",
+  "new": "w",
+  "note": "markers: vocabulary"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  \"cloud\", \"ssh\", \"proxy\", \"direct\", \"template\", \"globalNetworking\", \"enabled\",",
+  "new": "  \"cloud\", \"ssh\", \"proxy\", \"direct\", \"template\", \"globalNetworking\", \"enabled\", \"COMMUNITY\",",
+  "note": "markers: no provider values"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "out.push([\"unexpectedSettings\", ...words].join(\":\"));",
+  "new": "out.push(words.join(\":\"));",
+  "note": "markers: prefix"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "this.drift = drift === null ? null : Object.freeze([...drift]);",
+  "new": "this.drift = drift === null ? null : [...drift];",
+  "note": "drift frozen"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "        driftMarkers(drift, status),\n",
+  "new": "",
+  "note": "runpod passes drift"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "drift: reportableDrift(e.drift) }",
+  "new": "drift: e.drift === null ? null : [...e.drift] }",
+  "note": "report filters drift"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
+  "new": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,4}$/;",
+  "note": "marker depth"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
+  "new": "const MARKER = /^[A-Za-z_]{1,33}(?::[A-Za-z_]{1,32}){0,3}$/;",
+  "note": "marker length"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
+  "new": "const MARKER = /^[A-Za-z_ ]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
+  "note": "marker chars"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "MARKER.test(m)).slice(0, 32);",
+  "new": "MARKER.test(m)).slice(0, 33);",
+  "note": "marker cap"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (!Array.isArray(drift)) return null;\n",
+  "new": "",
+  "note": "drift null"
  }
 ]

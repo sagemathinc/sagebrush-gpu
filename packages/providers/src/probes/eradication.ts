@@ -349,7 +349,14 @@ export interface ProbeReport {
    * Why the launch failed, as our own fixed words: the ProviderError's kind and HTTP status, or
    * "driver-error" for anything else. Never the provider's text. null when the launch succeeded.
    */
-  launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null } | null;
+  launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null; drift: string[] | null } | null;
+}
+
+/** Drift markers fit for the report: fixed-word strings only, at most 32; anything else is dropped. */
+const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;
+export function reportableDrift(drift: readonly unknown[] | null): string[] | null {
+  if (!Array.isArray(drift)) return null;
+  return drift.filter((m): m is string => typeof m === "string" && MARKER.test(m)).slice(0, 32);
 }
 
 /**
@@ -425,7 +432,10 @@ export async function runEradicationProbe(
     rate = Math.max(rate, launched.status.providerCostPerHour ?? rate);
   } catch (e) {
     report.aborts.push("launch-failed");
-    report.launchError = e instanceof ProviderError ? { kind: e.kind, httpStatus: e.httpStatus } : { kind: "driver-error", httpStatus: null };
+    report.launchError =
+      e instanceof ProviderError
+        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift) }
+        : { kind: "driver-error", httpStatus: null, drift: null };
     // A failed launch may still have left a pod. With its id: clean it up.
     const left = e instanceof ProviderError ? e.providerMachineId : null;
     if (left !== null) {
