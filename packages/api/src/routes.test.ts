@@ -81,7 +81,12 @@ test("access rules", () => {
   const publicRoutes = NAMES.filter((n) => ROUTES[n].access.auth === "public").sort();
   assert.deepEqual(publicRoutes, ["agentAbort", "agentAnnounce", "agentEnroll", "signInCallback", "startSignIn"]);
   const system = NAMES.filter((n) => ROUTES[n].access.auth === "system");
-  assert.deepEqual(system, ["addOrgCredit"]);
+  assert.deepEqual(system, ["addOrgCredit", "getOrphanReport"]);
+  // the orphan report is read-only and operators-only
+  assert.deepEqual(
+    { method: ROUTES.getOrphanReport.method, path: ROUTES.getOrphanReport.path, access: ROUTES.getOrphanReport.access },
+    { method: "GET", path: "/v1/system/orphan-report", access: { auth: "system" } },
+  );
   for (const n of NAMES) {
     const r = ROUTES[n];
     const isAgentPath = r.path.startsWith("/v1/agent/");

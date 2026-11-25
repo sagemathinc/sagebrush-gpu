@@ -1289,7 +1289,7 @@ export class MockBackend {
           stock: best?.stock ?? "none",
         };
       });
-      return { items, asOf: toIso(this.#now) };
+      return { items, asOf: toIso(this.#now), paused: [] };
     },
 
     quote: ({ params, body, user }) => {

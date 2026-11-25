@@ -12,7 +12,8 @@ import type { MachineId, MemberId, OrgId, ProjectId, TeamId } from "./ids.ts";
 import type { IsoTime } from "./time.ts";
 import type { OrgRole, ProjectRole } from "./objects.ts";
 import type { ProviderId } from "./providers.ts";
-import type { ProviderCredential, PutCredentialRequest } from "./credentials.ts";
+import type { ProviderCredential, ProviderPause, PutCredentialRequest } from "./credentials.ts";
+import type { OrphanReport } from "./orphans.ts";
 import type {
   AgentAbortRequest,
   AgentAnnounceRequest,
@@ -142,7 +143,7 @@ export interface Endpoints {
   setTeamAllocation: { method: "PUT"; path: "/v1/projects/:projectId/teams/:teamId/allocation"; params: { projectId: ProjectId; teamId: TeamId }; query: {}; body: SetAllocationRequest; response: Allocation };
 
   // prices and spend
-  listGpuTypes: { method: "GET"; path: "/v1/projects/:projectId/gpu-types"; params: { projectId: ProjectId }; query: {}; body: undefined; response: { items: PriceListItem[]; asOf: IsoTime } };
+  listGpuTypes: { method: "GET"; path: "/v1/projects/:projectId/gpu-types"; params: { projectId: ProjectId }; query: {}; body: undefined; response: { items: PriceListItem[]; asOf: IsoTime; paused: ProviderPause[] } };
   quote: { method: "POST"; path: "/v1/projects/:projectId/quote"; params: { projectId: ProjectId }; query: {}; body: QuoteRequest; response: Quote };
   getSpend: { method: "GET"; path: "/v1/projects/:projectId/spend"; params: { projectId: ProjectId }; query: {}; body: undefined; response: { meters: SpendMeter[]; asOf: IsoTime } };
   getSpendCsv: { method: "GET"; path: "/v1/projects/:projectId/spend.csv"; params: { projectId: ProjectId }; query: { by: SpendCsvGrouping }; body: undefined; response: string };
@@ -167,6 +168,9 @@ export interface Endpoints {
   agentWorkspaceToken: { method: "POST"; path: "/v1/agent/workspace-token"; params: {}; query: {}; body: { incarnation: number }; response: AgentWorkspaceTokenResponse };
   agentSaveStatus: { method: "POST"; path: "/v1/agent/save-status"; params: {}; query: {}; body: AgentSaveStatusRequest; response: Ok };
   agentAbort: { method: "POST"; path: "/v1/agent/abort"; params: {}; query: {}; body: AgentAbortRequest; response: {} };
+
+  // operators
+  getOrphanReport: { method: "GET"; path: "/v1/system/orphan-report"; params: {}; query: {}; body: undefined; response: OrphanReport };
 }
 
 export type EndpointName = keyof Endpoints;
@@ -240,7 +244,7 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   deleteTeam: { method: "DELETE", path: "/v1/projects/:projectId/teams/:teamId", access: manager },
   setTeamAllocation: { method: "PUT", path: "/v1/projects/:projectId/teams/:teamId/allocation", access: manager },
 
-  listGpuTypes: { method: "GET", path: "/v1/projects/:projectId/gpu-types", access: member },
+  listGpuTypes: { method: "GET", path: "/v1/projects/:projectId/gpu-types", access: member, note: "paused[].detail only for manager and above, by role" },
   quote: { method: "POST", path: "/v1/projects/:projectId/quote", access: member },
   getSpend: { method: "GET", path: "/v1/projects/:projectId/spend", access: member, note: "members see their own and their team's meters only" },
   getSpendCsv: { method: "GET", path: "/v1/projects/:projectId/spend.csv", access: assistant },
@@ -268,6 +272,13 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   agentWorkspaceToken: { method: "POST", path: "/v1/agent/workspace-token", access: { auth: "agent" } },
   agentSaveStatus: { method: "POST", path: "/v1/agent/save-status", access: { auth: "agent" } },
   agentAbort: { method: "POST", path: "/v1/agent/abort", access: { auth: "public" }, note: "authenticated by the boot token in the body; uses it up and terminates the machine" },
+
+  getOrphanReport: {
+    method: "GET",
+    path: "/v1/system/orphan-report",
+    access: { auth: "system" },
+    note: "declared for later: operators read the sweep's stored report with a read-only script for now; this route only ever reads it, never sweeps or terminates",
+  },
 };
 
 export interface RouteMatch {
