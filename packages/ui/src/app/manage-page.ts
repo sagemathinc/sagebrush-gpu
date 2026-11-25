@@ -1,6 +1,6 @@
 // The manager's page for a project (assistants see it read-only): totals and Stop all, the
 // spend CSVs, the members table with allocation edits (one or in bulk), invites with a
-// preview, and every machine in the project.
+// preview, every machine in the project, and (for managers) the project's settings.
 
 import type { VNode } from "preact";
 import { useState } from "preact/hooks";
@@ -12,6 +12,7 @@ import { formatBytes, machineStateLabel } from "../view.ts";
 import { Link, useProjectLoad, type Nav } from "./components.ts";
 import { html } from "./html.ts";
 import type { PollTimers } from "./polling.ts";
+import { SettingsSection } from "./settings-section.ts";
 import type { Store } from "./store.ts";
 
 /** Hand a CSV to the browser as a file download. */
@@ -270,5 +271,6 @@ export function ManagePage({ store, projectId, timers, nav }: { store: Store; pr
     <${MembersTable} store=${store} />
     ${store.canManage.value ? html`<${InviteForm} store=${store} />` : null}
     <${AllMachines} store=${store} />
+    ${store.canManage.value ? html`<${SettingsSection} store=${store} />` : null}
   </main>`;
 }

@@ -546,6 +546,19 @@ test("manager actions: one allocation, a bulk change that stops at a refusal, in
   assert.equal(t.store.members.value.find((m) => m.email === "new@example.org")?.status, "removed");
 });
 
+test("updateProject sends the request, then reloads the project", async () => {
+  const t = await controllable(seedDemo().emails.manager);
+  await t.store.openProject(t.demo.projectId);
+  t.log.length = 0;
+  assert.equal(await t.store.updateProject({ policy: { idleStopMinutes: 45 } }), true);
+  assert.equal(t.log[0], `PATCH /v1/projects/${t.demo.projectId}`);
+  assert.ok(t.log.includes(`GET /v1/projects/${t.demo.projectId}`));
+  assert.equal(t.store.project.value?.policy.idleStopMinutes, 45);
+  assert.equal(await t.store.updateProject({ policy: { idleStopMinutes: 4 } }), false);
+  assert.match(t.store.error.value ?? "", /idleStopMinutes must be a whole number/);
+  assert.equal(t.store.project.value?.policy.idleStopMinutes, 45);
+});
+
 test("manager actions need a project", async () => {
   const t = await controllable(seedDemo().emails.manager);
   assert.equal(await t.store.setAllocation("mbr_x", 1), false);
@@ -554,6 +567,7 @@ test("manager actions need a project", async () => {
   assert.equal(await t.store.removeMember("mbr_x"), false);
   assert.equal(await t.store.stopAll(), null);
   assert.equal(await t.store.spendCsv("day"), null);
+  assert.equal(await t.store.updateProject({ name: "x" }), false);
   assert.deepEqual(t.log, ["GET /v1/me"]); // signing in; nothing since
 });
 
