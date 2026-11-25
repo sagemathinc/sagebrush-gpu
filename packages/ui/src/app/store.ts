@@ -219,26 +219,46 @@ export class Store {
       });
     }
     const generation = ++this.#generation;
-    await this.#act(`load:${generation}`, async () => {
-      try {
-        const params = { orgId };
-        const [org, projects] = await Promise.all([
-          this.client.call("getOrg", { params }),
-          this.#allPages((cursor) => this.client.call("listProjects", { params, query: cursor === undefined ? {} : { cursor } })),
-        ]);
-        if (generation !== this.#generation) return;
-        batch(() => {
-          this.org.value = org;
-          this.orgProjects.value = projects.items;
-          const cut = new Set(this.truncated.value);
-          if (projects.truncated) cut.add("orgProjects");
-          else cut.delete("orgProjects");
-          this.truncated.value = cut;
-        });
-      } catch (err) {
-        if (generation === this.#generation) throw err;
-      }
+    await this.#act(`load:${generation}`, () => this.#loadOrg(orgId, generation));
+  }
+
+  /** The organization and every page of its projects, unless the page has moved on meanwhile. */
+  async #loadOrg(orgId: string, generation: number): Promise<void> {
+    try {
+      const params = { orgId };
+      const [org, projects] = await Promise.all([
+        this.client.call("getOrg", { params }),
+        this.#allPages((cursor) => this.client.call("listProjects", { params, query: cursor === undefined ? {} : { cursor } })),
+      ]);
+      if (generation !== this.#generation) return;
+      batch(() => {
+        this.org.value = org;
+        this.orgProjects.value = projects.items;
+        const cut = new Set(this.truncated.value);
+        if (projects.truncated) cut.add("orgProjects");
+        else cut.delete("orgProjects");
+        this.truncated.value = cut;
+      });
+    } catch (err) {
+      if (generation === this.#generation) throw err;
+    }
+  }
+
+  /**
+   * Move budget between the open organization and one of its projects (an org owner's):
+   * a positive amount adds to the project's budget, a negative one returns it to the
+   * organization. Then both figures are read again.
+   */
+  async moveProjectBudget(projectId: string, amount: Micros): Promise<boolean> {
+    const orgId = this.orgId.value;
+    if (orgId == null) return false;
+    const generation = this.#generation;
+    const done = await this.#act(`move:${projectId}`, async () => {
+      await this.client.call("moveProjectBudget", { params: { projectId }, body: { amount } });
+      await this.#loadOrg(orgId, generation);
+      return true;
     });
+    return done === true;
   }
 
   // ---------------------------------------------------------------- project

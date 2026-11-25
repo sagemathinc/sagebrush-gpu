@@ -2436,18 +2436,18 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        if (generation !== this.#generation) return;\n        batch(() => {\n          this.org.value = org;",
-  "new": "        batch(() => {\n          this.org.value = org;"
+  "old": "      if (generation !== this.#generation) return;\n      batch(() => {\n        this.org.value = org;",
+  "new": "      batch(() => {\n        this.org.value = org;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "          if (projects.truncated) cut.add(\"orgProjects\");\n          else cut.delete(\"orgProjects\");",
-  "new": "          if (projects.truncated) cut.add(\"orgProjects\");"
+  "old": "        if (projects.truncated) cut.add(\"orgProjects\");\n        else cut.delete(\"orgProjects\");",
+  "new": "        if (projects.truncated) cut.add(\"orgProjects\");"
  },
  {
   "file": "src/app/store.ts",
-  "old": "          if (projects.truncated) cut.add(\"orgProjects\");\n          else cut.delete(\"orgProjects\");",
-  "new": "          cut.delete(\"orgProjects\");"
+  "old": "        if (projects.truncated) cut.add(\"orgProjects\");\n        else cut.delete(\"orgProjects\");",
+  "new": "        cut.delete(\"orgProjects\");"
  },
  {
   "file": "src/app/store.ts",
@@ -2531,13 +2531,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "          this.truncated.value = cut;\n        });\n      } catch (err) {\n        if (generation === this.#generation) throw err;",
-  "new": "          this.truncated.value = cut;\n        });\n      } catch (err) {\n        throw err;"
+  "old": "        this.truncated.value = cut;\n      });\n    } catch (err) {\n      if (generation === this.#generation) throw err;",
+  "new": "        this.truncated.value = cut;\n      });\n    } catch (err) {\n      throw err;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "    const generation = ++this.#generation;\n    await this.#act(`load:${generation}`, async () => {",
-  "new": "    const generation = ++this.#generation;\n    await this.#act(\"load\", async () => {"
+  "old": "    const generation = ++this.#generation;\n    await this.#act(`load:${generation}`, () => this.#loadOrg(orgId, generation));",
+  "new": "    const generation = ++this.#generation;\n    await this.#act(\"load\", () => this.#loadOrg(orgId, generation));"
  },
  {
   "file": "src/billing.ts",
@@ -2759,5 +2759,155 @@
   "file": "src/billing.ts",
   "old": "    billedBy: \"billed by the provider to your organization\",",
   "new": "    billedBy: \"billed to you\","
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (this.#orgRole(project.orgId, (user as User).id) !== \"owner\") throw new ApiFail(\"forbidden\", \"only an owner of the organization moves credit\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (typeof amount !== \"number\" || !Number.isSafeInteger(amount) || amount === 0) {",
+  "new": "if (typeof amount !== \"number\" || amount === 0) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (typeof amount !== \"number\" || !Number.isSafeInteger(amount) || amount === 0) {",
+  "new": "if (typeof amount !== \"number\" || !Number.isSafeInteger(amount)) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (unassigned < 0 || unassigned > Number.MAX_SAFE_INTEGER) throw",
+  "new": "if (unassigned < -1 || unassigned > Number.MAX_SAFE_INTEGER) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (unassigned < 0 || unassigned > Number.MAX_SAFE_INTEGER) throw",
+  "new": "if (unassigned < 0) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (budget < 0 || budget > Number.MAX_SAFE_INTEGER) throw",
+  "new": "if (budget < -1 || budget > Number.MAX_SAFE_INTEGER) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (budget < this.#projectView(project).allocated) throw",
+  "new": "if (budget < this.#projectView(project).allocated - 1) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      org.unassignedCredit = unassigned;\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      project.budget = budget;\n      return this.#projectView(project);\n    },\n\n    listMembers",
+  "new": "      return this.#projectView(project);\n    },\n\n    listMembers"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "maxReturn: Math.max(0, project.budget - project.allocated)",
+  "new": "maxReturn: project.budget - project.allocated"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "maxReturn: Math.max(0, project.budget - project.allocated)",
+  "new": "maxReturn: Math.max(0, project.budget)"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "return micro % 10_000 === 0 ? formatUsd(micro) : formatUsd(micro, 6).replace(/0+$/, \"\");",
+  "new": "return formatUsd(micro);"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "return micro % 10_000 === 0 ? formatUsd(micro) : formatUsd(micro, 6).replace(/0+$/, \"\");",
+  "new": "return micro % 10_000 === 0 ? formatUsd(micro) : formatUsd(micro, 6);"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "  if (micro === 0) return { ok: false, reason: \"Enter more than $0.\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "if (direction === \"add\" && micro > bounds.maxAdd) {",
+  "new": "if (direction === \"add\" && micro >= bounds.maxAdd) {"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "if (direction === \"return\" && micro > bounds.maxReturn) {",
+  "new": "if (direction === \"return\" && micro >= bounds.maxReturn) {"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "if (direction === \"add\" && micro > bounds.maxAdd) {",
+  "new": "if (micro > bounds.maxAdd) {"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "if (direction === \"return\" && micro > bounds.maxReturn) {",
+  "new": "if (micro > bounds.maxReturn) {"
+ },
+ {
+  "file": "src/budget-move.ts",
+  "old": "amount: direction === \"add\" ? micro : -micro",
+  "new": "amount: micro"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (orgId == null) return false;\n    const generation = this.#generation;",
+  "new": "    const generation = this.#generation;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.#loadOrg(orgId, generation);\n      return true;",
+  "new": "      return true;"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "o.orgId === orgId && o.role === \"owner\"",
+  "new": "o.orgId === orgId"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "inputmode=\"decimal\" value=${text} disabled=${busy}",
+  "new": "inputmode=\"decimal\" value=${text}"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "<button disabled=${!add.ok || busy} onClick=${() => go(add)}>",
+  "new": "<button disabled=${busy} onClick=${() => go(add)}>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "<button disabled=${!add.ok || busy} onClick=${() => go(add)}>",
+  "new": "<button disabled=${!add.ok} onClick=${() => go(add)}>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "<button class=\"secondary\" disabled=${!back.ok || busy} onClick=${() => go(back)}>",
+  "new": "<button class=\"secondary\" disabled=${busy} onClick=${() => go(back)}>"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "    if (await store.moveProjectBudget(project.id, check.amount)) setText(\"\");",
+  "new": "    await store.moveProjectBudget(project.id, check.amount);"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "    if (await store.moveProjectBudget(project.id, check.amount)) setText(\"\");",
+  "new": "    await store.moveProjectBudget(project.id, check.amount);\n    setText(\"\");"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "const reasons = text.trim() === \"\" ? [] : [",
+  "new": "const reasons = ["
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "${owner ? html`<${MoveCell} key=${p.id} store=${store} org=${org} project=${p} />` : null}",
+  "new": "${null}"
  }
 ]
