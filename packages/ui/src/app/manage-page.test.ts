@@ -315,6 +315,39 @@ test("Remove asks first: declining sends nothing; accepting removes that person 
   page.unmount();
 });
 
+/** `count` machines for the signed-in member: one started through the API, then copies of it. */
+function memberMachines(t: Awaited<ReturnType<typeof controllable>>, count: number): void {
+  const b = t.demo.backend;
+  const res = b.request("POST", `/v1/projects/${t.demo.projectId}/machines`, {}, { gpuType: "L4" });
+  assert.equal(res.status, 200);
+  const rec = b.machines.get((res.body as { id: string }).id)!;
+  for (let i = 1; i < count; i++) {
+    const id = b.newId("machine");
+    b.machines.set(id, { ...rec, m: { ...rec.m, id } });
+  }
+}
+
+test("a member with more machines than a page load reads is told so; exactly a full page is not", async () => {
+  const t = await controllable(EMAILS.member, { maxListPages: 1 });
+  memberMachines(t, 201);
+  const page = mountApp(win, t.store, `/p/${t.demo.projectId}`, new FakeTimers());
+  await settle();
+  assert.equal(t.store.truncated.value.has("machines"), true);
+  assert.match(page.text(), /Your machines \(200\+\)/);
+  assert.ok(page.root.textContent!.includes("Showing your first 200 machines; you have more than one page load reads."));
+  page.unmount();
+
+  const u = await controllable(EMAILS.member, { maxListPages: 1 });
+  memberMachines(u, 200); // one full page, with no next
+  const full = mountApp(win, u.store, `/p/${u.demo.projectId}`, new FakeTimers());
+  await settle();
+  assert.equal(u.store.machines.value.length, 200);
+  assert.equal(u.store.truncated.value.has("machines"), false);
+  assert.match(full.text(), /Your machines /);
+  assert.doesNotMatch(full.text(), /Your machines \(|Showing your first/);
+  full.unmount();
+});
+
 test("a project with more people than a page load reads says so", async () => {
   const t = await controllable(EMAILS.manager, { maxListPages: 1 });
   for (let i = 0; i < 200; i++) t.demo.backend.addMember(t.demo.projectId, { email: `big${i}@example.org` }); // 208 in all

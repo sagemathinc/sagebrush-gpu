@@ -1668,5 +1668,20 @@
   "file": "src/app/store.ts",
   "old": "    const max = this.#options.maxListPages ?? MAX_LIST_PAGES;",
   "new": "    const max = MAX_LIST_PAGES;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const cut = store.truncated.value.has(\"machines\");",
+  "new": "const cut = store.truncated.value.has(\"allMachines\");"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "<h2>Your machines${cut ? ` (${machines.length}+)` : \"\"}</h2>",
+  "new": "<h2>Your machines</h2>"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    ${cut ? html`<p class=\"warn small\">${`Showing your first",
+  "new": "    ${false ? html`<p class=\"warn small\">${`Showing your first"
  }
 ]
