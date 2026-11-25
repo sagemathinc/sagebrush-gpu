@@ -2436,7 +2436,7 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      if (generation !== this.#generation) return;\n      batch(() => {\n        this.org.value = org;",
+  "old": "      if (generation !== this.#generation || load !== this.#orgLoad) return;\n      batch(() => {\n        this.org.value = org;",
   "new": "      batch(() => {\n        this.org.value = org;"
  },
  {
@@ -2531,7 +2531,7 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.truncated.value = cut;\n      });\n    } catch (err) {\n      if (generation === this.#generation) throw err;",
+  "old": "        this.truncated.value = cut;\n      });\n    } catch (err) {\n      if (generation === this.#generation && load === this.#orgLoad) throw err;",
   "new": "        this.truncated.value = cut;\n      });\n    } catch (err) {\n      throw err;"
  },
  {
@@ -2909,5 +2909,20 @@
   "file": "src/app/org-page.ts",
   "old": "${owner ? html`<${MoveCell} key=${p.id} store=${store} org=${org} project=${p} />` : null}",
   "new": "${null}"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "if (generation !== this.#generation || load !== this.#orgLoad) return;",
+  "new": "if (generation !== this.#generation) return;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "if (generation === this.#generation && load === this.#orgLoad) throw err;",
+  "new": "if (generation === this.#generation) throw err;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const load = ++this.#orgLoad;\n",
+  "new": "    const load = this.#orgLoad;\n"
  }
 ]

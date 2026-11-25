@@ -99,6 +99,8 @@ export class Store {
 
   /** Increments on every navigation (openProject, and any session change); results of older ones are dropped. */
   #generation = 0;
+  /** Counts the organization's loads, so only the latest one publishes. */
+  #orgLoad = 0;
   /** Increments when a session starts (sign-in): a 401 answers only the session it was asked in. */
   #sessionGeneration = 0;
   /** The banner message the last failed poll set, so a later good poll can clear it (and only it). */
@@ -224,13 +226,17 @@ export class Store {
 
   /** The organization and every page of its projects, unless the page has moved on meanwhile. */
   async #loadOrg(orgId: string, generation: number): Promise<void> {
+    // Loads can overlap (two moves on different projects each read the figures again):
+    // only the latest one asked may publish, so an older answer arriving last can't
+    // overwrite newer figures.
+    const load = ++this.#orgLoad;
     try {
       const params = { orgId };
       const [org, projects] = await Promise.all([
         this.client.call("getOrg", { params }),
         this.#allPages((cursor) => this.client.call("listProjects", { params, query: cursor === undefined ? {} : { cursor } })),
       ]);
-      if (generation !== this.#generation) return;
+      if (generation !== this.#generation || load !== this.#orgLoad) return;
       batch(() => {
         this.org.value = org;
         this.orgProjects.value = projects.items;
@@ -240,7 +246,7 @@ export class Store {
         this.truncated.value = cut;
       });
     } catch (err) {
-      if (generation === this.#generation) throw err;
+      if (generation === this.#generation && load === this.#orgLoad) throw err;
     }
   }
 

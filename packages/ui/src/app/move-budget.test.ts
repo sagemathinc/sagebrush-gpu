@@ -130,3 +130,45 @@ test("store.moveProjectBudget sends the signed amount, then reads both figures a
   assert.equal(await t.store.moveProjectBudget(t.demo.projectId, -1_999_000_000), false); // the whole budget: below what's allocated
   assert.match(t.store.error.value ?? "", /the budget would be below its allocations/); // $200.20 is allocated
 });
+
+/** Let pending requests go out (and held ones wait) before the next step. */
+const ticks = async () => {
+  for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+test("two moves crossing: the older refresh, answering last, doesn't overwrite the newer figures", async () => {
+  const t = await controllable(EMAILS.owner);
+  await t.store.openOrg(t.demo.orgId);
+  const b = t.demo.backend;
+  const a = t.demo.projectId;
+  const other = t.otherId;
+  // A's move lands, and its refresh of the organization is held back...
+  t.hold(new RegExp(`^GET /v1/orgs/${t.demo.orgId}$`), true);
+  const first = t.store.moveProjectBudget(a, 1_000_000);
+  await ticks();
+  // ...while B's move and its refresh run to the end.
+  assert.equal(await t.store.moveProjectBudget(other, 2_000_000), true);
+  t.release();
+  assert.equal(await first, true);
+  // What's shown is the backend's latest: both moves, not A's view from before B.
+  assert.equal(b.orgs.get(t.demo.orgId)!.unassignedCredit, 2_897_000_000);
+  assert.equal(t.store.org.value?.unassignedCredit, 2_897_000_000);
+  const shown = (id: string) => t.store.orgProjects.value.find((p) => p.id === id)?.budget;
+  assert.deepEqual([shown(a), shown(other)], [2_001_000_000, 102_000_000]);
+  assert.equal(t.store.error.value, null);
+});
+
+test("two moves crossing: the older refresh failing late doesn't report over the newer one", async () => {
+  const t = await controllable(EMAILS.owner);
+  await t.store.openOrg(t.demo.orgId);
+  const orgPath = new RegExp(`^GET /v1/orgs/${t.demo.orgId}$`);
+  t.respondOnce(orgPath, () => Response.json({ error: { code: "internal", message: "late failure" } }, { status: 500 }));
+  t.hold(orgPath, true);
+  const first = t.store.moveProjectBudget(t.demo.projectId, 1_000_000);
+  await ticks();
+  assert.equal(await t.store.moveProjectBudget(t.otherId, 2_000_000), true);
+  t.release();
+  await first;
+  assert.equal(t.store.error.value, null);
+  assert.equal(t.store.org.value?.unassignedCredit, 2_897_000_000);
+});
