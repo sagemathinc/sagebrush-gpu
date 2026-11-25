@@ -22,7 +22,7 @@ export const BILLING_WORDS: {
   },
   byok: {
     about:
-      "Machines run on your organization's own provider accounts, which the providers bill. Our fee is set in your agreement. Project budgets limit what each project may spend.",
+      "Machines run on your organization's own provider accounts, which the providers bill. Our flat fee is set in your agreement. Project budgets limit what each project may spend.",
     unassigned: "Budget not yet assigned to projects",
     total: "Budget granted in all",
     spent: "Metered use",
@@ -38,8 +38,9 @@ export function OrgPage({ store, orgId, nav }: { store: Store; orgId: string; na
     return html`<main><h1>Not found</h1><p><${Link} nav=${nav} to=${{ name: "home" }}>Your projects<//></p></main>`;
   }
   const org = store.org.value;
-  // (openOrg clears the organization when it changes, so a stale one is never shown.)
-  if (org == null) return html`<main><p class="muted">Loading…</p></main>`;
+  // The first render after a navigation comes before openOrg runs: the store still holds
+  // the last organization then, which must not be shown as this one.
+  if (org == null || store.orgId.value !== orgId) return html`<main><p class="muted">Loading…</p></main>`;
   const words = BILLING_WORDS[org.billingMode];
   const projects = store.orgProjects.value;
   const cut = store.truncated.value.has("orgProjects");

@@ -115,7 +115,9 @@ test("an organization on its own provider accounts: a budget, metered use, and n
   const page = mountApp(win, t.store, `/o/${org.id}`, new FakeTimers());
   await settle();
   const text = page.text();
-  assert.match(text, /Own keys org Billing Machines run on your organization's own provider accounts, which the providers bill\. Our fee is set in your agreement\./);
+  assert.match(text, /Own keys org Billing Machines run on your organization's own provider accounts, which the providers bill\. Our flat fee is set in your agreement\. Project budgets limit what each project may spend\./);
+  // A byok organization pays a flat fee by agreement: the paragraph must say so.
+  assert.match(BILLING_WORDS.byok.about, /\bflat fee\b/);
   assert.match(text, /Budget not yet assigned to projects \$800\.00 Budget granted in all \$900\.00/);
   assert.match(text, /Projects \(1\) Project Budget Allocated Metered use Lab 0 \$100\.00 \$0\.00 \$0\.00/);
   assert.doesNotMatch(text, /credit/i);
@@ -164,6 +166,25 @@ test("a failed load shows its error", async () => {
   await t.store.openOrg(t.demo.orgId);
   assert.equal(t.store.error.value, "the database is down");
   assert.equal(t.store.org.value, null);
+});
+
+test("the very first render after moving between organizations is Loading, both ways", async () => {
+  const t = await controllable(EMAILS.owner);
+  const org = await ownKeysOrg(t);
+  const page = mountApp(win, t.store, `/o/${t.demo.orgId}`, new FakeTimers());
+  await settle();
+  assert.match(page.text(), /Example Org Billing Credit is bought/);
+  page.show(`/o/${org.id}`); // resold -> byok: checked before anything else runs
+  assert.match(page.text(), /Loading/);
+  assert.doesNotMatch(page.text(), /Example Org|Credit/);
+  await settle();
+  assert.match(page.text(), /Own keys org Billing Machines run on your organization's own provider accounts/);
+  page.show(`/o/${t.demo.orgId}`); // and back: byok -> resold
+  assert.match(page.text(), /Loading/);
+  assert.doesNotMatch(page.text(), /Own keys org|Budget/);
+  await settle();
+  assert.match(page.text(), /Example Org Billing Credit is bought/);
+  page.unmount();
 });
 
 test("moving to another organization shows Loading, never the last one's figures", async () => {

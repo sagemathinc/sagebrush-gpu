@@ -2318,5 +2318,15 @@
   "file": "src/app/settings-section.ts",
   "old": "<input disabled=${busy} id=${`settings-label-${k}`}",
   "new": "<input id=${`settings-label-${k}`}"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "Our flat fee is set in your agreement.",
+  "new": "Our fee is set in your agreement."
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "if (org == null || store.orgId.value !== orgId) return",
+  "new": "if (org == null) return"
  }
 ]
