@@ -373,21 +373,23 @@ async def test_large_replay_keeps_the_hysteresis():
 
 @aio
 async def test_exit_is_last_after_the_final_output():
-    """a program that writes a lot and the shell exits: the page gets
-    every byte to the end, then the exit, and no out frame after it."""
+    """a program that writes a lot and the shell exits: the page gets its output in order, then the exit, and no out
+    frame after it.  The final drain goes to the page within its credit; whatever doesn't fit is in the ring (a reattach
+    replays it), so with acks that lag the page's stream may end short of the last bytes, never out of order."""
     t = await Run().start(sh=TAILEXIT)
     try:
         leg = await t.relay.leg()
         p = await tpaired(t, leg, 1)
-        await p.open()
+        s = t.terms.running[(await p.open())["session"]]
         st = Stream(p)
         assert await st.pump(lambda x: "exit" in x.events, 20), (st.events[-3:], len(st.data))
         exit_at = st.events.index("exit")
         await st.pump(lambda x: False, 0.8)  # (and nothing after it)
         assert st.events[exit_at + 1:] == [], st.events[exit_at:]
-        assert st.data.endswith(b"LAST-BYTES\n"), bytes(st.data[-40:])
-        lines = bytes(st.data[2:]).split(b"\n")[:-2]
-        assert [int(x) for x in lines if x.isdigit()][-1] == 29999
+        whole = b"".join(b"%012d\n" % i for i in range(30000)) + b"LAST-BYTES\n"
+        assert bytes(s.ring.buf).endswith(whole), "the ring lacks the program's output"
+        got = bytes(st.data[2:])  # (after the terminal reset)
+        assert whole.startswith(got) and len(got) >= len(whole) - O.CREDIT_HIGH, (len(got), bytes(got[-40:]))
     finally:
         await t.end()
 
