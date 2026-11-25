@@ -2110,5 +2110,311 @@
   "old": "  return JSON.stringify(VM_GATE_WORDS) + \"\\n\";",
   "new": "  return JSON.stringify(VM_GATE_WORDS);",
   "note": "no final newline"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if G.unit_state(root, unit) != \"masked\":  # (an alias to a masked unit is masked already, and can't be masked)",
+  "new": "    if False:",
+  "note": "neutralise: units: never masked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if ops.run([\"systemctl\", \"mask\", unit])[0] != 0 or G.unit_state(root, unit) != \"masked\":",
+  "new": "        if ops.run([\"systemctl\", \"mask\", unit])[0] != 0:",
+  "note": "neutralise: units: the mask not proved on disk"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if ops.run([\"systemctl\", \"mask\", unit])[0] != 0 or G.unit_state(root, unit) != \"masked\":",
+  "new": "        if G.unit_state(root, unit) != \"masked\":",
+  "note": "neutralise: units: a failed mask command ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if _show(ops, unit, \"ActiveState\") not in DOWN or _show(ops, unit, \"LoadState\") != \"masked\":",
+  "new": "    if _show(ops, unit, \"LoadState\") != \"masked\":",
+  "note": "neutralise: units: ActiveState unproved"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if _show(ops, unit, \"ActiveState\") not in DOWN or _show(ops, unit, \"LoadState\") != \"masked\":",
+  "new": "    if _show(ops, unit, \"ActiveState\") not in DOWN:",
+  "note": "neutralise: units: LoadState unproved"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "DOWN = (\"inactive\", \"failed\")",
+  "new": "DOWN = (\"inactive\", \"failed\", \"deactivating\")",
+  "note": "neutralise: units: deactivating taken as down"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if rc != 0:\n        raise Failed(\"units\")\n    return out.decode",
+  "new": "    return out.decode",
+  "note": "neutralise: units: a failed show ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if unit.endswith(\"@.service\"):\n        return",
+  "new": "    if False:\n        return",
+  "note": "neutralise: units: templates shown (systemd has nothing for them)"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    names |= set(_instances(ops, [t + \"*\" for t in templates] + [\"console-getty.service\"]))",
+  "new": "    pass",
+  "note": "neutralise: units: running console instances missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    names = set(G.CONSOLE_UNITS) | {n for n in G.unit_names(root) if n.startswith(templates)}",
+  "new": "    names = set(G.CONSOLE_UNITS)",
+  "note": "neutralise: units: console instance files missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if len(names) > UNITS_MAX:\n        raise Failed(\"units\")",
+  "new": "    pass",
+  "note": "neutralise: units: the instance cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if rc != 0:\n        raise Failed(\"units\")\n    names =",
+  "new": "    names =",
+  "note": "neutralise: units: a failed listing ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "                                          or n.startswith(u + \"@\")})",
+  "new": "                                          })",
+  "note": "neutralise: agents: @ units missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    \"cron.service\",\n",
+  "new": "",
+  "note": "neutralise: jobs: cron left running"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if max(uids) >= G.USER_UID_MIN:",
+  "new": "        if uids[0] >= G.USER_UID_MIN:",
+  "note": "neutralise: sessions: only the real uid"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if len(uids) != 4:\n            raise Failed(\"sessions\")",
+  "new": "        pass",
+  "note": "neutralise: sessions: unreadable ids skipped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "            if os.path.exists(os.path.join(proc, n)):\n                raise Failed(\"sessions\")",
+  "new": "            pass",
+  "note": "neutralise: sessions: an unreadable live process skipped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        for pid in pids:\n            ops.kill(pid, signal.SIGKILL)",
+  "new": "        pass",
+  "note": "neutralise: sessions: stragglers not killed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        ops.sleep(0.2)\n    raise Failed(\"sessions\")",
+  "new": "        ops.sleep(0.2)\n    return",
+  "note": "neutralise: sessions: survivors allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        ops.run([\"loginctl\", \"disable-linger\", u])",
+  "new": "        pass",
+  "note": "neutralise: sessions: lingering left on"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "             if G._gid(r[2]) >= G.USER_UID_MIN]",
+  "new": "             if G._gid(r[2]) > G.USER_UID_MIN]",
+  "note": "neutralise: sessions: uid 1000 missed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        os.ftruncate(fd, 0)",
+  "new": "        pass",
+  "note": "neutralise: keys: no truncation"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if os.fstat(fd).st_size != 0:\n            raise Failed(\"keys\")",
+  "new": "        pass",
+  "note": "neutralise: keys: size 0 unproved"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        os.fsync(fd)\n    finally:\n        os.close(fd)\n    return True",
+  "new": "        pass\n    finally:\n        os.close(fd)\n    return True",
+  "note": "neutralise: keys: the file not fsynced"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if changed:\n            os.fsync(fd)",
+  "new": "        pass",
+  "note": "neutralise: keys: the directory not fsynced"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if not stat.S_ISREG(st.st_mode) or (path not in pinned and (path in mounts or st.st_dev != dev)):",
+  "new": "        if not stat.S_ISREG(st.st_mode):",
+  "note": "neutralise: keys: a key file's mount unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        fd = os.open(name, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dfd)",
+  "new": "        fd = os.open(name, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dfd)",
+  "note": "neutralise: keys: a linked key file followed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "                fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)\n            except FileNotFoundError:\n                return\n",
+  "new": "                fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=fd)\n            except FileNotFoundError:\n                return\n",
+  "note": "neutralise: keys: a linked home followed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "            if path not in pinned and (path in mounts or st.st_dev != dev):\n                raise Failed(\"keys\")",
+  "new": "            pass",
+  "note": "neutralise: keys: directory mounts unchecked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "                    if seen[key] == home or home in pinned or seen[key] in pinned:",
+  "new": "                    if True:",
+  "note": "neutralise: keys: an alias taken as the same home"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                    return \"ok\" if seen[key] == home or home in pinned or seen[key] in pinned else \"mount\"",
+  "new": "                    return \"ok\" if seen[key] == home or home in pinned else \"mount\"",
+  "note": "neutralise: gate keys: the first path's pin ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if sentinels:\n",
+  "new": "    if False:\n",
+  "note": "neutralise: sentinels: never skipped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if not os.path.lexists(os.path.join(root, h[1:])) and all(",
+  "new": "            if all(",
+  "note": "neutralise: sentinels: an existing one skipped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                    n in locked and sh in NOLOGIN_SHELLS for n, sh in users.get(h, [(\"root\", \"\")])):",
+  "new": "                    n in locked for n, sh in users.get(h, [(\"root\", \"\")])):",
+  "note": "neutralise: sentinels: a login shell skipped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "                    n in locked and sh in NOLOGIN_SHELLS for n, sh in users.get(h, [(\"root\", \"\")])):",
+  "new": "                    sh in NOLOGIN_SHELLS for n, sh in users.get(h, [(\"root\", \"\")])):",
+  "note": "neutralise: sentinels: an unlocked account skipped"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if any(r[1] != LOCKED for r in shadow):",
+  "new": "    if False:",
+  "note": "neutralise: passwords: shadow unchanged"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if any(r[1] != \"x\" and not G._locked(r[1]) for r in passwd):",
+  "new": "    if False:",
+  "note": "neutralise: passwords: a hash in passwd kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "            os.fchmod(fd, stat.S_IMODE(st.st_mode))",
+  "new": "            pass",
+  "note": "neutralise: files: the mode not kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        os.rename(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)",
+  "new": "        pass",
+  "note": "neutralise: files: never renamed into place"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        if not stat.S_ISREG(st.st_mode):\n            raise G.Unreadable(rel)",
+  "new": "        pass",
+  "note": "neutralise: files: a linked file replaced"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        try:\n            os.unlink(tmp, dir_fd=dfd)\n        except FileNotFoundError:\n            pass",
+  "new": "        pass",
+  "note": "neutralise: files: a stale temporary blocks"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        raise Failed(\"sudo\")  # (a primary group can't be taken away safely here: stop)",
+  "new": "        pass",
+  "note": "neutralise: sudo: a primary sudo group allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if any(g[0] in G.SUDO_GROUPS and g[3] for g in groups):",
+  "new": "    if False:",
+  "note": "neutralise: sudo: members kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "            raise Failed(\"sudo\")  # (we never edit sudoers itself)",
+  "new": "            pass",
+  "note": "neutralise: sudo: a changed sudoers allowed"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "            os.unlink(n, dir_fd=dfd)  # (a link is removed as itself, never followed)",
+  "new": "            pass",
+  "note": "neutralise: sudo: unknown sudoers.d files kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "                    if hashlib.sha256(G._read_bounded(n, G.SUDOERS_MAX, dir_fd=dfd)).hexdigest() == want:\n                        continue",
+  "new": "                    continue",
+  "note": "neutralise: sudo: an allowlisted name kept whatever its bytes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if ops.run([\"nft\", \"-f\", \"-\"], NFT_SCRIPT.encode())[0] != 0:\n        raise Failed(\"metadata\")",
+  "new": "    ops.run([\"nft\", \"-f\", \"-\"], NFT_SCRIPT.encode())",
+  "note": "neutralise: metadata: a failed apply ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if rc != 0 or len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
+  "new": "    if rc != 0 or len(listing) > G.NFT_MAX:",
+  "note": "neutralise: metadata: the rules unproved"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if rc != 0 or len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
+  "new": "    if len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
+  "note": "neutralise: metadata: a failed listing ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    if rc != 0 or len(listing) > G.NFT_MAX or not G.meta_rules_exact(listing):",
+  "new": "    if rc != 0 or not G.meta_rules_exact(listing):",
+  "note": "neutralise: metadata: the listing unbounded"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "        for u in SSH_UNITS:\n            unit_down(ops, root, u)\n        end_sessions(ops, root, proc)",
+  "new": "        end_sessions(ops, root, proc)\n        for u in SSH_UNITS:\n            unit_down(ops, root, u)",
+  "note": "neutralise: order: sessions before ssh is down"
  }
 ]

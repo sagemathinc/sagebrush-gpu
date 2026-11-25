@@ -81,6 +81,7 @@ PF_KTHREAD = 0x00200000
 IMDS_TIMEOUT_S = 2.0
 CONFIG_DRIVE_LABELS = ("config-2", "cidata")  # (matched in any case: config-2, CONFIG-2, Config-2, CiData...)
 NO_HOMES_UNDER = ("/proc", "/sys", "/dev", "/run")
+NOLOGIN_SHELLS = ("/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false")
 MOUNTINFO_MAX = 1024 * 1024
 SHADOW_MAX = 1024 * 1024
 GROUP_MAX = 1024 * 1024
@@ -188,10 +189,13 @@ def unit_state(root, name, depth=0):
     return "absent"
 
 
-def _homes(root):
-    """Every home in a bounded, regular /etc/passwd, plus /root: absolute, normalized and not under a virtual tree."""
+def _homes(root, sentinels=()):
+    """Every home in a bounded, regular /etc/passwd, plus /root: absolute, normalized and not under a virtual tree.
+    A sentinel home (the image allowlist's `sentinelHomes`, e.g. /nonexistent) is left out only when it is absent and
+    every account naming it is locked with a non-login shell; otherwise it is a home like any other."""
     data = _read_bounded(os.path.join(root, "etc/passwd"), PASSWD_MAX)
     homes = {"/root"}
+    users = {}
     for line in data.split(b"\n"):
         if not line:
             continue
@@ -199,12 +203,19 @@ def _homes(root):
         if len(parts) != 7:
             raise Unreadable("passwd row")  # (a malformed row is refused, never skipped)
         try:
-            home = parts[5].decode("utf-8", "strict")
+            name, home, shell = (parts[i].decode("utf-8", "strict") for i in (0, 5, 6))
         except UnicodeDecodeError:
             raise Unreadable("passwd home")
         if not home.startswith("/") or os.path.normpath(home) != home or "\x00" in home:
             raise Unreadable("passwd home")
         homes.add(home)
+        users.setdefault(home, []).append((name, shell))
+    if sentinels:
+        locked = {r[0] for r in _rows(os.path.join(root, "etc/shadow"), SHADOW_MAX, 9) if _locked(r[1])}
+        for h in set(sentinels) & homes:
+            if not os.path.lexists(os.path.join(root, h[1:])) and all(
+                    n in locked and sh in NOLOGIN_SHELLS for n, sh in users.get(h, [("root", "")])):
+                homes.discard(h)
     return sorted(h for h in homes if not any(h == v or h.startswith(v + "/") for v in NO_HOMES_UNDER))
 
 
@@ -234,7 +245,7 @@ def _keys_state(root, home, mounts, pinned, seen=None):
     following any link, and the walk refuses to cross into another mount (a mount point at a component or at a key
     file, or a device change from the directory before) unless the image allowlist pins that exact path.  `seen` maps
     each home directory already scanned, by (st_dev, st_ino), to its path: the same directory is scanned once, and a
-    second path reaching it (a bind alias) is "mount" unless that path is pinned."""
+    second path reaching it (a bind alias) is "mount" unless one of the two paths is pinned (whichever came first)."""
     seen = {} if seen is None else seen
     fds = []
     try:
@@ -263,7 +274,7 @@ def _keys_state(root, home, mounts, pinned, seen=None):
             if path == home:
                 key = (st.st_dev, st.st_ino)
                 if key in seen:
-                    return "ok" if seen[key] == home or home in pinned else "mount"
+                    return "ok" if seen[key] == home or home in pinned or seen[key] in pinned else "mount"
                 seen[key] = home
         for name in ("authorized_keys", "authorized_keys2"):
             try:
@@ -280,7 +291,7 @@ def _keys_state(root, home, mounts, pinned, seen=None):
             os.close(f)
 
 
-def check_ssh(root, procs, proc="/proc", pinned=()):
+def check_ssh(root, procs, proc="/proc", pinned=(), sentinels=()):
     out = set()
     for unit in SSH_UNITS:
         if unit_state(root, unit) == "present":
@@ -290,7 +301,7 @@ def check_ssh(root, procs, proc="/proc", pinned=()):
             out.add("ssh-running")
     mounts = mount_points(proc)
     seen = {}
-    for home in _homes(root):
+    for home in _homes(root, sentinels):
         state = _keys_state(root, home, mounts, set(pinned), seen)
         if state == "keys":
             out.add("authorized-keys")
@@ -812,6 +823,8 @@ def load_allowlist(path):
           and all(isinstance(x, str) and x.startswith("/") for x in allow["processes"])
           and isinstance(allow.get("mounts"), list)
           and all(isinstance(m, str) and m.startswith("/") and m != "/" and os.path.normpath(m) == m for m in allow["mounts"])
+          and isinstance(allow.get("sentinelHomes"), list)
+          and all(isinstance(m, str) and m.startswith("/") and m != "/" and os.path.normpath(m) == m for m in allow["sentinelHomes"])
           and isinstance(allow.get("loopback"), list)
           and all(isinstance(a, dict) and set(a) == {"process", "proto", "address", "port"} and a["proto"] in ("tcp", "udp")
                   and _loopback(str(a["address"])) and type(a["port"]) is int and 0 < a["port"] < 65536 and a["port"] != 22
@@ -869,7 +882,8 @@ def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None, nf
             if "n" not in names:
                 names["n"] = unit_names(root)
             return names["n"]
-        checks = [lambda: check_ssh(root, procs, proc, allow["mounts"]), lambda: check_processes(procs, allow),
+        checks = [lambda: check_ssh(root, procs, proc, allow["mounts"], allow["sentinelHomes"]),
+                  lambda: check_processes(procs, allow),
                   lambda: check_secrets(procs, known), lambda: check_listeners(sockets(proc), procs, allow),
                   lambda: check_provider(root, procs, units()), lambda: check_neutralised(root, procs, allow, units()),
                   lambda: check_consoles(root, procs, units()), lambda: check_sessions(procs)] + checks

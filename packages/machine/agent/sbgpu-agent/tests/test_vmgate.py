@@ -18,7 +18,7 @@ from sbgpu_agent import vmgate as G  # noqa: E402
 NET_HEAD = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
 SYSTEMD, RESOLVED, PY = "/usr/lib/systemd/systemd", "/usr/lib/systemd/systemd-resolved", "/usr/bin/python3.12"
 SUDOERS = "Defaults env_reset\nroot ALL=(ALL:ALL) ALL\n@includedir /etc/sudoers.d\n"
-ALLOW = {"v": 1, "processes": [SYSTEMD, RESOLVED, PY], "mounts": [],
+ALLOW = {"v": 1, "processes": [SYSTEMD, RESOLVED, PY], "mounts": [], "sentinelHomes": ["/nonexistent"],
          "loopback": [{"process": RESOLVED, "proto": "udp", "address": "127.0.0.53", "port": 53},
                       {"process": RESOLVED, "proto": "tcp", "address": "127.0.0.53", "port": 53}],
          "providerReader2": [], "neutralisedAgents": [{"unit": "grafana-agent", "process": "grafana-agent"}],
@@ -937,6 +937,7 @@ class NeutralisedTest(Base):
         try:
             self.assertEqual(v.run(), (False, ["mount-crossing"]))
             self.assertEqual(v.run(dict(ALLOW, mounts=["/home/b"])), (True, []))  # (the alias pinned by the image)
+            self.assertEqual(v.run(dict(ALLOW, mounts=["/home/a"])), (True, []))  # (or the path it aliases)
         finally:
             G.os.fstat = real_fstat
         self.assertEqual(v.run(), (True, []))  # (the control: two different directories)
