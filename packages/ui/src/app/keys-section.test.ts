@@ -306,6 +306,54 @@ test("unmount aborts too: a held answer afterwards changes nothing, and the list
   assert.deepEqual(k.t.store.keys.rows.value!.map((r) => r.fingerprint), [null, null, null], "B's own list, not A's");
 });
 
+test("an answer naming another provider is not this request's: no row changes, and the page says it didn't understand", async () => {
+  const k = await keysPage();
+  const crossed = { provider: "vast", status: "ok", fingerprint: "c0ffee00", setBy: EMAILS.owner, setAt: "2027-02-01T09:00:00.000Z", lastCheckedAt: "2027-02-01T09:00:00.000Z", runningMachines: 0 };
+  const rows = JSON.stringify(k.t.store.keys.rows.value);
+  k.t.respondOnce(/PUT .*\/credentials\/shadeform$/, () => Response.json(crossed));
+  k.submit("shadeform");
+  await settle();
+  assert.equal(JSON.stringify(k.t.store.keys.rows.value), rows, "no row changed");
+  assert.deepEqual(k.t.store.keys.notices.value, { shadeform: KEY_REFUSAL_WORDS.badResponse });
+  assert.doesNotMatch(k.page.text(), new RegExp(`${KEY_SAVED_WORDS}|c0ffee00`));
+  assert.match(k.row("vast")!.textContent!, new RegExp(`^Vast\\.ai ?${KEY_STATUS_WORDS.none}`));
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  k.noKey("crossed");
+});
+
+for (const outcome of ["held", "success", "refusal", "network"] as const) {
+  test(`removal empties a key typed into the row, before the request goes and when it ends (${outcome})`, async () => {
+    const k = await keysPage();
+    k.submit("vast");
+    await settle();
+    const field = k.input("vast")!;
+    k.page.type(field, "sk_live_unsaved_replacement");
+    k.button("vast", "Remove")!.click();
+    await settle();
+    assert.equal(field.value, "sk_live_unsaved_replacement", "(only a removal empties it)");
+    const release = outcome === "held" ? k.t.gate(/DELETE .*\/credentials\/vast$/) : null;
+    if (outcome === "refusal") k.t.respondOnce(/DELETE .*\/credentials\/vast$/, refusalResponse("busy"));
+    if (outcome === "network") k.t.failOnce(new TypeError("offline"));
+    k.button("vast", "Remove key")!.click();
+    // Synchronously: the request has gone, and the field is already empty.
+    assert.equal(k.keysLog().filter((l) => l.startsWith("KEYS DELETE")).length, 1);
+    assert.equal(field.value, "");
+    await settle();
+    if (release) {
+      assert.equal(k.t.store.keys.pending.value.has("vast"), true);
+      k.noKey("held DELETE");
+      // Anything put in the field meanwhile is emptied when the request ends.
+      k.page.type(field, "sk_live_typed_while_held");
+      release();
+      await settle();
+    }
+    assert.equal(field.value, "");
+    k.noKey(outcome);
+    const words = { held: KEY_REMOVED_WORDS, success: KEY_REMOVED_WORDS, refusal: KEY_REFUSAL_WORDS.busy, network: KEY_REFUSAL_WORDS.network }[outcome];
+    assert.match(k.row("vast")!.textContent!, new RegExp(words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  });
+}
+
 // ---------------------------------------------------------------- outcomes and words
 
 test("every refusal shows the page's own words, never the server's; the field is empty after each, and nothing is retried", async () => {

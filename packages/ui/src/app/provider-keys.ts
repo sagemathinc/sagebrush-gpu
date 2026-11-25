@@ -188,7 +188,12 @@ export class ProviderKeys {
     if (!this.windowOpen.value) return Promise.resolve(false);
     const t = this.#begin(provider);
     if (t == null) return Promise.resolve(false);
-    return credentialRequest(this.#fetch, "PUT", credentialsPath(t.orgId, provider), body, t.controller.signal, readCredential).then((o) =>
+    // (an answer naming another provider is not this request's: it changes no row)
+    const forThisRow = (x: unknown) => {
+      const c = readCredential(x);
+      return c != null && c.provider === provider ? c : null;
+    };
+    return credentialRequest(this.#fetch, "PUT", credentialsPath(t.orgId, provider), body, t.controller.signal, forThisRow).then((o) =>
       this.#settle(t, o, (c) => {
         this.rows.value = (this.rows.value ?? []).map((r) => (r.provider === c.provider ? c : r));
         return KEY_SAVED_WORDS;
@@ -231,12 +236,13 @@ export class ProviderKeys {
   }
 
   /**
-   * The request is over: true when it still answers the open organization and page (every
-   * change of organization goes through leave(), which moves the generation on).
+   * The request is over: true when it still answers the open organization and page. (Every
+   * change of organization goes through leave(), which moves the generation on, so the
+   * organization's check is defense in depth.)
    */
   #end(t: Ticket): boolean {
     this.#controllers.delete(t.controller);
-    if (t.generation !== this.#generation) return false;
+    if (t.generation !== this.#generation || t.orgId !== this.orgId.value) return false;
     const next = new Set(this.pending.value);
     next.delete(t.slot);
     this.pending.value = next;

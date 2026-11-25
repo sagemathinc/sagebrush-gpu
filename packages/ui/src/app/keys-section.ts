@@ -52,9 +52,13 @@ function KeyRow({ keys, orgId, row }: { keys: ProviderKeys; orgId: string; row: 
       if (field.current) field.current.value = "";
     });
   };
+  // Removal empties the field too: before the request is handed over, and when it ends.
   const remove = () => {
+    if (field.current) field.current.value = "";
     setConfirming(false);
-    void keys.remove(row.provider);
+    void keys.remove(row.provider).then(() => {
+      if (field.current) field.current.value = "";
+    });
   };
 
   const status = KEY_STATUS_WORDS[row.status];

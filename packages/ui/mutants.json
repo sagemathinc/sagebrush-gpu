@@ -3335,8 +3335,8 @@
  },
  {
   "file": "src/app/provider-keys.ts",
-  "old": "    if (t.generation !== this.#generation) return false;",
-  "new": "",
+  "old": "    if (t.generation !== this.#generation || t.orgId !== this.orgId.value) return false;",
+  "new": "    if (t.orgId !== this.orgId.value) return false;",
   "note": "end: stale answers applied"
  },
  {
@@ -3506,5 +3506,23 @@
   "old": "    init.body = body;",
   "new": "    init.body = body.slice(1);",
   "note": "request: not the body given"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "      return c != null && c.provider === provider ? c : null;",
+  "new": "      return c;",
+  "note": "put: an answer for another provider applied"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    if (field.current) field.current.value = \"\";\n    setConfirming(false);",
+  "new": "    setConfirming(false);",
+  "note": "remove: a typed key kept while removing"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    void keys.remove(row.provider).then(() => {\n      if (field.current) field.current.value = \"\";\n    });",
+  "new": "    void keys.remove(row.provider);",
+  "note": "remove: the field not emptied when it ends"
  }
 ]
