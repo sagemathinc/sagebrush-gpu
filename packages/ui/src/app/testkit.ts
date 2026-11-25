@@ -17,6 +17,13 @@ export async function signInAs(store: Store, backend: MockBackend, email: string
  * release() is called (hold(pattern, true): only the next matching one). The server
  * answers when the request is sent; only the answer's arrival is held, so a held answer
  * can be stale. Every request is logged as "METHOD path".
+ *
+ * The provider keys' own request path (credentialFetch) goes to the same mock, held and
+ * logged the same way, and is logged as "KEYS METHOD path". Its held answer is dropped with
+ * an AbortError when its signal aborts, unless abortWins is false (then the answer still
+ * arrives, as when it wins the race with the abort). clientBodies records every body the
+ * shared client sends; the keys' path never shows up there. The reauth window runs on a
+ * monotonic clock (mono, advanceMono) and its own fake timers (keyTimers).
  */
 export async function controllable(email?: string, options: StoreOptions = {}) {
   const demo = seedDemo();
@@ -37,8 +44,28 @@ export async function controllable(email?: string, options: StoreOptions = {}) {
   let override: { pattern: RegExp; make: () => Response } | null = null;
   /** Independent one-shot holds (gate()): each holds the next matching request until its own release. */
   const gates: Array<{ pattern: RegExp; gate: Promise<void> }> = [];
-  const fetchFn = async (url: string, init: RequestInit) => {
-    log.push(`${init.method} ${url}`);
+  const clientBodies: string[] = [];
+  const signals: AbortSignal[] = [];
+  let abortWins = true;
+  const fetchFn = (url: string, init: RequestInit) => {
+    if (typeof init.body === "string") clientBodies.push(init.body);
+    return send(url, init, `${init.method} ${url}`);
+  };
+  const credentialFetch = (url: string, init: RequestInit) => {
+    if (init.signal) signals.push(init.signal);
+    const answer = send(url, init, `KEYS ${init.method} ${url}`);
+    const signal = init.signal;
+    if (!signal || !abortWins) return answer;
+    // As fetch does: an abort drops the answer still to come.
+    return new Promise<Response>((resolve, reject) => {
+      const aborted = () => reject(new DOMException("aborted", "AbortError"));
+      if (signal.aborted) return aborted();
+      signal.addEventListener("abort", aborted, { once: true });
+      answer.then(resolve, reject);
+    });
+  };
+  const send = async (url: string, init: RequestInit, entry: string) => {
+    log.push(entry);
     if (failNext) {
       const err = failNext;
       failNext = null;
@@ -60,13 +87,32 @@ export async function controllable(email?: string, options: StoreOptions = {}) {
     }
     return replaced ? replaced.make() : (answer as Promise<Response>);
   };
-  const store = new Store(createClient({ fetch: fetchFn }), () => demo.backend.now(), options);
+  let mono = 1_000_000;
+  const keyTimers = new FakeTimers();
+  const store = new Store(createClient({ fetch: fetchFn }), () => demo.backend.now(), {
+    credentialFetch,
+    monotonic: () => mono,
+    timers: keyTimers,
+    ...options,
+  });
   await signInAs(store, demo.backend, email ?? demo.emails.member);
   return {
     demo,
     store,
     log,
     otherId: other.id,
+    clientBodies,
+    /** The signals the keys' path was given, in order. */
+    signals,
+    keyTimers,
+    mono: () => mono,
+    advanceMono(ms: number) {
+      mono += ms;
+    },
+    /** Whether a held keys answer still arrives after its abort (false: it wins the race). */
+    set abortWins(v: boolean) {
+      abortWins = v;
+    },
     hold(pattern: RegExp, once = false) {
       const gate = new Promise<void>((resolve) => (openGate = resolve));
       held = { pattern, once, gate };

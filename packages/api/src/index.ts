@@ -13,3 +13,4 @@ export * from "./routes.ts";
 export * from "./authz.ts";
 export * from "./policy.ts";
 export * from "./signin.ts";
+export * from "./credentials.ts";

@@ -50,6 +50,14 @@ export interface Me {
   user: User;
   orgs: Array<{ orgId: OrgId; name: string; role: OrgRole }>;
   projects: Array<{ projectId: ProjectId; orgId: OrgId; name: string; role: ProjectRole; memberId: MemberId }>;
+  /**
+   * How long, in milliseconds from when the server answers, the user may still change an
+   * organization's provider keys (an integer from 0 to RECENT_AUTH_WINDOW_MS); null or
+   * missing when they would have to sign in again first. Anything that isn't
+   * isRecentAuthForMs means the same. The page counts it from just before it sent the
+   * request, so the window it shows never outlasts the server's.
+   */
+  recentAuthForMs?: number | null;
 }
 
 // ---------------------------------------------------------------- organizations

@@ -10,6 +10,10 @@ function sampleParams(path: string): Record<string, string> {
   for (const seg of path.split("/")) {
     if (!seg.startsWith(":")) continue;
     const name = seg.slice(1);
+    if (name === "provider") {
+      params[name] = "shadeform";
+      continue;
+    }
     const kind = ({ orgId: "org", projectId: "project", memberId: "member", teamId: "team", machineId: "machine" } as const)[name];
     assert.ok(kind, `unknown path parameter ${name}`);
     params[name] = newId(kind);

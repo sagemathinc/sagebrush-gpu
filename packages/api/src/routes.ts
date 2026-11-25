@@ -11,6 +11,8 @@ import type { Micros } from "./money.ts";
 import type { MachineId, MemberId, OrgId, ProjectId, TeamId } from "./ids.ts";
 import type { IsoTime } from "./time.ts";
 import type { OrgRole, ProjectRole } from "./objects.ts";
+import type { ProviderId } from "./providers.ts";
+import type { ProviderCredential, PutCredentialRequest } from "./credentials.ts";
 import type {
   AgentAbortRequest,
   AgentAnnounceRequest,
@@ -106,7 +108,7 @@ export type Redirect = never;
 export interface Endpoints {
   // auth
   // (sign-in goes through WorkOS AuthKit: the browser navigates to startSignIn, never fetches it; see signin.ts)
-  startSignIn: { method: "GET"; path: "/v1/auth/start"; params: {}; query: { return?: string }; body: undefined; response: Redirect };
+  startSignIn: { method: "GET"; path: "/v1/auth/start"; params: {}; query: { return?: string; reauth?: "1" }; body: undefined; response: Redirect };
   signInCallback: { method: "GET"; path: "/v1/auth/callback"; params: {}; query: { code?: string; state?: string; error?: string }; body: undefined; response: Redirect };
   signOut: { method: "POST"; path: "/v1/auth/sign-out"; params: {}; query: {}; body: {}; response: Ok };
   getMe: { method: "GET"; path: "/v1/me"; params: {}; query: {}; body: undefined; response: Me };
@@ -116,6 +118,11 @@ export interface Endpoints {
   addOrgCredit: { method: "POST"; path: "/v1/orgs/:orgId/credit"; params: { orgId: OrgId }; query: {}; body: AddCreditRequest; response: Organization };
   listProjects: { method: "GET"; path: "/v1/orgs/:orgId/projects"; params: { orgId: OrgId }; query: { cursor?: string }; body: undefined; response: Page<Project> };
   createProject: { method: "POST"; path: "/v1/orgs/:orgId/projects"; params: { orgId: OrgId }; query: {}; body: CreateProjectRequest; response: Project };
+
+  // an organization's own provider keys (byok; see credentials.ts)
+  listCredentials: { method: "GET"; path: "/v1/orgs/:orgId/credentials"; params: { orgId: OrgId }; query: {}; body: undefined; response: { items: ProviderCredential[] } };
+  putCredential: { method: "PUT"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: {}; body: PutCredentialRequest; response: ProviderCredential };
+  deleteCredential: { method: "DELETE"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: {}; body: undefined; response: { removed: true } };
 
   // projects
   getProject: { method: "GET"; path: "/v1/projects/:projectId"; params: { projectId: ProjectId }; query: {}; body: undefined; response: Project };
@@ -186,9 +193,15 @@ const assistant = { auth: "session", scope: "project", minRole: "assistant" } as
 const manager = { auth: "session", scope: "project", minRole: "manager" } as const;
 const machineMember = { auth: "session", scope: "machine", minRole: "member" } as const;
 const OWN = "a member may act only on their own machines; assistants and above on any in the project";
+const CREDENTIALS_NOTE = "byok organizations only (notByok otherwise); every refusal is one of CREDENTIAL_REFUSALS, and nothing ever carries the key";
 
 export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } = {
-  startSignIn: { method: "GET", path: "/v1/auth/start", access: { auth: "public" }, note: "a 302 to WorkOS AuthKit; `return` is kept only if isSafeReturnPath" },
+  startSignIn: {
+    method: "GET",
+    path: "/v1/auth/start",
+    access: { auth: "public" },
+    note: "a 302 to WorkOS AuthKit; `return` is kept only if isSafeReturnPath; reauth=1 forces a fresh authentication (for recentAuthForMs), and nothing resumes after it",
+  },
   signInCallback: { method: "GET", path: "/v1/auth/callback", access: { auth: "public" }, note: "WorkOS's redirect back: a 302 to the return path with the session cookie, or to /?signin=<SignInOutcome>" },
   signOut: { method: "POST", path: "/v1/auth/sign-out", access: { auth: "session", scope: "none" } },
   getMe: { method: "GET", path: "/v1/me", access: { auth: "session", scope: "none" } },
@@ -197,6 +210,20 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   addOrgCredit: { method: "POST", path: "/v1/orgs/:orgId/credit", access: { auth: "system" }, note: "manual top-up against an invoice or PO" },
   listProjects: { method: "GET", path: "/v1/orgs/:orgId/projects", access: { auth: "session", scope: "org", minRole: "viewer" } },
   createProject: { method: "POST", path: "/v1/orgs/:orgId/projects", access: { auth: "session", scope: "org", minRole: "owner" } },
+
+  listCredentials: { method: "GET", path: "/v1/orgs/:orgId/credentials", access: { auth: "session", scope: "org", minRole: "owner" }, note: CREDENTIALS_NOTE },
+  putCredential: {
+    method: "PUT",
+    path: "/v1/orgs/:orgId/credentials/:provider",
+    access: { auth: "session", scope: "org", minRole: "owner" },
+    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key is checked with isCredentialKeyShape before anything else, then with the provider, and only then stored`,
+  },
+  deleteCredential: {
+    method: "DELETE",
+    path: "/v1/orgs/:orgId/credentials/:provider",
+    access: { auth: "session", scope: "org", minRole: "owner" },
+    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes effect at once`,
+  },
 
   getProject: { method: "GET", path: "/v1/projects/:projectId", access: member },
   updateProject: { method: "PATCH", path: "/v1/projects/:projectId", access: manager },
