@@ -73,6 +73,130 @@ test("launches: the mode is closed and fixed; a provider belongs to one mode", a
   await assert.rejects(upd(v, `mode = 'container'`), /mode is fixed/);
 });
 
+test("launches: the provider is fixed from the intent, in both modes, and for a VM after its id and token are bound", async () => {
+  const c = await machine();
+  await container(c);
+  await assert.rejects(upd(c, `provider = 'shadeform'`), /provider is fixed/);
+  await upd(c, `provider = 'runpod'`); // (the same value: no change)
+  const v = await machine("shadeform");
+  await vmLaunch(v);
+  await assert.rejects(upd(v, `provider = 'nebius'`), /provider is fixed/); // (creating, before any id)
+  // its id recorded, ACTIVE, and a boot token bound to that id
+  await upd(v, `provider_machine_id = 'same-id', outcome = 'launched', ipv4 = '203.0.113.7', first_active_ms = ?`, T0);
+  await token(v, { mode: "vm", provider_machine_id: "same-id", nonce_sha256: H, issued_ms: T0, expires_ms: T0 + 1 });
+  for (const other of ["nebius", "hyperstack"]) await assert.rejects(upd(v, `provider = ?`, other), /provider is fixed/, other);
+  await assert.rejects(upd(v, `provider = 'nebius', outcome = 'terminate', terminate_reason = 'abort', next_ms = ?`, T0), /provider is fixed/);
+  const row = (await w.db.all<{ provider: string }>(`SELECT provider FROM launches WHERE machine_id = ?`, [v]))[0]!;
+  assert.equal(row.provider, "shadeform");
+  // and another provider may use the same external id, as its own launch
+  const n = await machine("nebius");
+  await vmLaunch(n, { provider: "nebius", provider_machine_id: "same-id" });
+});
+
+test("launches: which launch a row is (machine, incarnation) never changes, in both modes, before and after its id and token", async () => {
+  const other = await machine();
+  const moves: Array<[string, string, ...SqlValue[]]> = [
+    ["another machine", `machine_id = ?`, other],
+    ["another incarnation", `incarnation = 2`],
+    ["both", `machine_id = ?, incarnation = 2`, other],
+  ];
+  const tryAll = async (m: string, when: string) => {
+    for (const [why, set, ...p] of moves) await assert.rejects(upd(m, set, ...p), /identity is fixed/, `${when}: ${why}`);
+    await upd(m, `machine_id = ?, incarnation = 1`, m); // (the same values)
+  };
+  const c = await machine();
+  await container(c);
+  await tryAll(c, "container, creating");
+  await upd(c, `provider_machine_id = 'pod-c'`);
+  await token(c, { provider_machine_id: "pod-c", issued_ms: T0, expires_ms: T0 + 120_000 });
+  await tryAll(c, "container, with its id and token");
+  const v = await machine("shadeform");
+  await vmLaunch(v);
+  await tryAll(v, "vm, creating");
+  await upd(v, `provider_machine_id = 'vm-v', outcome = 'launched', ipv4 = '203.0.113.7', first_active_ms = ?`, T0);
+  await token(v, { mode: "vm", provider_machine_id: "vm-v", nonce_sha256: H, issued_ms: T0, expires_ms: T0 + 1 });
+  await tryAll(v, "vm, with its id and token");
+  const rows = await w.db.all<{ machine_id: string; incarnation: number }>(`SELECT machine_id, incarnation FROM launches WHERE machine_id IN (?, ?) ORDER BY machine_id`, [c, v]);
+  assert.deepEqual(rows.map((r) => [r.machine_id, r.incarnation]).sort(), [[c, 1], [v, 1]].sort());
+});
+
+test("launches: the intent's pins never change, in both modes (the same value passes)", async () => {
+  const c = await machine();
+  await container(c);
+  const v = await machine("shadeform");
+  await vmLaunch(v);
+  const H2 = sha("other");
+  for (const m of [c, v]) {
+    for (const [col, x] of [["created_ms", T0 + 1], ["created_ms", T0 - 1], ["agent_sha256", H2]] as const) {
+      await assert.rejects(upd(m, `${col} = ?`, x), /intent is fixed/, `${col} ${x}`);
+    }
+    await upd(m, `created_ms = ?, agent_sha256 = ?`, T0, H); // (the same values)
+  }
+  for (const col of ["nonce_sha256", "boot_script_sha256"]) {
+    await assert.rejects(upd(v, `${col} = ?`, H2), /intent is fixed/, col);
+    await assert.rejects(upd(c, `${col} = ?`, H2), /intent is fixed/, `container ${col}`); // (none to set, ever)
+  }
+  await upd(v, `nonce_sha256 = ?, boot_script_sha256 = ?`, H, H);
+});
+
+test("launches: a provider id, once recorded, is fixed, in both modes and for a VM after its token is bound", async () => {
+  const c = await machine();
+  await container(c);
+  await upd(c, `provider_machine_id = 'pod-1'`); // (NULL -> value: recorded)
+  await upd(c, `provider_machine_id = 'pod-1'`); // (the same value)
+  await assert.rejects(upd(c, `provider_machine_id = 'pod-2'`), /provider id is fixed/);
+  await assert.rejects(upd(c, `provider_machine_id = NULL`), /provider id is fixed/);
+  const v = await machine("shadeform");
+  await vmLaunch(v);
+  await upd(v, `provider_machine_id = 'vm-1'`);
+  // launched (before any token: the seam a token's key alone wouldn't cover)
+  await upd(v, `outcome = 'launched', ipv4 = '203.0.113.7', first_active_ms = ?`, T0);
+  await assert.rejects(upd(v, `provider_machine_id = 'vm-2'`), /provider id is fixed/);
+  await token(v, { mode: "vm", provider_machine_id: "vm-1", nonce_sha256: H, issued_ms: T0, expires_ms: T0 + 1 });
+  for (const x of ["vm-2", null]) await assert.rejects(upd(v, `provider_machine_id = ?`, x), /provider id is fixed/, String(x));
+  assert.equal((await w.db.all<{ p: string }>(`SELECT provider_machine_id AS p FROM launches WHERE machine_id = ?`, [v]))[0]!.p, "vm-1");
+});
+
+test("launches: the ACTIVE facts are set only by the ACTIVE transition, then fixed", async () => {
+  const v = await machine("shadeform");
+  await assert.rejects(vmLaunch(v, { ipv4: "203.0.113.7", first_active_ms: T0 }), /CHECK/); // (creating has none)
+  await vmLaunch(v, { provider_machine_id: "vm-1" });
+  // the facts come together (an insert isn't the ACTIVE transition, so the CHECK holds it)
+  const h = await machine("shadeform");
+  await assert.rejects(vmLaunch(h, { outcome: "terminate", terminate_reason: "abort", ipv4: "203.0.113.7" }), /CHECK/);
+  await assert.rejects(vmLaunch(h, { outcome: "terminate", terminate_reason: "abort", first_active_ms: T0 }), /CHECK/);
+  // entering launched from anything but creating doesn't set them
+  const t = await machine("shadeform");
+  await vmLaunch(t, { provider_machine_id: "vm-t", outcome: "terminate", terminate_reason: "abort" });
+  await assert.rejects(
+    upd(t, `outcome = 'launched', terminate_reason = NULL, ipv4 = '203.0.113.9', first_active_ms = ?`, T0),
+    /ACTIVE facts are fixed/,
+  );
+  // only creating -> launched sets them
+  await assert.rejects(upd(v, `ipv4 = '203.0.113.7', first_active_ms = ?`, T0), /ACTIVE facts are fixed/);
+  await assert.rejects(upd(v, `outcome = 'terminate', terminate_reason = 'abort', ipv4 = '203.0.113.7', first_active_ms = ?`, T0), /ACTIVE facts are fixed/);
+  await upd(v, `outcome = 'launched', ipv4 = '203.0.113.7', first_active_ms = ?`, T0);
+  await upd(v, `ipv4 = '203.0.113.7', first_active_ms = ?`, T0); // (the same values)
+  for (const [why, set, ...p] of [
+    ["another address", `ipv4 = '203.0.113.8'`],
+    ["a later first ACTIVE", `first_active_ms = ?`, T0 + 1],
+    ["an earlier first ACTIVE", `first_active_ms = ?`, T0 - 1],
+    ["both cleared", `ipv4 = NULL, first_active_ms = NULL`],
+    ["cleared on terminate", `outcome = 'terminate', terminate_reason = 'abort', ipv4 = NULL, first_active_ms = NULL`],
+  ] as Array<[string, string, ...SqlValue[]]>) {
+    await assert.rejects(upd(v, set, ...p), /ACTIVE facts are fixed/, why);
+  }
+  // one fact cleared alone, in launched and (below) after it
+  await assert.rejects(upd(v, `ipv4 = NULL`), /ACTIVE facts are fixed/, "the address alone cleared");
+  await assert.rejects(upd(v, `first_active_ms = NULL`), /ACTIVE facts are fixed/, "the first ACTIVE alone cleared");
+  // a later transition keeps them
+  await upd(v, `outcome = 'terminate', terminate_reason = 'abort', next_ms = ?`, T0);
+  await assert.rejects(upd(v, `ipv4 = NULL`), /ACTIVE facts are fixed/, "the address alone cleared, terminating");
+  await assert.rejects(upd(v, `first_active_ms = NULL`), /ACTIVE facts are fixed/, "the first ACTIVE alone cleared, terminating");
+  const r = (await w.db.all<{ ipv4: string; f: number }>(`SELECT ipv4, first_active_ms AS f FROM launches WHERE machine_id = ?`, [v]))[0]!;
+  assert.deepEqual([r.ipv4, r.f], ["203.0.113.7", T0]);
+});
+
 test("launches: each mode carries its own columns, and never the other mode's", async () => {
   const m = await machine();
   for (const [col, v] of [["nonce_sha256", H], ["boot_script_sha256", H], ["announce_ms", T0]] as const) {
@@ -170,9 +294,10 @@ test("launches: one provider id is bound to at most one launch of that provider"
   const [a, b, c] = [await machine(), await machine(), await machine("shadeform")];
   await container(a, { provider_machine_id: "pod-1" });
   await assert.rejects(container(b, { provider_machine_id: "pod-1" }), /UNIQUE/);
-  await container(b, { provider_machine_id: "pod-2" });
+  await container(b);
   await vmLaunch(c, { provider_machine_id: "pod-1" }); // (another provider's id space)
-  await assert.rejects(upd(b, `provider_machine_id = 'pod-1'`), /UNIQUE/);
+  await assert.rejects(upd(b, `provider_machine_id = 'pod-1'`), /UNIQUE/); // (recording a taken id)
+  await upd(b, `provider_machine_id = 'pod-2'`);
 });
 
 test("boot_tokens: a VM token exactly as before; a token's mode is its launch's", async () => {
@@ -193,7 +318,7 @@ test("boot_tokens: a VM token exactly as before; a token's mode is its launch's"
   }
   await vmTok({ expires_ms: T0 + 1 });
   // the launch's id can't move away from its token's
-  await assert.rejects(upd(v, `provider_machine_id = 'vm-3'`), /FOREIGN KEY/);
+  await assert.rejects(upd(v, `provider_machine_id = 'vm-3'`), /provider id is fixed/); // (and its token's key would refuse it too)
 });
 
 test("boot_tokens: a container token, pending until first running, then bound to its launch's id with exactly 120 s", async () => {

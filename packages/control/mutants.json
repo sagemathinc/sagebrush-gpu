@@ -3661,5 +3661,131 @@
   "old": "      orgId: r.org_id,\n      billingMode: r.billing_mode,\n",
   "new": "      orgId: r.org_id,\n      billingMode: \"resold\",\n",
   "note": "a project's billing mode not read from its row (the list)"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.provider IS NOT OLD.provider\n",
+  "new": "WHEN 0\n",
+  "note": "provider mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.provider IS NOT OLD.provider\n",
+  "new": "WHEN NEW.provider <> OLD.provider AND OLD.mode = 'container'\n",
+  "note": "a VM's provider mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
+  "new": "WHEN 0\n",
+  "note": "intent mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR ",
+  "new": "WHEN ",
+  "note": "created_ms mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n",
+  "new": "",
+  "note": "agent pin mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n",
+  "new": "",
+  "note": "nonce pin mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
+  "new": "",
+  "note": "script pin mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "new": "WHEN 0\n",
+  "note": "provider id replaceable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "new": "WHEN NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "note": "provider id never recordable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id IS NOT OLD.provider_machine_id\n",
+  "new": "WHEN OLD.provider_machine_id IS NOT NULL AND NEW.provider_machine_id <> OLD.provider_machine_id\n",
+  "note": "provider id clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)\n  OR (OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)\n  OR (((OLD.ipv4 IS NULL AND NEW.ipv4 IS NOT NULL) OR (OLD.first_active_ms IS NULL AND NEW.first_active_ms IS NOT NULL))\n      AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))\n",
+  "new": "WHEN 0\n",
+  "note": "ACTIVE facts mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)\n  OR",
+  "new": "WHEN",
+  "note": "address changeable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR (OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)\n",
+  "new": "",
+  "note": "first ACTIVE changeable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR (((OLD.ipv4 IS NULL AND NEW.ipv4 IS NOT NULL) OR (OLD.first_active_ms IS NULL AND NEW.first_active_ms IS NOT NULL))\n      AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))\n",
+  "new": "",
+  "note": "ACTIVE facts set outside the ACTIVE transition"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched')",
+  "new": "NOT (NEW.outcome = 'launched')",
+  "note": "ACTIVE facts set from any state into launched"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched')",
+  "new": "NOT (OLD.outcome = 'creating')",
+  "note": "ACTIVE facts set leaving creating anyhow"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)",
+  "new": "(OLD.ipv4 IS NOT NULL AND NEW.ipv4 <> OLD.ipv4)",
+  "note": "address clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms IS NOT OLD.first_active_ms)",
+  "new": "(OLD.first_active_ms IS NOT NULL AND NEW.first_active_ms <> OLD.first_active_ms)",
+  "note": "first ACTIVE clearable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN 0\n",
+  "note": "identity mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN NEW.incarnation IS NOT OLD.incarnation\n",
+  "note": "machine mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.machine_id IS NOT OLD.machine_id OR NEW.incarnation IS NOT OLD.incarnation\n",
+  "new": "WHEN NEW.machine_id IS NOT OLD.machine_id\n",
+  "note": "incarnation mutable"
  }
 ]
