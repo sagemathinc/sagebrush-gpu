@@ -143,7 +143,7 @@ Every token carries a `kind` claim and is refused anywhere else. Signed tokens u
   - **How the gate reads and reports:** every read is bounded and read to EOF, and the whole scan has a work budget (processes, directory entries, fds, bytes hashed; running out fails the gate). Every directory is enumerated one entry at a time against a cap (`/proc`, each process's fds, each unit directory, `/dev/disk/by-label`), never listed whole first. Unreadable, malformed or vanishing data fails the gate unless the process exited, and the listing repeats until stable. It prints `SBGPU-GATE {"v":1,"pass":…,"fail":[fixed words]}`. The image allowlist is data, reviewed per image.
   - **Still to come before VM mode is reachable:**
     - the files, logs, cloud-init, systemd-credential and keyring checks;
-    - the boot script's neutralise step itself (N1-N9);
+    - wiring the neutralise step into the launcher's VM path (the step itself is `sbgpu_agent/neutralise.py`: N1-N9 as the design has them, in order, stopping at the first that fails, with every result checked again by the gate; every command it or the gate runs is admitted only up to a byte cap and within a deadline, its whole process group killed past either);
     - the launcher's lockdown, announce and tmpfs boot file;
     - the agent's bounded poweroff;
     - the VM probe stages.
