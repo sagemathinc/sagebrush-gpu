@@ -565,6 +565,25 @@ class RepairTest(Base):
         v.write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\n\nubuntu:x:1000:1000::/home/ubuntu:/bin/bash\n")
         self.assertEqual(v.run(), (True, []))  # (an empty line is fine)
 
+    def test_passwd_parsing_itself_is_strict(self):
+        # (on the parser directly: the gate's verdict for these rows is "unreadable" by other paths too)
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "etc"))
+
+            def homes(data):
+                with open(os.path.join(root, "etc", "passwd"), "wb") as f:
+                    f.write(data)
+                return G._homes(root)
+
+            self.assertEqual(homes(b"root:x:0:0::/root:/bin/sh\nx:x:1:1::/home/x:/bin/sh\n"), ["/home/x", "/root"])  # (the control)
+            for data in (b"x:x:1:1::/home/x\n",                   # (6 fields)
+                         b"x:x:1:1::/home/x:/bin/sh:extra\n",     # (8 fields)
+                         b"x:x:1:1::/home/\xff:/bin/sh\n",         # (a home that isn't UTF-8: refused, never replaced)
+                         b"\xffx:x:1:1::/home/x:/bin/sh\n",        # (a name that isn't UTF-8)
+                         b"x:x:1:1::/home/x:/bin/\xff\n"):         # (a shell that isn't UTF-8)
+                with self.assertRaises(G.Unreadable, msg=data):
+                    homes(b"root:x:0:0::/root:/bin/sh\n" + data)
+
     def test_every_sshd_name_whatever_the_allowlist(self):
         for name in ("sshd", "sshd-session", "sshd-auth"):
             v = self.vm()

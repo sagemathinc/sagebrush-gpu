@@ -231,7 +231,8 @@ function attach(p: Page, s: Session): void {
   p.exitDue = s.exit !== null;
   p.pending.push(Buffer.from("\x1bc"), replayBytes(s));
   // (the helper may still be paused for the page taken over: the replay is at least as long as that page's
-  // unacknowledged output, so this page pauses too, and its acks resume the reading)
+  // unacknowledged output, so this page pauses too, and its acks resume the reading.  That needs a ring of at
+  // least the high-water mark, which a test pins: a smaller ring would leave the helper paused for good.)
   pump(p);
 }
 
