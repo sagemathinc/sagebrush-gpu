@@ -586,11 +586,6 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "const command = entrypoint !== null && cmd !== null ? [...entrypoint, ...cmd] : [UNREADABLE];",
-  "new": "const command = [...(entrypoint ?? []), ...(cmd ?? [])];"
- },
- {
-  "file": "src/runpod/adapter.ts",
   "old": "exposedPorts: stringArray(pod[\"ports\"]) ?? [UNREADABLE],",
   "new": "exposedPorts: stringArray(pod[\"ports\"]) ?? [],"
  },
@@ -2431,27 +2426,9 @@
  },
  {
   "file": "src/drift.ts",
-  "old": "together !== null && together.length === launcher.length && together.every",
-  "new": "together !== null && together.every",
+  "old": "entrypointMatches: ep !== null && ep.length === launcher.length && ep.every",
+  "new": "entrypointMatches: ep !== null && ep.every",
   "note": "whole length"
- },
- {
-  "file": "src/drift.ts",
-  "old": "const together = ep !== null && c !== null ? [...ep, ...c] : null;",
-  "new": "const together = ep !== null ? [...ep, ...(c ?? [])] : null;",
-  "note": "cmd required"
- },
- {
-  "file": "src/drift.ts",
-  "old": "joinedMatches: entrypoint === joined || args === joined,",
-  "new": "joinedMatches: entrypoint === joined,",
-  "note": "args joined"
- },
- {
-  "file": "src/drift.ts",
-  "old": "joinedMatches: entrypoint === joined || args === joined,",
-  "new": "joinedMatches: args === joined,",
-  "note": "entrypoint joined"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -2544,7 +2521,7 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "    if (typeof whole !== \"boolean\" || typeof joined !== \"boolean\" || !Array.isArray(items)) return null;",
+  "old": "    if (typeof whole !== \"boolean\" || !Array.isArray(items)) return null;",
   "new": "    if (!Array.isArray(items)) return null;",
   "note": "flags"
  },
@@ -2556,15 +2533,9 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };",
-  "new": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: s[\"entrypointCmdMatches\"] as boolean, joinedMatches: joined };",
-  "note": "re-read entrypointCmdMatches"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };",
-  "new": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: s[\"joinedMatches\"] as boolean };",
-  "note": "re-read joinedMatches"
+  "old": "    return { entrypoint, cmd, entrypointItems, entrypointMatches: whole };",
+  "new": "    return { entrypoint, cmd, entrypointItems, entrypointMatches: s[\"entrypointMatches\"] as boolean };",
+  "note": "re-read entrypointMatches"
  },
  {
   "file": "src/probes/eradication.ts",
@@ -2580,8 +2551,8 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "    return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };\n  } catch {\n    return null;\n  }",
-  "new": "    return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };\n  } catch (x) {\n    throw x;\n  }",
+  "old": "    return { entrypoint, cmd, entrypointItems, entrypointMatches: whole };\n  } catch {\n    return null;\n  }",
+  "new": "    return { entrypoint, cmd, entrypointItems, entrypointMatches: whole };\n  } catch (x) {\n    throw x;\n  }",
   "note": "command shape catch"
  },
  {
@@ -2735,23 +2706,6 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "  const cmd = pod[\"cmd\"] === undefined ? [] : stringArray(pod[\"cmd\"]);",
-  "new": "  const cmd = pod[\"cmd\"] === undefined ? [] : (stringArray(pod[\"cmd\"]) ?? []);"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "const cmd = pod[\"cmd\"] === undefined ? [] : stringArray(pod[\"cmd\"]);",
-  "new": "const cmd = stringArray(pod[\"cmd\"]);",
-  "note": "cmd absent reads []"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "const cmd = pod[\"cmd\"] === undefined ? [] : stringArray(pod[\"cmd\"]);",
-  "new": "const cmd = pod[\"cmd\"] === undefined || pod[\"cmd\"] === null ? [] : stringArray(pod[\"cmd\"]);",
-  "note": "cmd null drifts"
- },
- {
-  "file": "src/runpod/adapter.ts",
   "old": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;",
   "new": "      if (ssh[k] === null) continue;",
   "note": "proxy accepted"
@@ -2785,5 +2739,35 @@
   "old": "(pod[\"startSsh\"] === undefined || pod[\"startSsh\"] === false)",
   "new": "(pod[\"startSsh\"] !== true)",
   "note": "startSsh strict"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "  const command = entrypoint !== null && cmdEmpty ? [...entrypoint] : [UNREADABLE];",
+  "new": "  const command = entrypoint !== null && cmdEmpty ? [...entrypoint] : entrypoint !== null && Array.isArray(cmd) ? [...entrypoint, ...(cmd as string[])] : [UNREADABLE];",
+  "note": "repartition: concatenation rollback"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const cmdEmpty = cmd === undefined || (Array.isArray(cmd) && cmd.length === 0);",
+  "new": "const cmdEmpty = cmd === undefined || Array.isArray(cmd);",
+  "note": "cmd must be empty"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const cmdEmpty = cmd === undefined || (Array.isArray(cmd) && cmd.length === 0);",
+  "new": "const cmdEmpty = Array.isArray(cmd) && cmd.length === 0;",
+  "note": "absent cmd is empty"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const cmdEmpty = cmd === undefined || (Array.isArray(cmd) && cmd.length === 0);",
+  "new": "const cmdEmpty = cmd === undefined || cmd === null || (Array.isArray(cmd) && cmd.length === 0);",
+  "note": "null cmd drifts"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      if (k !== \"proxy\" && k !== \"direct\") {\n        out.push(`ssh:${k}`);\n        continue;\n      }\n",
+  "new": "",
+  "note": "closed ssh object"
  }
 ]

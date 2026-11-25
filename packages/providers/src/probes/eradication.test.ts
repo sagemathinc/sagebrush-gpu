@@ -1087,22 +1087,22 @@ test("finishRun: a confirmed fail exits 1 even with the spend settled; the outpu
 test("reportableCommandShape rebuilds a shape from fixed kinds, counts and booleans, or gives null", () => {
   const f = (kind: string, length: number | null = null) => ({ kind, length });
   const good = {
-    entrypoint: f("array", 3), cmd: f("absent"), args: f("string", 12),
+    entrypoint: f("array", 3), cmd: f("string", 12),
     entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }, { length: 2, matches: true, commonPrefix: 2 }, { length: 900, matches: false, commonPrefix: 41 }],
-    entrypointCmdMatches: false, joinedMatches: false,
+    entrypointMatches: false,
   };
   assert.deepEqual(reportableCommandShape(good), good);
   // Extra fields are dropped, never copied: the result is rebuilt.
-  const extra = { ...good, text: "MARKER", entrypoint: { ...f("array", 3), value: "MARKER" } };
+  const extra = { ...good, text: "MARKER", args: f("string", 12), joinedMatches: true, entrypoint: { ...f("array", 3), value: "MARKER" } };
   assert.ok(!JSON.stringify(reportableCommandShape(extra)).includes("MARKER"));
   assert.deepEqual(reportableCommandShape(extra), good);
   // Counts out of range or not whole read null; bad kinds, flags or items make the whole shape null.
-  assert.equal(reportableCommandShape({ ...good, args: f("string", 1.5) })!.args.length, null);
-  assert.equal(reportableCommandShape({ ...good, args: f("string", 1_000_001) })!.args.length, null);
-  assert.equal(reportableCommandShape({ ...good, args: f("string", 1_000_000) })!.args.length, 1_000_000);
+  assert.equal(reportableCommandShape({ ...good, cmd: f("string", 1.5) })!.cmd.length, null);
+  assert.equal(reportableCommandShape({ ...good, cmd: f("string", 1_000_001) })!.cmd.length, null);
+  assert.equal(reportableCommandShape({ ...good, cmd: f("string", 1_000_000) })!.cmd.length, 1_000_000);
   for (const bad of [
-    null, "x", [], { ...good, entrypoint: f("MARKER") }, { ...good, cmd: null }, { ...good, args: "string" },
-    { ...good, entrypointCmdMatches: "true" }, { ...good, joinedMatches: 1 }, { ...good, entrypointItems: "x" },
+    null, "x", [], { ...good, entrypoint: f("MARKER") }, { ...good, cmd: null }, { ...good, cmd: "string" },
+    { ...good, entrypointMatches: "true" }, { ...good, entrypointMatches: undefined }, { ...good, entrypointItems: "x" },
     { ...good, entrypointItems: Array.from({ length: 9 }, () => ({ length: 1, matches: true, commonPrefix: 1 })) },
     { ...good, entrypointItems: [{ length: 1, matches: "yes", commonPrefix: 1 }] },
     { ...good, entrypointItems: [{ length: 1, matches: true, commonPrefix: -1 }] },
@@ -1115,8 +1115,8 @@ test("reportableCommandShape rebuilds a shape from fixed kinds, counts and boole
 
 test("a command drift's shape reaches the report, checked again at the boundary", async () => {
   const shape = {
-    entrypoint: { kind: "array", length: 3 }, cmd: { kind: "null", length: null }, args: { kind: "absent", length: null },
-    entrypointItems: [], entrypointCmdMatches: false, joinedMatches: false, MARKER: "MARKER",
+    entrypoint: { kind: "array", length: 3 }, cmd: { kind: "null", length: null },
+    entrypointItems: [], entrypointMatches: false, MARKER: "MARKER",
   };
   const w: World = {
     log: [], stages: [],
@@ -1138,12 +1138,12 @@ const twoFaced = (first: unknown) => {
   return { get: () => (reads++ === 0 ? first : CANARY), reads: () => reads };
 };
 const goodShape = () => ({
-  entrypoint: { kind: "array", length: 3 }, cmd: { kind: "null", length: null }, args: { kind: "absent", length: null },
-  entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }], entrypointCmdMatches: false, joinedMatches: false,
+  entrypoint: { kind: "array", length: 3 }, cmd: { kind: "null", length: null },
+  entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }], entrypointMatches: false,
 });
 
 test("reportableCommandShape reads each property once: a changing getter can't pass text", () => {
-  for (const flag of ["entrypointCmdMatches", "joinedMatches"] as const) {
+  for (const flag of ["entrypointMatches"] as const) {
     const s = goodShape();
     const g = twoFaced(false);
     Object.defineProperty(s, flag, { get: g.get });
@@ -1180,7 +1180,7 @@ test("reportableCommandShape and reportableDrift give null on throwing getters a
   const thrower = () => {
     throw new Error(CANARY);
   };
-  for (const prop of ["entrypoint", "cmd", "args", "entrypointItems", "entrypointCmdMatches", "joinedMatches"]) {
+  for (const prop of ["entrypoint", "cmd", "entrypointItems", "entrypointMatches"]) {
     const s = goodShape();
     Object.defineProperty(s, prop, { get: thrower });
     assert.equal(reportableCommandShape(s), null, prop);
@@ -1258,7 +1258,7 @@ test("an unreadable diagnostic never blocks cleanup: the pod is terminated, the 
     (e: ProviderError) => Object.defineProperty(e, "commandShape", { value: new Proxy({}, { get: () => { throw new Error(CANARY); } }) }),
     (e: ProviderError) => {
       const s = goodShape();
-      Object.defineProperty(s, "joinedMatches", { get: twoFaced(false).get });
+      Object.defineProperty(s, "entrypointMatches", { get: twoFaced(false).get });
       Object.defineProperty(e, "commandShape", { value: s });
     },
     (e: ProviderError) => Object.defineProperty(e, "kind", { get: () => { throw new Error(CANARY); } }),
@@ -1413,18 +1413,21 @@ function positionalReadsBeforeSetDashDash(script: string): string[] {
   const top = script.replace(/^[A-Za-z_][A-Za-z0-9_]*\(\) \{\n[\s\S]*?\n\}\n/gm, "");
   const at = top.search(/^set -- /m);
   assert.ok(at > 0, "the launcher has a top-level set --");
-  const POSITIONAL = /\$(?:[@*#0-9])|\$\{(?:[@*0-9]|#[}@*])|\bshift\b|\bgetopts\b/g;
+  // $0-$9 $@ $* $#; ${1} ${@} ${*} ${10:-d} ...; ${#} ${#@} ${#*} and ${#1} (a positional's length).
+  const POSITIONAL = /\$(?:[@*#0-9])|\$\{(?:[@*0-9]|#[}@*0-9])|\bshift\b|\bgetopts\b/g;
   return [...top.slice(0, at).matchAll(POSITIONAL)].map((m) => m[0]);
 }
 
 test("inherited positional arguments can't change the launcher before its set --", () => {
   const script = probeLauncher(agent, SALT)[2]!;
   assert.deepEqual(positionalReadsBeforeSetDashDash(script), []);
-  // The function bodies (fail's own $1) don't count, and string lengths aren't positional.
+  // The function bodies (fail's own $1) don't count, and a named variable's length isn't positional.
   assert.ok(script.includes('echo "sbgpu-boot: $1"') && script.includes("${#token}"));
+  const named = script.slice(0, script.search(/^set -- /m)) + 'n=${#token}${#SBGPU_MODE}\n' + script.slice(script.search(/^set -- /m));
+  assert.deepEqual(positionalReadsBeforeSetDashDash(named), []);
   // Controls: each of these, put before set --, is found.
   const at = script.search(/^set -- /m);
-  for (const read of ['echo "$1"', "x=$0", 'y="$@"', "z=$*", "n=$#", "v=${1:-d}", "w=${#}", "shift", "getopts a o"]) {
+  for (const read of ['echo "$1"', "x=$0", 'y="$@"', "z=$*", "n=$#", "v=${1:-d}", "w=${#}", "l=${#1}", "m=${#0}", "k=${#@}", "j=${#*}", "i=${10}", "shift", "getopts a o"]) {
     const bad = script.slice(0, at) + read + "\n" + script.slice(at);
     assert.notDeepEqual(positionalReadsBeforeSetDashDash(bad), [], read);
   }

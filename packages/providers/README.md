@@ -167,14 +167,16 @@ the live signal for a running machine is its rate (`cost` on the pod).
 ## RunPod's echo of a pod (SEC, Nov 25)
 
 What a real create reply showed (the third, fourth and fifth probe attempts), and how it is read:
-- **Command.** RunPod echoes `entrypoint` byte for byte and omits an empty `cmd`. The command is
-  entrypoint + cmd: the entrypoint must equal our launcher argv item for item, and `cmd` may be
-  absent or `[]` (null, malformed or non-empty drifts). RunPod also reports `args`, its own rendered
+- **Command.** RunPod echoes `entrypoint` byte for byte and omits an empty `cmd`. The command is the
+  entrypoint alone, checked on its own: it must equal our launcher argv item for item, and `cmd`
+  must be absent or `[]` (null, malformed or non-empty drifts), so no part of the launcher can move
+  into `cmd`. RunPod also reports `args`, its own rendered
   string of the command: it is never read, matched or used, and it is not a fallback command. What
   actually runs is checked inside the pod by the probe's pid1 check (`/proc/1/cmdline`) at every
   boot, and the launcher reads no positional parameter before its own `set --`.
-- **SSH proxy.** RunPod reports a basic SSH proxy route for every pod. A non-null `ssh.proxy` is
-  accepted only with `ssh.direct` null, no exposed ports and `startSsh` not true. The route then
+- **SSH proxy.** RunPod reports a basic SSH proxy route for every pod. The `ssh` object must have
+  exactly the keys `proxy` and `direct`. A non-null `ssh.proxy` is accepted only with `ssh.direct`
+  null, no exposed ports and `startSsh` not true. The route then
   reaches no sshd: our launcher replaces the image's start script, and the probe checks that
   nothing listens on port 22 at the start and end of every boot.
 
@@ -257,9 +259,9 @@ exists), and a command that doesn't read back as sent.
     own: of the first 32 entries it keeps only markers `driftMarkers` can produce (`isDriftMarker`:
     exact field names, the exact setting vocabulary, at most three words after `unexpectedSettings`).
     When the command drifted, `launchError.commandShape` says how RunPod reported it, never its
-    text: the form and size of `entrypoint`, `cmd` and `args`, for the first 8 entrypoint items
-    their length, whether each equals the launcher's item and how many leading characters agree,
-    and whether entrypoint followed by cmd (or a space-joined string) equals the launcher. The
+    text: the form and size of `entrypoint` and `cmd`, for the first 8 entrypoint items their
+    length, whether each equals the launcher's item and how many leading characters agree, and
+    whether the entrypoint alone equals the launcher. RunPod's `args` is not read. The
     report rebuilds it from fixed kinds, counts and booleans (`reportableCommandShape`).
   - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
     the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.

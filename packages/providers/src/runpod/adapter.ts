@@ -162,12 +162,16 @@ function unexpectedSettings(pod: Record<string, unknown>): string[] {
   const ssh = pod["ssh"];
   if (!isObject(ssh)) out.push(`ssh:${UNREADABLE}`);
   else {
-    // Both known endpoints must be reported, and null; any other endpoint kind must be null.
+    // A closed object: exactly the two known endpoints. Any other key drifts, whatever its value.
     for (const k of ["proxy", "direct"]) if (!Object.hasOwn(ssh, k)) out.push(`ssh:${k}:${UNREADABLE}`);
     const ports = pod["ports"];
     const proxyOk =
       ssh["direct"] === null && Array.isArray(ports) && ports.length === 0 && (pod["startSsh"] === undefined || pod["startSsh"] === false);
     for (const k of Object.keys(ssh)) {
+      if (k !== "proxy" && k !== "direct") {
+        out.push(`ssh:${k}`);
+        continue;
+      }
       if (ssh[k] === null || (k === "proxy" && proxyOk)) continue;
       out.push(`ssh:${k}`);
     }
@@ -192,12 +196,14 @@ export function podStatus(pod: unknown, observedAt: string): ProviderMachineStat
   const envNames =
     isObject(env) && Object.values(env).every((v) => typeof v === "string") ? Object.keys(env) : [UNREADABLE];
   const rawStatus = typeof pod["status"] === "string" ? pod["status"] : "";
-  // We read entrypoint + cmd. RunPod omits an empty cmd from its reply, so absent reads as [];
-  // null or anything else stays unreadable. `args` is RunPod's own rendering of the command: it
-  // is never read, matched or used (SEC, Nov 25).
+  // The command is the entrypoint alone, and only when cmd is empty: RunPod omits an empty cmd from
+  // its reply, so absent or [] is empty; null, malformed or non-empty makes the command unreadable,
+  // so no part of the launcher can move between the two fields (SEC, Nov 25). `args`, RunPod's own
+  // rendering of the command, is never read, here or in the command diagnostic.
   const entrypoint = stringArray(pod["entrypoint"]);
-  const cmd = pod["cmd"] === undefined ? [] : stringArray(pod["cmd"]);
-  const command = entrypoint !== null && cmd !== null ? [...entrypoint, ...cmd] : [UNREADABLE];
+  const cmd = pod["cmd"];
+  const cmdEmpty = cmd === undefined || (Array.isArray(cmd) && cmd.length === 0);
+  const command = entrypoint !== null && cmdEmpty ? [...entrypoint] : [UNREADABLE];
   const cost = pod["cost"];
   return {
     provider: "runpod",

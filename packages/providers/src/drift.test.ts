@@ -177,32 +177,36 @@ test("commandShape compares a provider's command fields with the launcher, witho
   const launcher = ["/bin/sh", "-c", "script MARKER"];
   const same = commandShape({ entrypoint: [...launcher], cmd: [] }, launcher);
   assert.deepEqual(same, {
-    entrypoint: { kind: "array", length: 3 }, cmd: { kind: "array", length: 0 }, args: { kind: "absent", length: null },
+    entrypoint: { kind: "array", length: 3 }, cmd: { kind: "array", length: 0 },
     entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }, { length: 2, matches: true, commonPrefix: 2 }, { length: 13, matches: true, commonPrefix: 13 }],
-    entrypointCmdMatches: true, joinedMatches: false,
+    entrypointMatches: true,
   });
-  // A split between entrypoint and cmd still matches as a whole.
-  assert.equal(commandShape({ entrypoint: ["/bin/sh"], cmd: ["-c", "script MARKER"] }, launcher).entrypointCmdMatches, true);
-  // cmd missing or null: no whole match, but the items still say which agree.
+  // The entrypoint alone is compared: a split between entrypoint and cmd never matches.
+  const split = commandShape({ entrypoint: ["/bin/sh"], cmd: ["-c", "script MARKER"] }, launcher);
+  assert.equal(split.entrypointMatches, false);
+  assert.deepEqual(split.cmd, { kind: "array", length: 2 });
+  assert.equal(commandShape({ entrypoint: [], cmd: [...launcher] }, launcher).entrypointMatches, false);
+  // cmd null or absent: the entrypoint still matches; cmd's form is reported.
   const nullCmd = commandShape({ entrypoint: [...launcher], cmd: null }, launcher);
-  assert.equal(nullCmd.entrypointCmdMatches, false);
+  assert.equal(nullCmd.entrypointMatches, true);
   assert.deepEqual(nullCmd.cmd, { kind: "null", length: null });
-  assert.ok(nullCmd.entrypointItems.every((i) => i.matches));
+  assert.deepEqual(commandShape({ entrypoint: [...launcher] }, launcher).cmd, { kind: "absent", length: null });
   // An altered script: where the two first differ, not how.
   const altered = commandShape({ entrypoint: ["/bin/sh", "-c", "script MARKEX trailing"], cmd: [] }, launcher);
   assert.deepEqual(altered.entrypointItems[2], { length: 22, matches: false, commonPrefix: 12 });
-  assert.equal(altered.entrypointCmdMatches, false);
-  // A joined string, as entrypoint or as args.
-  assert.equal(commandShape({ entrypoint: launcher.join(" ") }, launcher).joinedMatches, true);
-  assert.equal(commandShape({ args: launcher.join(" ") }, launcher).joinedMatches, true);
-  assert.equal(commandShape({ args: launcher.join("  ") }, launcher).joinedMatches, false);
+  assert.equal(altered.entrypointMatches, false);
+  // A string entrypoint, and RunPod's args: args is not read at all.
+  assert.equal(commandShape({ entrypoint: launcher.join(" ") }, launcher).entrypointMatches, false);
+  const withArgs = commandShape({ entrypoint: [...launcher], cmd: [], args: "MARKER display" }, launcher);
+  assert.deepEqual(withArgs, same);
+  assert.ok(!("args" in withArgs));
   // Non-string items, extra items, and at most 8 items described.
   const odd = commandShape({ entrypoint: ["/bin/sh", 5, "-c", "x", "a", "b", "c", "d", "e", "f"], cmd: [] }, launcher);
   assert.equal(odd.entrypointItems.length, 8);
   assert.deepEqual(odd.entrypointItems[1], { length: null, matches: false, commonPrefix: 0 });
   assert.deepEqual(odd.entrypointItems[3], { length: 1, matches: false, commonPrefix: 0 });
-  assert.equal(odd.entrypointCmdMatches, false);
-  assert.equal(commandShape({ entrypoint: [...launcher, "extra"], cmd: [] }, launcher).entrypointCmdMatches, false);
-  assert.equal(commandShape({ entrypoint: launcher.slice(0, 2), cmd: [] }, launcher).entrypointCmdMatches, false);
-  for (const s of [same, altered, odd]) assert.ok(!JSON.stringify(s).includes("MARKER"));
+  assert.equal(odd.entrypointMatches, false);
+  assert.equal(commandShape({ entrypoint: [...launcher, "extra"], cmd: [] }, launcher).entrypointMatches, false);
+  assert.equal(commandShape({ entrypoint: launcher.slice(0, 2), cmd: [] }, launcher).entrypointMatches, false);
+  for (const s of [same, altered, odd, withArgs]) assert.ok(!JSON.stringify(s).includes("MARKER"));
 });

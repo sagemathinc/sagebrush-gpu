@@ -274,7 +274,7 @@ test("a rejected pod's error says where it drifted, in fixed words, never with R
     [{ cloud: "COMMUNITY_MARKER" }, ["unexpectedSettings:cloud:other"]],
     [{ ssh: undefined }, ["unexpectedSettings:ssh:unreadable"]],
     [{ ssh: { proxy: null } }, ["unexpectedSettings:ssh:direct:unreadable"]],
-    [{ ssh: { proxy: "1.2.3.4:22", direct: null, MARKER: null }, startSsh: true }, ["unexpectedSettings:ssh:proxy"]],
+    [{ ssh: { proxy: "1.2.3.4:22", direct: null, MARKER: null }, startSsh: true }, ["unexpectedSettings:ssh:proxy", "unexpectedSettings:ssh:other"]],
     [{ ssh: { proxy: null, direct: null, MARKER: "x" } }, ["unexpectedSettings:ssh:other"]],
     [{ template: "tmpl_MARKER" }, ["unexpectedSettings:template:other"]],
     [{ globalNetworking: { enabled: true } }, ["unexpectedSettings:globalNetworking:enabled"]],
@@ -297,7 +297,8 @@ test("a rejected pod's error says where it drifted, in fixed words, never with R
     assert.deepEqual(e.commandShape.entrypoint, { kind: "array", length: 3 });
     assert.deepEqual(e.commandShape.cmd, { kind: "null", length: null });
     assert.deepEqual(e.commandShape.entrypointItems.map((i) => i.matches), [true, true, false]);
-    assert.equal(e.commandShape.entrypointCmdMatches, false);
+    assert.equal(e.commandShape.entrypointMatches, false);
+    assert.ok(!("args" in e.commandShape));
     assert.ok(!JSON.stringify(e.commandShape).includes("MARKER"));
     return true;
   });
@@ -530,7 +531,9 @@ test("unexpected settings are named", () => {
   assert.deepEqual(podStatus({ ...POD, ssh: { proxy: "x", direct: "y" } }, "t").unexpectedSettings, ["ssh:proxy", "ssh:direct"]);
   assert.deepEqual(podStatus({ ...POD, ssh: { proxy: "x" } }, "t").unexpectedSettings, [`ssh:direct:${UNREADABLE}`, "ssh:proxy"]);
   assert.deepEqual(podStatus({ ...POD, ssh: { proxy: "x", direct: null, web: "w" } }, "t").unexpectedSettings, ["ssh:web"]);
-  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: null, direct: null, other: null } }, "t").unexpectedSettings, []);
+  // A closed object (SEC H2): any key besides proxy and direct drifts, even null.
+  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: null, direct: null, other: null } }, "t").unexpectedSettings, ["ssh:other"]);
+  assert.deepEqual(podStatus({ ...POD, ssh: { proxy: { host: "h" }, direct: null, web: null } }, "t").unexpectedSettings, ["ssh:web"]);
 });
 
 test("status escapes the pod id", async () => {
@@ -629,7 +632,9 @@ test("podStatus keeps unknowns visible", () => {
   assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: [1] }, "t").command, [UNREADABLE]);
   assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: [] }, "t").command, ["a"]);
   assert.ok(Number.isNaN(podStatus({ id: "p", mounts: { persistent: { size: 0 } } }, "t").volumeGb));
-  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: ["b"] }, "t").command, ["a", "b"]);
+  // No concatenation: a non-empty cmd is never part of the command, it makes it unreadable.
+  assert.deepEqual(podStatus({ id: "p", entrypoint: ["a"], cmd: ["b"] }, "t").command, [UNREADABLE]);
+  assert.deepEqual(podStatus({ id: "p", entrypoint: [], cmd: ["a"] }, "t").command, [UNREADABLE]);
   assert.throws(() => podStatus({ name: "x" }, "t"), ProviderError);
   assert.throws(() => podStatus(null, "t"), ProviderError);
 });
@@ -662,9 +667,15 @@ test("RunPod's reply as run5 saw it (entrypoint echoed, cmd omitted, args a disp
     ["an entrypoint byte", { entrypoint: ["/bin/sh", "-c", "launcher-scripT"] }],
     ["a cmd item", { cmd: ["x"] }],
     ["a null cmd", { cmd: null }],
+    // The launcher moved, whole or in part, from entrypoint into cmd (the same concatenation).
+    ["the whole launcher in cmd", { entrypoint: [], cmd: [...spec.launcher] }],
+    ["the launcher split after /bin/sh", { entrypoint: spec.launcher.slice(0, 1), cmd: spec.launcher.slice(1) }],
+    ["the launcher split before the script", { entrypoint: spec.launcher.slice(0, 2), cmd: spec.launcher.slice(2) }],
+    ["no entrypoint and the launcher in cmd", { entrypoint: undefined, cmd: [...spec.launcher] }],
     ["a port", { ports: ["22/tcp"] }],
     ["direct SSH", { ssh: { proxy: { host: "h" }, direct: { host: "1.2.3.4" } } }],
     ["SSH started", { startSsh: true }],
+    ["an extra ssh key, even null", { ssh: { proxy: { host: "h" }, direct: null, web: null } }],
   ] as const) {
     const b = adapter([{ status: 201, body: { ...reply, ...change } }]);
     await assert.rejects(b.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "spec_mismatch" && e.providerMachineId === POD["id"], what);
