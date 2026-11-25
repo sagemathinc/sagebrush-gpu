@@ -94,6 +94,9 @@ export const SAVE_BYTES_PER_SECOND = 20 * 1024 * 1024;
 export const PAGE_TOKEN_SECONDS = 60;
 /** Lists page like the control plane's: 200 items, then a cursor. */
 export const MEMBERS_PAGE = 200;
+/** The control plane's team limits. */
+export const MAX_TEAMS_PER_PROJECT = 200;
+export const MAX_TEAM_NAME_LENGTH = 100;
 export const PAGE_SIZE = MEMBERS_PAGE;
 
 /** Mock-only country sets for the locality presets; the real table is @sbgpu/providers' localityFor. */
@@ -863,6 +866,17 @@ export class MockBackend {
     return [...this.members.values()].filter((m) => m.projectId === team.projectId && m.teamId === team.id && m.status !== "removed");
   }
 
+  /** A team name as the control plane checks it: trimmed, 1-100 characters, unique among the project's teams. */
+  #teamName(projectId: string, x: unknown, self: string | null): string {
+    if (typeof x !== "string") throw new ApiFail("badRequest", "a team name is a string");
+    const name = x.trim();
+    if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) throw new ApiFail("badRequest", `a team name has 1 to ${MAX_TEAM_NAME_LENGTH} characters`);
+    if ([...this.teams.values()].some((t) => t.projectId === projectId && t.id !== self && t.name === name)) {
+      throw new ApiFail("conflict", "a team with that name exists");
+    }
+    return name;
+  }
+
   /** The team as the API returns it: with a member count, never the member list. */
   #teamView(team: Team): Team {
     return { ...team, memberCount: this.#teamMembers(team).length };
@@ -1059,27 +1073,35 @@ export class MockBackend {
         const own = this.#callerMember(params.projectId, userId)?.teamId ?? null;
         return { teams: teams.filter((t) => t.id === own).map((t) => this.#teamView(t)) };
       }
-      return { teams: teams.map((t) => this.#teamView(t)) };
+      // by name, as the control plane lists them
+      const byName = (a: Team, b: Team) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : 1);
+      return { teams: [...teams].sort(byName).map((t) => this.#teamView(t)) };
     },
 
     createTeam: ({ params, body }) => {
-      if (typeof body.name !== "string" || body.name.trim() === "") throw new ApiFail("badRequest", "a team needs a name");
+      const name = this.#teamName(params.projectId, body.name, null);
       if (body.allocation !== undefined && !isNonNegativeMicros(body.allocation)) throw new ApiFail("badRequest", "allocation must be non-negative micros");
+      if ([...this.teams.values()].filter((t) => t.projectId === params.projectId).length >= MAX_TEAMS_PER_PROJECT) {
+        throw new ApiFail("conflict", `a project has at most ${MAX_TEAMS_PER_PROJECT} teams`);
+      }
       this.#checkAllocatable(params.projectId, body.allocation ?? 0);
-      return this.addTeam(params.projectId, body.name.trim(), body.memberIds ?? [], body.allocation ?? 0);
+      return this.addTeam(params.projectId, name, body.memberIds ?? [], body.allocation ?? 0);
     },
 
     updateTeam: ({ params, body }) => {
       const team = this.#team(params.projectId, params.teamId);
-      if (body.name !== undefined) team.name = body.name;
+      const name = body.name === undefined ? team.name : this.#teamName(params.projectId, body.name, team.id);
       if (body.memberIds !== undefined) this.#setTeamMembers(team, body.memberIds);
+      team.name = name;
       return this.#teamView(team);
     },
 
     deleteTeam: ({ params }) => {
+      // As the control plane does: members leave, the allocation returns to the project
+      // (its running machines are then stopped by the budget rules), and the team goes.
       const team = this.#team(params.projectId, params.teamId);
-      if (this.#accruingOn(team.allocationId).length > 0) throw new ApiFail("invalidState", "the team has running machines");
       this.#setTeamMembers(team, []);
+      this.#setAllocation(team.allocationId, 0);
       this.teams.delete(team.id);
       return { ok: true };
     },

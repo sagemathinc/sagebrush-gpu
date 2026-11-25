@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Machine, Member, SpendMeter, Team } from "@sbgpu/api";
-import { bulkPlan, csvFilename, filterRows, invitePreview, memberRows, sortRows, type MemberRow } from "./manage.ts";
+import { MAX_TEAM_NAME_LENGTH, bulkPlan, checkTeamName, csvFilename, filterRows, invitePreview, memberRows, sortRows, teamRows, type MemberRow } from "./manage.ts";
 
 function member(id: string, email: string, over: Partial<Member> = {}): Member {
   return {
@@ -129,4 +129,31 @@ test("csvFilename", () => {
   assert.equal(csvFilename("  ../../Évil<>name  ", "day", "2027-03-04"), "vil-name-spend-by-day-2027-03-04.csv");
   assert.equal(csvFilename("***", "team", "2027-03-04"), "project-spend-by-team-2027-03-04.csv");
   assert.equal(csvFilename("x".repeat(100), "day", "2027-03-04").length, 60 + "-spend-by-day-2027-03-04.csv".length);
+});
+
+function team(id: string, name: string, memberCount = 0): Team {
+  return { id, projectId: "prj_1", name, memberCount, allocationId: `alc_${id}`, createdAt: "2027-02-01T00:00:00.000Z" };
+}
+
+test("teamRows: by name, each with its own meter; a team without one shows zeros", () => {
+  const rows = teamRows([team("t2", "beta", 3), team("t1", "Alpha", 2), team("t3", "gamma")], [meter("alc_t2", 50_000_000, 20_000_000, 5_000_000), meter("alc_t1", 10_000_000, 9_000_000)]);
+  assert.deepEqual(rows.map((r) => r.name), ["Alpha", "beta", "gamma"]); // code-point order, as the server sorts
+  assert.deepEqual(rows[1], { teamId: "t2", name: "beta", memberCount: 3, allocation: 50_000_000, spent: 20_000_000, remaining: 25_000_000, band: rows[1]!.band });
+  assert.deepEqual([rows[0]!.allocation, rows[0]!.spent, rows[0]!.remaining], [10_000_000, 9_000_000, 1_000_000]);
+  assert.notEqual(rows[0]!.band, rows[1]!.band); // 10% left is flagged, 50% isn't
+  assert.deepEqual([rows[2]!.allocation, rows[2]!.spent, rows[2]!.remaining, rows[2]!.memberCount], [0, 0, 0, 0]);
+  assert.deepEqual(teamRows([], []), []);
+});
+
+test("checkTeamName: trimmed, 1 to 100 characters, not another team's name", () => {
+  const teams = [team("t1", "Alpha"), team("t2", "Beta")];
+  assert.deepEqual(checkTeamName("  Gamma ", teams), { ok: true, name: "Gamma" });
+  assert.deepEqual(checkTeamName("   ", teams), { ok: false, reason: "A name has 1 to 100 characters." });
+  assert.deepEqual(checkTeamName("x".repeat(MAX_TEAM_NAME_LENGTH + 1), teams), { ok: false, reason: "A name has 1 to 100 characters." });
+  assert.deepEqual(checkTeamName("x".repeat(MAX_TEAM_NAME_LENGTH), teams), { ok: true, name: "x".repeat(100) });
+  assert.deepEqual(checkTeamName(" Beta", teams), { ok: false, reason: "There's already one called Beta." });
+  assert.deepEqual(checkTeamName("beta", teams), { ok: true, name: "beta" }); // the server compares exactly
+  // Renaming a team to its own name is fine; to another's isn't.
+  assert.deepEqual(checkTeamName("Beta", teams, "t2"), { ok: true, name: "Beta" });
+  assert.deepEqual(checkTeamName("Alpha", teams, "t2"), { ok: false, reason: "There's already one called Alpha." });
 });

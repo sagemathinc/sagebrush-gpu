@@ -221,11 +221,6 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "if (this.#accruingOn(team.allocationId).length > 0) throw new ApiFail(\"invalidState\", \"the team has running machines\");",
-  "new": ""
- },
- {
-  "file": "src/mock/backend.ts",
   "old": "if (body.endsAt !== undefined && !isIsoTime(body.endsAt)) throw",
   "new": "if (false) throw"
  },
@@ -391,8 +386,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "if (body.allocation !== undefined && !isNonNegativeMicros(body.allocation)) throw new ApiFail(\"badRequest\", \"allocation must be non-negative micros\");\n      this.#checkAllocatable",
-  "new": "this.#checkAllocatable"
+  "old": "if (body.allocation !== undefined && !isNonNegativeMicros(body.allocation)) throw new ApiFail(\"badRequest\", \"allocation must be non-negative micros\");\n      if ([...this.teams",
+  "new": "if ([...this.teams"
  },
  {
   "file": "src/mock/backend.ts",
@@ -971,8 +966,8 @@
  },
  {
   "file": "src/manage.ts",
-  "old": "reserved: meter?.reserved ?? 0,",
-  "new": "reserved: 0,"
+  "old": "reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return {\n        memberId",
+  "new": "reserved: 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return {\n        memberId"
  },
  {
   "file": "src/manage.ts",
@@ -2173,5 +2168,230 @@
   "file": "src/app/settings-section.ts",
   "old": "<input disabled=${busy} id=${`settings-label-${k}`}",
   "new": "<input id=${`settings-label-${k}`}"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const name = x.trim();\n    if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH)",
+  "new": "    const name = x;\n    if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) throw",
+  "new": "if (name.length > MAX_TEAM_NAME_LENGTH) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) throw",
+  "new": "if (name.length < 1 || name.length >= MAX_TEAM_NAME_LENGTH) throw"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (typeof x !== \"string\") throw new ApiFail(\"badRequest\", \"a team name is a string\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "t.projectId === projectId && t.id !== self && t.name === name)",
+  "new": "t.projectId === projectId && t.name === name)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "t.projectId === projectId && t.id !== self && t.name === name)",
+  "new": "t.id !== self && t.name === name)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": ".filter((t) => t.projectId === params.projectId).length >= MAX_TEAMS_PER_PROJECT) {",
+  "new": ".filter((t) => t.projectId === params.projectId).length > MAX_TEAMS_PER_PROJECT) {"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      const name = body.name === undefined ? team.name : this.#teamName(params.projectId, body.name, team.id);",
+  "new": "      const name = body.name === undefined ? team.name : (body.name as string);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.#setAllocation(team.allocationId, 0);\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.#setTeamMembers(team, []);\n      this.#setAllocation",
+  "new": "      this.#setAllocation"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      return { teams: [...teams].sort(byName).map((t) => this.#teamView(t)) };",
+  "new": "      return { teams: teams.map((t) => this.#teamView(t)) };"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))\n",
+  "new": "\n"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId",
+  "new": "reserved: 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "      const spent = meter?.spent.total ?? 0;\n      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId",
+  "new": "      const spent = 0;\n      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "return { teamId: t.id, name: t.name, memberCount: t.memberCount,",
+  "new": "return { teamId: t.id, name: t.name, memberCount: 0,"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "  const name = text.trim();\n  if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) return",
+  "new": "  const name = text;\n  if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) return"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) return { ok: false",
+  "new": "if (name.length > MAX_TEAM_NAME_LENGTH) return { ok: false"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) return { ok: false",
+  "new": "if (name.length < 1 || name.length >= MAX_TEAM_NAME_LENGTH) return { ok: false"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "if (teams.some((t) => t.id !== self && t.name === name)) return",
+  "new": "if (teams.some((t) => t.name === name)) return"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "if (teams.some((t) => t.id !== self && t.name === name)) return",
+  "new": "if (false) return"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.client.call(\"createTeam\", { params: { projectId }, body: { name, allocation } });\n      await this.refresh();\n",
+  "new": "      await this.client.call(\"createTeam\", { params: { projectId }, body: { name, allocation } });\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.client.call(\"updateTeam\", { params: { projectId, teamId }, body: { name } });\n      await this.refresh();\n",
+  "new": "      await this.client.call(\"updateTeam\", { params: { projectId, teamId }, body: { name } });\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.client.call(\"setTeamAllocation\", { params: { projectId, teamId }, body: { amount } });\n      await this.refresh();\n",
+  "new": "      await this.client.call(\"setTeamAllocation\", { params: { projectId, teamId }, body: { amount } });\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.client.call(\"deleteTeam\", { params: { projectId, teamId } });\n      await this.refresh();\n",
+  "new": "      await this.client.call(\"deleteTeam\", { params: { projectId, teamId } });\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (projectId == null) return false;\n    const done = await this.#act(\"team:create\"",
+  "new": "    const done = await this.#act(\"team:create\""
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "    if (amount === row.allocation || (await store.setTeamAllocation(row.teamId, amount))) setText(null);",
+  "new": "    if (await store.setTeamAllocation(row.teamId, amount)) setText(null);"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "    if (check.name === row.name || (await store.renameTeam(row.teamId, check.name))) setText(null);",
+  "new": "    if (await store.renameTeam(row.teamId, check.name)) setText(null);"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "    if (check.name === row.name || (await store.renameTeam(row.teamId, check.name))) setText(null);",
+  "new": "    await store.renameTeam(row.teamId, check.name);\n    setText(null);"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "e.key === \"Escape\" ? setText(null) : undefined",
+  "new": "undefined"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "<button disabled=${!check.ok || store.isBusy(`team:${row.teamId}`)} onClick=${save}>Save</button>",
+  "new": "<button disabled=${store.isBusy(`team:${row.teamId}`)} onClick=${save}>Save</button>"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "  const check = checkTeamName(name, store.teams.value);",
+  "new": "  const check = checkTeamName(name, []);"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "  const over = allocation != null && allocation > headroom;",
+  "new": "  const over = allocation != null && allocation >= headroom;"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "<button disabled=${!check.ok || allocation == null || over || busy} onClick=${create}>",
+  "new": "<button disabled=${!check.ok || allocation == null || busy} onClick=${create}>"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "<button disabled=${!check.ok || allocation == null || over || busy} onClick=${create}>",
+  "new": "<button disabled=${!check.ok || over || busy} onClick=${create}>"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "    if (await store.createTeam(check.name, allocation)) {\n      setName(\"\");",
+  "new": "    if (await store.createTeam(check.name, allocation) || true) {\n      setName(\"\");"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "      setName(\"\");\n      setAllocationText(\"0\");",
+  "new": "      setAllocationText(\"0\");"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "      name.trim() !== \"\" && !check.ok\n",
+  "new": "      !check.ok\n"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "    if (window.confirm(message)) void store.deleteTeam(row.teamId);",
+  "new": "    void store.deleteTeam(row.teamId);"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "const people = row.memberCount === 1 ? `1 ${labels.member} leaves`",
+  "new": "const people = row.memberCount === 2 ? `1 ${labels.member} leaves`"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "  const manage = store.canManage.value;",
+  "new": "  const manage = store.isStaff.value;"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "    ${manage ? html`<${NewTeam} store=${store} />` : null}",
+  "new": "    ${html`<${NewTeam} store=${store} />`}"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "<td>${formatUsd(row.remaining)}</td>",
+  "new": "<td>${formatUsd(row.allocation)}</td>"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "<td>${formatUsd(row.spent)}</td>",
+  "new": "<td>${formatUsd(0)}</td>"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "<td>${row.memberCount}</td>",
+  "new": "<td>${0}</td>"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    <${TeamsSection} store=${store} />\n",
+  "new": ""
  }
 ]

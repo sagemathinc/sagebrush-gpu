@@ -137,3 +137,43 @@ export function csvFilename(projectName: string, by: string, isoDate: string): s
   const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "project";
   return `${slug}-spend-by-${by}-${isoDate.slice(0, 10)}.csv`;
 }
+
+// ---------------------------------------------------------------- teams
+
+/** Mirrors the control plane's limit on a team name (after trimming). */
+export const MAX_TEAM_NAME_LENGTH = 100;
+
+export interface TeamRow {
+  teamId: string;
+  name: string;
+  memberCount: number;
+  allocation: Micros;
+  spent: Micros;
+  remaining: Micros;
+  band: MeterBand;
+}
+
+/** One row per team, by name, joined with its allocation's meter. */
+export function teamRows(teams: readonly Team[], meters: readonly SpendMeter[]): TeamRow[] {
+  const meterOf = new Map(meters.map((m) => [m.allocationId, m]));
+  return [...teams]
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .map((t) => {
+      const meter = meterOf.get(t.allocationId);
+      const allocation = meter?.amount ?? 0;
+      const spent = meter?.spent.total ?? 0;
+      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });
+      return { teamId: t.id, name: t.name, memberCount: t.memberCount, allocation, spent, remaining: view.remaining, band: view.band };
+    });
+}
+
+/**
+ * A team name as typed, checked as the control plane will: trimmed, 1 to 100 characters,
+ * and not the name of another of the project's teams (`self` is the team being renamed).
+ */
+export function checkTeamName(text: string, teams: readonly Team[], self: string | null = null): { ok: true; name: string } | { ok: false; reason: string } {
+  const name = text.trim();
+  if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) return { ok: false, reason: `A name has 1 to ${MAX_TEAM_NAME_LENGTH} characters.` };
+  if (teams.some((t) => t.id !== self && t.name === name)) return { ok: false, reason: `There's already one called ${name}.` };
+  return { ok: true, name };
+}
