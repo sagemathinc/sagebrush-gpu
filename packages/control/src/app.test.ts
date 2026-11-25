@@ -570,4 +570,9 @@ test("helpers: base64url and normalizeEmail", () => {
   assert.equal(base64url(new Uint8Array([1, 2, 3])), "AQID");
   assert.equal(normalizeEmail(" A@Example.com "), "a@example.com");
   assert.equal(normalizeEmail("a@example"), null);
+  // at most 254 characters (an address's limit), whatever the pattern allows
+  const at = (n: number) => "a".repeat(n - "@example.com".length) + "@example.com";
+  assert.equal(normalizeEmail(at(254)), at(254));
+  assert.equal(normalizeEmail(at(255)), null);
+  assert.equal(normalizeEmail(` ${at(254)} `), at(254)); // (counted after trimming)
 });
