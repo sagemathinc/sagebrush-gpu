@@ -27,6 +27,8 @@ import { SIGN_IN_HANDLERS, authConfigFromEnv, revalidate, type AuthConfig, type 
 import { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, cookieValue, json, sessionCookie, sha256Hex } from "./http.ts";
 import type { Fetch } from "./workos.ts";
 import { ANNOUNCE_MAX_BODY_BYTES, VM_HANDLERS, type VmProvider } from "./vm.ts";
+import { ENROLL_HANDLERS, ENROLL_MAX_BODY_BYTES } from "./enroll.ts";
+import type { AgentSignerSource } from "./signer.ts";
 import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
@@ -79,6 +81,10 @@ export interface AppDeps {
   vm: VmProvider | null;
   /** Runs work after the response (the Worker's ctx.waitUntil). */
   waitUntil(work: Promise<unknown>): void;
+  /** The agent-token signer, proved ready per use; null when it isn't (VM enroll then refuses). */
+  agentSigner: AgentSignerSource;
+  /** An operator alert: a fixed line (never a token, key, address or other value). */
+  alert(line: string): void;
 }
 
 // ---------------------------------------------------------------- http helpers
@@ -96,7 +102,7 @@ export function withSecurityHeaders(res: Response): Response {
 
 export const MAX_BODY_BYTES = 64 * 1024;
 /** Routes whose bodies are smaller still (read, counted and refused the same way, before any handler). */
-const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES };
+const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES };
 
 function fail(e: HttpError): Response {
   return json(ERROR_STATUS[e.code], errorBody(e.code, e.message));
@@ -274,7 +280,7 @@ const AUTH_HANDLERS: Handlers = {
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 

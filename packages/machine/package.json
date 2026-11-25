@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "description": "The machine side: boot script, agent, storage gateway Worker and ws-sync.",
-  "exports": { ".": "./src/index.ts", "./relay/routes": "./src/relay/routes.ts", "./relay/object": "./src/relay/relay.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }, "devDependencies": { "@sbgpu/testing": "workspace:*" }
+  "exports": { ".": "./src/index.ts", "./relay/routes": "./src/relay/routes.ts", "./relay/object": "./src/relay/relay.ts", "./mock/terminal": "./src/mock/mock-terminal.ts" }, "dependencies": { "@sbgpu/api": "workspace:*" }, "devDependencies": { "@sbgpu/testing": "workspace:*" }
 }

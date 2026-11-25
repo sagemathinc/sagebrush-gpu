@@ -1151,3 +1151,62 @@ test("organizations: a byok one runs at margin 0; projects are listed a page at 
   await rejects(ada.call("getOrg", { params: { orgId: own.id } }), "notFound", 404);
   await rejects(ada.call("listProjects", { params: { orgId: own.id } }), "notFound", 404);
 });
+
+test("moveProjectBudget, as the control plane moves it: an org owner only, both ways, to the exact bounds", async () => {
+  const d = setup();
+  const b = d.backend;
+  const org = b.addOrg("Movers", 2000, 1_000);
+  const project = b.addProject(org.id, { name: "P", budget: 400, startsAt: "2027-01-01T00:00:00.000Z", endsAt: "2027-06-01T00:00:00.000Z" });
+  const ownerUser = [...b.users.values()].find((u) => u.email === d.emails.owner)!;
+  b.setOrgRole(org.id, ownerUser.id, "owner");
+  const p = { projectId: project.id };
+  const owner = await d.as(d.emails.owner);
+  const move = (amount: unknown) => owner.call("moveProjectBudget", { params: p, body: { amount: amount as number } });
+  const figures = () => [b.orgs.get(org.id)!.unassignedCredit, b.projects.get(project.id)!.budget];
+  const refused = async (amount: unknown, code: string, message: RegExp) => {
+    const before = figures();
+    await assert.rejects(move(amount), (err: unknown) => {
+      assert.ok(err instanceof ApiError, String(err));
+      assert.equal(err.code, code);
+      assert.match(err.message, message);
+      return true;
+    });
+    assert.deepEqual(figures(), before, `${String(amount)} changed nothing`);
+  };
+  assert.deepEqual(figures(), [600, 400]);
+  assert.equal((await move(300)).budget, 700);
+  assert.deepEqual(figures(), [300, 700]);
+  assert.equal((await move(-200)).budget, 500);
+  assert.deepEqual(figures(), [500, 500]);
+  // Returning so much that the organization's figure would pass the safe range is refused
+  // on the organization's side, which is checked first (as the control plane's batch runs).
+  await refused(-Number.MAX_SAFE_INTEGER, "conflict", /doesn't have that much unassigned credit/);
+  // In: exactly what's unassigned, and not a micro-dollar more.
+  await refused(501, "conflict", /doesn't have that much unassigned credit/);
+  assert.equal((await move(500)).budget, 1000);
+  assert.deepEqual(figures(), [0, 1000]);
+  await refused(1, "conflict", /doesn't have that much unassigned credit/);
+  // Back: not below zero...
+  await refused(-1001, "conflict", /budget isn't that large/);
+  assert.equal((await move(-1000)).budget, 0);
+  await move(1000);
+  // ...and not below what's allocated: exactly to it, and not a micro-dollar further.
+  b.addMember(project.id, { email: "a@example.org", allocation: 450 });
+  await refused(-551, "conflict", /below its allocations/);
+  const after = await move(-550);
+  assert.deepEqual([after.budget, after.allocated], [450, 450]);
+  await refused(-1, "conflict", /below its allocations/);
+  // A non-zero whole number of micro-dollars, or nothing at all.
+  for (const bad of [0, 1.5, "5", null, Number.MAX_SAFE_INTEGER + 1, -0.5]) await refused(bad, "badRequest", /non-zero whole number/);
+  // Only an owner of the organization: a project owner who isn't one, a manager, a viewer of the org.
+  const po = b.addUser("po@example.org");
+  b.addMember(project.id, { email: po.email, role: "owner", userId: po.id });
+  b.setOrgRole(org.id, po.id, "viewer");
+  const poClient = await d.as(po.email);
+  await assert.rejects(poClient.call("moveProjectBudget", { params: p, body: { amount: 1 } }), (err: unknown) => err instanceof ApiError && err.code === "forbidden");
+  const mgrUser = [...b.users.values()].find((u) => u.email === d.emails.manager)!;
+  b.addMember(project.id, { email: mgrUser.email, role: "manager", userId: mgrUser.id });
+  const mgr = await d.as(d.emails.manager);
+  await assert.rejects(mgr.call("moveProjectBudget", { params: p, body: { amount: 1 } }), (err: unknown) => err instanceof ApiError && err.code === "forbidden");
+  assert.deepEqual(figures(), [550, 450]);
+});

@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 
-import { startMockTerminal } from "./mock-terminal.ts";
+import { MOCK_LIMITS, startMockTerminal } from "./mock-terminal.ts";
 
 let server: { port: number; close(): void };
 before(async () => {
@@ -199,6 +199,126 @@ test("a bad hello closes 4403; errors and closes as the agent's protocol has the
   f.send({ t: "ack", upto: sent + 1_000_000 });
   await f.until(() => f.closed !== null);
   assert.equal(f.closed!.code, 1008);
+});
+
+test("output credit: a page that doesn't ack stalls the writer at the high-water mark; after acks every byte arrives", TIMEOUT, async () => {
+  const a = new Client(server.port);
+  await a.opened();
+  a.send({ t: "hello", token: "dev" });
+  a.send({ t: "open", rows: 24, cols: 80 });
+  await a.until(() => a.msgs.some((m) => m.t === "live"));
+  const bytes = () => Buffer.byteLength(a.out, "latin1");
+  const start = bytes();
+  const n = 2_000_000;
+  // (the counted letter, C, comes from tr's octal, so the echoed command has none)
+  a.type(`head -c ${n} /dev/zero | tr '\\0' '\\103'; printf '\\nE%sD\\n' ND\n`);
+  // No terminal acks: output stops near 256 KiB, and stays there; the writer is blocked, not skipped.
+  let last = -1;
+  await a.until(() => {
+    const now = bytes();
+    const stalled = now === last && now - start > 128 * 1024;
+    last = now;
+    return stalled;
+  }, 20_000);
+  await new Promise((r) => setTimeout(r, 500));
+  const stalledAt = bytes() - start;
+  assert.ok(stalledAt <= MOCK_LIMITS.creditHigh + 1024, `sent ${stalledAt} bytes without acks`);
+  assert.equal(a.out.includes("\nEND"), false);
+  // Ack as the output is read: the rest of it arrives, none of it skipped while paused.
+  const acker = setInterval(() => a.closed === null && a.send({ t: "ack", upto: bytes() }), 20);
+  try {
+    await a.until(() => a.out.includes("\nEND"), 30_000);
+  } finally {
+    clearInterval(acker);
+  }
+  const out = a.out.slice(0, a.out.indexOf("\nEND"));
+  assert.equal(out.length - out.replace(/C/g, "").length, n);
+  assert.equal(a.closed, null);
+  a.type("exit 0\n");
+  await a.until(() => a.msgs.some((m) => m.t === "exit"));
+  a.ws.close();
+});
+
+/** A page with an open shell whose output has stalled for want of acks (n letters C on their way, then END). */
+async function stalledPage(n: number): Promise<{ a: Client; session: string }> {
+  const a = new Client(server.port);
+  await a.opened();
+  a.send({ t: "hello", token: "dev" });
+  a.send({ t: "open", rows: 24, cols: 80 });
+  await a.until(() => a.msgs.some((m) => m.t === "live"));
+  const session = a.msgs.find((m) => m.t === "opened")!.session as string;
+  a.type(`head -c ${n} /dev/zero | tr '\\0' '\\103'; printf '\\nE%sD\\n' ND\n`);
+  let last = -1;
+  await a.until(() => {
+    const now = Buffer.byteLength(a.out, "latin1");
+    const stalled = now === last && now > 128 * 1024;
+    last = now;
+    return stalled;
+  }, 20_000);
+  return { a, session };
+}
+
+/**
+ * Attach a second page to `session`, acking as it reads (the replay takes credit too); resolves once
+ * the replay is done (at live), with what came before live. `stop()` ends the acks.
+ */
+async function attachAnother(session: string): Promise<{ b: Client; replay: string; stop: () => void }> {
+  const b = new Client(server.port);
+  await b.opened();
+  b.send({ t: "hello", token: "dev" });
+  b.send({ t: "open", session, rows: 24, cols: 80 });
+  const acker = setInterval(() => b.closed === null && b.send({ t: "ack", upto: Buffer.byteLength(b.out, "latin1") }), 20);
+  const stop = () => clearInterval(acker);
+  try {
+    await b.until(() => b.msgs.some((m) => m.t === "live"));
+  } catch (e) {
+    stop();
+    throw e;
+  }
+  const live = b.msgs.findIndex((m) => m.t === "live");
+  const replay = b.msgs
+    .slice(0, live)
+    .filter((m) => m.t === "out")
+    .map((m) => Buffer.from(m.b as string, "base64").toString("latin1"))
+    .join("");
+  return { b, replay, stop };
+}
+
+const letters = (s: string) => s.length - s.replace(/C/g, "").length;
+
+test("output credit: while the page is paused the PTY isn't read, so a page attaching meanwhile replays no more than was read", TIMEOUT, async () => {
+  const n = 2_000_000;
+  const { a, session } = await stalledPage(n);
+  await new Promise((r) => setTimeout(r, 500)); // (time enough for the whole run, were it read)
+  const { b, replay, stop } = await attachAnother(session);
+  try {
+    assert.equal(replay.includes("\nEND"), false, "the paused output was read into the ring");
+    assert.ok(letters(replay) < 512 * 1024, `${letters(replay)} letters read while paused`);
+    // The new page acks: the rest arrives after its replay, nothing doubled or skipped.
+    await b.until(() => b.out.includes("\nEND"), 30_000);
+  } finally {
+    stop();
+  }
+  assert.equal(letters(b.out.slice(0, b.out.indexOf("\nEND"))), n);
+  b.type("exit 0\n");
+  await b.until(() => b.msgs.some((m) => m.t === "exit"));
+  b.ws.close();
+  a.ws.close();
+});
+
+test("output credit: with no page attached the output is read into the ring, so a later page replays the whole run", TIMEOUT, async () => {
+  const n = 600_000; // (within the 1 MiB ring)
+  const { a, session } = await stalledPage(n);
+  a.ws.close(); // the stalled page goes away
+  await a.until(() => a.closed !== null);
+  await new Promise((r) => setTimeout(r, 1_000));
+  const { b, replay, stop } = await attachAnother(session);
+  stop();
+  assert.ok(replay.includes("\nEND"), "the run didn't finish while no page was attached");
+  assert.equal(letters(replay.slice(0, replay.indexOf("\nEND"))), n);
+  b.type("exit 0\n");
+  await b.until(() => b.msgs.some((m) => m.t === "exit"));
+  b.ws.close();
 });
 
 test("close() ends the open pages, so a failed run still exits", TIMEOUT, async () => {
