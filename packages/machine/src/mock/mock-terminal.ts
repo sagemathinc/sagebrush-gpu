@@ -6,7 +6,10 @@
 //   then: new WebSocket("ws://127.0.0.1:8790/api/relay/v1/page?machine=mch_dev&chan=terminal")
 //         first message {"t":"hello","token":"dev"}
 //
-// It follows the agent's protocol (sbgpu_agent/terminal.py): hello; open (new) and open (reattach, with replay); in
+// It follows the relay's page side (DESIGN.md section 4): after the hello, {"relay":"ready","gen":n}; a receipt
+// {"relay":"receipt","r":…,"upto":n} after every 256 KiB sent, which the page must ack ({"relay":"ack","r":…}): past
+// 1 MiB unacknowledged, or 16 receipts out, the page is closed 1013; {"relay":"ping"} answered with pong, and a page
+// silent for 40 s closed 1001; any other relay control closes 1008.  And the agent's protocol (sbgpu_agent/terminal.py): hello; open (new) and open (reattach, with replay); in
 // and inack; resize; ack credit (256 KiB high, 64 KiB low); kill; exit last; the errors not_open, sessions,
 // unknown_session, elsewhere (then 4009); a malformed message closes the page (1002 or 1008); 4403 for a bad hello;
 // 1009 and 1003 for too big and binary.  Simplified: input is written at once (no input credit), output isn't
@@ -19,6 +22,11 @@ import type { Duplex } from "node:stream";
 
 export const MOCK_LIMITS = Object.freeze({
   helloMs: 10_000,
+  receiptEvery: 256 * 1024, // bytes sent to the page between receipts
+  window: 1024 * 1024, // the page's unacknowledged bytes, at most
+  receipts: 16, // receipts out, at most
+  overhead: 256, // what each message to the page counts on top of its bytes
+  deadMs: 40_000, // a page with no ping for this long is closed 1001
   preHelloBytes: 1024,
   message: 8 * 1024, // any page message but `in`
   inFrame: 16 * 1024, // decoded bytes of one `in`
@@ -104,6 +112,7 @@ interface Page {
 
 const sessions = new Map<string, Session>();
 const sockets = new Set<Duplex>(); // the upgraded sockets: server.close() and closeAllConnections() leave them open
+let generations = 0;
 
 function ringAppend(s: Session, b: Buffer): void {
   s.ring.push(b);
@@ -316,8 +325,51 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
   let preHello = 0;
   let closed = false;
   let buf = Buffer.alloc(0);
+  // (the relay's accounting toward the page: bytes sent and acknowledged, receipts out, the last ping)
+  const rx = { sent: 0, acked: 0, since: 0, tokens: [] as Array<[string, number]> };
+  let lastPing = Date.now();
+  const write = (text: string): boolean => {
+    if (closed) return false;
+    const w = Buffer.byteLength(text) + MOCK_LIMITS.overhead;
+    if (rx.sent - rx.acked + w > MOCK_LIMITS.window || rx.tokens.length >= MOCK_LIMITS.receipts) {
+      page.close(1013, "the page isn't reading");
+      return false;
+    }
+    socket.write(frame(1, Buffer.from(text)));
+    rx.sent += w;
+    rx.since += w;
+    if (rx.since >= MOCK_LIMITS.receiptEvery) {
+      const r = randomBytes(16).toString("base64url");
+      rx.tokens.push([r, rx.sent]);
+      rx.since = 0;
+      socket.write(frame(1, Buffer.from(JSON.stringify({ relay: "receipt", r, upto: rx.sent }))));
+    }
+    return true;
+  };
+  const relayControl = (text: string): void => {
+    let m: unknown;
+    try {
+      m = JSON.parse(text);
+    } catch {
+      m = null;
+    }
+    const c = m as Record<string, unknown> | null;
+    if (c && JSON.stringify(c) === text && c.relay === "ping" && Object.keys(c).length === 1) {
+      lastPing = Date.now();
+      socket.write(frame(1, Buffer.from('{"relay":"pong"}')));
+      return;
+    }
+    if (c && JSON.stringify(c) === text && c.relay === "ack" && Object.keys(c).join() === "relay,r" && typeof c.r === "string") {
+      const i = rx.tokens.findIndex(([t]) => t === c.r);
+      if (i < 0) return page.close(1008, "an unknown receipt");
+      rx.acked = Math.max(rx.acked, rx.tokens[i]![1]);
+      rx.tokens.splice(0, i + 1);
+      return;
+    }
+    page.close(1008, "a malformed control");
+  };
   const page: Page = {
-    send: (msg) => closed || socket.write(frame(1, Buffer.from(JSON.stringify(msg)))),
+    send: (msg) => write(JSON.stringify(msg)),
     close: (code, reason) => {
       if (closed) return;
       closed = true;
@@ -339,9 +391,12 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
   };
   const timer = setTimeout(() => hello || page.close(4403, "no hello"), MOCK_LIMITS.helloMs);
   sockets.add(socket);
+  const dead = setInterval(() => Date.now() - lastPing > MOCK_LIMITS.deadMs && page.close(1001, "no ping"), 1000);
+  dead.unref();
   socket.on("close", () => {
     sockets.delete(socket);
     clearTimeout(timer);
+    clearInterval(dead);
     closed = true;
     if (page.session?.page === page) page.session.page = null; // the session lives on, for a reattach
   });
@@ -394,6 +449,12 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
         if (!m || m.t !== "hello" || m.token !== DEV_TOKEN) return page.close(4403, "bad hello");
         hello = true;
         clearTimeout(timer);
+        lastPing = Date.now();
+        socket.write(frame(1, Buffer.from(JSON.stringify({ relay: "ready", gen: ++generations }))));
+        continue;
+      }
+      if (text.startsWith('{"relay":"')) {
+        relayControl(text);
         continue;
       }
       onMessage(page, text);
