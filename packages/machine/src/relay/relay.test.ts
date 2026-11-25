@@ -461,6 +461,10 @@ test("controls: strict grammar; ping answered with pong", async () => {
 
 test("pending legs are capped, and upgrade attempts are rate-limited per machine (durably)", async () => {
   const mch = newId("machine");
+  // (time frozen, here and after the restart: the bucket refills one attempt every 2 s, so on a slow run the wall
+  // clock alone could rightly admit one more)
+  const T = Date.now();
+  await freeze(mch, T);
   const pend: Leg[] = [];
   for (let i = 0; i < RELAY_LIMITS.pending; i++) pend.push(await leg("page", mch));
   const over = await connect("page", mch);
@@ -484,6 +488,7 @@ test("pending legs are capped, and upgrade attempts are rate-limited per machine
   // (a reconnect doesn't refill it: the bucket is stored, and a restart reads it back)
   await w.dispose();
   await start();
+  await freeze(mch, T);
   const again = await connect("peer", mch);
   assert.ok(!(again instanceof Leg), "an attempt after a restart wasn't limited");
 });
