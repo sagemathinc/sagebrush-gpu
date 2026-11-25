@@ -2110,5 +2110,17 @@
   "old": "  return JSON.stringify(VM_GATE_WORDS) + \"\\n\";",
   "new": "  return JSON.stringify(VM_GATE_WORDS);",
   "note": "no final newline"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    \"password\", \"sudo\", \"console-login\", \"agent-active\", \"container-runtime\", \"user-session\",\n)",
+  "new": "    \"password\", \"sudo\", \"sudo\", \"console-login\", \"agent-active\", \"container-runtime\", \"user-session\",\n)",
+  "note": "gate words: a word listed twice"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    \"password\", \"sudo\", \"console-login\", \"agent-active\", \"container-runtime\", \"user-session\",\n)",
+  "new": "    \"password\", \"sudo\", \"console-login\", \"agent-active\", \"container-runtime\", \"user-session\", \"files\",\n)",
+  "note": "gate words: a word control doesn't know"
  }
 ]
