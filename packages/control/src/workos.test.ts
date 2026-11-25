@@ -215,3 +215,50 @@ test("userOf: the email only when verified, trimmed and lowercased, and well for
   for (const j of [null, {}, { user: null }, { user: { id: "" } }, { user: { id: 5 } }, { user: { id: "u".repeat(201) } }]) assert.equal(userOf(j), null);
   assert.deepEqual(ISSUER.endsWith(DEFAULT_CLIENT), true);
 });
+
+// ---- redirects: never followed (two local origins; the second must receive nothing)
+
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+
+async function listen(handler: (req: IncomingMessage, body: string) => { status: number; headers?: Record<string, string>; body?: string }): Promise<{ origin: string; server: Server; seen: Array<{ url: string; body: string }> }> {
+  const seen: Array<{ url: string; body: string }> = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      seen.push({ url: req.url ?? "", body });
+      const a = handler(req, body);
+      res.writeHead(a.status, a.headers ?? {});
+      res.end(a.body ?? "");
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  return { origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, server, seen };
+}
+
+test("no WorkOS request follows a redirect: the second origin receives nothing (and, followed, it would get the API key)", async () => {
+  const evil = await listen(() => ({ status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ access_token: "x", refresh_token: "y", keys: [] }) }));
+  const workos = await listen((req) => ({ status: 307, headers: { location: `${evil.origin}${req.url}` } }));
+  try {
+    const c: WorkosConfig = { ...CONFIG, api: workos.origin, jwksUrl: `${workos.origin}/sso/jwks/${DEFAULT_CLIENT}` };
+    const real = (i: string, init?: RequestInit) => fetch(i, init);
+    assert.deepEqual(await exchangeCode(c, "code", "verifier", real), { ok: false, kind: "unavailable", status: 307 });
+    assert.deepEqual(await refreshSession(c, "rt_secret", real), { ok: false, kind: "unavailable", status: 307 });
+    clearKeyCache();
+    assert.deepEqual(await verifyAccessToken(c, good(), { now: T, fetch: real }), { ok: false, kind: "unavailable", why: "jwks" });
+    assert.equal(workos.seen.length, 3);
+    assert.deepEqual(evil.seen, []);
+    // the control: the same requests, made to follow, would hand the second origin the API key and the refresh token
+    const follow = (i: string, init?: RequestInit) => fetch(i, { ...init, redirect: "follow" });
+    await exchangeCode(c, "code", "verifier", follow);
+    await refreshSession(c, "rt_secret", follow);
+    const got: Array<{ url: string; body: string }> = evil.seen; // (re-read: the assertion above narrowed it)
+    assert.equal(got.length, 2);
+    assert.ok(got.every((x) => x.body.includes(API_KEY)));
+    assert.ok(got[1]!.body.includes("rt_secret"));
+  } finally {
+    workos.server.close();
+    evil.server.close();
+  }
+});

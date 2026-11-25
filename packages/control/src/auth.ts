@@ -280,14 +280,22 @@ export async function revalidate(deps: AppDeps, hash: string, r: SessionRow): Pr
   const a = deps.config.auth;
   const keys = a ? await sealKeys(a.refreshKeys) : null;
   if (!a || !keys) return unavailable();
+  // (only a live session can be claimed: one revoked or expired since this request read it, never)
   const claimed = await deps.db.run(
-    `UPDATE sessions SET refresh_claim_ms = ? WHERE id_sha256 = ? AND validated_ms = ? AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)`,
-    [now, hash, r.validated_ms, now - REFRESH_CLAIM_MS],
+    `UPDATE sessions SET refresh_claim_ms = ? WHERE id_sha256 = ? AND validated_ms = ? AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)
+       AND revoked_ms IS NULL AND expires_ms > ?`,
+    [now, hash, r.validated_ms, now - REFRESH_CLAIM_MS, now],
   );
   if (claimed.changes !== 1) {
-    // another request is refreshing it, or just did
-    const cur = await deps.db.all<{ validated_ms: number | null }>(`SELECT validated_ms FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL`, [hash]);
-    if (cur[0]?.validated_ms !== undefined && cur[0]?.validated_ms !== null && now - cur[0].validated_ms < VALIDATE_EVERY_MS) return;
+    // Not claimed: the session ended meanwhile (refuse: never the outage grace), or another
+    // request is refreshing it or just did.
+    const cur = await deps.db.all<{ validated_ms: number | null; revoked_ms: number | null; expires_ms: number }>(
+      `SELECT validated_ms, revoked_ms, expires_ms FROM sessions WHERE id_sha256 = ?`,
+      [hash],
+    );
+    const c = cur[0];
+    if (!c || c.revoked_ms !== null || c.expires_ms <= now) throw new HttpError("unauthenticated", "sign in first");
+    if (c.validated_ms !== null && now - c.validated_ms < VALIDATE_EVERY_MS) return;
     return unavailable();
   }
   const id = await deps.db.all<{ iss: string; sub: string }>(`SELECT iss, sub FROM identities WHERE user_id = ?`, [r.user_id]);
@@ -303,11 +311,15 @@ export async function revalidate(deps: AppDeps, hash: string, r: SessionRow): Pr
   const sealed = await seal(keys, { env: a.workos.env, identity: sub, session: hash }, res.refreshToken);
   await deps.db.batch([
     {
-      sql: `UPDATE sessions SET refresh_version = ?, refresh_sealed = ?, validated_ms = ?, refresh_claim_ms = NULL WHERE id_sha256 = ? AND refresh_claim_ms = ?`,
+      sql: `UPDATE sessions SET refresh_version = ?, refresh_sealed = ?, validated_ms = ?, refresh_claim_ms = NULL
+            WHERE id_sha256 = ? AND refresh_claim_ms = ? AND revoked_ms IS NULL`,
       params: [sealed.version, sealed.ct, now, hash, now],
     },
     ...(res.user && res.user.id === sub && res.user.email
       ? [{ sql: `UPDATE identities SET email = ?, email_ticket = ? WHERE iss = ? AND sub = ? AND email_ticket <= ?`, params: [res.user.email, now, a.workos.issuer, sub, now] }]
       : []),
   ]);
+  // (signed out while WorkOS was asked: not served)
+  const live = await deps.db.all(`SELECT 1 FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL`, [hash]);
+  if (live.length !== 1) throw new HttpError("unauthenticated", "sign in first");
 }

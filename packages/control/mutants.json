@@ -1734,13 +1734,13 @@
  },
  {
   "file": "src/auth.ts",
-  "old": "[now, hash, r.validated_ms, now - REFRESH_CLAIM_MS],",
-  "new": "[now, hash, r.validated_ms, now],"
+  "old": "[now, hash, r.validated_ms, now - REFRESH_CLAIM_MS, now],",
+  "new": "[now, hash, r.validated_ms, now, now],"
  },
  {
   "file": "src/auth.ts",
-  "old": "WHERE id_sha256 = ? AND validated_ms = ? AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)`,",
-  "new": "WHERE id_sha256 = ? AND (validated_ms = ? OR 1) AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)`,"
+  "old": "WHERE id_sha256 = ? AND validated_ms = ? AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)\n",
+  "new": "WHERE id_sha256 = ? AND (validated_ms = ? OR 1) AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)\n"
  },
  {
   "file": "src/auth.ts",
@@ -1928,5 +1928,50 @@
   "file": "src/jobs.ts",
   "old": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,",
   "new": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "       AND revoked_ms IS NULL AND expires_ms > ?`,\n    [now, hash, r.validated_ms, now - REFRESH_CLAIM_MS, now],",
+  "new": "       AND ? IS NOT NULL`,\n    [now, hash, r.validated_ms, now - REFRESH_CLAIM_MS, now],"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!c || c.revoked_ms !== null || c.expires_ms <= now) throw",
+  "new": "if (!c || c.expires_ms <= now) throw"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!c || c.revoked_ms !== null || c.expires_ms <= now) throw",
+  "new": "if (!c || c.revoked_ms !== null) throw"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "  if (live.length !== 1) throw new HttpError(\"unauthenticated\", \"sign in first\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "const r = await f(c.jwksUrl, { redirect: \"manual\", signal",
+  "new": "const r = await f(c.jwksUrl, { signal"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "code_verifier: verifier }),\n      redirect: \"manual\",",
+  "new": "code_verifier: verifier }),"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "refresh_token: refreshToken }),\n      redirect: \"manual\",",
+  "new": "refresh_token: refreshToken }),"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "  if (isRedirect(r)) return { ok: false, kind: \"unavailable\", status: r.status };\n",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 400;",
+  "new": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 307;"
  }
 ]

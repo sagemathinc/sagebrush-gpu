@@ -6,9 +6,10 @@
 // out there too. Refused or failed sign-ins just discard what they got.
 //
 // Ported from Sagebrush's web/share/identity/workos.ts (our own code, reviewed there), with
-// two changes for an app that isn't its environment's default: the key set's URL is
-// configuration (the environment's, from its discovery document), not derived from our
-// client id; and the revoke and the unverified sid reader are gone.
+// three changes: the key set's URL is configuration (the environment's, from its discovery
+// document), not derived from our client id; the revoke and the unverified sid reader are
+// gone; and no request follows a redirect (each pins redirect: "manual", and a 3xx is
+// "unavailable", its body unread), as in the provider adapters.
 //
 // The token check is jose's (a maintained verifier), with everything pinned by the caller's
 // configuration, never learned from the token: the exact issuer, RS256 only, this client's
@@ -58,6 +59,8 @@ export const SUBJECT = /^user_[A-Za-z0-9]{1,123}$/;
 const SID = /^session_[A-Za-z0-9]{1,120}$/;
 
 const api = (c: WorkosConfig) => c.api ?? API;
+/** A redirect is never followed: these requests carry the API key or a refresh token (or must come from WorkOS itself). */
+const isRedirect = (r: Response) => r.status >= 300 && r.status < 400;
 const defaultFetch: Fetch = (i, init) => fetch(i, init);
 
 /** A response body as JSON, refused past `max` bytes (read as a stream, so an oversized body is never held whole). */
@@ -104,8 +107,8 @@ export function clearKeyCache(): void {
 }
 
 async function fetchKeys(c: WorkosConfig, f: Fetch): Promise<JSONWebKeySet> {
-  const r = await f(c.jwksUrl, { signal: AbortSignal.timeout(DEADLINE_MS) });
-  if (!r.ok) throw new Error(`jwks ${r.status}`);
+  const r = await f(c.jwksUrl, { redirect: "manual", signal: AbortSignal.timeout(DEADLINE_MS) });
+  if (!r.ok) throw new Error(`jwks ${r.status}`); // (a redirect included: not followed, not read)
   const j = (await boundedJson(r, JWKS_MAX_BYTES)) as { keys?: unknown } | null;
   if (!j || !Array.isArray(j.keys)) throw new Error("jwks shape");
   return { keys: j.keys as JSONWebKeySet["keys"] };
@@ -245,11 +248,13 @@ export async function exchangeCode(c: WorkosConfig, code: string, verifier: stri
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ client_id: c.clientId, client_secret: c.apiKey, grant_type: "authorization_code", code, code_verifier: verifier }),
+      redirect: "manual",
       signal: AbortSignal.timeout(DEADLINE_MS * 2),
     });
   } catch {
     return { ok: false, kind: "unavailable", status: 0 };
   }
+  if (isRedirect(r)) return { ok: false, kind: "unavailable", status: r.status };
   if (r.status >= 500 || r.status === 429 || r.status === 408) return { ok: false, kind: "unavailable", status: r.status };
   if (!r.ok) return { ok: false, kind: "invalid", status: r.status };
   try {
@@ -283,11 +288,14 @@ export async function refreshSession(c: WorkosConfig, refreshToken: string, f: F
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ client_id: c.clientId, client_secret: c.apiKey, grant_type: "refresh_token", refresh_token: refreshToken }),
+      redirect: "manual",
       signal: AbortSignal.timeout(DEADLINE_MS),
     });
   } catch {
     return { ok: false, kind: "unavailable", status: 0 };
   }
+  // (a redirect is not followed, and like every status but 400 it is "unavailable", unread:
+  // only WorkOS's own 400 body can say "refused")
   if (!r.ok) {
     if (r.status !== 400) return { ok: false, kind: "unavailable", status: r.status };
     const e = (await boundedJson(r, BODY_MAX_BYTES).catch(() => null)) as { error?: unknown; code?: unknown } | null;

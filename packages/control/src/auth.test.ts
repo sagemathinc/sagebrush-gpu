@@ -415,3 +415,54 @@ test("revalidation: a request holding an old view of the session doesn't refresh
   await revalidate(w.deps, stale.id_sha256, stale);
   assert.equal(fake.refreshCalls, 1);
 });
+
+test("revalidation: a session ended after this request read it is never served from the grace (the lost-claim race)", async () => {
+  await addMember(w, "ada@example.com");
+  const cookie = sessionOf(await finish(await begin()))!;
+  const row = async () => ({ ...(await w.db.all<SessionRow & { id_sha256: string }>(`SELECT id_sha256, user_id, refresh_version, refresh_sealed, validated_ms FROM sessions`))[0]! });
+  const seen = await row(); // (what this request read, before the session ended)
+  w.clock.t += VALIDATE_EVERY_MS; // (due, and within the outage grace)
+  // signed out meanwhile, while another request holds a fresh claim
+  await w.db.batch([stmt(`UPDATE sessions SET revoked_ms = ?, refresh_claim_ms = ?`, w.clock.t, w.clock.t)]);
+  await assert.rejects(revalidate(w.deps, seen.id_sha256, seen), (e: unknown) => (e as { code?: string }).code === "unauthenticated");
+  // expired meanwhile (not revoked), while another request holds a claim: refused too
+  await w.db.batch([stmt(`UPDATE sessions SET revoked_ms = NULL, expires_ms = ?`, w.clock.t)]);
+  await assert.rejects(revalidate(w.deps, seen.id_sha256, seen), (e: unknown) => (e as { code?: string }).code === "unauthenticated");
+  await w.db.batch([stmt(`UPDATE sessions SET revoked_ms = ?, expires_ms = ?`, w.clock.t, w.clock.t + 86_400_000)]);
+  // signed out meanwhile, no claim held: it can't be claimed, WorkOS isn't asked, and it's refused
+  await w.db.batch([stmt(`UPDATE sessions SET refresh_claim_ms = NULL`)]);
+  await assert.rejects(revalidate(w.deps, seen.id_sha256, seen), (e: unknown) => (e as { code?: string }).code === "unauthenticated");
+  assert.equal(fake.refreshCalls, 0);
+  assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 401);
+});
+
+test("revalidation: a live session busy elsewhere is served within the grace; past it, 503", async () => {
+  await addMember(w, "ada@example.com");
+  const cookie = sessionOf(await finish(await begin()))!;
+  w.clock.t += VALIDATE_EVERY_MS;
+  await w.db.batch([stmt(`UPDATE sessions SET refresh_claim_ms = ?`, w.clock.t)]); // (another request refreshing)
+  assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 200);
+  assert.equal(fake.refreshCalls, 0);
+  w.clock.t += OUTAGE_GRACE_MS - 1;
+  await w.db.batch([stmt(`UPDATE sessions SET refresh_claim_ms = ?`, w.clock.t)]);
+  assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 200);
+  w.clock.t += 1;
+  await w.db.batch([stmt(`UPDATE sessions SET refresh_claim_ms = ?`, w.clock.t)]);
+  assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 503);
+});
+
+test("revalidation: signed out while WorkOS was asked: the refreshed session isn't served", async () => {
+  await addMember(w, "ada@example.com");
+  const cookie = sessionOf(await finish(await begin()))!;
+  w.clock.t += VALIDATE_EVERY_MS;
+  // (the fake revokes our session from inside its refresh answer, as a concurrent sign-out would)
+  const inner = fake.fetch;
+  fake.fetch = async (input, init) => {
+    const r = await inner(input, init);
+    if (String(input).endsWith("/user_management/authenticate")) await w.db.batch([stmt(`UPDATE sessions SET revoked_ms = ?`, w.clock.t)]);
+    return r;
+  };
+  w.deps.fetch = fake.fetch;
+  assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 401);
+  assert.equal(fake.refreshCalls, 1);
+});
