@@ -33,8 +33,14 @@ VIRTUAL_FS = frozenset(
 SKIP_TOPS = ("/proc", "/sys", "/dev")
 
 
+# (the injected key's value, from the prologue's capture: set by main.run; None without a capture)
+MATCHER = None
+
+
 def found(data):
-    """'found-name', 'found-shape' or None for these bytes."""
+    """'found-value', 'found-name', 'found-shape' or None for these bytes."""
+    if MATCHER is not None and MATCHER.found(data):
+        return "found-value"
     if KEY_NAME in data:
         return "found-name"
     if any(r.search(data) for r in KEY_SHAPES):
@@ -46,8 +52,10 @@ ASSIGNMENT = re.compile(re.escape(KEY_NAME) + rb"\s*[=:]\s*[^/]*")
 
 
 def sanitize(b):
-    """Bytes with anything secret-like taken out, in this order: an assignment to the name with its whole value (up
-    to the next path separator), then every key shape, then the bare name."""
+    """Bytes with anything secret-like taken out, in this order: the injected key's exact value, then an assignment
+    to the name with its whole value (up to the next path separator), then every key shape, then the bare name."""
+    if MATCHER is not None:
+        b = MATCHER.redact(b)
     b = ASSIGNMENT.sub(b"<name>=<redacted>", b)
     for r in KEY_SHAPES:
         b = r.sub(b"<redacted>", b)
@@ -62,13 +70,17 @@ def show(path):
     return out[:PATH_BYTES]
 
 
+# (a check's detail only ever goes up this order: the exact value outranks everything, any finding outranks unreadable)
+SEVERITY = {"found-value": 3, "found-name": 2, "found-shape": 1}
+
+
 class Found:
     def __init__(self):
         self.paths = []
         self.detail = None
 
     def add(self, path, what):
-        if self.detail is None or what == "found-name":
+        if self.detail is None or SEVERITY.get(what, 0) > SEVERITY.get(self.detail, 0):
             self.detail = what
         if len(self.paths) < PATHS_MAX:
             self.paths.append(show(path))
@@ -138,7 +150,9 @@ def mounts(proc="/proc"):
 
 
 def scan_file(path):
-    """found-name / found-shape / None for one regular file, read in chunks with an overlap."""
+    """found-value / found-name / found-shape / None for one regular file, read in chunks with an overlap (long
+    enough for the key's value to be seen across a chunk boundary too)."""
+    overlap = max(OVERLAP, MATCHER.n if MATCHER is not None else 0)
     tail = b""
     with open(path, "rb") as fh:
         while True:
@@ -148,7 +162,7 @@ def scan_file(path):
             what = found(tail + b)
             if what:
                 return what
-            tail = (tail + b)[-OVERLAP:]
+            tail = (tail + b)[-overlap:]
 
 
 def check_files(root="/", proc="/proc", deadline=None, clock=time.monotonic):
