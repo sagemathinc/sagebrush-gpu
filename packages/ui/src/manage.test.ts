@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Machine, Member, SpendMeter, Team } from "@sbgpu/api";
-import { MAX_TEAM_NAME_LENGTH, bulkPlan, checkTeamName, csvFilename, filterRows, invitePreview, memberRows, sortRows, teamRows, type MemberRow } from "./manage.ts";
+import { MAX_TEAM_NAME_LENGTH, bulkPlan, checkTeamName, teamNameKey, csvFilename, filterRows, invitePreview, memberRows, sortRows, teamRows, type MemberRow } from "./manage.ts";
 
 function member(id: string, email: string, over: Partial<Member> = {}): Member {
   return {
@@ -148,6 +148,12 @@ test("teamRows: by name, each with its own meter; a team without one shows zeros
   assert.deepEqual(teamRows([], [], machines), []);
 });
 
+test("teamNameKey folds A-Z only, as SQLite's lower() does", () => {
+  assert.equal(teamNameKey("Team LLAMA 2"), "team llama 2");
+  assert.equal(teamNameKey("ÉQUIPE Ä"), "Équipe Ä");
+  assert.equal(teamNameKey(""), "");
+});
+
 test("checkTeamName: trimmed, 1 to 100 characters, not another team's name", () => {
   const teams = [team("t1", "Alpha"), team("t2", "Beta")];
   assert.deepEqual(checkTeamName("  Gamma ", teams), { ok: true, name: "Gamma" });
@@ -155,7 +161,15 @@ test("checkTeamName: trimmed, 1 to 100 characters, not another team's name", () 
   assert.deepEqual(checkTeamName("x".repeat(MAX_TEAM_NAME_LENGTH + 1), teams), { ok: false, reason: "A name has 1 to 100 characters." });
   assert.deepEqual(checkTeamName("x".repeat(MAX_TEAM_NAME_LENGTH), teams), { ok: true, name: "x".repeat(100) });
   assert.deepEqual(checkTeamName(" Beta", teams), { ok: false, reason: "There's already one called Beta." });
-  assert.deepEqual(checkTeamName("beta", teams), { ok: true, name: "beta" }); // the server compares exactly
+  // The server's index is on lower(name): another case is the same name, and the message names the existing team.
+  assert.deepEqual(checkTeamName("beta", teams), { ok: false, reason: "There's already one called Beta." });
+  assert.deepEqual(checkTeamName("ALPHA", teams), { ok: false, reason: "There's already one called Alpha." });
+  // A team may change the case of its own name.
+  assert.deepEqual(checkTeamName("BETA", teams, "t2"), { ok: true, name: "BETA" });
+  // SQLite's lower() folds A-Z only: non-ASCII letters in another case are a different name there.
+  assert.deepEqual(checkTeamName("ÉQUIPE", [team("t3", "équipe")]), { ok: true, name: "ÉQUIPE" });
+  assert.deepEqual(checkTeamName("Équipe", [team("t3", "équipe")]), { ok: true, name: "Équipe" });
+  assert.deepEqual(checkTeamName("éQUIPE", [team("t3", "équipe")]), { ok: false, reason: "There's already one called équipe." });
   // Renaming a team to its own name is fine; to another's isn't.
   assert.deepEqual(checkTeamName("Beta", teams, "t2"), { ok: true, name: "Beta" });
   assert.deepEqual(checkTeamName("Alpha", teams, "t2"), { ok: false, reason: "There's already one called Alpha." });

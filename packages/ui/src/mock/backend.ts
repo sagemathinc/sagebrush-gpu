@@ -79,6 +79,7 @@ import {
 } from "@sbgpu/api";
 import { MACHINE_DOMAIN } from "../config.ts";
 import { isEmail } from "../emails.ts";
+import { teamNameKey } from "../manage.ts";
 import { toCsv, type CsvValue } from "../csv.ts";
 
 // ---------------------------------------------------------------- simulation constants
@@ -869,12 +870,13 @@ export class MockBackend {
     return [...this.members.values()].filter((m) => m.projectId === team.projectId && m.teamId === team.id && m.status !== "removed");
   }
 
-  /** A team name as the control plane checks it: trimmed, 1-100 characters, unique among the project's teams. */
+  /** A team name as the control plane checks it: trimmed, 1-100 characters, unique (any case) among the project's teams. */
   #teamName(projectId: string, x: unknown, self: string | null): string {
     if (typeof x !== "string") throw new ApiFail("badRequest", "a team name is a string");
     const name = x.trim();
     if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) throw new ApiFail("badRequest", `a team name has 1 to ${MAX_TEAM_NAME_LENGTH} characters`);
-    if ([...this.teams.values()].some((t) => t.projectId === projectId && t.id !== self && t.name === name)) {
+    // unique in any letter case, as the control plane's index on lower(name) holds it
+    if ([...this.teams.values()].some((t) => t.projectId === projectId && t.id !== self && teamNameKey(t.name) === teamNameKey(name))) {
       throw new ApiFail("conflict", "a team with that name exists");
     }
     return name;

@@ -2176,13 +2176,13 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "t.projectId === projectId && t.id !== self && t.name === name)",
-  "new": "t.projectId === projectId && t.name === name)"
+  "old": "t.projectId === projectId && t.id !== self && teamNameKey(t.name) === teamNameKey(name))",
+  "new": "t.projectId === projectId && teamNameKey(t.name) === teamNameKey(name))"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "t.projectId === projectId && t.id !== self && t.name === name)",
-  "new": "t.id !== self && t.name === name)"
+  "old": "t.projectId === projectId && t.id !== self && teamNameKey(t.name) === teamNameKey(name))",
+  "new": "t.id !== self && teamNameKey(t.name) === teamNameKey(name))"
  },
  {
   "file": "src/mock/backend.ts",
@@ -2246,13 +2246,13 @@
  },
  {
   "file": "src/manage.ts",
-  "old": "if (teams.some((t) => t.id !== self && t.name === name)) return",
-  "new": "if (teams.some((t) => t.name === name)) return"
+  "old": "const clash = teams.find((t) => t.id !== self && teamNameKey(t.name) === teamNameKey(name));",
+  "new": "const clash = teams.find((t) => teamNameKey(t.name) === teamNameKey(name));"
  },
  {
   "file": "src/manage.ts",
-  "old": "if (teams.some((t) => t.id !== self && t.name === name)) return",
-  "new": "if (false) return"
+  "old": "  if (clash) return { ok: false, reason:",
+  "new": "  if (false) return { ok: false, reason:"
  },
  {
   "file": "src/app/store.ts",
@@ -2573,5 +2573,35 @@
   "file": "src/app/teams-section.ts",
   "old": "teamRows(store.teams.value, store.meters.value, store.allMachines.value)",
   "new": "teamRows(store.teams.value, store.meters.value, [])"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "return name.replace(/[A-Z]/g, (c) => c.toLowerCase());",
+  "new": "return name;"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "return name.replace(/[A-Z]/g, (c) => c.toLowerCase());",
+  "new": "return name.toLowerCase();"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "return name.replace(/[A-Z]/g, (c) => c.toLowerCase());",
+  "new": "return name.replace(/[A-Y]/g, (c) => c.toLowerCase());"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "const clash = teams.find((t) => t.id !== self && teamNameKey(t.name) === teamNameKey(name));",
+  "new": "const clash = teams.find((t) => t.id !== self && t.name === name);"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "reason: `There's already one called ${clash.name}.` };",
+  "new": "reason: `There's already one called ${name}.` };"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "t.projectId === projectId && t.id !== self && teamNameKey(t.name) === teamNameKey(name))",
+  "new": "t.projectId === projectId && t.id !== self && t.name === name)"
  }
 ]

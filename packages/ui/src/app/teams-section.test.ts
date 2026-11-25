@@ -82,6 +82,10 @@ test("create a team: a name in use, or more than is left, is refused before send
   await settle();
   assert.match(m.section()!.textContent!, /There's already one called Team Qwen\./);
   assert.equal(m.page.button("Create team")?.disabled, true);
+  m.page.type(m.page.q("#new-team-name"), "team qwen"); // another case is the same name to the server
+  await settle();
+  assert.match(m.section()!.textContent!, /There's already one called Team Qwen\./);
+  assert.equal(m.page.button("Create team")?.disabled, true);
   m.page.type(m.page.q("#new-team-name"), "Team Phi");
   m.page.type(m.page.q("#new-team-allocation"), "1799.81"); // $1,799.80 is not yet allocated
   await settle();

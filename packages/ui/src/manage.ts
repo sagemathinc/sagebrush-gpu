@@ -183,12 +183,23 @@ export function teamRows(teams: readonly Team[], meters: readonly SpendMeter[], 
 }
 
 /**
+ * A team name as the control plane compares names for uniqueness: its index is on
+ * SQLite's lower(name), which folds A-Z only (D1 has no ICU), so "Équipe" and "équipe"
+ * are different names there, and here.
+ */
+export function teamNameKey(name: string): string {
+  return name.replace(/[A-Z]/g, (c) => c.toLowerCase());
+}
+
+/**
  * A team name as typed, checked as the control plane will: trimmed, 1 to 100 characters,
- * and not the name of another of the project's teams (`self` is the team being renamed).
+ * and not another of the project's teams' name in any letter case (`self` is the team
+ * being renamed, which may change its own name's case).
  */
 export function checkTeamName(text: string, teams: readonly Team[], self: string | null = null): { ok: true; name: string } | { ok: false; reason: string } {
   const name = text.trim();
   if (name.length < 1 || name.length > MAX_TEAM_NAME_LENGTH) return { ok: false, reason: `A name has 1 to ${MAX_TEAM_NAME_LENGTH} characters.` };
-  if (teams.some((t) => t.id !== self && t.name === name)) return { ok: false, reason: `There's already one called ${name}.` };
+  const clash = teams.find((t) => t.id !== self && teamNameKey(t.name) === teamNameKey(name));
+  if (clash) return { ok: false, reason: `There's already one called ${clash.name}.` };
   return { ok: true, name };
 }
