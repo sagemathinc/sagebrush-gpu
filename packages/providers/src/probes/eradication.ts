@@ -106,8 +106,31 @@ export interface StageResult {
 
 /** pid1's paths carry the capture's salted digest as one "digest:<64 hex>" entry. */
 const DIGEST_PATH = /^digest:([0-9a-f]{64})$/;
-/** A passing pid1's detail is the key's shape: v<bytes>-<prefix>-<classes>. */
-const SHAPE = /^v[0-9]{1,4}-[a-z0-9]{1,16}-[a-z]{1,8}$/;
+/**
+ * A passing pid1's detail is the key's shape, v<bytes>-<prefix>-<classes>, exactly as the prologue and
+ * the probe's capture.shape() can write it:
+ * - bytes: 16..4096, in decimal without leading zeros;
+ * - classes: a non-empty subset of d h l o s u, in that order;
+ * - prefix: "none", or 1-8 ASCII alphanumerics that ended in "_" with at least 16 bytes after it,
+ *   written as itself when lowercase alphanumeric and as p<length> otherwise (so it has an uppercase
+ *   letter). A prefix needs "s" in the classes and fits in the length, and a literal prefix's letters
+ *   and digits need "l" and "d"; "p3" is valid if either reading is.
+ */
+const SHAPE = /^v([1-9][0-9]{1,3})-([a-z0-9]{1,8})-(d?h?l?o?s?u?)$/;
+
+export function validShape(detail: string): boolean {
+  const m = SHAPE.exec(detail);
+  if (m === null) return false;
+  const bytes = Number(m[1]);
+  const [prefix, classes] = [m[2]!, m[3]!];
+  if (bytes < 16 || bytes > 4096 || classes === "") return false;
+  if (prefix === "none") return true;
+  const fits = (len: number) => classes.includes("s") && bytes >= len + 1 + 16;
+  const literal =
+    fits(prefix.length) && (!/[a-z]/.test(prefix) || classes.includes("l")) && (!/[0-9]/.test(prefix) || classes.includes("d"));
+  const byLength = /^p[1-8]$/.test(prefix) && fits(Number(prefix.slice(1))) && classes.includes("u");
+  return literal || byLength;
+}
 
 /**
  * Judge the log lines of one stage (one boot of the probe agent): container and system lines
@@ -150,7 +173,7 @@ export function judgeStageWithDigest(lines: readonly string[]): { result: StageR
     if (p.check === "pid1" && p.pass) {
       // A passing pid1 must carry exactly the shape and one digest, nothing else.
       const m = p.paths.length === 1 ? DIGEST_PATH.exec(p.paths[0]!) : null;
-      if (m === null || !SHAPE.test(p.detail)) failures.push("bad-capture-report");
+      if (m === null || !validShape(p.detail)) failures.push("bad-capture-report");
       else {
         digest = m[1]!;
         shape = p.detail;

@@ -41,6 +41,7 @@ import {
   runEradicationProbe,
   type ProbePlan,
   type ProbeProviderApi,
+  type ProbeReport,
 } from "./eradication.ts";
 
 /** The one key file this probe may read (William's approval, Nov 24 2026). */
@@ -181,12 +182,16 @@ export async function accountSpendPerHr(apiKey: string, doFetch: typeof fetch = 
   });
   const text = await res.text();
   if (res.status !== 200) throw new Error(`spend read: HTTP ${res.status}`);
-  let v: unknown;
+  let body: unknown;
   try {
-    v = (JSON.parse(text) as { data?: { myself?: { currentSpendPerHr?: unknown } } }).data?.myself?.currentSpendPerHr;
+    body = JSON.parse(text);
   } catch {
     throw new Error("spend read: not JSON");
   }
+  // GraphQL reports failures beside partial data: any error makes the read fail (its text is never kept).
+  const errors = (body as { errors?: unknown } | null)?.errors;
+  if (errors !== undefined && (!Array.isArray(errors) || errors.length > 0)) throw new Error("spend read: GraphQL errors");
+  const v = (body as { data?: { myself?: { currentSpendPerHr?: unknown } } } | null)?.data?.myself?.currentSpendPerHr;
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new Error("spend read: no valid currentSpendPerHr");
   return v;
 }
@@ -295,12 +300,37 @@ async function main(argv: readonly string[]): Promise<number> {
     logs: (id, since) => readLogs(apiKey, id, since),
   };
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-  const report = await runEradicationProbe(plan, adapter, api, { now: () => Date.now(), sleep });
-  // Only after the pod is confirmed gone: the account's spend rate must come back to 0.
-  const spend = report.terminatedConfirmed ? await settleSpend(() => accountSpendPerHr(apiKey), sleep) : { settled: false, lastSpendPerHr: null };
-  const out = maskSalt(JSON.stringify({ ...report, accountSpendPerHrAfter: spend.lastSpendPerHr, spendSettled: spend.settled }, null, 2), saltHex);
-  if (out.includes(apiKey)) throw new Error("refusing to print a report that contains the key");
-  process.stdout.write(out + "\n");
+  return finishRun({
+    run: () => runEradicationProbe(plan, adapter, api, { now: () => Date.now(), sleep }),
+    readSpend: () => accountSpendPerHr(apiKey),
+    sleep,
+    write: (text) => process.stdout.write(text),
+    apiKey,
+    saltHex,
+  });
+}
+
+export interface FinishRunDeps {
+  run: () => Promise<ProbeReport>;
+  readSpend: () => Promise<number>;
+  sleep: (ms: number) => Promise<void>;
+  write: (text: string) => void;
+  /** Only to refuse printing it; never written. */
+  apiKey: string;
+  saltHex: string;
+}
+
+/**
+ * The paid run after the plan: run the probe, then (only after the pod is confirmed gone) wait for
+ * the account's spend rate to come back to 0, print the report, and give the exit code: 3 if
+ * termination is unconfirmed, 0 only for a pass with the spend settled, else 1.
+ */
+export async function finishRun(d: FinishRunDeps): Promise<number> {
+  const report = await d.run();
+  const spend = report.terminatedConfirmed ? await settleSpend(d.readSpend, d.sleep) : { settled: false, lastSpendPerHr: null };
+  const out = maskSalt(JSON.stringify({ ...report, accountSpendPerHrAfter: spend.lastSpendPerHr, spendSettled: spend.settled }, null, 2), d.saltHex);
+  if (out.includes(d.apiKey)) throw new Error("refusing to print a report that contains the key");
+  d.write(out + "\n");
   if (!report.terminatedConfirmed) return 3;
   return report.outcome === "pass" && spend.settled ? 0 : 1;
 }

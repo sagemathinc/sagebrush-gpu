@@ -6,6 +6,7 @@ import {
   accountSpendPerHr,
   AUTHORIZED_KEY_FILE,
   completeEventsLength,
+  finishRun,
   MAX_KEY_FILE_BYTES,
   parseArgs,
   planFor,
@@ -14,10 +15,12 @@ import {
   RUNPOD_GRAPHQL,
   settleSpend,
 } from "./cli.ts";
+import type { ProbeReport } from "./eradication.ts";
 import {
   checkPlan,
   judgeStage,
   judgeStageWithDigest,
+  validShape,
   launcherSha256,
   maskSalt,
   outcomeOf,
@@ -703,7 +706,35 @@ const badCaptures: Array<[string, string]> = [
   ["an uppercase digest", line("pid1", true, { detail: SHAPE_DETAIL, paths: [`digest:${"D".repeat(64)}`] })],
   ["no shape", line("pid1", true, { detail: "", paths: [`digest:${DIG}`] })],
   ["a malformed shape", line("pid1", true, { detail: "rpa-44", paths: [`digest:${DIG}`] })],
+  // TESTS T1: shapes the prologue can't write.
+  ...["v0-rpa-z", "v9999-none-zz", "v16-abcdefghijklmnop-uuu", "v0016-none-uld"].map(
+    (s): [string, string] => [`the impossible shape ${s}`, line("pid1", true, { detail: s, paths: [`digest:${DIG}`] })],
+  ),
 ];
+
+test("validShape: exactly the prologue's grammar, with each field's edges", () => {
+  const valid = [
+    "v16-none-d", "v4096-none-u", "v44-none-dhlosu", "v44-rpa-dlsu", "v44-rpa-ls", "v44-rpa-lsu",
+    "v25-abcdefgh-ls", "v18-a-ls", "v18-7-ds", "v18-p1-su", "v44-p3-su", "v25-p8-su", "v44-p3-dls", "v18-none-o",
+    "v44-none-ls",
+  ];
+  const invalid = [
+    // bytes: below 16, above 4096, leading zeros, none, too many digits
+    "v15-none-d", "v4097-none-d", "v0016-none-d", "v016-none-d", "v-none-d", "v10000-none-d", "v0-rpa-z", "v9999-none-zz",
+    // classes: empty, out of order, repeated, unknown
+    "v44-none-", "v44-none-ld", "v44-none-dd", "v44-none-z", "v44-none-uld", "v44-none-x",
+    // prefix: too long, uppercase, punctuation, empty
+    "v44-abcdefghi-ls", "v16-abcdefghijklmnop-uuu", "v44-RPA-lsu", "v44-r_a-ls", "v44--ls",
+    // prefix without "_", letters without "l", digits without "d", too long for the key
+    "v44-rpa-lu", "v44-rpa-su", "v44-r7-ls", "v24-abcdefgh-ls", "v17-a-ls",
+    // pN: needs "u" (or reads as a literal, which needs "l" and "d"), N in 1..8, room after it
+    "v44-p3-s", "v44-p3-ls", "v44-p9-su", "v44-p0-su", "v20-p4-su",
+    // anything around it
+    " v44-rpa-ls", "v44-rpa-ls\n", "V44-rpa-ls", "v44_rpa_ls", "v44-rpa-ls-x",
+  ];
+  for (const s of valid) assert.equal(validShape(s), true, s);
+  for (const s of invalid) assert.equal(validShape(s), false, JSON.stringify(s));
+});
 
 for (const [what, l] of badCaptures) {
   test(`a passing pid1 with ${what} fails the stage (bad-capture-report), with no digest`, () => {
@@ -808,6 +839,8 @@ test("accountSpendPerHr reads myself.currentSpendPerHr, with the key only in the
   assert.equal((seen[0]!.init.headers as Record<string, string>)["Authorization"], "Bearer KEYVALUE");
   assert.ok(!String(seen[0]!.init.body).includes("KEYVALUE"));
   assert.equal(await accountSpendPerHr("k", spendFetch(200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0.25 } } }))), 0.25);
+  // The control for the errors rows: an empty errors array is no error.
+  assert.equal(await accountSpendPerHr("k", spendFetch(200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } }, errors: [] }))), 0);
   for (const [status, body] of [
     [401, '{"errors":[{"message":"KEYVALUE is bad"}]}'],
     [500, ""],
@@ -818,6 +851,15 @@ test("accountSpendPerHr reads myself.currentSpendPerHr, with the key only in the
     [200, JSON.stringify({ data: { myself: { currentSpendPerHr: -1 } } })],
     [200, JSON.stringify({ data: { myself: { currentSpendPerHr: "0" } } })],
     [200, JSON.stringify({ data: { myself: { currentSpendPerHr: null } } })],
+    // GraphQL errors beside a 0 (LIMITS H1), and malformed error envelopes.
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } }, errors: [{ message: "upstream billing failed KEYVALUE" }] })],
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } }, errors: [null] })],
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } }, errors: {} })],
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } }, errors: "KEYVALUE" })],
+    [200, JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } }, errors: null })],
+    [200, JSON.stringify([{ data: { myself: { currentSpendPerHr: 0 } } }])],
+    [200, "0"],
+    [200, "null"],
   ] as const) {
     await assert.rejects(
       accountSpendPerHr("KEYVALUE", spendFetch(status, body)),
@@ -845,7 +887,103 @@ test("settleSpend: settled only on a successful read of exactly 0, within the po
   assert.deepEqual(await settleSpend(seq([0.25]), async () => {}, 3, 1), { settled: false, lastSpendPerHr: 0.25 });
   assert.deepEqual(await settleSpend(seq([0.005]), async () => {}, 2, 1), { settled: false, lastSpendPerHr: 0.005 });
   assert.deepEqual(await settleSpend(seq([new Error("x")]), async () => {}, 3, 1), { settled: false, lastSpendPerHr: null });
+  // LIMITS H1 end to end: a 0 that comes with GraphQL errors never settles; a later clean 0 does.
+  const replies = [
+    JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } }, errors: [{ message: "upstream billing failed" }] }),
+    JSON.stringify({ data: { myself: { currentSpendPerHr: 0 } } }),
+  ];
+  let r = 0;
+  const graphql = (async () => new Response(replies[Math.min(r++, replies.length - 1)]!, { status: 200 })) as unknown as typeof fetch;
+  assert.deepEqual(await settleSpend(() => accountSpendPerHr("k", graphql), async () => {}, 1, 1), { settled: false, lastSpendPerHr: null });
+  assert.deepEqual(await settleSpend(() => accountSpendPerHr("k", graphql), async () => {}, 1, 1), { settled: true, lastSpendPerHr: 0 });
+  r = 0;
+  assert.deepEqual(await settleSpend(() => accountSpendPerHr("k", graphql), async () => {}, 2, 1), { settled: true, lastSpendPerHr: 0 });
+  assert.equal(r, 2);
   let calls = 0;
   await settleSpend(async () => { calls++; return 1; }, async () => {}, 4, 1);
   assert.equal(calls, 4);
+});
+
+// ---------------------------------------------------------------- the CLI's end of a paid run (mocks only)
+
+function finishReport(outcome: ProbeReport["outcome"], terminatedConfirmed: boolean): ProbeReport {
+  return {
+    outcome,
+    approval: "test",
+    agentUrl: "https://example.invalid/a.tar.gz",
+    agentSha256: "a".repeat(64),
+    launcherSha256: "b".repeat(64),
+    providerMachineId: "pod1",
+    stages: [],
+    observedShape: SHAPE_DETAIL,
+    captureConsistent: outcome === "pass" ? true : null,
+    aborts: [],
+    estimatedSpendMicros: 1,
+    withinCap: true,
+    terminatedConfirmed,
+    exposure: terminatedConfirmed ? null : { providerMachineId: "pod1", machineName: "m", ratePerHour: 1 },
+  };
+}
+
+async function finish(report: ProbeReport, spend: Array<number | Error>) {
+  const out: string[] = [];
+  let reads = 0;
+  const code = await finishRun({
+    run: async () => report,
+    readSpend: async () => {
+      const v = spend[Math.min(reads++, spend.length - 1)]!;
+      if (v instanceof Error) throw v;
+      return v;
+    },
+    sleep: async () => {},
+    write: (t) => out.push(t),
+    apiKey: "KEYVALUE-never-printed",
+    saltHex: SALT,
+  });
+  // The salt never reaches stdout, whatever the report carries.
+  assert.ok(!out.join("").includes(SALT));
+  return { code, reads, printed: JSON.parse(out.join("")) as Record<string, unknown> };
+}
+
+test("finishRun: a pass exits 0 only once the spend rate reads exactly 0", async () => {
+  const ok = await finish(finishReport("pass", true), [0]);
+  assert.deepEqual([ok.code, ok.reads, ok.printed["spendSettled"], ok.printed["accountSpendPerHrAfter"]], [0, 1, true, 0]);
+  const later = await finish(finishReport("pass", true), [0.25, 0]);
+  assert.deepEqual([later.code, later.reads, later.printed["spendSettled"]], [0, 2, true]);
+});
+
+test("finishRun: a pass with a nonzero or unreadable spend rate exits 1 (T2)", async () => {
+  const nonzero = await finish(finishReport("pass", true), [0.25]);
+  assert.deepEqual([nonzero.code, nonzero.reads, nonzero.printed["spendSettled"], nonzero.printed["accountSpendPerHrAfter"]], [1, 6, false, 0.25]);
+  const failing = await finish(finishReport("pass", true), [new Error("spend read: GraphQL errors")]);
+  assert.deepEqual([failing.code, failing.printed["spendSettled"], failing.printed["accountSpendPerHrAfter"]], [1, false, null]);
+});
+
+test("finishRun: unconfirmed termination never reads the spend rate and exits 3", async () => {
+  for (const outcome of ["pass", "fail", "aborted"] as const) {
+    const r = await finish(finishReport(outcome, false), [0]);
+    assert.deepEqual([r.code, r.reads, r.printed["spendSettled"], r.printed["accountSpendPerHrAfter"]], [3, 0, false, null], outcome);
+  }
+});
+
+test("finishRun: a confirmed fail exits 1 even with the spend settled; the output masks the salt and refuses the key", async () => {
+  const r = await finish(finishReport("fail", true), [0]);
+  assert.deepEqual([r.code, r.printed["spendSettled"]], [1, true]);
+  const withSalt = { ...finishReport("pass", true), approval: `salt ${SALT}` };
+  const masked = await finish(withSalt, [0]);
+  assert.equal(masked.printed["approval"], "salt <salt>");
+  // A fake key that reaches the output path: nothing is written, and the error doesn't carry it.
+  const written: string[] = [];
+  await assert.rejects(
+    finishRun({
+      run: async () => ({ ...finishReport("pass", true), aborts: ["x KEYVALUE-never-printed"] }),
+      readSpend: async () => 0,
+      sleep: async () => {},
+      write: (t) => written.push(t),
+      apiKey: "KEYVALUE-never-printed",
+      saltHex: SALT,
+    }),
+    (e: unknown) => e instanceof Error && /contains the key/.test(e.message) && !e.message.includes("KEYVALUE"),
+  );
+  assert.deepEqual(written, []);
 });

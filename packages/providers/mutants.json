@@ -1529,13 +1529,13 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "      if (m === null || !SHAPE.test(p.detail)) failures.push(\"bad-capture-report\");",
+  "old": "      if (m === null || !validShape(p.detail)) failures.push(\"bad-capture-report\");",
   "new": "      if (m === null) failures.push(\"bad-capture-report\");"
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "      if (m === null || !SHAPE.test(p.detail)) failures.push(\"bad-capture-report\");",
-  "new": "      if (!SHAPE.test(p.detail)) failures.push(\"bad-capture-report\");"
+  "old": "      if (m === null || !validShape(p.detail)) failures.push(\"bad-capture-report\");",
+  "new": "      if (!validShape(p.detail)) failures.push(\"bad-capture-report\");"
  },
  {
   "file": "src/probes/eradication.ts",
@@ -1645,5 +1645,155 @@
   "file": "src/probes/cli.ts",
   "old": "      last = null;\n      continue;",
   "new": "      return { settled: false, lastSpendPerHr: null };"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "return report.outcome === \"pass\" && spend.settled ? 0 : 1;",
+  "new": "return report.outcome === \"pass\" ? 0 : 1;",
+  "note": "T2: the spend gate rolled back"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "const spend = report.terminatedConfirmed ? await settleSpend(d.readSpend, d.sleep) : { settled: false, lastSpendPerHr: null };",
+  "new": "const spend = await settleSpend(d.readSpend, d.sleep);",
+  "note": "T2: spend read without confirmed termination"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "if (!report.terminatedConfirmed) return 3;",
+  "new": "if (false) return 3;",
+  "note": "T2: exit 3"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "if (out.includes(d.apiKey)) throw",
+  "new": "if (false) throw",
+  "note": "finishRun key refusal"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "maskSalt(JSON.stringify({ ...report, accountSpendPerHrAfter: spend.lastSpendPerHr, spendSettled: spend.settled }, null, 2), d.saltHex)",
+  "new": "JSON.stringify({ ...report, accountSpendPerHrAfter: spend.lastSpendPerHr, spendSettled: spend.settled }, null, 2)",
+  "note": "finishRun salt mask"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "if (errors !== undefined && (!Array.isArray(errors) || errors.length > 0)) throw",
+  "new": "if (false) throw",
+  "note": "H1: GraphQL errors ignored"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "(!Array.isArray(errors) || errors.length > 0)",
+  "new": "(errors.length > 0)",
+  "note": "H1: malformed envelope"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "(!Array.isArray(errors) || errors.length > 0)",
+  "new": "(!Array.isArray(errors))",
+  "note": "H1: nonempty errors"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "!validShape(p.detail)",
+  "new": "false",
+  "note": "S1/T1: shape unchecked"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const SHAPE = /^v([1-9][0-9]{1,3})-([a-z0-9]{1,8})-(d?h?l?o?s?u?)$/;",
+  "new": "const SHAPE = /^v([0-9]{1,4})-([a-z0-9]{1,16})-([a-z]{1,8})$/;",
+  "note": "S1/T1: the old regex"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const SHAPE = /^v([1-9][0-9]{1,3})-",
+  "new": "const SHAPE = /^v([0-9]{1,4})-",
+  "note": "leading zeros"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "([a-z0-9]{1,8})-(d?h?l?o?s?u?)$/",
+  "new": "([a-z0-9]{1,9})-(d?h?l?o?s?u?)$/",
+  "note": "prefix length"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "-(d?h?l?o?s?u?)$/",
+  "new": "-([dhlosu]{0,6})$/",
+  "note": "class order"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (bytes < 16 || bytes > 4096 || classes === \"\") return false;",
+  "new": "if (bytes < 16 || bytes > 4096) return false;",
+  "note": "empty classes"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (bytes < 16 || bytes > 4096 || classes === \"\")",
+  "new": "if (bytes < 15 || bytes > 4096 || classes === \"\")",
+  "note": "bytes low edge"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "bytes > 4096 || classes",
+  "new": "bytes > 4097 || classes",
+  "note": "bytes high edge"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (prefix === \"none\") return true;",
+  "new": "if (false) return true;",
+  "note": "none prefix"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "classes.includes(\"s\") && bytes >= len + 1 + 16",
+  "new": "bytes >= len + 1 + 16",
+  "note": "prefix needs s"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "bytes >= len + 1 + 16",
+  "new": "bytes >= len + 16",
+  "note": "prefix room"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "(!/[a-z]/.test(prefix) || classes.includes(\"l\"))",
+  "new": "true",
+  "note": "letters need l"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "(!/[0-9]/.test(prefix) || classes.includes(\"d\"))",
+  "new": "true",
+  "note": "digits need d"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "/^p[1-8]$/.test(prefix)",
+  "new": "/^p[0-9]$/.test(prefix)",
+  "note": "pN range"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "fits(Number(prefix.slice(1))) && classes.includes(\"u\")",
+  "new": "fits(Number(prefix.slice(1)))",
+  "note": "pN needs u"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const byLength = /^p[1-8]$/.test(prefix) && fits(Number(prefix.slice(1)))",
+  "new": "const byLength = /^p[1-8]$/.test(prefix) && fits(0)",
+  "note": "pN room"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return literal || byLength;",
+  "new": "return literal;",
+  "note": "pN reading"
  }
 ]
