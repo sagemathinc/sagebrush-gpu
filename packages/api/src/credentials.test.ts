@@ -4,10 +4,12 @@ import {
   CREDENTIAL_KEY_MAX_BYTES,
   CREDENTIAL_REFUSALS,
   CREDENTIAL_STATUSES,
+  PAUSING_CREDENTIAL_STATUSES,
   RECENT_AUTH_WINDOW_MS,
   credentialRefusalBody,
   isCredentialKeyShape,
   isCredentialStatus,
+  isPausingCredentialStatus,
   isRecentAuthForMs,
 } from "./credentials.ts";
 import { ERROR_STATUS, isApiErrorBody } from "./errors.ts";
@@ -97,4 +99,12 @@ test("the credential routes: an organization's owners only, by method and path",
   assert.deepEqual([ROUTES.putCredential.method, ROUTES.putCredential.path], ["PUT", "/v1/orgs/:orgId/credentials/:provider"]);
   assert.deepEqual([ROUTES.deleteCredential.method, ROUTES.deleteCredential.path], ["DELETE", "/v1/orgs/:orgId/credentials/:provider"]);
   for (const name of ["listCredentials", "putCredential", "deleteCredential"] as const) assert.deepEqual(ROUTES[name].access, owner, name);
+});
+
+test("pausing statuses: rejected, revoked and error pause launches; none, unchecked and ok don't", () => {
+  assert.deepEqual([...PAUSING_CREDENTIAL_STATUSES], ["rejected", "revoked", "error"]);
+  assert.equal(Object.isFrozen(PAUSING_CREDENTIAL_STATUSES), true);
+  const paused = CREDENTIAL_STATUSES.filter((s) => isPausingCredentialStatus(s));
+  assert.deepEqual(paused, ["rejected", "revoked", "error"]);
+  for (const bad of ["Revoked", "", null, undefined, ["revoked"], 0]) assert.equal(isPausingCredentialStatus(bad), false, String(bad));
 });

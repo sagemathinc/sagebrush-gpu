@@ -66,6 +66,31 @@ export interface ProviderCredential {
   runningMachines: number;
 }
 
+/**
+ * The statuses that pause new launches on the provider for the organization: offers there
+ * are dropped, and a quote or start with none left refuses with "credentialUnusable". The
+ * key is checked again on a schedule, and the pause ends when a check passes. Running
+ * machines are untouched, and none is assumed terminated.
+ */
+export const PAUSING_CREDENTIAL_STATUSES = Object.freeze(["rejected", "revoked", "error"] as const);
+export type PausingCredentialStatus = (typeof PAUSING_CREDENTIAL_STATUSES)[number];
+
+export function isPausingCredentialStatus(x: unknown): x is PausingCredentialStatus {
+  return (PAUSING_CREDENTIAL_STATUSES as readonly unknown[]).includes(x);
+}
+
+/**
+ * One paused provider, in the GPU-type list every member of the project loads. `detail` is
+ * present only for a caller whose project role is manager or above (an org owner resolves
+ * to owner), chosen by the server from the caller's role, never by a query flag; everyone
+ * else sees that launches are paused, and nothing about the key.
+ */
+export interface ProviderPause {
+  provider: ProviderId;
+  since: IsoTime;
+  detail?: { status: PausingCredentialStatus; lastCheckedAt: IsoTime | null };
+}
+
 /** PUT /v1/orgs/:orgId/credentials/:provider: set or replace the key, checked before the answer. */
 export interface PutCredentialRequest {
   key: string;
