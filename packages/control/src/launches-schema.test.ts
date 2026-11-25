@@ -134,6 +134,17 @@ test("launches: the ACTIVE facts are set only by the ACTIVE transition, then fix
   const v = await machine("shadeform");
   await assert.rejects(vmLaunch(v, { ipv4: "203.0.113.7", first_active_ms: T0 }), /CHECK/); // (creating has none)
   await vmLaunch(v, { provider_machine_id: "vm-1" });
+  // the facts come together (an insert isn't the ACTIVE transition, so the CHECK holds it)
+  const h = await machine("shadeform");
+  await assert.rejects(vmLaunch(h, { outcome: "terminate", terminate_reason: "abort", ipv4: "203.0.113.7" }), /CHECK/);
+  await assert.rejects(vmLaunch(h, { outcome: "terminate", terminate_reason: "abort", first_active_ms: T0 }), /CHECK/);
+  // entering launched from anything but creating doesn't set them
+  const t = await machine("shadeform");
+  await vmLaunch(t, { provider_machine_id: "vm-t", outcome: "terminate", terminate_reason: "abort" });
+  await assert.rejects(
+    upd(t, `outcome = 'launched', terminate_reason = NULL, ipv4 = '203.0.113.9', first_active_ms = ?`, T0),
+    /ACTIVE facts are fixed/,
+  );
   // only creating -> launched sets them
   await assert.rejects(upd(v, `ipv4 = '203.0.113.7', first_active_ms = ?`, T0), /ACTIVE facts are fixed/);
   await assert.rejects(upd(v, `outcome = 'terminate', terminate_reason = 'abort', ipv4 = '203.0.113.7', first_active_ms = ?`, T0), /ACTIVE facts are fixed/);
@@ -148,8 +159,13 @@ test("launches: the ACTIVE facts are set only by the ACTIVE transition, then fix
   ] as Array<[string, string, ...SqlValue[]]>) {
     await assert.rejects(upd(v, set, ...p), /ACTIVE facts are fixed/, why);
   }
+  // one fact cleared alone, in launched and (below) after it
+  await assert.rejects(upd(v, `ipv4 = NULL`), /ACTIVE facts are fixed/, "the address alone cleared");
+  await assert.rejects(upd(v, `first_active_ms = NULL`), /ACTIVE facts are fixed/, "the first ACTIVE alone cleared");
   // a later transition keeps them
   await upd(v, `outcome = 'terminate', terminate_reason = 'abort', next_ms = ?`, T0);
+  await assert.rejects(upd(v, `ipv4 = NULL`), /ACTIVE facts are fixed/, "the address alone cleared, terminating");
+  await assert.rejects(upd(v, `first_active_ms = NULL`), /ACTIVE facts are fixed/, "the first ACTIVE alone cleared, terminating");
   const r = (await w.db.all<{ ipv4: string; f: number }>(`SELECT ipv4, first_active_ms AS f FROM launches WHERE machine_id = ?`, [v]))[0]!;
   assert.deepEqual([r.ipv4, r.f], ["203.0.113.7", T0]);
 });
