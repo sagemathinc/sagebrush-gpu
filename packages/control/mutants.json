@@ -3019,5 +3019,11 @@
   "old": "    if (!p || p.kty !== \"OKP\" || p.crv !== \"Ed25519\" || !ed25519Part(p.x)) return null;",
   "new": "    if (!p || p.kty !== \"OKP\" || !ed25519Part(p.x)) return null;",
   "note": "pins' curve unchecked"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "  return b !== null && b.length === 32;",
+  "new": "  return b !== null;",
+  "note": "any part length"
  }
 ]

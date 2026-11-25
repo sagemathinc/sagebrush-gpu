@@ -29,9 +29,11 @@ function closedObject(x: unknown, keys: string): Record<string, unknown> | null 
   return Object.keys(x).sort().join(",") === keys ? (x as Record<string, unknown>) : null;
 }
 
-/** Canonical base64url (WebCrypto's import then requires Ed25519's 32 bytes). */
+/** 32 bytes of canonical base64url, as Ed25519's x and d are (checked on every pin, not only the one imported). */
 function ed25519Part(x: unknown): x is string {
-  return typeof x === "string" && b64urlDecode(x) !== null;
+  if (typeof x !== "string") return false;
+  const b = b64urlDecode(x);
+  return b !== null && b.length === 32;
 }
 
 function parseJson(text: unknown): unknown {

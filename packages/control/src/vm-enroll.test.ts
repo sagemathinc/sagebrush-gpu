@@ -164,6 +164,12 @@ test("signer readiness: only a closed Ed25519 JWK whose pair the deployment pins
   await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, d: KP.priv.d } }), "an unused pin with a private part");
   await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, crv: "X25519" } }), "an unused pin of another curve");
   await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, x: "!" } }), "an unused pin with a malformed x");
+  // (an unused pin's x must decode to exactly 32 bytes: canonical base64url of 0, 1, 31 and 33 bytes is refused)
+  const b64 = (n: number) => Buffer.alloc(n, 7).toString("base64url");
+  for (const n of [0, 1, 31, 33]) {
+    await no(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, x: b64(n) } }), `an unused pin's x of ${n} bytes`);
+  }
+  assert.ok(await loadAgentSigner(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: { ...OTHER.pub, x: b64(32) } }))); // (32 bytes: well formed, unused)
   assert.ok(await loadAgentSigner(signerText.jwk, "k1", JSON.stringify({ k1: KP.pub, k2: OTHER.pub })));
   const many = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [i === 0 ? "k1" : `k${i + 1}`, i === 0 ? KP.pub : OTHER.pub]));
   await no(signerText.jwk, "k1", JSON.stringify(many), "too many pins");
