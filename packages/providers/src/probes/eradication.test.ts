@@ -20,6 +20,8 @@ import {
   checkPlan,
   judgeStage,
   judgeStageWithDigest,
+  launchFailure,
+  reportableCommandShape,
   reportableDrift,
   validShape,
   launcherSha256,
@@ -587,8 +589,8 @@ test("a launch that leaves a pod behind is cleaned up; one that doesn't isn't", 
   assert.deepEqual(none.log, ["launch"]);
   assert.equal(r2.outcome, "aborted");
   assert.equal(r2.providerMachineId, null);
-  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: null });
-  assert.deepEqual(r2.launchError, { kind: "no_capacity", httpStatus: null, drift: null });
+  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: null, commandShape: null });
+  assert.deepEqual(r2.launchError, { kind: "no_capacity", httpStatus: null, drift: null, commandShape: null });
 });
 
 test("a rejected pod's drift markers reach the report; only fixed-word markers, at most 32", async () => {
@@ -601,7 +603,7 @@ test("a rejected pod's drift markers reach the report; only fixed-word markers, 
   };
   const h = harness(w);
   const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
-  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: markers });
+  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: markers, commandShape: null });
   assert.deepEqual(w.log, ["launch", "terminate"]);
   assert.equal(r.terminatedConfirmed, true);
   // Anything that isn't a fixed-word marker is dropped.
@@ -629,14 +631,14 @@ test("a refused launch reports its kind and HTTP status, never the error's text"
   const w: World = { log: [], stages: [], launchError: new ProviderError("runpod", "unplaceable", "RunPod HTTP 400 (unplaceable) MARKER", 400) };
   const h = harness(w);
   const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
-  assert.deepEqual(r.launchError, { kind: "unplaceable", httpStatus: 400, drift: null });
+  assert.deepEqual(r.launchError, { kind: "unplaceable", httpStatus: 400, drift: null, commandShape: null });
   assert.deepEqual([r.terminatedConfirmed, r.exposure, r.aborts], [true, null, ["launch-failed"]]);
   assert.ok(!JSON.stringify(r).includes("MARKER"));
   // Anything that isn't a ProviderError is a driver error, and may have left a pod.
   const odd: World = { log: [], stages: [], launchError: Object.assign(new Error("MARKER"), { name: "MARKER" }) };
   const h2 = harness(odd);
   const r2 = await runEradicationProbe(plan, h2.adapter, h2.api, h2.clock);
-  assert.deepEqual(r2.launchError, { kind: "driver-error", httpStatus: null, drift: null });
+  assert.deepEqual(r2.launchError, { kind: "driver-error", httpStatus: null, drift: null, commandShape: null });
   assert.equal(r2.terminatedConfirmed, false);
   assert.ok(!JSON.stringify(r2).includes("MARKER"));
 });
@@ -1040,4 +1042,195 @@ test("finishRun: a confirmed fail exits 1 even with the spend settled; the outpu
     (e: unknown) => e instanceof Error && /contains the key/.test(e.message) && !e.message.includes("KEYVALUE"),
   );
   assert.deepEqual(written, []);
+});
+
+test("reportableCommandShape rebuilds a shape from fixed kinds, counts and booleans, or gives null", () => {
+  const f = (kind: string, length: number | null = null) => ({ kind, length });
+  const good = {
+    entrypoint: f("array", 3), cmd: f("absent"), args: f("string", 12),
+    entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }, { length: 2, matches: true, commonPrefix: 2 }, { length: 900, matches: false, commonPrefix: 41 }],
+    entrypointCmdMatches: false, joinedMatches: false,
+  };
+  assert.deepEqual(reportableCommandShape(good), good);
+  // Extra fields are dropped, never copied: the result is rebuilt.
+  const extra = { ...good, text: "MARKER", entrypoint: { ...f("array", 3), value: "MARKER" } };
+  assert.ok(!JSON.stringify(reportableCommandShape(extra)).includes("MARKER"));
+  assert.deepEqual(reportableCommandShape(extra), good);
+  // Counts out of range or not whole read null; bad kinds, flags or items make the whole shape null.
+  assert.equal(reportableCommandShape({ ...good, args: f("string", 1.5) })!.args.length, null);
+  assert.equal(reportableCommandShape({ ...good, args: f("string", 1_000_001) })!.args.length, null);
+  assert.equal(reportableCommandShape({ ...good, args: f("string", 1_000_000) })!.args.length, 1_000_000);
+  for (const bad of [
+    null, "x", [], { ...good, entrypoint: f("MARKER") }, { ...good, cmd: null }, { ...good, args: "string" },
+    { ...good, entrypointCmdMatches: "true" }, { ...good, joinedMatches: 1 }, { ...good, entrypointItems: "x" },
+    { ...good, entrypointItems: Array.from({ length: 9 }, () => ({ length: 1, matches: true, commonPrefix: 1 })) },
+    { ...good, entrypointItems: [{ length: 1, matches: "yes", commonPrefix: 1 }] },
+    { ...good, entrypointItems: [{ length: 1, matches: true, commonPrefix: -1 }] },
+    { ...good, entrypointItems: [null] }, { ...good, entrypoint: f("toString") },
+  ]) {
+    assert.equal(reportableCommandShape(bad), null, JSON.stringify(bad));
+  }
+  assert.equal(reportableCommandShape({ ...good, entrypointItems: Array.from({ length: 8 }, () => ({ length: 1, matches: true, commonPrefix: 1 })) })!.entrypointItems.length, 8);
+});
+
+test("a command drift's shape reaches the report, checked again at the boundary", async () => {
+  const shape = {
+    entrypoint: { kind: "array", length: 3 }, cmd: { kind: "null", length: null }, args: { kind: "absent", length: null },
+    entrypointItems: [], entrypointCmdMatches: false, joinedMatches: false, MARKER: "MARKER",
+  };
+  const w: World = {
+    log: [], stages: [],
+    launchError: new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX", ["command"], shape as never),
+  };
+  const h = harness(w);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  const { MARKER: _m, ...clean } = shape;
+  assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: ["command"], commandShape: clean });
+  assert.ok(!JSON.stringify(r).includes("MARKER"));
+});
+
+// ---------------------------------------------------------------- the report boundary reads once
+
+const CANARY = "SYNTHETICSECRET";
+/** A getter that answers `first` once, then the canary. */
+const twoFaced = (first: unknown) => {
+  let reads = 0;
+  return { get: () => (reads++ === 0 ? first : CANARY), reads: () => reads };
+};
+const goodShape = () => ({
+  entrypoint: { kind: "array", length: 3 }, cmd: { kind: "null", length: null }, args: { kind: "absent", length: null },
+  entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }], entrypointCmdMatches: false, joinedMatches: false,
+});
+
+test("reportableCommandShape reads each property once: a changing getter can't pass text", () => {
+  for (const flag of ["entrypointCmdMatches", "joinedMatches"] as const) {
+    const s = goodShape();
+    const g = twoFaced(false);
+    Object.defineProperty(s, flag, { get: g.get });
+    const r = reportableCommandShape(s);
+    assert.equal(r![flag], false, flag);
+    assert.equal(g.reads(), 1, flag);
+    assert.ok(!JSON.stringify(r).includes(CANARY));
+  }
+  const s = goodShape();
+  const g = twoFaced(true);
+  Object.defineProperty(s.entrypointItems[0]!, "matches", { get: g.get });
+  const r = reportableCommandShape(s);
+  assert.equal(r!.entrypointItems[0]!.matches, true);
+  assert.equal(g.reads(), 1);
+  assert.ok(!JSON.stringify(r).includes(CANARY));
+  // The item count is read once: a length that grows after the first read can't add items.
+  const grow = goodShape();
+  let lengthReads = 0;
+  const items = new Proxy([...grow.entrypointItems, ...Array.from({ length: 8 }, () => ({ length: 1, matches: true, commonPrefix: 1 }))], {
+    get: (tg, p) => (p === "length" ? (lengthReads++ === 0 ? 1 : 9) : Reflect.get(tg, p)),
+  });
+  const grown = reportableCommandShape({ ...grow, entrypointItems: items });
+  assert.equal(grown!.entrypointItems.length, 1);
+  assert.equal(lengthReads, 1);
+  // The kind and the counts too.
+  const k = goodShape();
+  const gk = twoFaced("array");
+  Object.defineProperty(k.entrypoint, "kind", { get: gk.get });
+  assert.equal(reportableCommandShape(k)!.entrypoint.kind, "array");
+  assert.equal(gk.reads(), 1);
+});
+
+test("reportableCommandShape and reportableDrift give null on throwing getters and proxies", () => {
+  const thrower = () => {
+    throw new Error(CANARY);
+  };
+  for (const prop of ["entrypoint", "cmd", "args", "entrypointItems", "entrypointCmdMatches", "joinedMatches"]) {
+    const s = goodShape();
+    Object.defineProperty(s, prop, { get: thrower });
+    assert.equal(reportableCommandShape(s), null, prop);
+  }
+  const item = goodShape();
+  Object.defineProperty(item.entrypointItems[0]!, "commonPrefix", { get: thrower });
+  assert.equal(reportableCommandShape(item), null);
+  const len = goodShape();
+  assert.equal(reportableCommandShape({ ...len, entrypointItems: new Proxy(len.entrypointItems, { get: (tg, p) => (p === "length" ? thrower() : Reflect.get(tg, p)) }) }), null);
+  assert.equal(reportableCommandShape(new Proxy(goodShape(), { get: thrower })), null);
+  const { proxy, revoke } = Proxy.revocable(goodShape(), {});
+  revoke();
+  assert.equal(reportableCommandShape(proxy), null);
+  // An item list that claims more than it holds, or is a proxy.
+  const many = goodShape();
+  assert.equal(reportableCommandShape({ ...many, entrypointItems: new Proxy([], { get: (t, p) => (p === "length" ? 9 : Reflect.get(t, p)) }) }), null);
+  // Not plain data: a function item with the right properties, and a drift list that only has a slice method.
+  const fnItem = goodShape();
+  assert.equal(reportableCommandShape({ ...fnItem, entrypointItems: [Object.assign(() => {}, { matches: true, commonPrefix: 1 })] }), null);
+  assert.equal(reportableDrift({ slice: () => ["image"] } as never), null);
+  // Drift: a proxy array, a revoked one, a throwing element.
+  assert.equal(reportableDrift(new Proxy(["image"], { get: thrower }) as never), null);
+  const r2 = Proxy.revocable(["image"], {});
+  r2.revoke();
+  assert.equal(reportableDrift(r2.proxy as never), null);
+  const arr = ["image", "command"];
+  Object.defineProperty(arr, 1, { get: thrower });
+  assert.equal(reportableDrift(arr), null);
+});
+
+test("launchFailure secures the pod id first, and nothing it reads can lose it", () => {
+  const thrower = () => {
+    throw new Error(CANARY);
+  };
+  const withGetter = (prop: string, get: () => unknown) => {
+    const e = new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX", ["command"], goodShape() as never);
+    Object.defineProperty(e, prop, { get });
+    return e;
+  };
+  // The kind throws, or is unknown text: the pod is still cleaned, and the outcome counts as unknown.
+  for (const [prop, get] of [["kind", thrower], ["kind", () => CANARY]] as const) {
+    const f = launchFailure(withGetter(prop, get));
+    assert.deepEqual([f.left, f.outcomeUnknown, f.launchError.kind], ["podX", true, "driver-error"]);
+  }
+  // A diagnostic throws: only that diagnostic is lost.
+  for (const prop of ["httpStatus", "drift", "commandShape"]) {
+    const f = launchFailure(withGetter(prop, thrower));
+    assert.deepEqual([f.left, f.outcomeUnknown, f.launchError.kind], ["podX", false, "spec_mismatch"], prop);
+    assert.ok(!JSON.stringify(f).includes(CANARY));
+  }
+  assert.equal(launchFailure(withGetter("drift", thrower)).launchError.drift, null);
+  assert.equal(launchFailure(withGetter("commandShape", thrower)).launchError.commandShape, null);
+  // The id itself throws: nobody can name the pod, so its outcome is unknown (exposure).
+  const f = launchFailure(withGetter("providerMachineId", thrower));
+  assert.deepEqual([f.left, f.outcomeUnknown, f.launchError.kind], [null, true, "driver-error"]);
+  // The id is read once, before the kind.
+  const order: string[] = [];
+  const e = new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX");
+  Object.defineProperty(e, "providerMachineId", { get: () => (order.push("id"), "podX") });
+  Object.defineProperty(e, "kind", { get: () => (order.push("kind"), "spec_mismatch") });
+  launchFailure(e);
+  assert.deepEqual(order, ["id", "kind"]);
+  // HTTP statuses outside 100-599 and non-errors.
+  assert.equal(launchFailure(new ProviderError("runpod", "transient", "x", 503)).launchError.httpStatus, 503);
+  assert.equal(launchFailure(new ProviderError("runpod", "unknown", "x", 600)).launchError.httpStatus, null);
+  assert.equal(launchFailure(new ProviderError("runpod", "unknown", "x", 99)).launchError.httpStatus, null);
+  assert.deepEqual(launchFailure("x"), { left: null, outcomeUnknown: true, launchError: { kind: "driver-error", httpStatus: null, drift: null, commandShape: null } });
+  assert.deepEqual(launchFailure(new ProviderError("runpod", "outcome_unknown", "x")).outcomeUnknown, true);
+  assert.deepEqual(launchFailure(new ProviderError("runpod", "no_capacity", "x", null, null, "")).left, null);
+});
+
+test("an unreadable diagnostic never blocks cleanup: the pod is terminated, the report holds no canary", async () => {
+  for (const mutate of [
+    (e: ProviderError) => Object.defineProperty(e, "commandShape", { get: () => { throw new Error(CANARY); } }),
+    (e: ProviderError) => Object.defineProperty(e, "commandShape", { value: new Proxy({}, { get: () => { throw new Error(CANARY); } }) }),
+    (e: ProviderError) => {
+      const s = goodShape();
+      Object.defineProperty(s, "joinedMatches", { get: twoFaced(false).get });
+      Object.defineProperty(e, "commandShape", { value: s });
+    },
+    (e: ProviderError) => Object.defineProperty(e, "kind", { get: () => { throw new Error(CANARY); } }),
+  ]) {
+    const err = new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX", ["command"], goodShape() as never);
+    mutate(err);
+    const w: World = { log: [], stages: [], launchError: err };
+    const h = harness(w);
+    const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+    assert.deepEqual(w.log, ["launch", "terminate"]);
+    assert.equal(r.terminatedConfirmed, true);
+    assert.equal(r.providerMachineId, "podX");
+    assert.ok(!JSON.stringify(r).includes(CANARY));
+  }
 });

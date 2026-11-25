@@ -611,11 +611,6 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "        status.providerMachineId,\n        driftMarkers(drift, status),\n      );\n    }\n    return",
-  "new": "        null,\n        driftMarkers(drift, status),\n      );\n    }\n    return"
- },
- {
-  "file": "src/runpod/adapter.ts",
   "old": "throw new ProviderError(\"runpod\", \"outcome_unknown\", \"RunPod created a pod but its response has no id\");",
   "new": "throw new ProviderError(\"runpod\", \"unplaceable\", \"no id\");"
  },
@@ -1308,17 +1303,6 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "    if (!(e instanceof ProviderError) || e.kind === \"outcome_unknown\") {",
-  "new": "    if (false) {",
-  "note": "LIMITS H2: unknown-outcome exposure"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "    if (!(e instanceof ProviderError) || e.kind === \"outcome_unknown\") {",
-  "new": "    if (!(e instanceof ProviderError)) {"
- },
- {
-  "file": "src/probes/eradication.ts",
   "old": "      report.terminatedConfirmed = false;\n      report.exposure",
   "new": "      report.exposure"
  },
@@ -1821,24 +1805,6 @@
   "note": "runpod: e.name verbatim"
  },
  {
-  "file": "src/probes/eradication.ts",
-  "old": "    report.launchError =\n      e instanceof ProviderError\n        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift) }\n        : { kind: \"driver-error\", httpStatus: null, drift: null };\n",
-  "new": "",
-  "note": "launchError recorded"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "{ kind: e.kind, httpStatus: e.httpStatus, drift:",
-  "new": "{ kind: e.kind, httpStatus: null, drift:",
-  "note": "launchError status"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": ": { kind: \"driver-error\", httpStatus: null, drift: null };",
-  "new": ": null;",
-  "note": "launchError driver-error"
- },
- {
   "file": "src/http.ts",
   "old": "    const name: unknown = e.name;\n    // Return our own constant, never the value read.\n    for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;",
   "new": "    for (const fixed of FAILURE_NAMES) if (fixed === e.name) return e.name;",
@@ -1903,12 +1869,6 @@
   "old": "        driftMarkers(drift, status),\n",
   "new": "",
   "note": "runpod passes drift"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "drift: reportableDrift(e.drift) }",
-  "new": "drift: e.drift === null ? null : [...e.drift] }",
-  "note": "report filters drift"
  },
  {
   "file": "src/probes/eradication.ts",
@@ -2431,5 +2391,255 @@
   "old": "    const seen = new Set<string>();\n    for (let page = 0; page < MAX_PAGES; page++) {",
   "new": "    for (let page = 0; page < MAX_PAGES; page++) {\n      const seen = new Set<string>();",
   "note": "H1: seen across pages"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "        status.providerMachineId,\n        driftMarkers(drift, status),",
+  "new": "        null,\n        driftMarkers(drift, status),"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (x === null) return { kind: \"null\", length: null };\n",
+  "new": "",
+  "note": "fieldShape null"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "if (typeof x === \"string\") return { kind: \"string\", length: x.length };",
+  "new": "if (typeof x === \"string\") return { kind: \"string\", length: null };",
+  "note": "fieldShape string length"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "if (Array.isArray(x)) return { kind: \"array\", length: x.length };",
+  "new": "if (Array.isArray(x)) return { kind: \"object\", length: null };",
+  "note": "fieldShape array"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (typeof x === \"boolean\") return { kind: \"boolean\", length: null };\n",
+  "new": "",
+  "note": "fieldShape boolean"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (typeof x === \"number\") return { kind: \"number\", length: null };\n",
+  "new": "",
+  "note": "fieldShape number"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "entrypoint.slice(0, COMMAND_SHAPE_ITEMS)",
+  "new": "entrypoint",
+  "note": "items cap"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": ": { length: null, matches: false, commonPrefix: 0 },",
+  "new": ": { length: 0, matches: false, commonPrefix: 0 },",
+  "note": "non-string item"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "together !== null && together.length === launcher.length && together.every",
+  "new": "together !== null && together.every",
+  "note": "whole length"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "const together = ep !== null && c !== null ? [...ep, ...c] : null;",
+  "new": "const together = ep !== null ? [...ep, ...(c ?? [])] : null;",
+  "note": "cmd required"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "joinedMatches: entrypoint === joined || args === joined,",
+  "new": "joinedMatches: entrypoint === joined,",
+  "note": "args joined"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "joinedMatches: entrypoint === joined || args === joined,",
+  "new": "joinedMatches: args === joined,",
+  "note": "entrypoint joined"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "record !== null && drift.some((d) => d.field === \"command\") ? commandShape(record, spec.launcher) : null,",
+  "new": "record !== null ? commandShape(record, spec.launcher) : null,",
+  "note": "shape only on command drift"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "record !== null && drift.some((d) => d.field === \"command\") ? commandShape(record, spec.launcher) : null,",
+  "new": "null,",
+  "note": "shape passed"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "    this.commandShape = commandShape;\n",
+  "new": "",
+  "note": "error keeps shape"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0 && x <= SHAPE_NUMBER_MAX ? x : null;",
+  "new": "return typeof x === \"number\" ? x : null;",
+  "note": "report counts"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "x >= 0 && x <= SHAPE_NUMBER_MAX ? x : null;",
+  "new": "x >= 0 && x < SHAPE_NUMBER_MAX ? x : null;",
+  "note": "count edge"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (typeof kind !== \"string\" || !FIELD_KINDS.has(kind)) return null;",
+  "new": "if (typeof kind !== \"string\") return null;",
+  "note": "kind vocabulary"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (typeof it !== \"object\" || it === null) return null;\n",
+  "new": "",
+  "note": "item object"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (outcomeUnknown) {",
+  "new": "    if (false) {",
+  "note": "LIMITS H2: unknown-outcome exposure"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    outcomeUnknown: kind === \"outcome_unknown\",",
+  "new": "    outcomeUnknown: false,"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    report.launchError = launchError;\n",
+  "new": "",
+  "note": "launchError recorded"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "httpStatus: typeof status === \"number\" && Number.isSafeInteger(status) && status >= 100 && status <= 599 ? status : null,",
+  "new": "httpStatus: null,",
+  "note": "launchError status"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (typeof kind !== \"string\" || !LAUNCH_ERROR_KINDS.has(kind)) return { left, outcomeUnknown: true, launchError: driverError };",
+  "new": "  if (typeof kind !== \"string\") return { left, outcomeUnknown: true, launchError: driverError };",
+  "note": "launchError driver-error"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      drift: reportableDrift(drift as unknown[] | null),",
+  "new": "      drift: drift as string[] | null,",
+  "note": "report filters drift"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      commandShape: reportableCommandShape(shape),",
+  "new": "      commandShape: shape as never,",
+  "note": "report rebuilds shape"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "if (typeof n !== \"number\" || !Number.isSafeInteger(n) || n < 0 || n > 8) return null;",
+  "new": "if (typeof n !== \"number\") return null;",
+  "note": "items cap at boundary"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (typeof whole !== \"boolean\" || typeof joined !== \"boolean\" || !Array.isArray(items)) return null;",
+  "new": "    if (!Array.isArray(items)) return null;",
+  "note": "flags"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (typeof matches !== \"boolean\" || prefix === null) return null;",
+  "new": "      if (prefix === null) return null;",
+  "note": "item matches"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };",
+  "new": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: s[\"entrypointCmdMatches\"] as boolean, joinedMatches: joined };",
+  "note": "re-read entrypointCmdMatches"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };",
+  "new": "return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: s[\"joinedMatches\"] as boolean };",
+  "note": "re-read joinedMatches"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "entrypointItems.push({ length: count(length), matches, commonPrefix: prefix });",
+  "new": "entrypointItems.push({ length: count(length), matches: r[\"matches\"] as boolean, commonPrefix: prefix });",
+  "note": "re-read item matches"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return { kind: kind as FieldShape[\"kind\"], length: count(length) };",
+  "new": "return { kind: r[\"kind\"] as FieldShape[\"kind\"], length: count(length) };",
+  "note": "re-read kind"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };\n  } catch {\n    return null;\n  }",
+  "new": "    return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };\n  } catch (x) {\n    throw x;\n  }",
+  "note": "command shape catch"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  } catch {\n    // A throwing getter or proxy: nothing to report.\n    return null;\n  }",
+  "new": "  } catch (x) {\n    throw x;\n  }",
+  "note": "drift catch"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  } catch {\n    return { left: null, outcomeUnknown: true, launchError: driverError };\n  }\n  let kind",
+  "new": "  } catch (x) {\n    throw x;\n  }\n  let kind",
+  "note": "id catch"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    kind = err.kind;\n  } catch {\n    return { left, outcomeUnknown: true, launchError: driverError };\n  }",
+  "new": "    kind = err.kind;\n  } catch (x) {\n    throw x;\n  }",
+  "note": "kind catch"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      return get();\n    } catch {\n      return null;\n    }",
+  "new": "      return get();\n    } catch (x) {\n      throw x;\n    }",
+  "note": "diagnostic catch"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    err = e;\n    const id: unknown = err.providerMachineId;",
+  "new": "    err = e;\n    void err.kind;\n    const id: unknown = err.providerMachineId;",
+  "note": "kind read before id"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    for (let i = 0; i < n; i++) {\n      const it: unknown = items[i];",
+  "new": "    for (const it of items as unknown[]) {",
+  "note": "items read by iterator"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    left = typeof id === \"string\" && id !== \"\" ? id : null;",
+  "new": "    left = typeof id === \"string\" ? id : null;",
+  "note": "empty id"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "status >= 100 && status <= 599 ? status : null",
+  "new": "status >= 0 ? status : null",
+  "note": "status range"
  }
 ]

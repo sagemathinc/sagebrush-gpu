@@ -19,7 +19,7 @@
 // CLI (cli.ts) is a dry run unless given --execute and that reference.
 
 import { BOOT_TOKEN_ENV, renderBootScript, renderProbePrologue } from "@sbgpu/machine";
-import { isDriftMarker, specDrift, expectedSpec } from "../drift.ts";
+import { isDriftMarker, specDrift, expectedSpec, type CommandShape, type FieldShape } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { machineName } from "../machine-name.ts";
 import { terminateAndConfirm } from "../placement.ts";
@@ -349,7 +349,12 @@ export interface ProbeReport {
    * Why the launch failed, as our own fixed words: the ProviderError's kind and HTTP status, or
    * "driver-error" for anything else. Never the provider's text. null when the launch succeeded.
    */
-  launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null; drift: string[] | null } | null;
+  launchError: {
+    kind: ProviderErrorKind | "driver-error";
+    httpStatus: number | null;
+    drift: string[] | null;
+    commandShape: CommandShape | null;
+  } | null;
 }
 
 /**
@@ -357,8 +362,131 @@ export interface ProbeReport {
  * markers driftMarkers can produce; everything else is dropped.
  */
 export function reportableDrift(drift: readonly unknown[] | null): string[] | null {
-  if (!Array.isArray(drift)) return null;
-  return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));
+  try {
+    if (!Array.isArray(drift)) return null;
+    // slice reads each of the first 32 entries once; the filter then sees only those values.
+    return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));
+  } catch {
+    // A throwing getter or proxy: nothing to report.
+    return null;
+  }
+}
+
+const FIELD_KINDS: ReadonlySet<string> = new Set(["absent", "null", "string", "array", "object", "number", "boolean"]);
+const SHAPE_NUMBER_MAX = 1_000_000;
+
+/** A count fit for the report: a whole number from 0 to a million, else null. */
+function count(x: unknown): number | null {
+  return typeof x === "number" && Number.isSafeInteger(x) && x >= 0 && x <= SHAPE_NUMBER_MAX ? x : null;
+}
+
+// The boundary reads every property exactly once into a local and checks and uses only that
+// local: a getter can't pass a check and then hand over something else.
+
+function fieldShapeOf(x: unknown): FieldShape | null {
+  if (typeof x !== "object" || x === null) return null;
+  const r = x as Record<string, unknown>;
+  const kind = r["kind"];
+  const length = r["length"];
+  if (typeof kind !== "string" || !FIELD_KINDS.has(kind)) return null;
+  return { kind: kind as FieldShape["kind"], length: count(length) };
+}
+
+/**
+ * A command shape fit for the report, rebuilt field by field from fixed kinds, counts and
+ * booleans (at most 8 items); anything else, a throwing getter or proxy included, makes it null.
+ * Never text.
+ */
+export function reportableCommandShape(shape: unknown): CommandShape | null {
+  try {
+    if (typeof shape !== "object" || shape === null) return null;
+    const s = shape as Record<string, unknown>;
+    const ep = s["entrypoint"];
+    const c = s["cmd"];
+    const a = s["args"];
+    const items = s["entrypointItems"];
+    const whole = s["entrypointCmdMatches"];
+    const joined = s["joinedMatches"];
+    const entrypoint = fieldShapeOf(ep);
+    const cmd = fieldShapeOf(c);
+    const args = fieldShapeOf(a);
+    if (entrypoint === null || cmd === null || args === null) return null;
+    if (typeof whole !== "boolean" || typeof joined !== "boolean" || !Array.isArray(items)) return null;
+    const n: unknown = items.length;
+    if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0 || n > 8) return null;
+    const entrypointItems: CommandShape["entrypointItems"] = [];
+    for (let i = 0; i < n; i++) {
+      const it: unknown = items[i];
+      if (typeof it !== "object" || it === null) return null;
+      const r = it as Record<string, unknown>;
+      const length = r["length"];
+      const matches = r["matches"];
+      const prefix = count(r["commonPrefix"]);
+      if (typeof matches !== "boolean" || prefix === null) return null;
+      entrypointItems.push({ length: count(length), matches, commonPrefix: prefix });
+    }
+    return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };
+  } catch {
+    return null;
+  }
+}
+
+const LAUNCH_ERROR_KINDS: ReadonlySet<string> = new Set([
+  "no_capacity", "unplaceable", "forbidden", "price_above_cap", "spec_mismatch", "rate_limited", "transient",
+  "invalid_request", "insufficient_funds", "auth", "not_found", "outcome_unknown", "unknown",
+]);
+
+/**
+ * What a failed launch tells the driver: the pod it left behind (to clean up), whether a pod may
+ * exist that nobody can name (outcome unknown), and the report's launchError. It never throws,
+ * and it secures the pod id before touching anything else: the kind comes next, and the
+ * diagnostics (status, drift, command shape) last, each read once in its own try, so an
+ * unreadable diagnostic can only lose itself, never the cleanup. Anything that isn't a
+ * ProviderError with a known kind is a driver error whose outcome is unknown (exposure).
+ */
+export function launchFailure(e: unknown): {
+  left: string | null;
+  outcomeUnknown: boolean;
+  launchError: NonNullable<ProbeReport["launchError"]>;
+} {
+  const driverError = { kind: "driver-error" as const, httpStatus: null, drift: null, commandShape: null };
+  let left: string | null = null;
+  let err: ProviderError;
+  try {
+    if (!(e instanceof ProviderError)) return { left: null, outcomeUnknown: true, launchError: driverError };
+    err = e;
+    const id: unknown = err.providerMachineId;
+    left = typeof id === "string" && id !== "" ? id : null;
+  } catch {
+    return { left: null, outcomeUnknown: true, launchError: driverError };
+  }
+  let kind: unknown;
+  try {
+    kind = err.kind;
+  } catch {
+    return { left, outcomeUnknown: true, launchError: driverError };
+  }
+  if (typeof kind !== "string" || !LAUNCH_ERROR_KINDS.has(kind)) return { left, outcomeUnknown: true, launchError: driverError };
+  const read = (get: () => unknown): unknown => {
+    try {
+      return get();
+    } catch {
+      return null;
+    }
+  };
+  const status = read(() => err.httpStatus);
+  const drift = read(() => err.drift);
+  const shape = read(() => err.commandShape);
+  return {
+    left,
+    outcomeUnknown: kind === "outcome_unknown",
+    launchError: {
+      kind: kind as ProviderErrorKind,
+      httpStatus: typeof status === "number" && Number.isSafeInteger(status) && status >= 100 && status <= 599 ? status : null,
+      drift: reportableDrift(drift as unknown[] | null),
+      commandShape: reportableCommandShape(shape),
+    },
+  };
 }
 
 /**
@@ -434,19 +562,16 @@ export async function runEradicationProbe(
     rate = Math.max(rate, launched.status.providerCostPerHour ?? rate);
   } catch (e) {
     report.aborts.push("launch-failed");
-    report.launchError =
-      e instanceof ProviderError
-        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift) }
-        : { kind: "driver-error", httpStatus: null, drift: null };
+    const { left, outcomeUnknown, launchError } = launchFailure(e);
+    report.launchError = launchError;
     // A failed launch may still have left a pod. With its id: clean it up.
-    const left = e instanceof ProviderError ? e.providerMachineId : null;
     if (left !== null) {
       report.providerMachineId = left;
       return finish(left);
     }
     // Without one, if the create request may have gone through (a lost response, a search
     // that didn't finish, anything unexpected), a pod may exist that we can't name: say so.
-    if (!(e instanceof ProviderError) || e.kind === "outcome_unknown") {
+    if (outcomeUnknown) {
       report.terminatedConfirmed = false;
       report.exposure = { providerMachineId: null, machineName: machineName(plan.spec.machineId), ratePerHour: rate };
     }

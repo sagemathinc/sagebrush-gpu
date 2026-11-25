@@ -287,6 +287,20 @@ test("a rejected pod's error says where it drifted, in fixed words, never with R
       JSON.stringify(change),
     );
   }
+  // A command drift also says how RunPod reported the command, never its text.
+  const c = adapter([{ status: 201, body: { ...POD, entrypoint: ["/bin/sh", "-c", "MARKER"], cmd: null } }]);
+  await assert.rejects(c.a.launch(spec), (e: unknown) => {
+    if (!(e instanceof ProviderError) || e.commandShape === null) return false;
+    assert.deepEqual(e.commandShape.entrypoint, { kind: "array", length: 3 });
+    assert.deepEqual(e.commandShape.cmd, { kind: "null", length: null });
+    assert.deepEqual(e.commandShape.entrypointItems.map((i) => i.matches), [true, true, false]);
+    assert.equal(e.commandShape.entrypointCmdMatches, false);
+    assert.ok(!JSON.stringify(e.commandShape).includes("MARKER"));
+    return true;
+  });
+  // Other drift carries no command shape.
+  const p = adapter([{ status: 201, body: { ...POD, ports: ["22/tcp"] } }]);
+  await assert.rejects(p.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.commandShape === null && e.drift !== null);
   // Errors that aren't about drift carry none.
   const { a } = adapter([{ status: 400, body: "no capacity" }]);
   await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.drift === null);

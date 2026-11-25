@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { driftMarkers, expectedSpec, isDriftMarker, specDrift } from "./drift.ts";
+import { commandShape, driftMarkers, expectedSpec, fieldShape, isDriftMarker, specDrift } from "./drift.ts";
 import type { AdapterInfo, LaunchSpec, ProviderMachineStatus } from "./types.ts";
 
 const info: AdapterInfo = { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootTokenEnv: "SBGPU_BOOT_TOKEN" };
@@ -160,4 +160,49 @@ test("isDriftMarker accepts exactly what driftMarkers can produce", () => {
   }
   assert.equal(isDriftMarker("unexpectedSettings:ssh:proxy:other"), true);
   assert.deepEqual(driftMarkers([d("unexpectedSettings")], { ...clean, unexpectedSettings: ["a:b:c:d", "a:b:c"] }), ["unexpectedSettings:other", "unexpectedSettings:other:other:other"]);
+});
+
+test("fieldShape gives a field's form and size, never its value", () => {
+  assert.deepEqual(fieldShape(undefined), { kind: "absent", length: null });
+  assert.deepEqual(fieldShape(null), { kind: "null", length: null });
+  assert.deepEqual(fieldShape("abc"), { kind: "string", length: 3 });
+  assert.deepEqual(fieldShape(""), { kind: "string", length: 0 });
+  assert.deepEqual(fieldShape([1, 2]), { kind: "array", length: 2 });
+  assert.deepEqual(fieldShape(0), { kind: "number", length: null });
+  assert.deepEqual(fieldShape(false), { kind: "boolean", length: null });
+  assert.deepEqual(fieldShape({ a: 1 }), { kind: "object", length: null });
+});
+
+test("commandShape compares a provider's command fields with the launcher, without their text", () => {
+  const launcher = ["/bin/sh", "-c", "script MARKER"];
+  const same = commandShape({ entrypoint: [...launcher], cmd: [] }, launcher);
+  assert.deepEqual(same, {
+    entrypoint: { kind: "array", length: 3 }, cmd: { kind: "array", length: 0 }, args: { kind: "absent", length: null },
+    entrypointItems: [{ length: 7, matches: true, commonPrefix: 7 }, { length: 2, matches: true, commonPrefix: 2 }, { length: 13, matches: true, commonPrefix: 13 }],
+    entrypointCmdMatches: true, joinedMatches: false,
+  });
+  // A split between entrypoint and cmd still matches as a whole.
+  assert.equal(commandShape({ entrypoint: ["/bin/sh"], cmd: ["-c", "script MARKER"] }, launcher).entrypointCmdMatches, true);
+  // cmd missing or null: no whole match, but the items still say which agree.
+  const nullCmd = commandShape({ entrypoint: [...launcher], cmd: null }, launcher);
+  assert.equal(nullCmd.entrypointCmdMatches, false);
+  assert.deepEqual(nullCmd.cmd, { kind: "null", length: null });
+  assert.ok(nullCmd.entrypointItems.every((i) => i.matches));
+  // An altered script: where the two first differ, not how.
+  const altered = commandShape({ entrypoint: ["/bin/sh", "-c", "script MARKEX trailing"], cmd: [] }, launcher);
+  assert.deepEqual(altered.entrypointItems[2], { length: 22, matches: false, commonPrefix: 12 });
+  assert.equal(altered.entrypointCmdMatches, false);
+  // A joined string, as entrypoint or as args.
+  assert.equal(commandShape({ entrypoint: launcher.join(" ") }, launcher).joinedMatches, true);
+  assert.equal(commandShape({ args: launcher.join(" ") }, launcher).joinedMatches, true);
+  assert.equal(commandShape({ args: launcher.join("  ") }, launcher).joinedMatches, false);
+  // Non-string items, extra items, and at most 8 items described.
+  const odd = commandShape({ entrypoint: ["/bin/sh", 5, "-c", "x", "a", "b", "c", "d", "e", "f"], cmd: [] }, launcher);
+  assert.equal(odd.entrypointItems.length, 8);
+  assert.deepEqual(odd.entrypointItems[1], { length: null, matches: false, commonPrefix: 0 });
+  assert.deepEqual(odd.entrypointItems[3], { length: 1, matches: false, commonPrefix: 0 });
+  assert.equal(odd.entrypointCmdMatches, false);
+  assert.equal(commandShape({ entrypoint: [...launcher, "extra"], cmd: [] }, launcher).entrypointCmdMatches, false);
+  assert.equal(commandShape({ entrypoint: launcher.slice(0, 2), cmd: [] }, launcher).entrypointCmdMatches, false);
+  for (const s of [same, altered, odd]) assert.ok(!JSON.stringify(s).includes("MARKER"));
 });
