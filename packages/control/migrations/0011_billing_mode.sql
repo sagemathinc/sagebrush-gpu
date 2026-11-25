@@ -19,6 +19,24 @@ BEGIN
   SELECT RAISE(ABORT, 'an organization''s billing mode is fixed');
 END;
 
+-- Nothing crosses between billing modes: a project moves only between organizations of the
+-- same mode, and a machine only between projects whose organizations share it (whatever the
+-- margins or accruals; a supervised transfer is a later step).
+CREATE TRIGGER projects_billing_mode_move BEFORE UPDATE OF org_id ON projects
+WHEN NEW.org_id IS NOT OLD.org_id
+  AND (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) IS NOT (SELECT billing_mode FROM orgs WHERE id = OLD.org_id)
+BEGIN
+  SELECT RAISE(ABORT, 'a project moves only between organizations of the same billing mode');
+END;
+
+CREATE TRIGGER machines_billing_mode_move BEFORE UPDATE OF project_id ON machines
+WHEN NEW.project_id IS NOT OLD.project_id
+  AND (SELECT o.billing_mode FROM projects p JOIN orgs o ON o.id = p.org_id WHERE p.id = NEW.project_id)
+    IS NOT (SELECT o.billing_mode FROM projects p JOIN orgs o ON o.id = p.org_id WHERE p.id = OLD.project_id)
+BEGIN
+  SELECT RAISE(ABORT, 'a machine moves only between projects of the same billing mode');
+END;
+
 -- byok runs at margin 0: the org's margin, its projects' overrides and every pinned accrual
 CREATE TRIGGER orgs_byok_margin_insert BEFORE INSERT ON orgs
 WHEN NEW.billing_mode IS 'byok' AND NEW.margin_bps <> 0
@@ -38,7 +56,7 @@ BEGIN
   SELECT RAISE(ABORT, 'only a resold organization''s projects have a margin');
 END;
 
-CREATE TRIGGER projects_byok_margin_update BEFORE UPDATE OF margin_bps_override, org_id ON projects
+CREATE TRIGGER projects_byok_margin_update BEFORE UPDATE OF margin_bps_override ON projects
 WHEN COALESCE(NEW.margin_bps_override, 0) <> 0 AND (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) IS NOT 'resold'
 BEGIN
   SELECT RAISE(ABORT, 'only a resold organization''s projects have a margin');

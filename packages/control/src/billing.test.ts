@@ -96,7 +96,46 @@ test("schema: byok runs at margin 0, for the org, its projects and every accrual
   // a project moved into a byok org can't take its margin along
   const moved = newId("project");
   await db.batch([project(moved, r.orgId, 900)]);
-  await assert.rejects(db.batch([stmt(`UPDATE projects SET org_id = ? WHERE id = ?`, b.orgId, moved)]), /resold organization's projects/);
+  await assert.rejects(db.batch([stmt(`UPDATE projects SET org_id = ? WHERE id = ?`, b.orgId, moved)]), /same billing mode/);
+});
+
+test("schema: nothing moves between billing modes, whatever its margins or accruals", async () => {
+  const db = sqliteDb();
+  const move = (projectId: string, orgId: string) => db.batch([stmt(`UPDATE projects SET org_id = ? WHERE id = ?`, orgId, projectId)]);
+  const mode = async (machineId: string) =>
+    (await db.all<{ m: string }>(`SELECT o.billing_mode AS m FROM machines x JOIN projects p ON p.id = x.project_id JOIN orgs o ON o.id = p.org_id WHERE x.id = ?`, [machineId]))[0]!.m;
+  // resold to byok, margin 0 on the project but a live accrual at margin 500: refused
+  const r = await machineIn(db, "resold");
+  await db.batch([accrue(r.machineId, 500)]);
+  const b = await machineIn(db, "byok");
+  await assert.rejects(move(r.projectId, b.orgId), /same billing mode/);
+  assert.equal(await mode(r.machineId), "resold");
+  assert.equal((await credentialForMachine(db, r.machineId, "shadeform")).use, "ours");
+  // ... and without any accrual or margin: still refused
+  const bare = newId("project");
+  await db.batch([project(bare, r.orgId)]);
+  await assert.rejects(move(bare, b.orgId), /same billing mode/);
+  // byok to resold: refused
+  await assert.rejects(move(b.projectId, r.orgId), /same billing mode/);
+  assert.equal(await mode(b.machineId), "byok");
+  // same mode: unchanged (a resold project with its live accrual and margin moves to another resold org)
+  const r2 = await machineIn(db, "resold");
+  await move(r.projectId, r2.orgId);
+  assert.equal(await mode(r.machineId), "resold");
+  const b2 = await machineIn(db, "byok");
+  await move(b.projectId, b2.orgId);
+  // a machine moving to a project of the other mode: refused; to one of the same mode: allowed
+  const toProject = async (machineId: string, projectId: string) => {
+    const a = newId("allocation");
+    await db.batch([stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_y', 0, ?)`, a, projectId, T0)]);
+    return db.batch([stmt(`UPDATE machines SET project_id = ?, allocation_id = ? WHERE id = ?`, projectId, a, machineId)]);
+  };
+  await assert.rejects(toProject(r2.machineId, b2.projectId), /same billing mode/);
+  await assert.rejects(toProject(b2.machineId, r2.projectId), /same billing mode/);
+  await toProject(r2.machineId, r.projectId);
+  assert.equal(await mode(r2.machineId), "resold");
+  // an update that leaves the org or project alone isn't a move
+  await db.batch([stmt(`UPDATE projects SET org_id = org_id, name = 'Q' WHERE id = ?`, b.projectId), stmt(`UPDATE machines SET project_id = project_id WHERE id = ?`, b.machineId)]);
 });
 
 test("0011 makes every existing org resold", async () => {
