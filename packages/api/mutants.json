@@ -623,5 +623,126 @@
   "old": "${b64urlEncode(enc.encode(payload))}",
   "new": "${b64urlEncode(enc.encode(JSON.stringify(claims)))}",
   "note": "jws: sign re-serializes after the check"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "v < lo || v > hi)",
+  "new": "v <= lo || v > hi)"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "v < lo || v > hi)",
+  "new": "v < lo || v >= hi)"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "!Number.isSafeInteger(v) || v < lo",
+  "new": "v < lo"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (typeof v !== \"number\" || !Number.isSafeInteger(v)",
+  "new": "if (!Number.isSafeInteger(Number(v))"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "&& Object.getPrototypeOf(x) === Object.prototype;",
+  "new": ";"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (!Array.isArray(x) || x.length > max || !x.every(each)) return null;",
+  "new": "if (!Array.isArray(x) || x.length > max + 1 || !x.every(each)) return null;"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (!Array.isArray(x) || x.length > max || !x.every(each)) return null;",
+  "new": "if (!Array.isArray(x) || x.length > max) return null;"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "return new Set(x).size === x.length ? (x as T[]) : null;",
+  "new": "return x as T[];"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (!POLICY_KEYS.has(k as keyof ProjectPolicy)) return",
+  "new": "if (false) return"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "distinctList(v, PROVIDER_IDS.length, isProviderId)",
+  "new": "distinctList(v, PROVIDER_IDS.length - 1, isProviderId)"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "!(LOCALITY_PRESETS as readonly string[]).includes(v)",
+  "new": "false"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (v !== null && !distinctList(v, MAX_POLICY_LIST, isCountry))",
+  "new": "if (!distinctList(v, MAX_POLICY_LIST, isCountry))"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "typeof c === \"string\" && COUNTRY.test(c)",
+  "new": "typeof c === \"string\""
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "const COUNTRY = /^[A-Z]{2}$/;",
+  "new": "const COUNTRY = /[A-Z]{2}/;"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "(typeof v !== \"string\" || v.length > MAX_SETUP_SCRIPT_LENGTH)",
+  "new": "(typeof v !== \"string\" || v.length >= MAX_SETUP_SCRIPT_LENGTH)"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "(typeof v !== \"string\" || v.length > MAX_SETUP_SCRIPT_LENGTH)",
+  "new": "(v.length > MAX_SETUP_SCRIPT_LENGTH)"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (v !== null && (typeof v !== \"string\"",
+  "new": "if ((typeof v !== \"string\""
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "return { ...base, ...patch };",
+  "new": "return { ...patch, ...base };"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (x === null) return { ok: true, value: null };",
+  "new": ""
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "if (Object.keys(x).length !== LABEL_KEYS.length) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "v.length < 1 || ",
+  "new": ""
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "v.length > MAX_LABEL_LENGTH ||",
+  "new": "v.length >= MAX_LABEL_LENGTH ||"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": " || v.trim() !== v) {",
+  "new": ") {"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "maxMachinesPerMember: [0, 16],",
+  "new": "maxMachinesPerMember: [0, 17],",
+  "note": "the bounds are part of the contract, pinned by a literal"
  }
 ]

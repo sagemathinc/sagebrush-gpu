@@ -13,6 +13,7 @@ export const ID_PREFIXES = {
   ledgerEntry: "led",
   snapshot: "snp",
   command: "cmd",
+  creditEvent: "cre",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
@@ -27,6 +28,7 @@ export type MachineId = string;
 export type LedgerEntryId = string;
 export type SnapshotId = string;
 export type CommandId = string;
+export type CreditEventId = string;
 
 export const ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"; // Crockford base 32, lowercase
 export const ID_RANDOM_LENGTH = 20; // 100 bits

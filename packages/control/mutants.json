@@ -1230,5 +1230,273 @@
   "file": "src/teams.ts",
   "old": "    await batch(db, [\n      live(team),\n      { sql: `UPDATE allocations SET amount = ?",
   "new": "    await batch(db, [\n      { sql: `UPDATE allocations SET amount = ?"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": ")) allocated.set(a.project_id, a.n);",
+  "new": ")) allocated.set(a.project_id, 0);"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "spent.set(s.project_id, { p: s.p, m: s.m, t: s.t });",
+  "new": "spent.set(s.project_id, { p: s.p, m: s.p, t: s.t });"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "labels: r.labels_json === null ? null : (JSON.parse(r.labels_json) as ProjectLabels),",
+  "new": "labels: null,"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": ", finalSaveReserveMinutes: r.final_save_reserve_minutes };",
+  "new": " };",
+  "note": "the reserve comes from its column"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (msg.includes(\"unassigned_credit\")) throw",
+  "new": "if (msg.includes(\"no such message\")) throw"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (msg.includes(\"over-allocation\")) throw",
+  "new": "if (msg.includes(\"no such message\")) throw"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (msg.includes(\"budget BETWEEN\")) throw",
+  "new": "if (msg.includes(\"no such message\")) throw"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "const name = x.trim();",
+  "new": "const name = x;"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "name.length > MAX_PROJECT_NAME_LENGTH)",
+  "new": "name.length >= MAX_PROJECT_NAME_LENGTH)"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "name.length < 1 ||",
+  "new": ""
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (k === \"finalSaveReserveMinutes\") continue;",
+  "new": ""
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (JSON.stringify(v) !== JSON.stringify((DEFAULT_POLICY as Record<string, unknown>)[k])) out[k] = v;",
+  "new": "out[k] = v;"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (!Number.isSafeInteger(amount) || amount < 1) throw new RangeError",
+  "new": "if (!Number.isSafeInteger(amount) || amount < 0) throw new RangeError"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "reference.length > MAX_CREDIT_REFERENCE_LENGTH) throw",
+  "new": "reference.length > MAX_CREDIT_REFERENCE_LENGTH + 1) throw"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "reference.length < 1 ||",
+  "new": ""
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (exists[0]?.n !== 1) throw new RangeError(\"no such organization\");",
+  "new": ""
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "unassigned_credit = unassigned_credit + ?, total_credit = total_credit + ?",
+  "new": "unassigned_credit = unassigned_credit + ?, total_credit = total_credit + ? - ?"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "rows.length > PROJECTS_PAGE_SIZE ?",
+  "new": "rows.length >= PROJECTS_PAGE_SIZE ?"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "WHERE org_id = ? AND id > ? ORDER BY id",
+  "new": "WHERE org_id = ? AND id >= ? ORDER BY id"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "WHERE org_id = ? AND id > ? ORDER BY id",
+  "new": "WHERE id > ? ORDER BY id",
+  "note": "drops the org filter (and shifts the parameters)"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "    if (!(ends > starts)) throw new HttpError(\"badRequest\", \"endsAt must be after startsAt\");\n    const budget = b.budget;",
+  "new": "    if (!(ends >= starts)) throw new HttpError(\"badRequest\", \"endsAt must be after startsAt\");\n    const budget = b.budget;"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (!isNonNegativeMicros(budget)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "{ sql: `UPDATE orgs SET unassigned_credit = unassigned_credit - ? WHERE id = ?`, params: [budget, orgId] },",
+  "new": "",
+  "note": "the budget isn't taken from the org"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "    if (budget > 0) {",
+  "new": "    if (budget >= 0) {"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "const lab = b.labels === undefined ? null : labels(b.labels);",
+  "new": "const lab = null;"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "    const ends = b.endsAt === undefined ? p.ends_ms : time(b.endsAt, \"endsAt\");\n    if (!(ends > starts))",
+  "new": "    const ends = b.endsAt === undefined ? p.ends_ms : time(b.endsAt, \"endsAt\");\n    if (!(ends >= starts))"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "const name = b.name === undefined ? p.name : projectName(b.name);",
+  "new": "const name = b.name === undefined ? p.name : String(b.name);"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "const policy = b.policy === undefined ? policyOf(p) : mergePolicy(policyOf(p), policyPatch(b.policy));",
+  "new": "const policy = b.policy === undefined ? policyOf(p) : mergePolicy(DEFAULT_POLICY, policyPatch(b.policy));"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "const lab = b.labels === undefined ? p.labels_json : (() => {",
+  "new": "const lab = b.labels === undefined ? null : (() => {"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "if (org[0]?.role !== \"owner\") throw",
+  "new": "if (!org[0]) throw"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "[p.org_id, ctx.userId]);",
+  "new": "[p.org_id, ctx.userId]);\n    if (org.length === 0) return json(200, {});",
+  "note": "a sanity mutant: a non-member slipping through"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "|| amount === 0) {",
+  "new": ") {"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "amount > 0 ? \"to_project\" : \"from_project\", Math.abs(amount)",
+  "new": "amount > 0 ? \"from_project\" : \"to_project\", Math.abs(amount)"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "amount > 0 ? \"to_project\" : \"from_project\", Math.abs(amount)",
+  "new": "amount > 0 ? \"to_project\" : \"from_project\", amount"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "{ sql: `UPDATE orgs SET unassigned_credit = unassigned_credit - ? WHERE id = ?`, params: [amount, p.org_id] },",
+  "new": ""
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "typeof amount !== \"number\" || !Number.isSafeInteger(amount)",
+  "new": "typeof amount !== \"number\""
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "CHECK ((kind = 'credit') = (project_id IS NULL))",
+  "new": "CHECK (1)"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "CHECK ((kind = 'credit') = (reference IS NOT NULL))",
+  "new": "CHECK (1)"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "CHECK (json_valid(policy_json) AND json_type(policy_json) = 'object' AND",
+  "new": "CHECK (json_valid(policy_json) AND"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "(json_valid(labels_json) AND json_type(labels_json) = 'object' AND",
+  "new": "(json_valid(labels_json) AND"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "FROM projects GROUP BY org_id)) > 9007199254740991",
+  "new": "FROM projects GROUP BY org_id)) > 9007199254740992"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "  THEN json('refused: an organization''s project budgets add up past the safe range')",
+  "new": "  THEN 1",
+  "note": "no guard: the later CHECK fails after the DDL has run"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "MIN(created_ms)\n  FROM projects WHERE budget > 0 GROUP BY org_id;",
+  "new": "MAX(created_ms)\n  FROM projects WHERE budget > 0 GROUP BY org_id;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "MIN(created_ms)\n  FROM projects WHERE budget > 0 GROUP BY org_id;",
+  "new": "MIN(created_ms)\n  FROM projects GROUP BY org_id;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "created_ms\n  FROM projects WHERE budget > 0;",
+  "new": "created_ms\n  FROM projects WHERE budget > 1000;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "UPDATE orgs SET total_credit = (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = orgs.id);",
+  "new": ""
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "UPDATE orgs SET total_credit = (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = orgs.id);",
+  "new": "UPDATE orgs SET total_credit = (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = orgs.id), unassigned_credit = 1;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "'opening balance: project budgets before credit accounting'",
+  "new": "'opening'"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'credit'",
+  "new": "SELECT 'cre_' || substr(org_id, 5), org_id, 'credit'",
+  "note": "derived ids: an org's and a project's meet"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'to_project'",
+  "new": "SELECT 'cre_' || substr(id, 5), org_id, 'to_project'"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'to_project'",
+  "new": "SELECT 'cre_' || hex(randomblob(10)), org_id, 'to_project'",
+  "note": "upper case: not an id"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'credit'",
+  "new": "SELECT 'cre_' || lower(hex(randomblob(9))), org_id, 'credit'",
+  "note": "18 digits: not an id"
  }
 ]
