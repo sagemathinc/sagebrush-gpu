@@ -7,6 +7,7 @@ import { newId } from "@sbgpu/api";
 import { DEFAULT_CONFIG, HANDLERS, createApp, type AppDeps, type Handlers } from "../app.ts";
 import { stmt } from "../db.ts";
 import { sqliteDb, type TestDb } from "./sqlite.ts";
+import type { DatabaseSync } from "node:sqlite";
 
 export const ORIGIN = "https://gpu.example.test";
 export const T0 = Date.UTC(2027, 1, 1, 9, 0, 0);
@@ -22,8 +23,8 @@ export interface World {
   projectId: string;
 }
 
-export async function world(o: { handlers?: Handlers; budget?: number } = {}): Promise<World> {
-  const db = sqliteDb();
+export async function world(o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void } } = {}): Promise<World> {
+  const db = sqliteDb(o.upgrade ? { upgrade: o.upgrade } : {});
   const mail: Array<{ email: string; url: string }> = [];
   const pending: Promise<unknown>[] = [];
   const clock = { t: T0 };
@@ -49,12 +50,20 @@ export async function world(o: { handlers?: Handlers; budget?: number } = {}): P
   };
   const orgId = newId("org");
   const projectId = newId("project");
+  // (the seed project's budget is funded the way the API funds one: credit to the org, moved to the project)
+  const budget = o.budget ?? 1_000_000_000;
   await db.batch([
-    stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'Org', 3000, ?)`, orgId, T0),
+    stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms, total_credit) VALUES (?, 'Org', 3000, ?, ?)`, orgId, T0, budget),
     stmt(
       `INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj', ?, ?, ?, ?)`,
-      projectId, orgId, T0, T0 + 86_400_000, o.budget ?? 1_000_000_000, T0,
+      projectId, orgId, T0, T0 + 86_400_000, budget, T0,
     ),
+    ...(budget > 0
+      ? [
+          stmt(`INSERT INTO credit_events (id, org_id, kind, amount, reference, created_ms) VALUES (?, ?, 'credit', ?, 'seed', ?)`, newId("creditEvent"), orgId, budget, T0),
+          stmt(`INSERT INTO credit_events (id, org_id, kind, amount, project_id, created_ms) VALUES (?, ?, 'to_project', ?, ?, ?)`, newId("creditEvent"), orgId, budget, projectId, T0),
+        ]
+      : []),
   ]);
   return { db, pending, deps, mail, clock, app: createApp(deps, o.handlers ? { ...HANDLERS, ...o.handlers } : HANDLERS), orgId, projectId };
 }

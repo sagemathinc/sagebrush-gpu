@@ -18,12 +18,23 @@ export interface TestDb extends Db {
   raw: DatabaseSync;
 }
 
-export function sqliteDb(): TestDb {
+/**
+ * A fresh database with every migration applied. `upgrade` tests a migration over existing
+ * data: the files before `upgrade.at` (a file name prefix such as "0006") are applied, then
+ * `seed` runs on that older schema, then the rest.
+ */
+export function sqliteDb(o: { upgrade?: { at: string; seed(raw: DatabaseSync): void } } = {}): TestDb {
   const raw = new DatabaseSync(":memory:", { limits: { variableNumber: D1_MAX_VARIABLES } });
   raw.exec("PRAGMA foreign_keys = ON");
+  let seeded = false;
   for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort()) {
+    if (o.upgrade && !seeded && f >= o.upgrade.at) {
+      o.upgrade.seed(raw);
+      seeded = true;
+    }
     raw.exec(readFileSync(join(MIGRATIONS_DIR, f), "utf8"));
   }
+  if (o.upgrade && !seeded) throw new Error(`no migration at or after ${o.upgrade.at}`);
   return {
     raw,
     async all<T>(sql: string, params: SqlValue[] = []) {

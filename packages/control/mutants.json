@@ -1434,5 +1434,46 @@
   "file": "migrations/0006_projects.sql",
   "old": "(json_valid(labels_json) AND json_type(labels_json) = 'object' AND",
   "new": "(json_valid(labels_json) AND"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "FROM projects GROUP BY org_id)) > 9007199254740991",
+  "new": "FROM projects GROUP BY org_id)) > 9007199254740992"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "  THEN json('refused: an organization''s project budgets add up past the safe range')",
+  "new": "  THEN 1",
+  "note": "no guard: the later CHECK fails after the DDL has run"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "MIN(created_ms)\n  FROM projects WHERE budget > 0 GROUP BY org_id;",
+  "new": "MAX(created_ms)\n  FROM projects WHERE budget > 0 GROUP BY org_id;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "MIN(created_ms)\n  FROM projects WHERE budget > 0 GROUP BY org_id;",
+  "new": "MIN(created_ms)\n  FROM projects GROUP BY org_id;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "created_ms\n  FROM projects WHERE budget > 0;",
+  "new": "created_ms\n  FROM projects WHERE budget > 1000;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "UPDATE orgs SET total_credit = (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = orgs.id);",
+  "new": ""
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "UPDATE orgs SET total_credit = (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = orgs.id);",
+  "new": "UPDATE orgs SET total_credit = (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = orgs.id), unassigned_credit = 1;"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "'opening balance: project budgets before credit accounting'",
+  "new": "'opening'"
  }
 ]

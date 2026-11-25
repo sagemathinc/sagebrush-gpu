@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_POLICY, newId, type Organization, type Project } from "@sbgpu/api";
+import { DEFAULT_POLICY, isId, newId, type Organization, type Project } from "@sbgpu/api";
+import type { DatabaseSync } from "node:sqlite";
+import { sqliteDb } from "./testing/sqlite.ts";
 import { PROJECTS_PAGE_SIZE, addOrgCredit } from "./projects.ts";
 import { stmt } from "./db.ts";
 import { T0, addMember, call, code, person, signIn, world, type World } from "./testing/world.ts";
@@ -10,24 +12,39 @@ const ISO = (ms: number) => new Date(ms).toISOString();
 const START = ISO(T0);
 const END = ISO(T0 + 86_400_000);
 
-async function orgOwner(w: World, email = "owner@example.com"): Promise<string> {
+async function orgOwner(w: World, email = "owner@example.com", orgId = w.orgId): Promise<string> {
   const p = await person(w, email, "member");
-  await w.db.batch([stmt(`INSERT INTO org_members (org_id, user_id, role) SELECT ?, user_id, 'owner' FROM members WHERE id = ?`, w.orgId, p.memberId)]);
+  await w.db.batch([stmt(`INSERT INTO org_members (org_id, user_id, role) SELECT ?, user_id, 'owner' FROM members WHERE id = ?`, orgId, p.memberId)]);
   return p.cookie;
 }
 
-async function orgRow(w: World) {
-  return { ...(await w.db.all<{ u: number; t: number }>(`SELECT unassigned_credit AS u, total_credit AS t FROM orgs WHERE id = ?`, [w.orgId]))[0]! };
+async function orgRow(w: World, orgId = w.orgId) {
+  return { ...(await w.db.all<{ u: number; t: number }>(`SELECT unassigned_credit AS u, total_credit AS t FROM orgs WHERE id = ?`, [orgId]))[0]! };
 }
 
-/** total credit = unassigned + every project's budget (the world's seed project starts with its own budget, so it's left out). */
-async function balanced(w: World, exclude: string[] = []) {
-  const o = await orgRow(w);
-  const b = await w.db.all<{ s: number | null }>(
-    `SELECT SUM(budget) AS s FROM projects WHERE org_id = ? AND id NOT IN (${exclude.map(() => "?").join(",") || "''"})`,
-    [w.orgId, ...exclude],
-  );
-  return o.t === o.u + (b[0]!.s ?? 0);
+/**
+ * Every organization's and project's balances agree with the credit events, the whole
+ * database, nothing excluded: total = the credits; unassigned + the projects' budgets =
+ * total; each budget = its moves in less its moves out.
+ */
+async function audit(db: World["db"]) {
+  const orgs = await db.all<{ id: string; u: number; t: number; credit: number; moved: number; budgets: number }>(`
+    SELECT o.id, o.unassigned_credit AS u, o.total_credit AS t,
+      (SELECT COALESCE(SUM(amount), 0) FROM credit_events WHERE org_id = o.id AND kind = 'credit') AS credit,
+      (SELECT COALESCE(SUM(CASE kind WHEN 'to_project' THEN amount WHEN 'from_project' THEN -amount ELSE 0 END), 0) FROM credit_events WHERE org_id = o.id) AS moved,
+      (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = o.id) AS budgets
+    FROM orgs o`);
+  for (const o of orgs) {
+    assert.equal(o.t, o.credit, `org ${o.id}: total vs credits`);
+    assert.equal(o.u + o.budgets, o.t, `org ${o.id}: unassigned + budgets vs total`);
+    assert.equal(o.u, o.credit - o.moved, `org ${o.id}: unassigned vs events`);
+  }
+  const projects = await db.all<{ id: string; budget: number; moved: number }>(`
+    SELECT p.id, p.budget,
+      (SELECT COALESCE(SUM(CASE kind WHEN 'to_project' THEN amount ELSE -amount END), 0) FROM credit_events WHERE project_id = p.id) AS moved
+    FROM projects p`);
+  for (const p of projects) assert.equal(p.budget, p.moved, `project ${p.id}: budget vs events`);
+  return orgs.length;
 }
 
 const create = (w: World, cookie: string, body: Record<string, unknown>) =>
@@ -78,7 +95,7 @@ test("createProject: the budget comes out of unassigned credit, in one step", as
   assert.deepEqual(p.policy, { ...DEFAULT_POLICY, allowedGpuTypes: ["L4"], finalSaveReserveMinutes: 15 });
   assert.equal(p.labels?.member, "Student");
   assert.deepEqual(await orgRow(w), { u: 6_000, t: 10_000 });
-  assert.ok(await balanced(w, [w.projectId]));
+  await audit(w.db);
   // only what differs from the defaults is stored; the reserve lives in its column
   const row = await w.db.all<{ policy_json: string; f: number }>(`SELECT policy_json, final_save_reserve_minutes AS f FROM projects WHERE id = ?`, [p.id]);
   assert.deepEqual([JSON.parse(row[0]!.policy_json), row[0]!.f], [{ allowedGpuTypes: ["L4"] }, 15]);
@@ -132,7 +149,7 @@ test("two concurrent creates that each fit the credit alone but not together: ex
   const [a, b] = await Promise.all([create(w, own, { name: "A", budget: 700 }), create(w, own, { name: "B", budget: 700 })]);
   assert.deepEqual([code(a!), code(b!)].sort(), ["conflict", "ok"]);
   assert.deepEqual(await orgRow(w), { u: 300, t: 1000 });
-  assert.ok(await balanced(w, [w.projectId]));
+  await audit(w.db);
 });
 
 test("getProject: allocated and spent from the project's allocations and ledger", async () => {
@@ -200,7 +217,7 @@ test("moveProjectBudget: only an org owner moves credit, both ways, never below 
   r = await move(own, -200);
   assert.equal((r.json as unknown as Project).budget, 500);
   assert.deepEqual(await orgRow(w), { u: 500, t: 1000 });
-  assert.ok(await balanced(w, [w.projectId]));
+  await audit(w.db);
   // too much either way: a conflict, nothing moves
   assert.equal(code(await move(own, 501)), "conflict");
   assert.equal(code(await move(own, -501)), "conflict");
@@ -221,7 +238,7 @@ test("moveProjectBudget: only an org owner moves credit, both ways, never below 
   assert.equal(code(await move(poCookie, 1)), "forbidden");
   const ev = await w.db.all<{ kind: string; amount: number }>(`SELECT kind, amount FROM credit_events WHERE project_id = ? ORDER BY rowid`, [p.id]);
   assert.deepEqual(ev.map((e) => [e.kind, e.amount]), [["to_project", 400], ["to_project", 300], ["from_project", 200], ["from_project", 50]]);
-  assert.ok(await balanced(w, [w.projectId]));
+  await audit(w.db);
 });
 
 test("two concurrent moves that each fit but not together: exactly one conflict", async () => {
@@ -284,4 +301,94 @@ test("schema: credit events and stored policy are well-formed, balances never ne
   await assert.rejects(w.db.batch([stmt(`UPDATE projects SET policy_json = 'nope'`)]));
   await assert.rejects(w.db.batch([stmt(`UPDATE projects SET labels_json = '"x"'`)]));
   await w.db.batch([stmt(`UPDATE projects SET labels_json = NULL`)]);
+});
+
+// ---- upgrading: migration 0006 over projects funded before credit accounting
+
+const DAY = 86_400_000;
+const oldOrg = (raw: DatabaseSync, id: string) => raw.prepare(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'Old', 3000, ?)`).run(id, T0);
+const oldProject = (raw: DatabaseSync, orgId: string, budget: number, createdMs = T0) => {
+  const id = newId("project");
+  raw.prepare(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Old', ?, ?, ?, ?)`).run(id, orgId, T0, T0 + DAY, budget, createdMs);
+  return id;
+};
+
+test("0006 opens balances for projects funded before it, with their history, and the API keeps them balanced", async () => {
+  const [A, B, C, D] = [newId("org"), newId("org"), newId("org"), newId("org")];
+  let a1 = "", a3 = "", b1 = "";
+  const w = await world({
+    upgrade: {
+      at: "0006",
+      seed(raw) {
+        for (const o of [A, B, C, D]) oldOrg(raw, o);
+        a1 = oldProject(raw, A, 1000, T0 + 5);
+        oldProject(raw, A, 0, T0 + 1); // (unfunded: no event, and not the opening time)
+        a3 = oldProject(raw, A, 250, T0 + 9);
+        b1 = oldProject(raw, B, 500, T0 + 2);
+        oldProject(raw, D, 0); // C has no projects; D only an unfunded one
+      },
+    },
+  });
+  for (const [o, t] of [[A, 1250], [B, 500], [C, 0], [D, 0]] as const) assert.deepEqual(await orgRow(w, o), { u: 0, t }, o);
+  const ev = await w.db.all<{ id: string; org_id: string; kind: string; amount: number; project_id: string | null; reference: string | null; created_ms: number }>(
+    `SELECT * FROM credit_events WHERE org_id IN (?, ?, ?, ?) ORDER BY org_id, kind, amount`, [A, B, C, D]);
+  const want = [
+    { org_id: A, kind: "credit", amount: 1250, project_id: null, created_ms: T0 + 5 },
+    { org_id: A, kind: "to_project", amount: 250, project_id: a3, created_ms: T0 + 9 },
+    { org_id: A, kind: "to_project", amount: 1000, project_id: a1, created_ms: T0 + 5 },
+    { org_id: B, kind: "credit", amount: 500, project_id: null, created_ms: T0 + 2 },
+    { org_id: B, kind: "to_project", amount: 500, project_id: b1, created_ms: T0 + 2 },
+  ].sort((x, y) => (x.org_id < y.org_id ? -1 : x.org_id > y.org_id ? 1 : 0));
+  assert.deepEqual(ev.map(({ org_id, kind, amount, project_id, created_ms }) => ({ org_id, kind, amount, project_id, created_ms })), want);
+  for (const e of ev) {
+    assert.ok(isId("creditEvent", e.id), e.id);
+    assert.equal(e.reference, e.kind === "credit" ? "opening balance: project budgets before credit accounting" : null);
+  }
+  assert.equal(await audit(w.db), 5); // (the world's own org too)
+  // the API from there: both directions on old projects, a new project, refusals; all balanced
+  const own = await orgOwner(w, "a-owner@example.com", A);
+  const move = (p: string, amount: number) => call(w, "POST", `/v1/projects/${p}/budget`, { cookie: own, body: { amount } });
+  assert.equal(code(await move(a1, -300)), "ok");
+  assert.deepEqual(await orgRow(w, A), { u: 300, t: 1250 });
+  assert.equal(code(await move(a3, 100)), "ok");
+  assert.equal(code(await move(a1, -701)), "conflict"); // (more than its budget)
+  assert.equal(code(await move(a3, 201)), "conflict"); // (more than the unassigned credit)
+  assert.equal(code(await call(w, "POST", `/v1/orgs/${A}/projects`, { cookie: own, body: { name: "New", startsAt: START, endsAt: END, budget: 200 } })), "ok");
+  assert.deepEqual(await orgRow(w, A), { u: 0, t: 1250 });
+  assert.equal(code(await move(b1, -1)), "notFound"); // (another organization's project)
+  await addOrgCredit(w.db, A, 50, "INV-2", T0);
+  assert.equal(code(await move(a1, -700)), "ok");
+  assert.deepEqual(await orgRow(w, A), { u: 750, t: 1300 });
+  await audit(w.db);
+});
+
+test("0006 refuses budgets that add up past the safe range, before changing anything", () => {
+  for (const budgets of [
+    [MAX, 1], // just past the safe range
+    Array.from({ length: 1025 }, () => MAX), // past 2^63: SQLite's own integer overflow
+  ]) {
+    let raw: DatabaseSync | null = null;
+    const org = newId("org");
+    assert.throws(() => sqliteDb({ upgrade: { at: "0006", seed(r) {
+      raw = r;
+      oldOrg(r, org);
+      for (const b of budgets) oldProject(r, org, b);
+    } } }), /malformed JSON|integer overflow/, String(budgets.length));
+    const r = raw as unknown as DatabaseSync;
+    // nothing of 0006 was applied: no new columns, no new table
+    assert.deepEqual((r.prepare(`SELECT name FROM pragma_table_info('orgs') WHERE name LIKE '%credit%'`).all()), []);
+    assert.deepEqual(r.prepare(`SELECT name FROM sqlite_master WHERE name = 'credit_events'`).all(), []);
+  }
+  // exactly the safe range is fine; another organization's budgets don't add to it
+  const org = newId("org");
+  const other = newId("org");
+  const db = sqliteDb({ upgrade: { at: "0006", seed(r) {
+    oldOrg(r, org);
+    oldOrg(r, other);
+    oldProject(r, org, MAX - 1);
+    oldProject(r, org, 1);
+    oldProject(r, other, MAX);
+  } } });
+  const t = db.raw.prepare(`SELECT id, total_credit AS t FROM orgs ORDER BY t`).all().map((x) => ({ ...x }));
+  assert.deepEqual(t.map((x) => x.t), [MAX, MAX]);
 });
