@@ -426,6 +426,9 @@ class SessionsTest(Base):
         self.assertEqual(N._user_pids(v.proc), [700, 701])
         os.makedirs(v.path("proc/self"), exist_ok=True)
         self.assertEqual(N._user_pids(v.proc), [700, 701])  # (non-numeric entries are skipped)
+        real = G._entries
+        self.patch(G, "_entries", lambda path, limit: list(reversed(sorted(real(path, limit)))))
+        self.assertEqual(N._user_pids(v.proc), [700, 701])  # (pid order, whatever order the directory lists)
 
 
 class CommandLimitsTest(Base):

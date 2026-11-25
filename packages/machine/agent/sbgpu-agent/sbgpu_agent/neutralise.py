@@ -158,7 +158,7 @@ def _user_pids(proc):
             raise Failed("sessions")
         if max(uids) >= G.USER_UID_MIN:
             out.append(int(n))
-    return out
+    return sorted(out)  # (in pid order, whatever order the directory lists them)
 
 
 def end_sessions(ops, root, proc):
