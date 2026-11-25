@@ -22,6 +22,9 @@ importers:
       '@sbgpu/api':
         specifier: workspace:*
         version: link:../api
+      '@sbgpu/providers':
+        specifier: workspace:*
+        version: link:../providers
 
   packages/machine:
     dependencies:

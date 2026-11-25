@@ -7,5 +7,6 @@ export * from "./gpus.ts";
 export * from "./placement.ts";
 export * from "./drift.ts";
 export * from "./reconcile.ts";
+export * from "./availability.ts";
 export type { Fetch, HttpRequest, HttpResponse } from "./http.ts";
 export { RunPodAdapter, type RunPodOptions } from "./runpod/adapter.ts";

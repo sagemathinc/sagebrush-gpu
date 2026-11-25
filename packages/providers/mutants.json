@@ -1367,5 +1367,157 @@
   "file": "src/runpod/adapter.ts",
   "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
   "new": "      const kind: ProviderErrorKind = \"outcome_unknown\";"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "check(PROVIDERS.includes(o.provider), \"unknown provider\");",
+  "new": ""
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "check(typeof o.gpuType === \"string\" && isGpuType(o.gpuType), \"unknown GPU type\");",
+  "new": ""
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "check(safeIn(o.gpuCount, 1, MAX_GPU_COUNT), \"bad GPU count\");",
+  "new": "check(safeIn(o.gpuCount, 0, MAX_GPU_COUNT), \"bad GPU count\");"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "/^[A-Za-z0-9._-]{1,64}$/.test(o.dataCenter)",
+  "new": "/^.{1,64}$/.test(o.dataCenter)"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "/^[A-Z]{2}$/.test(o.country)",
+  "new": "/^[A-Za-z]{2}$/.test(o.country)"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "check(safeIn(o.observedMs, 0, nowMs + MAX_CLOCK_SKEW_MS), \"bad or future time\");",
+  "new": "check(safeIn(o.observedMs, 0, Number.MAX_SAFE_INTEGER), \"bad or future time\");",
+  "note": "no future observations"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "safeIn(o.quotedCostPerHour, 0, MAX_QUOTED_COST_PER_HOUR)",
+  "new": "safeIn(o.quotedCostPerHour, -1, MAX_QUOTED_COST_PER_HOUR)"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    check(STOCK_LEVELS.includes(o.outcome), \"a listing's outcome must be a stock level\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    check(o.readyMs === null, \"a listing has no time to ready\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "o.readyMs === null || (o.outcome === \"launched\" && safeIn(o.readyMs, 0, MAX_READY_MS))",
+  "new": "o.readyMs === null || safeIn(o.readyMs, 0, MAX_READY_MS)"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    case \"no_capacity\":\n      return \"no_capacity\";",
+  "new": "    case \"no_capacity\":\n      return \"refused\";",
+  "note": "only capacity refusals count against availability"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    case \"unplaceable\":\n    case \"forbidden\":",
+  "new": "    case \"forbidden\":"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    if (o.observedMs < fromMs || o.observedMs >= toMs) continue;",
+  "new": "    if (o.observedMs < fromMs || o.observedMs > toMs) continue;"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    if (o.observedMs < fromMs || o.observedMs >= toMs) continue;",
+  "new": "    if (o.observedMs <= fromMs || o.observedMs >= toMs) continue;"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    const of = g.launches.launched + g.launches.noCapacity;",
+  "new": "    const of = g.launches.attempts;",
+  "note": "refusals and errors are not capacity tests"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    g.launches.capacity = of > 0 ? { launched: g.launches.launched, of } : null;",
+  "new": "    g.launches.capacity = { launched: g.launches.launched, of };",
+  "note": "no attempts means no figure, not 0%"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "median: r[Math.floor((r.length - 1) / 2)]!",
+  "new": "median: r[Math.floor(r.length / 2)]!"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    if (o.observedMs >= g.latestCountryMs) {",
+  "new": "    if (o.observedMs > g.latestCountryMs) {"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "      if (o.observedMs >= g.latestPriceMs) {",
+  "new": "      if (false) {"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "      if (o.readyMs !== null) g.ready.push(o.readyMs);",
+  "new": "      g.ready.push(o.readyMs ?? 0);"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "      else if (o.outcome === \"refused\") g.launches.refused++;",
+  "new": "      else if (o.outcome === \"refused\") g.launches.errors++;"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "      cmp(a.provider, b.provider) || cmp(a.gpuType, b.gpuType) || a.gpuCount - b.gpuCount || cmp(a.dataCenter, b.dataCenter),",
+  "new": "      cmp(a.provider, b.provider) || cmp(a.gpuType, b.gpuType) || cmp(a.dataCenter, b.dataCenter),"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "check(toMs > fromMs && toMs - fromMs <= MAX_REPORT_WINDOW_MS,",
+  "new": "check(toMs >= fromMs && toMs - fromMs <= MAX_REPORT_WINDOW_MS,"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "check(toMs > fromMs && toMs - fromMs <= MAX_REPORT_WINDOW_MS,",
+  "new": "check(toMs > fromMs,"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    const key = JSON.stringify([o.provider, o.gpuType, o.gpuCount, o.dataCenter]);",
+  "new": "    const key = JSON.stringify([o.provider, o.gpuType, o.dataCenter]);"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  const complete = !window.truncated && (prunedThroughMs === null || fromMs > prunedThroughMs);",
+  "new": "  const complete = !window.truncated;",
+  "note": "LIMITS H1: pruned windows are incomplete"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  const complete = !window.truncated && (prunedThroughMs === null || fromMs > prunedThroughMs);",
+  "new": "  const complete = !window.truncated && (prunedThroughMs === null || fromMs >= prunedThroughMs);",
+  "note": "a pruned row at fromMs was in the window"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  const complete = !window.truncated && (prunedThroughMs === null || fromMs > prunedThroughMs);",
+  "new": "  const complete = prunedThroughMs === null || fromMs > prunedThroughMs;",
+  "note": ""
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  check(prunedThroughMs === null || safeIn(prunedThroughMs, 0, Number.MAX_SAFE_INTEGER), \"bad retention mark\");",
+  "new": ""
  }
 ]

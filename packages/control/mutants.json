@@ -891,5 +891,84 @@
   "file": "src/db.ts",
   "old": "if (!Number.isSafeInteger(size) || size < 1) throw",
   "new": "if (size < 1) throw"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    stmt(PRUNE, MAX_OBSERVATIONS),\n",
+  "new": "",
+  "note": "LIMITS: the cap is enforced on every write"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    stmt(PRUNE, MAX_OBSERVATIONS),",
+  "new": "    stmt(PRUNE, MAX_OBSERVATIONS + 1),"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  for (const o of observations) checkObservation(o, nowMs);\n",
+  "new": "",
+  "note": "validate the whole write first"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  if (observations.length > MAX_OBSERVATIONS_PER_WRITE) {",
+  "new": "  if (observations.length > MAX_OBSERVATIONS_PER_WRITE + 1) {"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  const truncated = rows.length > limit;",
+  "new": "  const truncated = false;",
+  "note": "truncation is never hidden"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    [fromMs, toMs, limit + 1],",
+  "new": "    [fromMs, toMs, limit],"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "WHERE observed_ms >= ? AND observed_ms < ? ORDER BY",
+  "new": "WHERE observed_ms >= ? AND observed_ms <= ? ORDER BY"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_REPORT_ROWS) {",
+  "new": "  if (limit < 1) {"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    stmt(MARK, MAX_OBSERVATIONS),\n",
+  "new": "",
+  "note": "LIMITS H1: the mark is written with every prune"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "    stmt(MARK, MAX_OBSERVATIONS),",
+  "new": "    stmt(MARK, MAX_OBSERVATIONS + 1),",
+  "note": ""
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "DO UPDATE SET pruned_through_ms = max(pruned_through_ms, excluded.pruned_through_ms)",
+  "new": "DO UPDATE SET pruned_through_ms = excluded.pruned_through_ms",
+  "note": "the mark only moves forward"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "SELECT max(observed_ms) AS m FROM (SELECT observed_ms FROM availability_observations ORDER BY observed_ms, id LIMIT",
+  "new": "SELECT min(observed_ms) AS m FROM (SELECT observed_ms FROM availability_observations ORDER BY observed_ms, id LIMIT",
+  "note": ""
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  checkReportWindow(fromMs, toMs);\n  if (!Number.isSafeInteger(limit)",
+  "new": "  if (!Number.isSafeInteger(limit)",
+  "note": "TESTS T2: no read before the window check"
+ },
+ {
+  "file": "src/availability.ts",
+  "old": "  const prunedThroughMs = marks.length > 0 ? marks[0]!.pruned_through_ms : null;",
+  "new": "  const prunedThroughMs = null;",
+  "note": ""
  }
 ]
