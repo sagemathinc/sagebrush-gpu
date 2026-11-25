@@ -1157,6 +1157,10 @@ test("reportableCommandShape and reportableDrift give null on throwing getters a
   // An item list that claims more than it holds, or is a proxy.
   const many = goodShape();
   assert.equal(reportableCommandShape({ ...many, entrypointItems: new Proxy([], { get: (t, p) => (p === "length" ? 9 : Reflect.get(t, p)) }) }), null);
+  // Not plain data: a function item with the right properties, and a drift list that only has a slice method.
+  const fnItem = goodShape();
+  assert.equal(reportableCommandShape({ ...fnItem, entrypointItems: [Object.assign(() => {}, { matches: true, commonPrefix: 1 })] }), null);
+  assert.equal(reportableDrift({ slice: () => ["image"] } as never), null);
   // Drift: a proxy array, a revoked one, a throwing element.
   assert.equal(reportableDrift(new Proxy(["image"], { get: thrower }) as never), null);
   const r2 = Proxy.revocable(["image"], {});
