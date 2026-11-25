@@ -1276,5 +1276,23 @@
   "old": "if not isinstance(enrolled.get(\"incarnation\"), int) or not isinstance(enrolled.get(\"relayUrl\"), str):",
   "new": "if not isinstance(enrolled.get(\"incarnation\"), int):",
   "note": "agent relay: enroll: relayUrl not required"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "                attempt = 0\n            delay = max(delay, backoff_ms(attempt, self.rnd))",
+  "new": "                pass\n            delay = max(delay, backoff_ms(attempt, self.rnd))",
+  "note": "agent relay: relay client: a stable leg doesn't reset the backoff"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            self.up_at = None  # (set by serve_once once this leg is ready)",
+  "new": "            pass",
+  "note": "agent relay: relay client: a leg's readiness carried into the next"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "collections.deque(maxlen=16)",
+  "new": "[]",
+  "note": "agent relay: relay client: an unbounded delay history"
  }
 ]

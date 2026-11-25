@@ -17,6 +17,7 @@ write gate, the strict control parser, the prefix split, the pinger and the back
 
 import asyncio
 import base64
+import collections
 import hashlib
 import json
 import os
@@ -500,8 +501,9 @@ class RelayClient:
         self.end_code = None
         self.fatal = None
         self.pings_unanswered = 0
-        self.up_at = None
-        self.delays = []
+        self.up_at = None  # (when the current leg became ready, on self.clock)
+        self.clock = time.monotonic
+        self.delays = collections.deque(maxlen=16)  # (the last reconnect delays, ms: diagnostics, bounded)
         self.stats = {"legs": 0, "acks": 0, "violations": 0, "pings": 0}
 
     # ---- messages from the relay
@@ -614,20 +616,28 @@ class RelayClient:
             self.leg.abort("no ready")
             raise Retry("the relay didn't answer the hello")
         self.stats["legs"] += 1
-        self.up_at = time.monotonic()
+        self.up_at = self.clock()
         ping = asyncio.ensure_future(self.pinger(self.leg))
         try:
             return await self.leg_ended
         finally:
             ping.cancel()
 
+    async def pause(self, stop, seconds):
+        """Wait between legs: seconds, or until stop."""
+        waiting = asyncio.ensure_future(stop.wait())
+        try:
+            await asyncio.wait_for(asyncio.shield(waiting), seconds)
+        except asyncio.TimeoutError:
+            pass
+        waiting.cancel()
+
     async def run(self, stop):
         """Dial, serve, dial again, until stop is set or a Fatal (then raised)."""
         attempt = 0
         while not stop.is_set():
             delay = 0
-            up_at = None
-            self.up_at = None
+            self.up_at = None  # (set by serve_once once this leg is ready)
             try:
                 serving = asyncio.ensure_future(self.serve_once())
                 stopped = asyncio.ensure_future(stop.wait())
@@ -642,9 +652,7 @@ class RelayClient:
                     except BaseException:
                         pass
                     break
-                self.up_at = None
                 serving.result()
-                up_at = self.up_at
                 if self.end_code == 4429:
                     delay = RELAY_LIMITS["rateBackoffMs"]
             except Retry as e:
@@ -652,16 +660,12 @@ class RelayClient:
                 self.err("Relay: %s.\n" % e)
             if self.fatal is not None:
                 raise self.fatal
-            if up_at is not None and time.monotonic() - up_at >= RELAY_LIMITS["stableMs"] / 1000:
+            # (a leg that was ready for stableMs, however it ended, starts the backoff again from 1 s)
+            if self.up_at is not None and self.clock() - self.up_at >= RELAY_LIMITS["stableMs"] / 1000:
                 attempt = 0
             delay = max(delay, backoff_ms(attempt, self.rnd))
             attempt += 1
             self.delays.append(delay)
-            waiting = asyncio.ensure_future(stop.wait())
-            try:
-                await asyncio.wait_for(asyncio.shield(waiting), delay / 1000)
-            except asyncio.TimeoutError:
-                pass
-            waiting.cancel()
+            await self.pause(stop, delay / 1000)
         if self.leg is not None and not self.leg.closed:
             self.leg.close(1001, "the agent stopped")

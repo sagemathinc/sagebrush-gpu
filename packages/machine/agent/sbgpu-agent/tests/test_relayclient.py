@@ -371,6 +371,67 @@ class Heartbeats:
         return 200, b"{}"
 
 
+class ScriptedClient(R.RelayClient):
+    """The real run loop over scripted legs, on a logical clock: each leg is (how, seconds up, end code); "unready" never
+    gets its ready.  The last leg sets stop, so the run ends after its delay is chosen."""
+
+    def __init__(self, legs, stop):
+        super().__init__("wss://api.example.com/api/relay/v1/peer?machine=mch_1", lambda: "tok", Host,
+                         main.proctree.LoopTimers(), rnd=lambda: 0.5)
+        self.legs, self.stop_ev, self.now = list(legs), stop, 1000.0
+        self.clock = lambda: self.now
+
+    async def serve_once(self):
+        how, seconds, code = self.legs.pop(0)
+        if not self.legs:
+            self.stop_ev.set()
+        if how == "unready":
+            raise R.Retry("the relay didn't answer the hello")
+        self.up_at = self.now
+        self.now += seconds
+        self.end_code = code
+
+    async def pause(self, stop, seconds):
+        pass
+
+
+class BackoffRunTest(unittest.TestCase):
+    """The backoff as the run loop applies it: a leg ready for stableMs starts it again from 1 s; a short leg or one
+    that never got ready doesn't; 4429 waits at least rateBackoffMs."""
+
+    async def delays(self, legs):
+        stop = asyncio.Event()
+        c = ScriptedClient(legs, stop)
+        await asyncio.wait_for(c.run(stop), 5)
+        return list(c.delays)
+
+    @aio
+    async def test_stable_legs_reset_the_backoff_short_ones_dont(self):
+        b = [R.backoff_ms(a, lambda: 0.5) for a in range(8)]
+        stable = R.RELAY_LIMITS["stableMs"] / 1000
+        self.assertEqual(await self.delays([("up", 61, 1006), ("up", 61, 1006), ("unready", 0, None), ("up", 5, 1006),
+                                            ("up", 61, 1006)]), [b[0], b[0], b[1], b[2], b[0]])
+        # (the rollback control: with only short and unready legs, the backoff just grows)
+        self.assertEqual(await self.delays([("up", 5, 1006), ("unready", 0, None), ("up", 5, 1006), ("up", 5, 1006)]),
+                         [b[0], b[1], b[2], b[3]])
+        # (the boundary: exactly stableMs is stable; just under isn't)
+        self.assertEqual(await self.delays([("up", 5, 1006), ("up", 5, 1006), ("up", stable, 1006)]), [b[0], b[1], b[0]])
+        self.assertEqual(await self.delays([("up", 5, 1006), ("up", 5, 1006), ("up", stable - 0.001, 1006)]),
+                         [b[0], b[1], b[2]])
+
+    @aio
+    async def test_4429_waits_the_rate_backoff_even_after_a_stable_leg(self):
+        b = [R.backoff_ms(a, lambda: 0.5) for a in range(8)]
+        self.assertEqual(await self.delays([("up", 61, 1006), ("up", 61, 4429), ("up", 5, 1006), ("up", 5, 1006)]),
+                         [b[0], R.RELAY_LIMITS["rateBackoffMs"], b[1], b[2]])
+
+    @aio
+    async def test_the_delay_history_is_bounded(self):
+        got = await self.delays([("unready", 0, None)] * 40)
+        self.assertEqual(len(got), 16)
+        self.assertEqual(got[-1], R.RELAY_LIMITS["backoffMs"][1])
+
+
 class StopPathsTest(unittest.TestCase):
     """Every way serve() ends calls stop_everything once in container mode, after the terminals; never in VM mode."""
 
