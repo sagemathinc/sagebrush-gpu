@@ -662,6 +662,9 @@ def check_neutralised(root, procs, allow, names, loaded=()):
     loaded) is down and can't start: inactive or failed, and masked or not found."""
     out = set()
     for unit, load, active in loaded:
+        if not any(unit == a["unit"] + s or unit.startswith(a["unit"] + "@") for a in allow["neutralisedAgents"]
+                   for s in (".service", ".socket", ".timer", ".path")):
+            continue  # (not one of a neutralised agent's units: not this check's to judge)
         if active not in ("inactive", "failed") or load not in ("masked", "not-found"):
             out.add("agent-active")
     for a in allow["neutralisedAgents"]:
@@ -1009,7 +1012,8 @@ def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None, nf
                   lambda: check_secrets(procs, known), lambda: check_listeners(sockets(proc), procs, allow),
                   lambda: check_provider(root, procs, units()),
                   lambda: check_neutralised(root, procs, allow, units(),
-                                            loaded_units((units_listing or _list_units)(agent_patterns(allow)))),
+                                            loaded_units((units_listing or _list_units)(agent_patterns(allow)))
+                                            if allow["neutralisedAgents"] else ()),  # (no agents: no census at all)
                   lambda: check_consoles(root, procs, units()), lambda: check_sessions(procs, root)] + checks
     else:
         fails.add("process")  # (without a complete process scan nothing below it can pass)

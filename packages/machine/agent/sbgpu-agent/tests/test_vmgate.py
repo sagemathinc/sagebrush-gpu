@@ -780,6 +780,23 @@ class NeutralisedTest(Base):
         self.assertEqual(G.agent_patterns(ALLOW), ["grafana-agent.service", "grafana-agent.socket", "grafana-agent.timer",
                                                    "grafana-agent.path", "grafana-agent@*"])
 
+    def test_only_the_agents_own_loaded_units_are_judged(self):
+        unrelated = b"cron.service loaded active running x\nmy-agent-other.service loaded active running x\n"
+        v = self.vm()
+        asked = []
+        v.loaded = unrelated
+        none = dict(ALLOW, neutralisedAgents=[])
+        res = G.run(none, (), root=v.root, proc=v.proc, self_pid=999999, nft=lambda: v.nft,
+                    units=lambda patterns: asked.append(patterns) or unrelated,
+                    connect=lambda f, a: (_ for _ in ()).throw(ConnectionRefusedError(errno.ECONNREFUSED, "x")))
+        self.assertEqual(res, (True, []))
+        self.assertEqual(asked, [])  # (no agents: systemd isn't asked, an empty pattern list would list everything)
+        v = self.vm()  # (an unrelated unit in the list, even an active one, isn't the agent's)
+        v.loaded = b"grafana-agent-other.service loaded active running x\ncron.service loaded active running x\n"
+        self.assertEqual(v.run(), (True, []))
+        v.loaded = b"grafana-agent.socket loaded active running x\n"
+        self.assertEqual(v.run(), (False, ["agent-active"]))  # (the control: its own unit still fails)
+
     def test_the_gate_lists_loaded_units_through_the_bounded_runner(self):
         calls = []
 
