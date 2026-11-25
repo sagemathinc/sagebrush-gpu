@@ -448,6 +448,18 @@ export class Store {
 
   // ---------------------------------------------------------------- teams
 
+  /** Put a person in a team, or (null) in none. */
+  async setMemberTeam(memberId: string, teamId: string | null): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`memberTeam:${memberId}`, async () => {
+      await this.client.call("updateMember", { params: { projectId, memberId }, body: { teamId } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
   /** Create a team with an allocation; true when it was made. */
   async createTeam(name: string, allocation: Micros): Promise<boolean> {
     const projectId = this.projectId.value;

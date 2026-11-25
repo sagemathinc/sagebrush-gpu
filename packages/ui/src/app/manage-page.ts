@@ -5,9 +5,9 @@
 
 import type { VNode } from "preact";
 import { useState } from "preact/hooks";
-import { SPEND_CSV_GROUPINGS, canRemoveMember, type Machine, type SpendCsvGrouping } from "@sbgpu/api";
+import { SPEND_CSV_GROUPINGS, canRemoveMember, canUpdateMember, type Machine, type SpendCsvGrouping } from "@sbgpu/api";
 import { capitalize, plural } from "../labels.ts";
-import { bulkPlan, csvFilename, filterRows, invitePreview, memberRows, sortRows, type MemberRow, type SortKey } from "../manage.ts";
+import { bulkPlan, csvFilename, filterRows, invitePreview, memberRows, sortRows, teamRows, type MemberRow, type SortKey } from "../manage.ts";
 import { formatPriceSplit, formatUsd, parseUsd } from "../money.ts";
 import { formatBytes, machineStateLabel } from "../view.ts";
 import { Link, useProjectLoad, type Nav } from "./components.ts";
@@ -89,6 +89,23 @@ function AllocationCell({ store, row, editable }: { store: Store; row: MemberRow
   </td>`;
 }
 
+/** A person's team: a choice where the membership rules let this person change it, else its name. */
+function TeamCell({ store, row, editable }: { store: Store; row: MemberRow; editable: boolean }): VNode {
+  const labels = store.labels.value;
+  const teams = teamRows(store.teams.value, [], []);
+  if (!editable || teams.length === 0) return html`<td>${row.team ?? ""}</td>`;
+  return html`<td>
+    <select aria-label=${`${capitalize(labels.team)} for ${row.email}`} value=${row.teamId ?? ""} disabled=${store.isBusy(`memberTeam:${row.memberId}`)}
+      onChange=${(e: Event) => {
+        const value = (e.target as HTMLSelectElement).value;
+        void store.setMemberTeam(row.memberId, value === "" ? null : value);
+      }}>
+      <option value="">${`No ${labels.team}`}</option>
+      ${teams.map((t) => html`<option value=${t.teamId}>${t.name}</option>`)}
+    </select>
+  </td>`;
+}
+
 function MembersTable({ store }: { store: Store }): VNode {
   const labels = store.labels.value;
   const canManage = store.canManage.value;
@@ -108,6 +125,7 @@ function MembersTable({ store }: { store: Store }): VNode {
   const owners = all.filter((r) => r.role === "owner").length;
   // Offer Remove only where the membership rules allow it (the server checks them too).
   const removable = (r: MemberRow) => actor != null && canRemoveMember(actor, r.role, owners).ok;
+  const teamEditable = (r: MemberRow) => canManage && actor != null && canUpdateMember(actor, r.role, undefined, owners).ok;
   const remove = (row: MemberRow) => {
     if (window.confirm(`Remove ${row.email}? Their running machines are stopped (saving first).`)) void store.removeMember(row.memberId);
   };
@@ -135,7 +153,7 @@ function MembersTable({ store }: { store: Store }): VNode {
             ${canManage ? html`<td><input type="checkbox" aria-label=${`Select ${r.email}`} checked=${selected.has(r.memberId)} onChange=${() => toggle(r.memberId)} /></td>` : null}
             <td>${r.email}${r.status === "invited" ? html` <span class="badge">invited</span>` : null}${r.role !== "member" ? html` <span class="badge">${r.role}</span>` : null}</td>
             <td>${r.name ?? ""}</td>
-            <td>${r.team ?? ""}</td>
+            <${TeamCell} store=${store} row=${r} editable=${teamEditable(r)} />
             <${AllocationCell} store=${store} row=${r} editable=${canManage} />
             <td>${formatUsd(r.spent)}</td>
             <td>${formatUsd(r.remaining)}</td>

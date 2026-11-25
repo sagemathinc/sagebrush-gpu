@@ -395,6 +395,21 @@ test("teams: members see their own team; a member is in one team at a time", asy
   await manager.call("updateMember", { params: { ...p, memberId: adaId }, body: { teamId: null } });
   assert.equal((await manager.call("listTeams", { params: p })).teams.find((t) => t.id === llama.id)?.memberCount, 2);
   assert.ok(!(await inTeam(llama.id)).includes("ada@example.org"));
+  // A team must be a live team of this project, given as an id or null, as the control plane checks.
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: adaId }, body: { teamId: "team_nope" } }), "badRequest", 400);
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: adaId }, body: { teamId: 5 as unknown as string } }), "badRequest", 400);
+  const elsewhere = d.backend.addProject(d.orgId, { name: "Elsewhere", budget: 0, startsAt: "2027-01-01T00:00:00.000Z", endsAt: "2027-06-01T00:00:00.000Z" });
+  const foreign = d.backend.addTeam(elsewhere.id, "Foreign", [], 0);
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: adaId }, body: { teamId: foreign.id } }), "badRequest", 400);
+  await manager.call("deleteTeam", { params: { ...p, teamId: qwen.id } });
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: adaId }, body: { teamId: qwen.id } }), "badRequest", 400);
+  assert.equal((await manager.call("listMembers", { params: p })).items.find((m) => m.id === adaId)?.teamId, null);
+  // The role rules come before the team: a manager can't move the owner, whatever the team.
+  const ownerId = (await manager.call("listMembers", { params: p })).items.find((m) => m.role === "owner")!.id;
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: ownerId }, body: { teamId: "team_nope" } }), "forbidden", 403);
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: ownerId }, body: { teamId: llama.id } }), "forbidden", 403);
+  // ...but a malformed request is refused as such first, as the control plane parses before the role rules.
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: ownerId }, body: { teamId: 5 as unknown as string } }), "badRequest", 400);
   const t = await manager.call("createTeam", { params: p, body: { name: " New ", allocation: 5 } });
   assert.equal(t.name, "New");
   await rejects(manager.call("createTeam", { params: p, body: { name: " " } }), "badRequest");
@@ -740,8 +755,10 @@ test("membership rules: managers manage members and assistants; owners manage ev
   await rejects(manager.call("inviteMembers", { params: p, body: { members: [{ email: "o@example.org", role: "owner" }] } }), "forbidden");
   assert.equal((await manager.call("updateMember", { params: { ...p, memberId: ta.id }, body: { role: "member" } })).role, "member");
   assert.deepEqual(await manager.call("removeMember", { params: { ...p, memberId: ta.id } }), { ok: true });
-  await rejects(manager.call("removeMember", { params: { ...p, memberId: ta.id } }), "notFound");
-  await rejects(manager.call("updateMember", { params: { ...p, memberId: ta.id }, body: { name: "y" } }), "notFound");
+  // As the control plane answers: a removed member is a state, not a missing one.
+  await rejects(manager.call("removeMember", { params: { ...p, memberId: ta.id } }), "invalidState", 409);
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: ta.id }, body: { name: "y" } }), "invalidState", 409);
+  await rejects(manager.call("updateMember", { params: { ...p, memberId: ta.id }, body: { teamId: null } }), "invalidState", 409);
   const o = await d.as(d.emails.owner);
   await rejects(o.call("updateMember", { params: { ...p, memberId: owner.id }, body: { role: "manager" } }), "conflict", 409);
   await rejects(o.call("removeMember", { params: { ...p, memberId: owner.id } }), "conflict");

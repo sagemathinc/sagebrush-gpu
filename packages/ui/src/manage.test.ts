@@ -60,10 +60,11 @@ test("memberRows joins meters, teams and running machines; removed members are l
   assert.equal(r[1]!.band, "critical"); // 0.3 of 10 left
   assert.equal(r[2]!.band, "empty");
   assert.equal(r[2]!.team, null);
+  assert.deepEqual([ada.teamId, r[2]!.teamId], ["team_q", null]); // the id, for choosing a team
   assert.equal(r[3]!.running, 0);
   // A member without a meter (not loaded yet) shows zeros.
   const lone = memberRows([member("z", "z@example.org", { teamId: "team_gone" })], [], [], []);
-  assert.deepEqual([lone[0]!.allocation, lone[0]!.spent, lone[0]!.storageBytes, lone[0]!.team], [0, 0, 0, null]);
+  assert.deepEqual([lone[0]!.allocation, lone[0]!.spent, lone[0]!.storageBytes, lone[0]!.team, lone[0]!.teamId], [0, 0, 0, null, "team_gone"]);
 });
 
 test("filterRows: every word must match email, name, team, role or status", () => {

@@ -1048,10 +1048,15 @@ export class MockBackend {
     },
 
     updateMember: ({ params, body, user }) => {
+      // In the control plane's order: the member, the request's shape, the role rules, then
+      // the team (which must be a live team of this project).
       const member = this.#member(params.projectId, params.memberId);
-      if (member.status === "removed") throw new ApiFail("notFound", "no such member");
+      if (member.status === "removed") throw new ApiFail("invalidState", "this member was removed");
+      if (body.teamId !== undefined && body.teamId !== null && typeof body.teamId !== "string") throw new ApiFail("badRequest", "teamId is a team id or null");
       enforce(canUpdateMember(this.#actor(params.projectId, user), member.role, body.role, this.#ownerCount(params.projectId)), "update member");
-      if (body.teamId != null) this.#team(params.projectId, body.teamId);
+      if (body.teamId != null && ![...this.teams.values()].some((t) => t.id === body.teamId && t.projectId === params.projectId)) {
+        throw new ApiFail("badRequest", "no such team in this project");
+      }
       if (body.role !== undefined) member.role = body.role;
       if (body.name !== undefined) member.name = body.name;
       if (body.teamId !== undefined) member.teamId = body.teamId;
@@ -1060,7 +1065,7 @@ export class MockBackend {
 
     removeMember: ({ params, user }) => {
       const member = this.#member(params.projectId, params.memberId);
-      if (member.status === "removed") throw new ApiFail("notFound", "no such member");
+      if (member.status === "removed") throw new ApiFail("invalidState", "this member was already removed");
       enforce(canRemoveMember(this.#actor(params.projectId, user), member.role, this.#ownerCount(params.projectId)), "remove member");
       member.status = "removed";
       for (const rec of this.machines.values()) {
