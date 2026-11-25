@@ -8,6 +8,7 @@ import type { LaunchSpec } from "../types.ts";
 import {
   hyperstackError,
   HyperstackAdapter,
+  MAX_REPLY_BYTES,
   isPublicIpv4,
   perLaunchKeypair,
   UNREADABLE,
@@ -38,14 +39,25 @@ function mockFetch(replies: Reply[]) {
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? "" : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
     const headers = new Map(Object.entries(r.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+    const bytes = new TextEncoder().encode(text);
+    let sent = false;
     return {
       status: r.status,
       headers: { get: (n: string) => headers.get(n.toLowerCase()) ?? null },
       text: async () => {
-        reads.n++;
-        if (r.textThrows === true) throw new Error(`stream cut ${KEY}`);
-        return text;
+        throw new Error("text() must not be called: bodies are read as bounded streams");
       },
+      // The body as a stream; `reads` counts reads started. `textThrows` makes the stream fail.
+      body: new ReadableStream<Uint8Array>({
+        pull(ctl) {
+          if (!sent) reads.n++;
+          if (r.textThrows === true) return ctl.error(new Error(`stream cut ${KEY}`));
+          if (sent) return ctl.close();
+          sent = true;
+          if (bytes.length > 0) ctl.enqueue(bytes);
+          else ctl.close();
+        },
+      }, { highWaterMark: 0 }),
     };
   };
   return { fetch, calls, reads };
@@ -216,6 +228,43 @@ test("#call: unreadable JSON is unknown on GET, outcome_unknown on POST and DELE
   await rejects(adapter([{ status: 200, body: "{nope" }]).a.importKeypair("sbg-k-1", "sbg-canada", kp), "outcome_unknown");
 });
 
+test("#call: a reply body is read up to MAX_REPLY_BYTES; one byte more is unknown (GET) or outcome_unknown (DELETE)", async () => {
+  assert.equal(MAX_REPLY_BYTES, 4 * 1024 * 1024);
+  const sized = (n: number) => {
+    const shell = JSON.stringify({ instance: vm(), pad: "" });
+    return shell.replace('"pad":""', `"pad":"${"x".repeat(n - shell.length)}"`);
+  };
+  assert.equal(sized(MAX_REPLY_BYTES).length, MAX_REPLY_BYTES);
+  assert.equal((await adapter([{ status: 200, body: sized(MAX_REPLY_BYTES) }]).a.status("4242")).state, "running");
+  await assert.rejects(adapter([{ status: 200, body: sized(MAX_REPLY_BYTES + 1) }]).a.status("4242"), (e: unknown) => {
+    assert.ok(e instanceof ProviderError && e.kind === "unknown" && e.httpStatus === 200);
+    assert.match(e.message, /reply not read \(too_large\)$/);
+    return true;
+  });
+  await rejects(adapter([{ status: 200, body: sized(MAX_REPLY_BYTES + 1) }]).a.terminate("4242"), "outcome_unknown");
+});
+
+test("#call: a stalled reply body ends at the call's own deadline", async () => {
+  const stalled: Fetch = async (_url, init) => {
+    assert.equal(init.redirect, "manual");
+    return {
+      status: 200,
+      headers: { get: () => null },
+      text: async () => new Promise<string>(() => {}),
+      body: new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => {}) }, { highWaterMark: 0 }),
+    };
+  };
+  const a = new HyperstackAdapter({ apiKey: KEY, fetch: stalled, timeoutMs: 50 });
+  // Each call is raced against 2 s, so one that ignores its deadline fails here by name.
+  const within = <T>(p: Promise<T>) => Promise.race([p, new Promise<"hung">((ok) => setTimeout(() => ok("hung"), 2_000).unref())]);
+  const err = (p: Promise<unknown>) => within(p.then(() => "resolved", (e: unknown) => e));
+  const s = await err(a.status("4242"));
+  assert.ok(s instanceof ProviderError && s.kind === "unknown" && /reply not read \(timeout\)$/.test(s.message), String(s));
+  const t = await err(a.terminate("4242"));
+  assert.ok(t instanceof ProviderError && t.kind === "outcome_unknown", String(t));
+  assert.equal(await within(a.instanceFacts("4242")), "unavailable");
+});
+
 // ---------------------------------------------------------------- vmStatus
 
 test("vmStatus: the launch-shape VM reads clean, with no env, no ports, the VM marker command", () => {
@@ -302,6 +351,21 @@ test("vmStatus: settings that differ from the launch shape are named", () => {
   const neg = vmStatus(vm({ flavor: { gpu: "RTX-A6000", gpu_count: -1, disk: -1 } }), T);
   assert.ok(Number.isNaN(neg.gpuCount));
   assert.ok(Number.isNaN(neg.diskGb));
+});
+
+test("vmStatus: a VM still building may lack its IP; an ACTIVE one may not; labels and a callback are unexpected", () => {
+  const settings = (over: Record<string, unknown>) => vmStatus(vm(over), T).unexpectedSettings;
+  assert.deepEqual(settings({ status: "BUILD", floating_ip: null }), []);
+  assert.deepEqual(settings({ status: "CREATING", floating_ip: undefined }), []);
+  assert.deepEqual(settings({ status: "ACTIVE", floating_ip: null }), ["floating_ip:none"]);
+  assert.deepEqual(settings({ status: "BUILD", floating_ip: "10.0.0.5" }), [`floating_ip:${UNREADABLE}`]);
+  assert.deepEqual(settings({ status: "BUILD", floating_ip: "185.10.20.7" }), []);
+  assert.deepEqual(settings({ labels: ["x"] }), ["labels"]);
+  assert.deepEqual(settings({ labels: "x" }), ["labels"]);
+  assert.deepEqual(settings({ labels: null, callback_url: "" }), []);
+  assert.deepEqual(settings({ callback_url: "https://example.com/hook" }), ["callback_url"]);
+  assert.deepEqual(settings({ callback_url: 5 }), ["callback_url"]);
+  assert.deepEqual(vmStatus(vm(), T).command, ["<unobservable>"]);
 });
 
 // ---------------------------------------------------------------- isPublicIpv4
@@ -393,6 +457,8 @@ test("vmReadbackProblems: each difference is named, and only it", () => {
     [{ image: { name: "Ubuntu" } }, "image"],
     [{ keypair: { name: "sbg-k-1" } }, "keypair"],
     [{ keypair: null }, "keypair"],
+    [{ labels: ["x"] }, "labels"],
+    [{ callback_url: "https://example.com/hook" }, "callback_url"],
   ];
   for (const [over, why] of cases) assert.deepEqual(vmReadbackProblems(vm(over), WANT), [why], JSON.stringify(over));
   for (const x of [null, [], "vm"]) assert.deepEqual(vmReadbackProblems(x, WANT), ["unreadable"]);
@@ -575,7 +641,7 @@ test("launch: refused before any request, whatever the spec", async () => {
   const spec = { machineId: MID } as unknown as LaunchSpec;
   await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "invalid_request" && e.message === "Hyperstack: VM launch is not enabled");
   assert.equal(calls.length, 0);
-  assert.deepEqual(a.info, { provider: "hyperstack", selfIdentity: null, bootTokenEnv: "" });
+  assert.deepEqual(a.info, { provider: "hyperstack", selfIdentity: null, bootDelivery: { kind: "announce" } });
 });
 
 // ---------------------------------------------------------------- status

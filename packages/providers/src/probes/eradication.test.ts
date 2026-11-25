@@ -257,8 +257,10 @@ test("the report records the probe agent and the launcher's hash", async () => {
 test("an adapter whose boot token variable isn't the launcher's is refused", async () => {
   const w: World = { log: [], stages: [RUN, RUN, RUN] };
   const h = harness(w);
-  const a = { ...h.adapter, info: { ...h.adapter.info, bootTokenEnv: "OTHER" } };
-  await assert.rejects(runEradicationProbe(plan, a, h.api, h.clock), RangeError);
+  for (const bootDelivery of [{ kind: "env", name: "OTHER" }, { kind: "announce" }] as const) {
+    const a = { ...h.adapter, info: { ...h.adapter.info, bootDelivery } };
+    await assert.rejects(runEradicationProbe(plan, a, h.api, h.clock), RangeError);
+  }
   assert.deepEqual(w.log, []);
 });
 
@@ -347,7 +349,7 @@ function harness(w: World) {
   let stoppedAt = 0;
   let stageAt = t;
   const adapter: ProviderAdapter = {
-    info: { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootTokenEnv: "SBGPU_BOOT_TOKEN" },
+    info: { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootDelivery: { kind: "env", name: "SBGPU_BOOT_TOKEN" } },
     listOffers: async () => [],
     listMachines: async () => [],
     launch: async (s: LaunchSpec) => {

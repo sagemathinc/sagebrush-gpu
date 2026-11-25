@@ -192,7 +192,7 @@ export class ShadeformAdapter implements ProviderAdapter {
   readonly info: AdapterInfo = {
     provider: "shadeform",
     selfIdentity: null,
-    bootTokenEnv: BOOT_TOKEN_ENV,
+    bootDelivery: { kind: "env", name: BOOT_TOKEN_ENV },
   };
 
   readonly #apiKey: string;

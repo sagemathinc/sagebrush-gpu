@@ -2,7 +2,7 @@
 // against every status poll. Any drift means the machine was changed after launch (for example
 // with a provider credential readable inside it), so the watchdog terminates it.
 
-import type { AdapterInfo, GpuTypeId, LaunchSpec, Micros, ProviderId, ProviderMachineStatus } from "./types.ts";
+import { bootEnvNames, COMMAND_UNOBSERVABLE, type AdapterInfo, type GpuTypeId, type LaunchSpec, type Micros, type ProviderId, type ProviderMachineStatus } from "./types.ts";
 
 export interface ExpectedSpec {
   provider: ProviderId;
@@ -28,8 +28,9 @@ export function expectedSpec(spec: LaunchSpec, info: AdapterInfo, providerMachin
     dataCenter: spec.dataCenter,
     image: spec.image,
     diskGb: spec.diskGb,
-    envNames: [info.bootTokenEnv],
-    command: [...spec.launcher],
+    envNames: bootEnvNames(info.bootDelivery),
+    // A VM's command can't be observed (see COMMAND_UNOBSERVABLE); a container's is its launcher.
+    command: info.bootDelivery.kind === "announce" ? [COMMAND_UNOBSERVABLE] : [...spec.launcher],
     maxProviderCostPerHour: spec.maxProviderCostPerHour,
   };
 }

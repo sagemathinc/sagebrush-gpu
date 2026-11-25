@@ -1,34 +1,46 @@
 // The Hyperstack adapter, over Hyperstack's public Infrahub API (https://infrahub-api.nexgencloud.com/v1).
 // Mock-only: no test or code path here has called Hyperstack.
 //
-// Hyperstack is a VM provider. VM mode's boot credential design is cleared, but no launch is: this
-// adapter's launch() refuses before any request until the create path lands under its own review.
-// Offers, status, the machine list, terminate, the per-launch keypair and the readback checks the
-// announce gate needs are here, so they can be reviewed first.
+// Hyperstack is a VM provider. Launch is off unless the adapter is constructed with a launch
+// configuration, which only tests pass: nothing in production builds one. A launch creates one VM
+// from a fixed, byte-deterministic body whose only free text is the boot script (user_data),
+// hashes what it sends, checks the created VM against the exact launch shape and removes the
+// per-launch key from the account before it returns.
 
 import type { webcrypto } from "node:crypto";
 
+import { bootScriptSha256 } from "@sbgpu/machine";
+
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
-import { parseMachineName } from "../machine-name.ts";
+import { failureName, readBody, retryAfterSeconds, type Fetch } from "../http.ts";
+import { machineName, parseMachineName } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
-import type {
-  AdapterInfo,
-  LaunchOptions,
-  LaunchResult,
-  LaunchSpec,
-  MachineState,
-  Offer,
-  OfferQuery,
-  ProviderAdapter,
-  ProviderMachineStatus,
+import {
+  COMMAND_UNOBSERVABLE,
+  type AdapterInfo,
+  type LaunchOptions,
+  type LaunchResult,
+  type LaunchSpec,
+  type MachineState,
+  type Offer,
+  type OfferQuery,
+  type ProviderAdapter,
+  type ProviderMachineStatus,
 } from "../types.ts";
-import { gpuFromHyperstack, hyperstackCountry } from "./catalog.ts";
+import { gpuFromHyperstack, gpuToHyperstack, hyperstackCountry } from "./catalog.ts";
 
 export const HYPERSTACK_API = "https://infrahub-api.nexgencloud.com/v1";
 /** VMs per page of the machine list. */
 const PAGE = 100;
 const MAX_PAGES = 50;
+/** A lost create's recovery lists at most this many pages (500 VMs); a longer list proves nothing. */
+const RECOVERY_PAGES = 5;
+/** The largest reply body read; a larger one is an unreadable reply. */
+export const MAX_REPLY_BYTES = 4 * 1024 * 1024;
+/** The largest boot script, in UTF-8 bytes: its base64 (65532 characters) fits user_data. */
+export const MAX_SCRIPT_BYTES = 49_149;
+/** A UTF-16 surrogate without its partner: such a string has no UTF-8 form. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const TIMEOUT_MS = 30_000;
 
 export interface HyperstackOptions {
@@ -38,7 +50,24 @@ export interface HyperstackOptions {
   baseUrl?: string;
   now?: () => Date;
   timeoutMs?: number;
+  /**
+   * Launch is enabled only with this. Without it, launch() refuses before any request. Only tests
+   * pass it; nothing in production constructs one.
+   */
+  launch?: HyperstackLaunchConfig;
 }
+
+export interface HyperstackLaunchConfig {
+  /** Region name -> the Hyperstack environment (made by hand in the account) VMs there go in. */
+  environments: Readonly<Record<string, string>>;
+}
+
+/** Names we send: an environment, flavor or image name, checked before any request. */
+const ENVIRONMENT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/;
+const FLAVOR_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const IMAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,99}$/;
+/** Hyperstack's user_data limit is 65535 base64 characters: the longest base64 within it is 65532. */
+const USER_DATA_MAX = 65532;
 
 /** A Hyperstack HTTP error as a ProviderError. Response bodies are never read or kept. */
 export function hyperstackError(status: number, retryAfter: string | null): ProviderError {
@@ -86,8 +115,11 @@ const STATES: Readonly<Record<string, MachineState>> = {
 
 export const UNREADABLE = "<unreadable>";
 
-/** A VM's command: Hyperstack doesn't echo user_data, so no VM ever matches a launcher by its echo. */
-export const VM_COMMAND: readonly string[] = Object.freeze(["<hyperstack-vm>"]);
+/** The message of a list stopped at the caller's deadline. */
+const STOPPED = "Hyperstack VM list stopped at the caller's deadline";
+
+/** A VM's command: Hyperstack doesn't echo user_data, so it is unobservable (never "matched"). */
+export const VM_COMMAND: readonly string[] = Object.freeze([COMMAND_UNOBSERVABLE]);
 
 function count(x: unknown): number {
   return typeof x === "number" && Number.isSafeInteger(x) && x >= 0 ? x : Number.NaN;
@@ -143,7 +175,13 @@ function unexpectedSettings(vm: Record<string, unknown>): string[] {
   const em = vm["enhanced_metrics"];
   const enabled = isObject(em) ? em["enabled"] : undefined;
   if (enabled !== false) out.push(`enhanced_metrics:${enabled === true ? "enabled" : UNREADABLE}`);
-  if (!isPublicIpv4(vm["floating_ip"])) out.push(`floating_ip:${vm["floating_ip"] === null || vm["floating_ip"] === undefined ? "none" : UNREADABLE}`);
+  // A VM still building may have no floating IP yet; an ACTIVE one must have a public one, and an
+  // address that isn't public is unexpected in any state.
+  const ip = vm["floating_ip"];
+  const noIp = ip === null || ip === undefined;
+  if (noIp ? vm["status"] === "ACTIVE" : !isPublicIpv4(ip)) out.push(`floating_ip:${noIp ? "none" : UNREADABLE}`);
+  if (!isEmpty(vm["labels"])) out.push("labels");
+  if (!(vm["callback_url"] === null || vm["callback_url"] === undefined || vm["callback_url"] === "")) out.push("callback_url");
   return out;
 }
 
@@ -203,6 +241,14 @@ export function vmStatus(vm: unknown, observedAt: string): ProviderMachineStatus
   };
 }
 
+/** Absent, null or an empty list. */
+function isEmpty(x: unknown): boolean {
+  return x === null || x === undefined || (Array.isArray(x) && x.length === 0);
+}
+
+/** VM statuses a just-created VM shows before it is ACTIVE. */
+const BUILDING_STATUSES: ReadonlySet<unknown> = new Set(["CREATING", "BUILD"]);
+
 /** What the announce check needs from a fresh VM, and what it must match. */
 export interface VmReadbackExpectation {
   name: string;
@@ -215,21 +261,34 @@ export interface VmReadbackExpectation {
 /**
  * Why a VM is not in the exact launch shape the announce may accept (draft 5), as fixed words; []
  * means it is. ACTIVE; a public IPv4, attached; port randomization off; exactly no security rules;
- * Enhanced Monitoring off; no volumes; and the exact name, environment, flavor, image and keypair.
+ * Enhanced Monitoring off; no volumes, labels or callback URL; and the exact name, environment,
+ * flavor, image and keypair.
+ *
+ * `starting`: the check right after create. Only a VM still building (CREATING or BUILD) may have
+ * its floating IP pending: absent or not yet attached, though an address that is there must be
+ * public. An ACTIVE VM must have it all: a public IPv4, attached. Every other field is checked in full.
  */
-export function vmReadbackProblems(vm: unknown, want: VmReadbackExpectation): string[] {
+export function vmReadbackProblems(vm: unknown, want: VmReadbackExpectation, opts: { starting?: boolean } = {}): string[] {
   if (!isObject(vm)) return ["unreadable"];
   const out: string[] = [];
   const name = (x: unknown) => (isObject(x) ? x["name"] : undefined);
-  if (vm["status"] !== "ACTIVE") out.push("status");
-  if (!isPublicIpv4(vm["floating_ip"])) out.push("floating_ip");
-  if (vm["floating_ip_status"] !== "ATTACHED") out.push("floating_ip_status");
+  const ip = vm["floating_ip"];
+  if (opts.starting === true && vm["status"] !== "ACTIVE") {
+    if (!BUILDING_STATUSES.has(vm["status"])) out.push("status");
+    if (!(ip === null || ip === undefined || isPublicIpv4(ip))) out.push("floating_ip");
+  } else {
+    if (vm["status"] !== "ACTIVE") out.push("status");
+    if (!isPublicIpv4(ip)) out.push("floating_ip");
+    if (vm["floating_ip_status"] !== "ATTACHED") out.push("floating_ip_status");
+  }
   if (vm["port_randomization"] !== false) out.push("port_randomization");
   if (!Array.isArray(vm["security_rules"]) || vm["security_rules"].length !== 0) out.push("security_rules");
   const em = vm["enhanced_metrics"];
   if (!isObject(em) || em["enabled"] !== false) out.push("enhanced_metrics");
   const volumes = vm["volume_attachments"];
-  if (!(volumes === null || volumes === undefined || (Array.isArray(volumes) && volumes.length === 0))) out.push("volumes");
+  if (!isEmpty(volumes)) out.push("volumes");
+  if (!isEmpty(vm["labels"])) out.push("labels");
+  if (!(vm["callback_url"] === null || vm["callback_url"] === undefined || vm["callback_url"] === "")) out.push("callback_url");
   if (vm["name"] !== want.name) out.push("name");
   if (name(vm["environment"]) !== want.environmentName) out.push("environment");
   if (name(vm["flavor"]) !== want.flavorName) out.push("flavor");
@@ -262,17 +321,74 @@ export async function perLaunchKeypair(): Promise<{ publicKey: string; privateKe
   return { publicKey: `ssh-ed25519 ${Buffer.from(blob).toString("base64")}`, privateKey: pair.privateKey };
 }
 
+/** What one create request asks for. */
+export interface CreateRequest {
+  name: string;
+  environmentName: string;
+  imageName: string;
+  flavorName: string;
+  keyName: string;
+  /** The boot script, sent as user_data: base64 of its UTF-8 bytes. */
+  script: string;
+}
+
+/**
+ * The exact create request body, as the bytes sent: one VM, a public IPv4, port randomization and
+ * Enhanced Monitoring off, no security rules, and nothing else (no labels, callback, volumes).
+ * Deterministic: the same request always gives the same text.
+ */
+export function createBody(r: CreateRequest): string {
+  const userData = Buffer.from(r.script, "utf8").toString("base64");
+  if (userData.length > USER_DATA_MAX) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: the boot script is too long for user_data");
+  return JSON.stringify({
+    name: r.name,
+    environment_name: r.environmentName,
+    image_name: r.imageName,
+    flavor_name: r.flavorName,
+    key_name: r.keyName,
+    count: 1,
+    assign_floating_ip: true,
+    enable_port_randomization: false,
+    enhanced_monitoring_enabled: false,
+    security_rules: [],
+    user_data: userData,
+  });
+}
+
+/** SHA-256 of a string's UTF-8 bytes, lowercase hex. */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Buffer.from(digest).toString("hex");
+}
+
+/**
+ * The boot script of a VM launch spec, or a refusal: the launcher must be exactly
+ * ["/bin/sh", "-c", script] and the boot token empty (a VM's token comes from its announce).
+ */
+export function vmLaunchScript(spec: LaunchSpec): string {
+  const l = spec.launcher;
+  if (!Array.isArray(l) || l.length !== 3 || l[0] !== "/bin/sh" || l[1] !== "-c" || typeof l[2] !== "string" || l[2] === "") {
+    throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: a VM launcher must be exactly /bin/sh -c <script>");
+  }
+  if (spec.bootToken !== "") throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: a VM launch carries no boot token");
+  const script = l[2];
+  // Every UTF-16 unit is at least one UTF-8 byte, so a longer string is too long without encoding it.
+  if (script.length > MAX_SCRIPT_BYTES || LONE_SURROGATE.test(script) || new TextEncoder().encode(script).length > MAX_SCRIPT_BYTES) {
+    throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: the boot script is too long for user_data, or not text");
+  }
+  return script;
+}
+
 export class HyperstackAdapter implements ProviderAdapter {
-  // No VM gets a provider-side environment, so "" here matches no variable: the drift check expects
-  // [""] and flags every Hyperstack VM, failing closed, until the launch path brings the announce
-  // delivery form in place of an environment variable name.
-  readonly info: AdapterInfo = { provider: "hyperstack", selfIdentity: null, bootTokenEnv: "" };
+  // A VM gets no provider-side environment: its launcher announces itself and gets the token back.
+  readonly info: AdapterInfo = { provider: "hyperstack", selfIdentity: null, bootDelivery: { kind: "announce" } };
 
   readonly #apiKey: string;
   readonly #fetch: Fetch;
   readonly #base: string;
   readonly #now: () => Date;
   readonly #timeoutMs: number;
+  readonly #launch: HyperstackLaunchConfig | undefined;
 
   constructor(opts: HyperstackOptions) {
     this.#apiKey = opts.apiKey;
@@ -280,13 +396,15 @@ export class HyperstackAdapter implements ProviderAdapter {
     this.#base = opts.baseUrl ?? HYPERSTACK_API;
     this.#now = opts.now ?? (() => new Date());
     this.#timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
+    this.#launch = opts.launch;
   }
 
   /**
    * One API call. Network failures and timeouts throw kind "outcome_unknown". An error status is
    * classified before any body read: an error reply's body is never read.
    */
-  async #call(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<unknown> {
+  async #call(method: "GET" | "POST" | "DELETE", path: string, body?: string): Promise<unknown> {
+    const deadline = Date.now() + this.#timeoutMs;
     const init: Parameters<Fetch>[1] = {
       method,
       headers: { api_key: this.#apiKey, Accept: "application/json" },
@@ -296,7 +414,8 @@ export class HyperstackAdapter implements ProviderAdapter {
     };
     if (body !== undefined) {
       init.headers["Content-Type"] = "application/json";
-      init.body = JSON.stringify(body);
+      // Sent exactly as given, so a hash of `body` is a hash of the bytes sent.
+      init.body = body;
     }
     let res;
     try {
@@ -305,12 +424,14 @@ export class HyperstackAdapter implements ProviderAdapter {
       throw new ProviderError("hyperstack", "outcome_unknown", `Hyperstack ${method} ${path.split("?")[0]}: no response (${failureName(e)})`);
     }
     if (!(res.status >= 200 && res.status < 300)) throw hyperstackError(res.status, res.headers.get("Retry-After"));
-    let text;
-    try {
-      text = await res.text();
-    } catch (e) {
-      throw new ProviderError("hyperstack", "outcome_unknown", `Hyperstack ${method} ${path.split("?")[0]}: reply cut off (${failureName(e)})`, res.status);
+    // The body is read within the same deadline and at most MAX_REPLY_BYTES. A body that can't be
+    // read whole is like a lost reply to a change (it may have happened) and a failed read.
+    const read = await readBody(res, MAX_REPLY_BYTES, deadline);
+    if (!read.ok) {
+      const kind: ProviderErrorKind = method === "GET" ? "unknown" : "outcome_unknown";
+      throw new ProviderError("hyperstack", kind, `Hyperstack ${method} ${path.split("?")[0]}: reply not read (${read.why})`, res.status);
     }
+    const text = read.text;
     if (text === "") return null;
     try {
       return JSON.parse(text);
@@ -380,9 +501,161 @@ export class HyperstackAdapter implements ProviderAdapter {
     return [...best.values()];
   }
 
-  /** Refused before any request: the Hyperstack create path lands under its own review. */
-  async launch(_spec: LaunchSpec, _opts?: LaunchOptions): Promise<LaunchResult> {
-    throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: VM launch is not enabled");
+  /**
+   * Launch one VM. Refused before any request unless the adapter was built with a launch config.
+   * Every check on the spec comes first. Then: one flavor read (exactly one flavor must match), a
+   * per-launch key, the create request, one readback of the full launch shape, and the key's
+   * removal from the account. A VM is returned only when all of that succeeded. Any failure once
+   * a VM exists throws with its id set, so the caller terminates it.
+   */
+  async launch(spec: LaunchSpec, opts: LaunchOptions = {}): Promise<LaunchResult> {
+    const cfg = this.#launch;
+    if (cfg === undefined) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: VM launch is not enabled");
+    const script = vmLaunchScript(spec);
+    let name: string;
+    try {
+      name = machineName(spec.machineId);
+    } catch {
+      throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: not a machine id");
+    }
+    const gpu = gpuToHyperstack(spec.gpuType);
+    if (gpu === null) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: GPU type not offered");
+    if (!Number.isSafeInteger(spec.gpuCount) || spec.gpuCount < 1) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: bad GPU count");
+    if (!Number.isSafeInteger(spec.diskGb) || spec.diskGb < 1) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: bad disk size");
+    if (typeof spec.image !== "string" || !IMAGE_NAME.test(spec.image)) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: bad image name");
+    const environmentName = Object.hasOwn(cfg.environments, spec.dataCenter) ? cfg.environments[spec.dataCenter] : undefined;
+    if (typeof environmentName !== "string" || !ENVIRONMENT_NAME.test(environmentName)) {
+      throw new ProviderError("hyperstack", "unplaceable", "Hyperstack: no environment for this region");
+    }
+    const keyName = `sbg-k-${spec.machineId}`;
+    const bootSha = await bootScriptSha256(script);
+    const stop = opts.shouldStop;
+    const stopBefore = () => {
+      if (stop?.() === true) throw new ProviderError("hyperstack", "unknown", "stopped at the caller's deadline before creating a VM");
+    };
+
+    stopBefore();
+    const flavorName = await this.#flavorFor(gpu, spec);
+    // The exact body and its hash come before the key: from here on, every stop check is
+    // immediately followed by its request, with nothing awaited between them.
+    const body = createBody({ name, environmentName, imageName: spec.image, flavorName, keyName, script });
+    const integrity = { bootScriptSha256: bootSha, requestSha256: await sha256Hex(body), echo: "unobservable" as const };
+    // Only the public half is kept: the private key, never exportable, is dropped right here.
+    const { publicKey } = await perLaunchKeypair();
+    stopBefore();
+    let keyId: number;
+    try {
+      keyId = await this.importKeypair(keyName, environmentName, publicKey);
+    } catch (e) {
+      if (e instanceof ProviderError && e.kind === "outcome_unknown") {
+        // No VM was requested; only a key (public half only) may be left to remove by name.
+        throw new ProviderError("hyperstack", "unknown", `Hyperstack: keypair ${keyName} import has an unknown outcome; no VM was requested`);
+      }
+      throw e;
+    }
+    if (stop?.() === true) {
+      // No request after a stop, not even cleanup: the key (public half only) is left, by name.
+      throw new ProviderError("hyperstack", "unknown", `stopped at the caller's deadline before creating a VM; keypair ${keyName} kept`);
+    }
+
+    let id: string;
+    try {
+      id = createdVmId(await this.#call("POST", "/core/virtual-machines", body), name);
+    } catch (e) {
+      if (!(e instanceof ProviderError)) throw e;
+      if (e.kind !== "outcome_unknown" && e.kind !== "transient") {
+        // A definite refusal: no VM. The key goes too.
+        const left = await this.#removeKey(keyId, keyName, stop);
+        throw new ProviderError("hyperstack", e.kind, `${e.message}${left}`, e.httpStatus, e.retryAfterSeconds);
+      }
+      // The VM may exist, and may still need the key: keep it, and look once by name.
+      id = await this.#recover(name, keyName, e, stop);
+    }
+
+    if (stop?.() === true) {
+      throw new ProviderError("hyperstack", "outcome_unknown", `stopped at the caller's deadline after creating VM ${id}; keypair ${keyName} kept`, null, null, id);
+    }
+    let vm: Record<string, unknown>;
+    try {
+      vm = await this.#getVm(id);
+    } catch {
+      const left = await this.#removeKey(keyId, keyName, stop);
+      throw new ProviderError("hyperstack", "unknown", `Hyperstack VM ${id} could not be read back${left}`, null, null, id);
+    }
+    const problems = vmReadbackProblems(vm, { name, environmentName, flavorName, imageName: spec.image, keypairName: keyName }, { starting: true });
+    if (problems.length > 0) {
+      const left = await this.#removeKey(keyId, keyName, stop);
+      throw new ProviderError("hyperstack", "spec_mismatch", `Hyperstack VM ${id} is not the launch shape: ${problems.join(", ")}${left}`, null, null, id);
+    }
+    // The key leaves the account before the VM may be used: a VM whose key may remain is terminated.
+    const left = await this.#removeKey(keyId, keyName, stop);
+    if (left !== "") throw new ProviderError("hyperstack", "unknown", `Hyperstack VM ${id} was created${left}`, null, null, id);
+    return { providerMachineId: id, status: vmStatus(vm, this.#observedAt()), integrity };
+  }
+
+  /** The one flavor for this spec: its GPU, count, region and disk. None or several refuse. */
+  async #flavorFor(gpu: string, spec: LaunchSpec): Promise<string> {
+    const json = await this.#call("GET", "/core/flavors");
+    if (!isObject(json) || !Array.isArray(json["data"])) throw new ProviderError("hyperstack", "unknown", "Hyperstack flavor list is malformed");
+    const matches: Record<string, unknown>[] = [];
+    for (const group of json["data"]) {
+      if (!isObject(group) || !Array.isArray(group["flavors"])) continue;
+      for (const f of group["flavors"]) {
+        if (isObject(f) && f["gpu"] === gpu && f["gpu_count"] === spec.gpuCount && f["region_name"] === spec.dataCenter && f["disk"] === spec.diskGb) {
+          matches.push(f);
+        }
+      }
+    }
+    if (matches.length !== 1) {
+      throw new ProviderError("hyperstack", "unplaceable", `Hyperstack: ${matches.length === 0 ? "no flavor matches" : "several flavors match"} this launch`);
+    }
+    const f = matches[0]!;
+    if (typeof f["name"] !== "string" || !FLAVOR_NAME.test(f["name"])) throw new ProviderError("hyperstack", "unknown", "Hyperstack flavor has a bad name");
+    if (f["stock_available"] !== true) throw new ProviderError("hyperstack", "no_capacity", "Hyperstack: the flavor is out of stock");
+    return f["name"];
+  }
+
+  /**
+   * After a create whose outcome is unknown: one list, by name. One VM is the one created; none
+   * leaves the outcome unknown; several fail with their ids. The key is kept in every case.
+   */
+  async #recover(name: string, keyName: string, cause: ProviderError, stop: (() => boolean) | undefined): Promise<string> {
+    const kept = `keypair ${keyName} kept for reconciliation`;
+    let found: ProviderMachineStatus[];
+    try {
+      found = (await this.#list(RECOVERY_PAGES, stop)).filter((s) => s.machineId !== null && machineName(s.machineId) === name);
+    } catch (e) {
+      const why = e instanceof ProviderError && e.message === STOPPED ? "stopped at the caller's deadline" : "the VM list could not be read";
+      throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; ${why}; ${kept}`);
+    }
+    if (found.length === 0) throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; no VM named ${name} yet; ${kept}`);
+    if (found.length > 1) {
+      const ids = found.map((s) => s.providerMachineId);
+      throw new ProviderError("hyperstack", "outcome_unknown", `${ids.length} VMs are named ${name}: ${ids.join(", ")}; ${kept}`, null, null, ids[0]!);
+    }
+    return found[0]!.providerMachineId;
+  }
+
+  /** One VM, as Hyperstack reports it; another VM's answer fails. */
+  async #getVm(id: string): Promise<Record<string, unknown>> {
+    const json = await this.#call("GET", `/core/virtual-machines/${id}`);
+    const vm = isObject(json) ? json["instance"] : undefined;
+    if (!isObject(vm) || vm["id"] !== Number(id)) throw new ProviderError("hyperstack", "unknown", "Hyperstack answered a VM query with another VM");
+    return vm;
+  }
+
+  /**
+   * Remove the launch's key from the account. "" if it is gone; otherwise why it is left, by name,
+   * for the error to carry: the delete failed, or the caller stopped (then no request is made).
+   */
+  async #removeKey(keyId: number, keyName: string, stop: (() => boolean) | undefined): Promise<string> {
+    if (stop?.() === true) return `; stopped at the caller's deadline; keypair ${keyName} kept`;
+    try {
+      await this.deleteKeypair(keyId);
+      return "";
+    } catch {
+      return `; keypair ${keyName} could not be removed`;
+    }
   }
 
   async status(providerMachineId: string): Promise<ProviderMachineStatus> {
@@ -450,11 +723,17 @@ export class HyperstackAdapter implements ProviderAdapter {
    * must carry a readable name, or the list fails.
    */
   async listMachines(): Promise<ProviderMachineStatus[]> {
+    return this.#list(MAX_PAGES, undefined);
+  }
+
+  /** The list, reading at most `maxPages`; `stop` is checked before every page's request. */
+  async #list(maxPages: number, stop: (() => boolean) | undefined): Promise<ProviderMachineStatus[]> {
     const out: ProviderMachineStatus[] = [];
     const seen = new Set<string>();
     let total: number | null = null;
     let read = 0;
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    for (let page = 1; page <= maxPages; page++) {
+      if (stop?.() === true) throw new ProviderError("hyperstack", "unknown", STOPPED);
       const qs = new URLSearchParams({ page: String(page), pageSize: String(PAGE) });
       const json = await this.#call("GET", `/core/virtual-machines?${qs}`);
       const observedAt = this.#observedAt();
@@ -480,14 +759,14 @@ export class HyperstackAdapter implements ProviderAdapter {
       read += rows.length;
       if (read >= total) return out;
     }
-    throw new ProviderError("hyperstack", "unknown", `Hyperstack VM list has more than ${MAX_PAGES} pages`);
+    throw new ProviderError("hyperstack", "unknown", `Hyperstack VM list has more than ${maxPages} pages`);
   }
 
   /** Import one launch's public key; returns the keypair's id. */
   async importKeypair(name: string, environmentName: string, publicKey: string): Promise<number> {
     if (!/^sbg-[A-Za-z0-9_-]{1,46}$/.test(name)) throw new RangeError("keypair name must be ours (sbg-…), at most 50 characters");
     if (!/^ssh-ed25519 [A-Za-z0-9+/]{68}$/.test(publicKey)) throw new RangeError("only an OpenSSH Ed25519 public key");
-    const json = await this.#call("POST", "/core/keypairs", { name, environment_name: environmentName, public_key: publicKey });
+    const json = await this.#call("POST", "/core/keypairs", JSON.stringify({ name, environment_name: environmentName, public_key: publicKey }));
     const kp = isObject(json) ? json["keypair"] : undefined;
     const id = isObject(kp) ? kp["id"] : undefined;
     if (!Number.isSafeInteger(id) || (id as number) <= 0 || !isObject(kp) || kp["name"] !== name) {
@@ -507,6 +786,16 @@ export class HyperstackAdapter implements ProviderAdapter {
       throw e;
     }
   }
+}
+
+/** The id of the one VM a create reply reports, with our name; anything else is an unknown outcome. */
+function createdVmId(json: unknown, name: string): string {
+  const list = isObject(json) ? json["instances"] : undefined;
+  const vm = Array.isArray(list) && list.length === 1 ? list[0] : undefined;
+  if (!isObject(vm) || !Number.isSafeInteger(vm["id"]) || (vm["id"] as number) <= 0 || vm["name"] !== name) {
+    throw new ProviderError("hyperstack", "outcome_unknown", "Hyperstack create reply has no VM of ours");
+  }
+  return String(vm["id"]);
 }
 
 function goneStatus(providerMachineId: string, observedAt: string): ProviderMachineStatus {

@@ -513,7 +513,8 @@ export async function runEradicationProbe(
 ): Promise<ProbeReport> {
   const plan: ProbePlan = structuredClone(input);
   checkPlan(plan);
-  if (adapter.info.bootTokenEnv !== BOOT_TOKEN_ENV) throw new RangeError("the adapter's boot token variable isn't the launcher's");
+  const delivery = adapter.info.bootDelivery;
+  if (delivery.kind !== "env" || delivery.name !== BOOT_TOKEN_ENV) throw new RangeError("the adapter's boot token variable isn't the launcher's");
   const report: ProbeReport = {
     outcome: "aborted",
     approval: plan.approval,
