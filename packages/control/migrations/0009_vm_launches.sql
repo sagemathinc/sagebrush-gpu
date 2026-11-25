@@ -17,18 +17,26 @@ CREATE TABLE vm_launches (
   terminate_reason TEXT CHECK (terminate_reason IS NULL OR terminate_reason IN (
     'second-announce', 'provider-facts', 'provider-unavailable', 'deadline', 'issue-failed', 'watchdog-deadline', 'token-expired')),
   -- the watchdog's per-row claim: a version every claim increments (so a claim never
-  -- writes the value it read), and when the row was last attempted (fair order)
+  -- writes the value it read)
   watchdog_version INTEGER NOT NULL DEFAULT 0 CHECK (watchdog_version BETWEEN 0 AND 9007199254740991),
-  watchdog_ms INTEGER CHECK (watchdog_ms IS NULL OR watchdog_ms BETWEEN 0 AND 9007199254740991),
+  -- when the watchdog should next attempt the row, its one scheduling key: the announce
+  -- deadline while launched; at most the token's expiry once issued; now when marked to
+  -- terminate; the attempt's time after each attempt (so it goes behind every row due
+  -- earlier). Null exactly when the launch is final (enrolled, or terminated), which keeps
+  -- final history out of the watchdog's index.
+  next_ms INTEGER CHECK (next_ms IS NULL OR next_ms BETWEEN 0 AND 9007199254740991),
   terminated_ms INTEGER CHECK (terminated_ms IS NULL OR terminated_ms BETWEEN 0 AND 9007199254740991),
   created_ms INTEGER NOT NULL CHECK (created_ms BETWEEN 0 AND 9007199254740991),
   PRIMARY KEY (machine_id, incarnation),
   -- a reason exactly when the launch is being or has been terminated; an announce time once it's past 'launched' by announce
   CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),
   CHECK ((outcome = 'terminated') = (terminated_ms IS NOT NULL)),
-  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL)
+  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),
+  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))
 ) STRICT;
-CREATE INDEX vm_launches_watch ON vm_launches (watchdog_ms) WHERE outcome IN ('launched', 'issued', 'terminate');
+-- the watchdog's search: a range scan in its own order, stopping at its batch; rows not yet
+-- due, and final history, are never read
+CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;
 
 CREATE TABLE boot_tokens (
   token_sha256 TEXT PRIMARY KEY CHECK (length(token_sha256) = 64 AND token_sha256 NOT GLOB '*[^0-9a-f]*'),

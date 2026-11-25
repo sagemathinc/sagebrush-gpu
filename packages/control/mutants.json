@@ -2100,8 +2100,8 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, watchdog_ms = ?,",
-  "new": "UPDATE vm_launches SET watchdog_version = watchdog_version, watchdog_ms = ?,",
+  "old": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
+  "new": "UPDATE vm_launches SET watchdog_version = watchdog_version, next_ms = ?,",
   "note": "a claim that writes the value it read"
  },
  {
@@ -2131,23 +2131,18 @@
  },
  {
   "file": "src/vm.ts",
-  "old": "ORDER BY v.watchdog_ms IS NOT NULL, v.watchdog_ms, v.watchdog_version, v.machine_id, v.incarnation",
-  "new": "ORDER BY v.watchdog_ms IS NOT NULL, v.watchdog_ms, v.machine_id, v.incarnation"
+  "old": "ORDER BY v.next_ms, v.watchdog_version, v.machine_id, v.incarnation",
+  "new": "ORDER BY v.next_ms, v.machine_id, v.incarnation"
  },
  {
   "file": "src/vm.ts",
-  "old": "ORDER BY v.watchdog_ms IS NOT NULL, v.watchdog_ms, v.watchdog_version, v.machine_id, v.incarnation",
-  "new": "ORDER BY v.watchdog_ms IS NULL, v.watchdog_ms, v.watchdog_version, v.machine_id, v.incarnation"
+  "old": "ORDER BY v.next_ms, v.watchdog_version, v.machine_id, v.incarnation",
+  "new": "ORDER BY v.next_ms DESC, v.watchdog_version, v.machine_id, v.incarnation"
  },
  {
   "file": "src/vm.ts",
-  "old": "OR (v.outcome IN ('launched', 'issued') AND ? >= v.first_active_ms + ?)",
-  "new": "OR (v.outcome IN ('launched', 'issued') AND ? > v.first_active_ms + ?)"
- },
- {
-  "file": "src/vm.ts",
-  "old": "        OR (v.outcome = 'issued' AND EXISTS (SELECT 1 FROM boot_tokens b WHERE b.machine_id = v.machine_id AND b.incarnation = v.incarnation AND b.used_ms IS NULL AND b.expires_ms <= ?))\n     ORDER BY",
-  "new": "        OR (v.outcome = 'issued' AND 0 AND ? IS NULL)\n     ORDER BY"
+  "old": "WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
+  "new": "WHERE v.next_ms IS NOT NULL AND v.next_ms < ?"
  },
  {
   "file": "src/vm.ts",
@@ -2171,8 +2166,8 @@
  },
  {
   "file": "migrations/0009_vm_launches.sql",
-  "old": "  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL)\n) STRICT;",
-  "new": "  CHECK (1)\n) STRICT;"
+  "old": "  CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),\n",
+  "new": ""
  },
  {
   "file": "migrations/0009_vm_launches.sql",
@@ -2183,5 +2178,39 @@
   "file": "wrangler.json",
   "old": "  \"workers_dev\": false,\n",
   "new": ""
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,",
+  "new": "UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = next_ms + 0 * ?,",
+  "note": "an attempt doesn't move the row back"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = MIN(next_ms, ?) WHERE",
+  "new": "sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = next_ms + 0 * ? WHERE",
+  "note": "an unused token never falls due"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE",
+  "new": "UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ? WHERE"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
+  "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms) WHERE next_ms IS NOT NULL;",
+  "note": "the index doesn't serve the order: a sort"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;",
+  "new": "CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE outcome IN ('launched', 'issued', 'terminate');",
+  "note": "a predicate the query doesn't imply: a scan"
+ },
+ {
+  "file": "migrations/0009_vm_launches.sql",
+  "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))\n",
+  "new": "  CHECK (1)\n"
  }
 ]

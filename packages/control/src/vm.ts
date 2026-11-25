@@ -86,9 +86,9 @@ const REFUSED = () => new HttpError("forbidden", "refused");
 /** Mark a launch for termination (keeping an earlier reason), unless it's already terminated. */
 async function markTerminate(db: Db, r: LaunchRow, reason: TerminateReason, nowMs: number, claimAnnounce: boolean): Promise<void> {
   await db.run(
-    `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, ?)${claimAnnounce ? ", announce_ms = COALESCE(announce_ms, ?)" : ""}
+    `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = COALESCE(terminate_reason, ?), next_ms = MIN(COALESCE(next_ms, ?), ?)${claimAnnounce ? ", announce_ms = COALESCE(announce_ms, ?)" : ""}
      WHERE machine_id = ? AND incarnation = ? AND outcome <> 'terminated'`,
-    claimAnnounce ? [reason, nowMs, r.machine_id, r.incarnation] : [reason, r.machine_id, r.incarnation],
+    claimAnnounce ? [reason, nowMs, nowMs, nowMs, r.machine_id, r.incarnation] : [reason, nowMs, nowMs, r.machine_id, r.incarnation],
   );
 }
 
@@ -109,7 +109,7 @@ export interface JobEnv {
  */
 export async function terminateAttempt(env: JobEnv, r: { machine_id: string; incarnation: number; provider_machine_id: string; watchdog_version: number }, reason: string): Promise<boolean> {
   const claimed = await env.db.run(
-    `UPDATE vm_launches SET watchdog_version = watchdog_version + 1, watchdog_ms = ?,
+    `UPDATE vm_launches SET watchdog_version = watchdog_version + 1, next_ms = ?,
        outcome = CASE WHEN outcome IN ('launched', 'issued') THEN 'terminate' ELSE outcome END,
        terminate_reason = COALESCE(terminate_reason, ?)
      WHERE machine_id = ? AND incarnation = ? AND watchdog_version = ? AND outcome <> 'terminated' AND outcome <> 'enrolled'`,
@@ -123,7 +123,7 @@ export async function terminateAttempt(env: JobEnv, r: { machine_id: string; inc
   if (facts !== "unavailable" && facts.state === "absent") {
     await env.db.batch([
       {
-        sql: `UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ? WHERE machine_id = ? AND incarnation = ? AND outcome = 'terminate'`,
+        sql: `UPDATE vm_launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE machine_id = ? AND incarnation = ? AND outcome = 'terminate'`,
         params: [env.now, r.machine_id, r.incarnation],
       },
       ...closeAccrual(r.machine_id, r.incarnation, env.now),
@@ -181,8 +181,8 @@ export const VM_HANDLERS: Handlers = {
     try {
       await deps.db.batch([
         {
-          sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued' WHERE machine_id = ? AND incarnation = ? AND announce_ms IS NULL AND outcome = 'launched'`,
-          params: [now, r.machine_id, r.incarnation],
+          sql: `UPDATE vm_launches SET announce_ms = ?, outcome = 'issued', next_ms = MIN(next_ms, ?) WHERE machine_id = ? AND incarnation = ? AND announce_ms IS NULL AND outcome = 'launched'`,
+          params: [now, expires, r.machine_id, r.incarnation],
         },
         {
           sql: `INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, provider_machine_id, nonce_sha256, issued_ms, expires_ms)
@@ -203,25 +203,31 @@ export const VM_HANDLERS: Handlers = {
 };
 
 /**
+ * The watchdog's search (exported for its query-plan test): a range scan of the partial
+ * index on next_ms in the index's own order, stopping at the batch. Due rows only; final
+ * history and rows not yet due are never read.
+ */
+export const WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.watchdog_version,
+       CASE WHEN v.outcome = 'terminate' THEN v.terminate_reason
+            WHEN v.outcome = 'issued' AND EXISTS (SELECT 1 FROM boot_tokens b WHERE b.machine_id = v.machine_id AND b.incarnation = v.incarnation AND b.used_ms IS NULL AND b.expires_ms <= ?) THEN 'token-expired'
+            ELSE 'watchdog-deadline' END AS reason
+     FROM vm_launches v
+     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?
+     ORDER BY v.next_ms, v.watchdog_version, v.machine_id, v.incarnation
+     LIMIT ?`;
+
+/**
  * The watchdog job: launches that must end (marked to terminate; past the announce deadline
- * without enrolling; issued but the token unused past its expiry), at most WATCHDOG_BATCH a
- * run, longest unattempted first (and, among rows attempted at the same time, the least
+ * without enrolling; issued but the token unused past its expiry), which is exactly
+ * `next_ms <= now`, at most WATCHDOG_BATCH a run, earliest next_ms first (an attempt sets it
+ * to the attempt's time, so attempted rows go behind every row due earlier; ties: the least
  * attempted), each claimed before it's worked, none claimed past the budget. Returns how
  * many it attempted.
  */
 export async function runVmWatchdog(env: JobEnv): Promise<number> {
   const rows = await env.db.all<{ machine_id: string; incarnation: number; provider_machine_id: string; watchdog_version: number; reason: string }>(
-    `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.watchdog_version,
-       CASE WHEN v.outcome = 'terminate' THEN v.terminate_reason
-            WHEN v.outcome = 'issued' AND EXISTS (SELECT 1 FROM boot_tokens b WHERE b.machine_id = v.machine_id AND b.incarnation = v.incarnation AND b.used_ms IS NULL AND b.expires_ms <= ?) THEN 'token-expired'
-            ELSE 'watchdog-deadline' END AS reason
-     FROM vm_launches v
-     WHERE v.outcome = 'terminate'
-        OR (v.outcome IN ('launched', 'issued') AND ? >= v.first_active_ms + ?)
-        OR (v.outcome = 'issued' AND EXISTS (SELECT 1 FROM boot_tokens b WHERE b.machine_id = v.machine_id AND b.incarnation = v.incarnation AND b.used_ms IS NULL AND b.expires_ms <= ?))
-     ORDER BY v.watchdog_ms IS NOT NULL, v.watchdog_ms, v.watchdog_version, v.machine_id, v.incarnation
-     LIMIT ?`,
-    [env.now, env.now, ANNOUNCE_DEADLINE_MS, env.now, WATCHDOG_BATCH],
+    WATCHDOG_SELECT,
+    [env.now, env.now, WATCHDOG_BATCH],
   );
   let attempted = 0;
   for (const r of rows) {

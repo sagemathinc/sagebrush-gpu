@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { newId } from "@sbgpu/api";
 import { stmt } from "./db.ts";
 import { openAccrual } from "./ledger.ts";
-import { ANNOUNCE_DEADLINE_MS, BOOT_TOKEN_TTL_MS, PROVIDER_CALL_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, canonicalIpv4, runVmWatchdog, terminateAttempt, type InstanceFacts, type JobEnv, type VmProvider } from "./vm.ts";
+import { ANNOUNCE_DEADLINE_MS, BOOT_TOKEN_TTL_MS, PROVIDER_CALL_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, WATCHDOG_SELECT, canonicalIpv4, runVmWatchdog, terminateAttempt, type InstanceFacts, type JobEnv, type VmProvider } from "./vm.ts";
 import { ORIGIN, T0, addMember, world, type World } from "./testing/world.ts";
 import { BOOT_SCRIPT_VECTOR, bootScriptSha256, renderBootScript } from "@sbgpu/machine";
 import type { HyperstackAdapter } from "@sbgpu/providers";
@@ -62,9 +62,9 @@ async function launch(o: { firstActiveMs?: number; ipv4?: string } = {}) {
       machineId, w.projectId, allocationId, memberId, providerMachineId, T0,
     ),
     stmt(
-      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, ipv4, first_active_ms, created_ms)
-       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?)`,
-      machineId, providerMachineId, sha(nonce), SCRIPT, o.ipv4 ?? IP, o.firstActiveMs ?? T0, T0,
+      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, ipv4, first_active_ms, next_ms, created_ms)
+       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?)`,
+      machineId, providerMachineId, sha(nonce), SCRIPT, o.ipv4 ?? IP, o.firstActiveMs ?? T0, (o.firstActiveMs ?? T0) + ANNOUNCE_DEADLINE_MS, T0,
     ),
   ]);
   vm.facts.set(providerMachineId, { state: "active", ipv4: o.ipv4 ?? IP, exclusive: true });
@@ -276,9 +276,10 @@ test("watchdog: the run's budget: no claim past it, and unreached rows keep thei
   let calls = 0;
   const attempted = await runVmWatchdog(env({ elapsedMs: () => (calls++ < 2 ? 0 : WATCHDOG_BUDGET_MS) }));
   assert.equal(attempted, 2);
-  const versions = await w.db.all<{ v: number; ms: number | null }>(`SELECT watchdog_version AS v, watchdog_ms AS ms FROM vm_launches ORDER BY v DESC`);
+  const versions = await w.db.all<{ v: number; ms: number | null }>(`SELECT watchdog_version AS v, next_ms AS ms FROM vm_launches ORDER BY v DESC`);
   assert.deepEqual(versions.map((x) => x.v), [1, 1, 0, 0, 0]);
-  assert.deepEqual(versions.slice(2).map((x) => x.ms), [null, null, null]);
+  // (the unreached rows keep their place: still due at their deadline)
+  assert.deepEqual(versions.slice(2).map((x) => x.ms), [T0, T0, T0]);
 });
 
 test("watchdog: a row's claim is won once; an overlapping run with the same view skips it", async () => {
@@ -326,7 +327,7 @@ test("announce: a launch of an older incarnation, or an IP that's a prefix of th
 test("announce: a valid second announce after enroll terminates too", async () => {
   const l = await launch();
   assert.equal((await announce(bodyOf(l))).res.status, 200);
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled' WHERE machine_id = ?`, l.machineId)]);
+  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', next_ms = NULL WHERE machine_id = ?`, l.machineId)]); // (as enroll will)
   w.clock.t += 1000;
   assert.equal((await announce(bodyOf(l))).res.status, 403);
   const row = await launchRow(l.machineId);
@@ -351,4 +352,54 @@ test("announce: the boot script's hash is the shared vector's (the same bytes on
   await w.db.batch([stmt(`UPDATE vm_launches SET boot_script_sha256 = ? WHERE machine_id = ?`, hash, l.machineId)]);
   assert.equal((await announce(bodyOf(l, { bootScriptSha256: SCRIPT }))).res.status, 403); // (another script's hash)
   assert.equal((await announce(bodyOf(l, { bootScriptSha256: BOOT_SCRIPT_VECTOR.sha256 }))).res.status, 200);
+});
+
+test("watchdog: its search is a range on the partial index in its own order: no scan of history or not-yet-due rows, no sort", async () => {
+  // a large final history, many active launches not yet due, a few due
+  const stmts = [];
+  const due: string[] = [];
+  for (let i = 0; i < 4000; i++) {
+    const machineId = newId("machine");
+    const kind = i < 2000 ? "terminated" : i < 2400 ? "enrolled" : i < 3995 ? "fresh" : "due";
+    stmts.push(stmt(
+      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, provider_machine_id, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES (?, ?, ?, ?, 'hyperstack', ?, 'L4', 1, 'CANADA-1', 'starting', 1, ?)`,
+      machineId, w.projectId, allocationId, memberId, String(100000 + i), T0,
+    ));
+    const firstActive = kind === "due" ? T0 - ANNOUNCE_DEADLINE_MS : T0;
+    const [outcome, reason, terminated, next] =
+      kind === "terminated" ? ["terminated", "watchdog-deadline", T0, null] :
+      kind === "enrolled" ? ["enrolled", null, null, null] :
+      ["launched", null, null, firstActive + ANNOUNCE_DEADLINE_MS];
+    stmts.push(stmt(
+      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, ipv4, first_active_ms, announce_ms, outcome, terminate_reason, terminated_ms, next_ms, created_ms)
+       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      machineId, String(100000 + i), sha(machineId), SCRIPT, IP, firstActive, kind === "enrolled" ? T0 : null, outcome, reason, terminated, next, T0,
+    ));
+    if (kind === "due") due.push(String(100000 + i));
+  }
+  await w.db.batch(stmts);
+  const plan = w.db.raw.prepare(`EXPLAIN QUERY PLAN ${WATCHDOG_SELECT}`).all(w.clock.t, w.clock.t, WATCHDOG_BATCH) as Array<{ detail: string }>;
+  const details = plan.map((p) => p.detail);
+  // the launches: a SEARCH with the index's range, never a SCAN; nothing sorted
+  assert.ok(details.some((d) => /^SEARCH v USING (COVERING )?INDEX vm_launches_next \(next_ms>\? AND next_ms<\?\)$/.test(d) || /^SEARCH v USING (COVERING )?INDEX vm_launches_next \(next_ms<\?\)$/.test(d)), JSON.stringify(details));
+  assert.ok(!details.some((d) => /^SCAN v\b/.test(d)), JSON.stringify(details));
+  assert.ok(!details.some((d) => /TEMP B-TREE/.test(d)), JSON.stringify(details));
+  // and a run attempts exactly the due ones
+  for (const p of due) vm.facts.set(p, { state: "active", ipv4: IP, exclusive: true });
+  assert.equal(await runVmWatchdog(env()), due.length);
+  assert.deepEqual(vm.terminated.sort(), due.sort());
+  // just before the fresh ones fall due: still nothing of theirs; at their deadline: the batch
+  vm.terminated = [];
+  w.clock.t = T0 + ANNOUNCE_DEADLINE_MS - 1;
+  assert.equal(await runVmWatchdog(env()), 0);
+  w.clock.t = T0 + ANNOUNCE_DEADLINE_MS;
+  assert.equal(await runVmWatchdog(env()), WATCHDOG_BATCH);
+});
+
+test("schema: next_ms is set exactly while a launch isn't final", async () => {
+  const l = await launch();
+  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET next_ms = NULL WHERE machine_id = ?`, l.machineId)]), /CHECK/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ? WHERE machine_id = ?`, T0, l.machineId)]), /CHECK/);
+  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ?, next_ms = NULL WHERE machine_id = ?`, T0, l.machineId)]);
 });
