@@ -2,9 +2,12 @@
 // every 30 s; control keeps the latest report per machine incarnation and, when the agent's
 // token has 15 minutes or less left, answers with a fresh one (same machine and incarnation,
 // the capped lifetime, signed by the proved-ready signer; none, plus an alert, when it isn't
-// ready). The heartbeat watchdog ends an enrolled VM whose heartbeats stopped: silent for more
-// than 120 s, it marks the launch to terminate (heartbeat-lost), in one guarded batch that
-// rechecks everything it read, so a heartbeat that lands first leaves the launch alone.
+// ready). Requests may cross: a report replaces the stored one (and sets the save estimate)
+// only when it's newer, and the launch's heartbeat due time only moves later, so an older
+// request committing last never undoes a newer one. The heartbeat watchdog ends an enrolled VM
+// whose heartbeats stopped: past its due time (silent for more than 120 s), it marks the launch
+// to terminate (heartbeat-lost), in one guarded batch that rechecks everything it read, so a
+// heartbeat that lands first leaves the launch alone.
 
 import { finalSaveReserveSeconds, isId, signToken, toIso, type AgentClaims, type AgentHeartbeatResponse } from "@sbgpu/api";
 import type { Ctx, Handlers } from "./app.ts";
@@ -104,6 +107,8 @@ export const HEARTBEAT_HANDLERS: Handlers = {
     const enrolled = (await deps.db.all<{ at_ms: number }>(`SELECT at_ms FROM gate_reports WHERE machine_id = ? AND incarnation = ?`, [c.mch, c.inc]))[0];
     if (!enrolled) throw new HttpError("unauthenticated", "refused");
     const r = parseReport(ctx.body, c.inc, enrolled.at_ms, now);
+    // (in order: the report, only over an older one; the save estimate, only when that report
+    // was written: changes() is the statement just before; the due time, only later)
     const stmts: Stmt[] = [
       {
         sql: `INSERT INTO machine_heartbeats (machine_id, incarnation, last_ms, uptime_s, last_terminal_input_ms, last_jupyter_activity_ms, gpu_util_pct, gpu_mem_used_mib,
@@ -114,13 +119,18 @@ export const HEARTBEAT_HANDLERS: Handlers = {
                 gpu_util_pct = excluded.gpu_util_pct, gpu_mem_used_mib = excluded.gpu_mem_used_mib, idle_since_ms = excluded.idle_since_ms,
                 save_state = excluded.save_state, save_last_ms = excluded.save_last_ms, save_bytes_done = excluded.save_bytes_done,
                 save_bytes_total = excluded.save_bytes_total, save_error = excluded.save_error, save_snapshot_id = excluded.save_snapshot_id,
-                dirty_bytes = excluded.dirty_bytes`,
+                dirty_bytes = excluded.dirty_bytes
+              WHERE excluded.last_ms > machine_heartbeats.last_ms`,
         params: [c.mch, c.inc, now, r.uptimeS, r.lastTerminalInputMs, r.lastJupyterActivityMs, r.gpuUtilPct, r.gpuMemUsedMiB, r.idleSinceMs,
           r.saveState, r.saveLastMs, r.bytesDone, r.bytesTotal, r.saveError, r.snapshotId, r.dirtyBytes],
       },
       {
-        sql: `UPDATE machines SET save_estimate_seconds = ? WHERE id = ? AND incarnation = ?`,
+        sql: `UPDATE machines SET save_estimate_seconds = ? WHERE id = ? AND incarnation = ? AND changes() = 1`,
         params: [finalSaveReserveSeconds(r.dirtyBytes), c.mch, c.inc],
+      },
+      {
+        sql: `UPDATE vm_launches SET heartbeat_due_ms = ? WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND heartbeat_due_ms < ?`,
+        params: [now + HEARTBEAT_LOST_MS, c.mch, c.inc, now + HEARTBEAT_LOST_MS],
       },
     ];
     await deps.db.batch(stmts);
@@ -147,22 +157,21 @@ interface Candidate {
   machine_id: string;
   incarnation: number;
   watchdog_version: number;
-  hb_ms: number | null;
-  enroll_ms: number;
+  due_ms: number;
+  running: number;
 }
 
 /**
- * Enrolled VMs of running machines silent for more than HEARTBEAT_LOST_MS: by their last
- * heartbeat, or with none yet by their enroll, both classes merged by that age (oldest first)
- * under one bound. (Exported for its query-plan test.)
+ * Enrolled launches past their heartbeat due time (silent for more than HEARTBEAT_LOST_MS:
+ * since their last heartbeat or, with none yet, their enroll), oldest first, under one bound:
+ * a range scan of the due index, each row's machine looked up by its key, so the work examined
+ * is the bound, never the fleet. (Exported for its query-plan test.)
  */
-export const HEARTBEAT_WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.watchdog_version, h.last_ms AS hb_ms, g.at_ms AS enroll_ms
+export const HEARTBEAT_WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.watchdog_version, v.heartbeat_due_ms AS due_ms,
+       EXISTS (SELECT 1 FROM machines m WHERE m.id = v.machine_id AND m.incarnation = v.incarnation AND m.state = 'running') AS running
      FROM vm_launches v
-     JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation AND m.state = 'running'
-     JOIN gate_reports g ON g.machine_id = v.machine_id AND g.incarnation = v.incarnation
-     LEFT JOIN machine_heartbeats h ON h.machine_id = v.machine_id AND h.incarnation = v.incarnation
-     WHERE v.outcome = 'enrolled' AND COALESCE(h.last_ms, g.at_ms) < ?
-     ORDER BY COALESCE(h.last_ms, g.at_ms), v.machine_id, v.incarnation
+     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?
+     ORDER BY v.heartbeat_due_ms, v.machine_id, v.incarnation
      LIMIT ?`;
 
 const TOOK = { sql: `INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`, params: [] };
@@ -170,26 +179,33 @@ const TOOK = { sql: `INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1
 /**
  * The heartbeat watchdog job: marks each lost VM's launch to terminate (heartbeat-lost), the
  * VM watchdog then ends it through the provider. Each mark is one batch whose update rechecks
- * what was read (the launch enrolled at its version, the machine running at its incarnation,
- * the heartbeat row exactly as sampled or still absent with the same enroll time) and fails
- * whole unless it changed exactly that row. Returns how many it marked.
+ * what was read (the launch enrolled at its version and due time, the machine running at its
+ * incarnation) and fails whole unless it changed exactly that row. A launch whose machine
+ * isn't running (saving, stopping, or another incarnation) isn't marked: its due time moves
+ * 120 s on, so it leaves the batch's places to others. Returns how many it marked.
  */
 export async function runHeartbeatWatchdog(env: JobEnv): Promise<number> {
-  const rows = await env.db.all<Candidate>(HEARTBEAT_WATCHDOG_SELECT, [env.now - HEARTBEAT_LOST_MS, HEARTBEAT_WATCHDOG_BATCH]);
+  const rows = await env.db.all<Candidate>(HEARTBEAT_WATCHDOG_SELECT, [env.now, HEARTBEAT_WATCHDOG_BATCH]);
   let marked = 0;
   for (const r of rows) {
-    const heartbeat =
-      r.hb_ms === null
-        ? { sql: `NOT EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ?) AND EXISTS (SELECT 1 FROM gate_reports WHERE machine_id = ? AND incarnation = ? AND at_ms = ?)`, params: [r.machine_id, r.incarnation, r.machine_id, r.incarnation, r.enroll_ms] }
-        : { sql: `EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ? AND last_ms = ?)`, params: [r.machine_id, r.incarnation, r.hb_ms] };
+    const running = `EXISTS (SELECT 1 FROM machines WHERE id = ? AND incarnation = ? AND state = 'running')`;
+    const same = `machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND heartbeat_due_ms = ?`;
+    if (!r.running) {
+      // (deferred; a heartbeat or the machine running again since the read leaves it as it is)
+      await env.db.batch([
+        {
+          sql: `UPDATE vm_launches SET heartbeat_due_ms = ? WHERE ${same} AND NOT ${running}`,
+          params: [env.now + HEARTBEAT_LOST_MS, r.machine_id, r.incarnation, r.due_ms, r.machine_id, r.incarnation],
+        },
+      ]);
+      continue;
+    }
     try {
       await env.db.batch([
         {
           sql: `UPDATE vm_launches SET outcome = 'terminate', terminate_reason = 'heartbeat-lost', next_ms = ?, watchdog_version = watchdog_version + 1
-                WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND watchdog_version = ?
-                  AND EXISTS (SELECT 1 FROM machines WHERE id = ? AND incarnation = ? AND state = 'running')
-                  AND ${heartbeat.sql}`,
-          params: [env.now, r.machine_id, r.incarnation, r.watchdog_version, r.machine_id, r.incarnation, ...heartbeat.params],
+                WHERE ${same} AND watchdog_version = ? AND ${running}`,
+          params: [env.now, r.machine_id, r.incarnation, r.due_ms, r.watchdog_version, r.machine_id, r.incarnation],
         },
         TOOK,
       ]);

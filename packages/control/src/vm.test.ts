@@ -327,7 +327,7 @@ test("announce: a launch of an older incarnation, or an IP that's a prefix of th
 test("announce: a valid second announce after enroll terminates too", async () => {
   const l = await launch();
   assert.equal((await announce(bodyOf(l))).res.status, 200);
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', next_ms = NULL WHERE machine_id = ?`, l.machineId)]); // (as enroll will)
+  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', next_ms = NULL, heartbeat_due_ms = ? WHERE machine_id = ?`, T0, l.machineId)]); // (as enroll will)
   w.clock.t += 1000;
   assert.equal((await announce(bodyOf(l))).res.status, 403);
   const row = await launchRow(l.machineId);
@@ -372,9 +372,9 @@ test("watchdog: its search is a range on the partial index in its own order: no 
       kind === "enrolled" ? ["enrolled", null, null, null] :
       ["launched", null, null, firstActive + ANNOUNCE_DEADLINE_MS];
     stmts.push(stmt(
-      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, announce_ms, outcome, terminate_reason, terminated_ms, next_ms, created_ms)
-       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      machineId, String(100000 + i), sha(machineId), SCRIPT, sha("agent"), IP, firstActive, kind === "enrolled" ? T0 : null, outcome, reason, terminated, next, T0,
+      `INSERT INTO vm_launches (machine_id, incarnation, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, announce_ms, outcome, terminate_reason, terminated_ms, next_ms, heartbeat_due_ms, created_ms)
+       VALUES (?, 1, 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      machineId, String(100000 + i), sha(machineId), SCRIPT, sha("agent"), IP, firstActive, kind === "enrolled" ? T0 : null, outcome, reason, terminated, next, kind === "enrolled" ? T0 : null, T0,
     ));
     if (kind === "due") due.push(String(100000 + i));
   }
@@ -401,7 +401,7 @@ test("schema: next_ms is set exactly while a launch isn't final", async () => {
   const l = await launch();
   await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET next_ms = NULL WHERE machine_id = ?`, l.machineId)]), /CHECK/);
   await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ? WHERE machine_id = ?`, T0, l.machineId)]), /CHECK/);
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ?, next_ms = NULL WHERE machine_id = ?`, T0, l.machineId)]);
+  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', announce_ms = ?, next_ms = NULL, heartbeat_due_ms = ? WHERE machine_id = ?`, T0, T0, l.machineId)]);
 });
 
 test("announce: the body is at most 1 KiB, refused before anything happens", async () => {

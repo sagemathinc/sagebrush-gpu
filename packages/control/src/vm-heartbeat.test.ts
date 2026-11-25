@@ -1,7 +1,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { newId, signToken, verifyToken, type AgentClaims, type Key } from "@sbgpu/api";
+import { finalSaveReserveSeconds, newId, signToken, verifyToken, type AgentClaims, type Key } from "@sbgpu/api";
 import type { Db } from "./db.ts";
 import { stmt } from "./db.ts";
 import { loadAgentPublicKeys, loadAgentSigner, type AgentSigner } from "./signer.ts";
@@ -97,7 +97,7 @@ const report = (over: Record<string, unknown> = {}) => ({
 });
 const beat = (token: string, body: unknown = report(), scheme = "Bearer") => post("/v1/agent/heartbeat", body, { authorization: `${scheme} ${token}` });
 const hbRow = async (machineId: string) => (await w.db.all<Record<string, unknown>>(`SELECT * FROM machine_heartbeats WHERE machine_id = ?`, [machineId])).map((r) => ({ ...r }));
-const launch = async (machineId: string) => ({ ...(await w.db.all<Record<string, unknown>>(`SELECT outcome, terminate_reason, next_ms, watchdog_version FROM vm_launches WHERE machine_id = ?`, [machineId]))[0] });
+const launch = async (machineId: string) => ({ ...(await w.db.all<Record<string, unknown>>(`SELECT outcome, terminate_reason, next_ms, watchdog_version, heartbeat_due_ms FROM vm_launches WHERE machine_id = ?`, [machineId]))[0] });
 const agentToken = (c: Partial<AgentClaims> & { mch: string }, s: AgentSigner = SIGNER) => {
   const iat = Math.floor(w.clock.t / 1000);
   return signToken({ v: 1, kind: "agent", jti: randomBytes(16).toString("base64url"), iat, exp: iat + 3600, inc: 1, ...c } as AgentClaims, s.privateKey, s.kid);
@@ -289,7 +289,7 @@ test("watchdog race: a heartbeat landing after the stale read leaves the launch 
     const n = await runHeartbeatWatchdog(env());
     if (withRow) assert.equal(n, 0); // (the first iteration is the only machine: nothing marked, nothing counted)
     (w.db as { batch: Db["batch"] }).batch = realBatch;
-    assert.deepEqual(await launch(l.machineId), before, `withRow ${withRow}`);
+    assert.deepEqual(await launch(l.machineId), { ...before, heartbeat_due_ms: w.clock.t + HEARTBEAT_LOST_MS }, `withRow ${withRow}`); // (only moved on)
   }
 });
 
@@ -298,7 +298,7 @@ test("watchdog race: the machine, its incarnation or the launch changing after t
     ["machine stopping", (m) => w.db.batch([stmt(`UPDATE machines SET state = 'stopping' WHERE id = ?`, m)])],
     ["another incarnation", (m) => w.db.batch([stmt(`UPDATE machines SET incarnation = 2 WHERE id = ?`, m)])],
     ["the launch claimed", (m) => w.db.batch([stmt(`UPDATE vm_launches SET watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, m)])],
-    ["the heartbeat row changed", (m) => w.db.batch([stmt(`UPDATE machine_heartbeats SET last_ms = last_ms + 1 WHERE machine_id = ?`, m)])],
+    ["a heartbeat moved the due time", (m) => w.db.batch([stmt(`UPDATE vm_launches SET heartbeat_due_ms = heartbeat_due_ms + 1 WHERE machine_id = ?`, m)])],
   ];
   for (const [why, change] of changes) {
     const l = await enrolled();
@@ -322,7 +322,7 @@ test("watchdog race: the machine, its incarnation or the launch changing after t
   assert.equal((await launch(l.machineId)).terminate_reason, "heartbeat-lost");
 });
 
-test("watchdog: both classes merged by age under one bound, so neither starves the other", async () => {
+test("watchdog: both classes merged by age under one bound, so neither starves the other; the scan examines only the bound", async () => {
   const noRow: string[] = [];
   const withRow: string[] = [];
   // ages interleave: a no-row machine enrolled, then a heartbeat from a row machine, alternately
@@ -335,14 +335,90 @@ test("watchdog: both classes merged by age under one bound, so neither starves t
     w.clock.t += 10;
   }
   w.clock.t += HEARTBEAT_LOST_MS + 1;
-  const picked = await w.db.all<{ machine_id: string }>(HEARTBEAT_WATCHDOG_SELECT, [w.clock.t - HEARTBEAT_LOST_MS, HEARTBEAT_WATCHDOG_BATCH]);
+  const picked = await w.db.all<{ machine_id: string }>(HEARTBEAT_WATCHDOG_SELECT, [w.clock.t, HEARTBEAT_WATCHDOG_BATCH]);
   assert.equal(picked.length, HEARTBEAT_WATCHDOG_BATCH);
   const ids = new Set(picked.map((p) => p.machine_id));
   assert.deepEqual([noRow.slice(0, 10).every((m) => ids.has(m)), withRow.slice(0, 10).every((m) => ids.has(m))], [true, true]);
   assert.equal(await runHeartbeatWatchdog(env()), 20);
   assert.equal(await runHeartbeatWatchdog(env()), 10);
-  const plan = w.db.raw.prepare(`EXPLAIN QUERY PLAN ${HEARTBEAT_WATCHDOG_SELECT}`).all(w.clock.t, 20) as Array<{ detail: string }>;
-  assert.ok(plan.some((p) => p.detail.includes("vm_launches_enrolled")), JSON.stringify(plan));
+  // the plan: a range search of the due index in its order, the machine by its key; never a
+  // scan of a table or an index, never a sort
+  const plan = (w.db.raw.prepare(`EXPLAIN QUERY PLAN ${HEARTBEAT_WATCHDOG_SELECT}`).all(w.clock.t, 20) as Array<{ detail: string }>).map((p) => p.detail);
+  assert.ok(plan.some((d) => /^SEARCH v USING INDEX vm_launches_heartbeat_due \(heartbeat_due_ms<\?\)$/.test(d)), JSON.stringify(plan));
+  assert.ok(plan.some((d) => /^SEARCH m USING INDEX sqlite_autoindex_machines_1 \(id=\?\)$|^SEARCH m USING PRIMARY KEY/.test(d)), JSON.stringify(plan));
+  assert.ok(plan.every((d) => !/\bSCAN\b|TEMP B-TREE/.test(d)), JSON.stringify(plan));
+  // (and the index holds enrolled launches only: ended ones, which keep their due times, are never examined)
+  const idx = w.db.raw.prepare(`SELECT sql FROM sqlite_master WHERE name = 'vm_launches_heartbeat_due'`).get() as { sql: string };
+  assert.match(idx.sql, / WHERE outcome = 'enrolled'$/);
+});
+
+test("heartbeat: crossed requests never regress the report, the save estimate or the due time; no loss until 120 s after the newest", async () => {
+  const l = await enrolled();
+  w.clock.t += 1000;
+  const t0 = w.clock.t;
+  const old = report({ uptimeS: 1, save: { state: "saving", lastSavedAt: null, progress: null, error: null, snapshotId: null, dirtyBytes: 50_000_000_000 } });
+  const newer = report({ uptimeS: 31 });
+  // A is sampled at t0 and held just before its batch; B, 30 s later, commits; then A commits
+  const realBatch = w.db.batch;
+  let b: { status: number } | null = null;
+  (w.db as { batch: Db["batch"] }).batch = async (stmts) => {
+    (w.db as { batch: Db["batch"] }).batch = realBatch;
+    w.clock.t = t0 + 30_000;
+    b = await beat(l.token, newer);
+    return realBatch(stmts);
+  };
+  const a = await beat(l.token, old);
+  (w.db as { batch: Db["batch"] }).batch = realBatch;
+  assert.deepEqual([a.status, b!.status], [200, 200]);
+  const r = (await hbRow(l.machineId))[0]!;
+  assert.deepEqual([r.last_ms, r.uptime_s, r.save_state, r.dirty_bytes], [t0 + 30_000, 31, "idle", 0]);
+  assert.equal((await w.db.all<{ s: number }>(`SELECT save_estimate_seconds AS s FROM machines WHERE id = ?`, [l.machineId]))[0]!.s, finalSaveReserveSeconds(0));
+  assert.notEqual(finalSaveReserveSeconds(0), finalSaveReserveSeconds(50_000_000_000)); // (so the row above tells them apart)
+  assert.equal((await launch(l.machineId)).heartbeat_due_ms, t0 + 30_000 + HEARTBEAT_LOST_MS);
+  // 120 s after the older request: the newer is 90 s old, alive
+  w.clock.t = t0 + HEARTBEAT_LOST_MS + 1;
+  assert.equal(await runHeartbeatWatchdog(env()), 0);
+  w.clock.t = t0 + 30_000 + HEARTBEAT_LOST_MS;
+  assert.equal(await runHeartbeatWatchdog(env()), 0);
+  w.clock.t += 1;
+  assert.equal(await runHeartbeatWatchdog(env()), 1);
+});
+
+test("heartbeat: a report at the same instant as the stored one doesn't replace it (the first committed stays)", async () => {
+  const l = await enrolled();
+  w.clock.t += 1000;
+  const estimate = async () => (await w.db.all<{ s: number }>(`SELECT save_estimate_seconds AS s FROM machines WHERE id = ?`, [l.machineId]))[0]!.s;
+  assert.equal((await beat(l.token, report({ uptimeS: 7 }))).status, 200);
+  const est = await estimate();
+  const big = report({ uptimeS: 8, save: { state: "idle", lastSavedAt: null, progress: null, error: null, snapshotId: null, dirtyBytes: 50_000_000_000 } });
+  assert.equal((await beat(l.token, big)).status, 200);
+  assert.deepEqual([(await hbRow(l.machineId))[0]!.uptime_s, await estimate()], [7, est]);
+  w.clock.t += 1;
+  assert.equal((await beat(l.token, big)).status, 200);
+  assert.deepEqual([(await hbRow(l.machineId))[0]!.uptime_s, await estimate()], [8, finalSaveReserveSeconds(50_000_000_000)]);
+});
+
+test("schema (0013): the due time only moves later; a report only gives way to a newer one; enrolled has a due time", async () => {
+  const l = await enrolled();
+  const due = (await launch(l.machineId)).heartbeat_due_ms as number;
+  assert.equal(due, l.enrollMs + HEARTBEAT_LOST_MS);
+  const setDue = (v: number | null) => w.db.batch([stmt(`UPDATE vm_launches SET heartbeat_due_ms = ? WHERE machine_id = ?`, v, l.machineId)]);
+  await assert.rejects(setDue(due - 1), /only moves later/);
+  await assert.rejects(setDue(null), /only moves later/);
+  await setDue(due);
+  await setDue(due + 1);
+  w.clock.t += 1000;
+  assert.equal((await beat(l.token)).status, 200);
+  const setLast = (d: number) => w.db.batch([stmt(`UPDATE machine_heartbeats SET last_ms = last_ms + ? WHERE machine_id = ?`, d, l.machineId)]);
+  await assert.rejects(setLast(0), /only replaced by a newer one/);
+  await assert.rejects(setLast(-1), /only replaced by a newer one/);
+  await setLast(1);
+  // an enrolled launch without a due time
+  const m = await enrolled();
+  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'terminate', terminate_reason = 'deadline', next_ms = ? WHERE machine_id = ?`, w.clock.t, m.machineId)]);
+  w.db.raw.exec(`DROP TRIGGER vm_launches_heartbeat_due_later`);
+  await w.db.batch([stmt(`UPDATE vm_launches SET heartbeat_due_ms = NULL WHERE machine_id = ?`, m.machineId)]); // (allowed outside enrolled)
+  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', terminate_reason = NULL, next_ms = NULL WHERE machine_id = ?`, m.machineId)]), /CHECK/);
 });
 
 test("schema (0013): heartbeat rows are bounded; the rebuild refuses existing launches", async () => {
@@ -380,13 +456,38 @@ test("schema (0013): heartbeat rows are bounded; the rebuild refuses existing la
   );
 });
 
-test("watchdog: stale machines that aren't running never take the batch's places", async () => {
+test("watchdog: a launch whose machine isn't running is deferred 120 s, not marked, so it leaves the batch's places", async () => {
   const idle: string[] = [];
   for (let i = 0; i < HEARTBEAT_WATCHDOG_BATCH; i++) idle.push((await enrolled()).machineId);
   await w.db.batch(idle.map((m) => stmt(`UPDATE machines SET state = 'saving' WHERE id = ?`, m)));
   w.clock.t += 10;
   const live = await enrolled();
   w.clock.t += HEARTBEAT_LOST_MS + 1;
+  assert.equal(await runHeartbeatWatchdog(env()), 0); // (the batch: the 20 oldest, all deferred)
+  for (const m of idle) assert.deepEqual([(await launch(m)).outcome, (await launch(m)).heartbeat_due_ms], ["enrolled", w.clock.t + HEARTBEAT_LOST_MS]);
   assert.equal(await runHeartbeatWatchdog(env()), 1);
   assert.equal((await launch(live.machineId)).terminate_reason, "heartbeat-lost");
+  // deferred, then running again and still silent: marked at its new due time, not before
+  await w.db.batch(idle.map((m) => stmt(`UPDATE machines SET state = 'running' WHERE id = ?`, m)));
+  w.clock.t += HEARTBEAT_LOST_MS;
+  assert.equal(await runHeartbeatWatchdog(env()), 0);
+  w.clock.t += 1;
+  assert.equal(await runHeartbeatWatchdog(env()), HEARTBEAT_WATCHDOG_BATCH);
+});
+
+test("watchdog race: the machine running again between the read and a deferral leaves the launch as it is", async () => {
+  const l = await enrolled();
+  await w.db.batch([stmt(`UPDATE machines SET state = 'saving' WHERE id = ?`, l.machineId)]);
+  w.clock.t += HEARTBEAT_LOST_MS + 1;
+  const before = await launch(l.machineId);
+  const realBatch = w.db.batch;
+  (w.db as { batch: Db["batch"] }).batch = async (stmts) => {
+    (w.db as { batch: Db["batch"] }).batch = realBatch;
+    await w.db.batch([stmt(`UPDATE machines SET state = 'running' WHERE id = ?`, l.machineId)]);
+    return realBatch(stmts);
+  };
+  assert.equal(await runHeartbeatWatchdog(env()), 0);
+  (w.db as { batch: Db["batch"] }).batch = realBatch;
+  assert.deepEqual(await launch(l.machineId), before);
+  assert.equal(await runHeartbeatWatchdog(env()), 1); // (then, running and silent, it's marked)
 });

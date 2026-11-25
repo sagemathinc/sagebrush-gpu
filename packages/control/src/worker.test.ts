@@ -259,3 +259,29 @@ test("D1: a write followed by the enroll guard commits when it changed one row, 
   assert.deepEqual([await email(a), await email(c)], [`a2-${a}@example.com`, null]);
   assert.deepEqual(await db.all(`SELECT * FROM enroll_guard`), []);
 });
+
+// ---- the heartbeat's ordering on D1 itself: an upsert whose DO UPDATE is skipped changes no
+// row, and the next statement's changes() sees that (so the save estimate follows the report)
+
+test("D1: an upsert skipped by its WHERE changes nothing, and a write gated on changes() = 1 after it doesn't happen", async () => {
+  const hb = readFileSync(new URL("./heartbeat.ts", import.meta.url), "utf8");
+  assert.ok(hb.includes("WHERE excluded.last_ms > machine_heartbeats.last_ms`") && hb.includes("AND changes() = 1`"));
+  const db = d1Db((await w.mf.getD1Database("DB")) as unknown as D1Like);
+  const [a, b] = [newId("user"), newId("user")];
+  await db.batch([{ sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, 10)`, params: [a, `${a}@example.com`] }]);
+  await db.batch([{ sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, 0)`, params: [b, `${b}@example.com`] }]);
+  const upsert = (ms: number, email: string) => ({
+    sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET email = excluded.email, created_ms = excluded.created_ms
+          WHERE excluded.created_ms > users.created_ms`,
+    params: [a, email, ms],
+  });
+  const follow = (email: string) => ({ sql: `UPDATE users SET email = ? WHERE id = ? AND changes() = 1`, params: [email, b] });
+  const rows = async () => (await db.all<{ email: string; created_ms: number }>(`SELECT email, created_ms FROM users WHERE id IN (?, ?) ORDER BY created_ms DESC`, [a, b])).map((r) => [r.email, r.created_ms]);
+  // older (and equal): neither written
+  await db.batch([upsert(9, `old-${a}@example.com`), follow(`old-${b}@example.com`)]);
+  await db.batch([upsert(10, `eq-${a}@example.com`), follow(`eq-${b}@example.com`)]);
+  assert.deepEqual(await rows(), [[`${a}@example.com`, 10], [`${b}@example.com`, 0]]);
+  // newer: both
+  await db.batch([upsert(11, `new-${a}@example.com`), follow(`new-${b}@example.com`)]);
+  assert.deepEqual(await rows(), [[`new-${a}@example.com`, 11], [`new-${b}@example.com`, 0]]);
+});

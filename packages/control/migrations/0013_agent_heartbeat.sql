@@ -1,6 +1,6 @@
 -- The agent's heartbeat (design r2, SEC clear): one row per machine incarnation with the
 -- agent's latest report, and a launch's terminate reasons gain heartbeat-lost (an enrolled
--- VM silent for more than 120 s).
+-- VM silent for more than 120 s), found through its heartbeat due time.
 --
 -- vm_launches is rebuilt again (a CHECK can't be changed in place). VM mode is unreachable
 -- (nothing creates a launch), so no row can exist; this first statement refuses the migration,
@@ -41,6 +41,11 @@ CREATE TABLE vm_launches (
   -- expiry once issued; now when marked to terminate; the attempt's time after each
   -- attempt. Null exactly when the launch is final (enrolled, or terminated).
   next_ms INTEGER CHECK (next_ms IS NULL OR next_ms BETWEEN 0 AND 9007199254740991),
+  -- when the heartbeat watchdog should next look at an enrolled launch, its one scheduling key:
+  -- 120 s after the latest liveness (the enroll, then each accepted heartbeat), only ever moving
+  -- later (a machine not running when looked at is deferred another 120 s). An enrolled launch
+  -- has one; it's kept when the launch ends.
+  heartbeat_due_ms INTEGER CHECK (heartbeat_due_ms IS NULL OR heartbeat_due_ms BETWEEN 0 AND 9007199254740991),
   terminated_ms INTEGER CHECK (terminated_ms IS NULL OR terminated_ms BETWEEN 0 AND 9007199254740991),
   created_ms INTEGER NOT NULL CHECK (created_ms BETWEEN 0 AND 9007199254740991),
   PRIMARY KEY (machine_id, incarnation),
@@ -55,14 +60,20 @@ CREATE TABLE vm_launches (
   CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),
   CHECK ((outcome = 'terminated') = (terminated_ms IS NOT NULL)),
   CHECK (outcome NOT IN ('issued', 'enrolled') OR announce_ms IS NOT NULL),
-  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))
+  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL)),
+  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL)
 ) STRICT;
 CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;
--- the heartbeat watchdog's candidates: enrolled launches only
-CREATE INDEX vm_launches_enrolled ON vm_launches (machine_id, incarnation) WHERE outcome = 'enrolled';
+-- the heartbeat watchdog's candidates: enrolled launches, in due order (a range scan, no sort)
+CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';
+-- (the database keeps the due time from moving earlier, or being cleared, once set)
+CREATE TRIGGER vm_launches_heartbeat_due_later BEFORE UPDATE OF heartbeat_due_ms ON vm_launches
+WHEN OLD.heartbeat_due_ms IS NOT NULL AND (NEW.heartbeat_due_ms IS NULL OR NEW.heartbeat_due_ms < OLD.heartbeat_due_ms)
+BEGIN SELECT RAISE(ABORT, 'a heartbeat due time only moves later'); END;
 
--- The agent's latest heartbeat per machine incarnation (upserted; bounded values only). Text is
--- bounded in stored bytes and holds no NUL.
+-- The agent's latest heartbeat per machine incarnation (upserted, only by a newer one: an older
+-- request committing late never replaces it; bounded values only). Text is bounded in stored
+-- bytes and holds no NUL.
 CREATE TABLE machine_heartbeats (
   machine_id TEXT NOT NULL REFERENCES machines (id),
   incarnation INTEGER NOT NULL CHECK (incarnation BETWEEN 0 AND 9007199254740991),
@@ -83,4 +94,7 @@ CREATE TABLE machine_heartbeats (
   CHECK ((save_bytes_done IS NULL) = (save_bytes_total IS NULL) AND (save_bytes_done IS NULL OR save_bytes_done <= save_bytes_total)),
   PRIMARY KEY (machine_id, incarnation)
 ) STRICT;
-CREATE INDEX machine_heartbeats_last ON machine_heartbeats (last_ms);
+-- (and a stored report from being replaced by one no newer)
+CREATE TRIGGER machine_heartbeats_newer BEFORE UPDATE ON machine_heartbeats
+WHEN NEW.last_ms <= OLD.last_ms
+BEGIN SELECT RAISE(ABORT, 'a heartbeat report is only replaced by a newer one'); END;

@@ -2210,8 +2210,8 @@
  },
  {
   "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL))\n",
-  "new": "  CHECK (1)\n"
+  "old": "  CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL)),\n",
+  "new": "  CHECK (1),\n"
  },
  {
   "file": "src/vm.ts",
@@ -2986,8 +2986,8 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "          params: [r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],\n        },\n        took,\n",
-  "new": "          params: [r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],\n        },\n",
+  "old": "          params: [at + HEARTBEAT_LOST_MS, r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],\n        },\n        took,\n",
+  "new": "          params: [at + HEARTBEAT_LOST_MS, r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],\n        },\n",
   "note": "no guard after the launch's move"
  },
  {
@@ -3142,54 +3142,6 @@
  },
  {
   "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND COALESCE(h.last_ms, g.at_ms) < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND COALESCE(h.last_ms, g.at_ms) <= ?",
-  "note": "cutoff inclusive"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND COALESCE(h.last_ms, g.at_ms) < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND g.at_ms < ?",
-  "note": "heartbeats ignored"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "     JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation AND m.state = 'running'",
-  "new": "     JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation",
-  "note": "any machine state selected"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "     ORDER BY COALESCE(h.last_ms, g.at_ms), v.machine_id, v.incarnation",
-  "new": "     ORDER BY h.last_ms, v.machine_id, v.incarnation",
-  "note": "no-row class starves"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "                WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND watchdog_version = ?\n",
-  "new": "                WHERE machine_id = ? AND incarnation = ? AND outcome = 'enrolled' AND watchdog_version = watchdog_version + 0 * ?\n",
-  "note": "version not rechecked"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "                  AND EXISTS (SELECT 1 FROM machines WHERE id = ? AND incarnation = ? AND state = 'running')\n",
-  "new": "                  AND EXISTS (SELECT 1 FROM machines WHERE id = ? AND incarnation >= 0 * ?)\n",
-  "note": "machine not rechecked"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": ": { sql: `EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ? AND last_ms = ?)`",
-  "new": ": { sql: `EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ? AND last_ms >= 0 * ?)`",
-  "note": "heartbeat not rechecked"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "? { sql: `NOT EXISTS (SELECT 1 FROM machine_heartbeats WHERE machine_id = ? AND incarnation = ?) AND EXISTS",
-  "new": "? { sql: `0 * ? * ? = 0 AND EXISTS",
-  "note": "no-row absence not rechecked"
- },
- {
-  "file": "src/heartbeat.ts",
   "old": "        TOOK,\n      ]);",
   "new": "      ]);",
   "note": "no guard"
@@ -3249,15 +3201,153 @@
   "note": "heartbeat for no machine"
  },
  {
-  "file": "migrations/0013_agent_heartbeat.sql",
-  "old": "CREATE INDEX vm_launches_enrolled ON vm_launches (machine_id, incarnation) WHERE outcome = 'enrolled';",
-  "new": "",
-  "note": "no enrolled index"
- },
- {
   "file": "src/jobs.ts",
   "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog])",
   "new": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog])",
   "note": "heartbeat watchdog not scheduled"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "WHERE excluded.last_ms > machine_heartbeats.last_ms`",
+  "new": "WHERE excluded.last_ms >= machine_heartbeats.last_ms`",
+  "note": "a same-instant report replaces"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "\n              WHERE excluded.last_ms > machine_heartbeats.last_ms`",
+  "new": "`",
+  "note": "an older report replaces"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "WHERE id = ? AND incarnation = ? AND changes() = 1`",
+  "new": "WHERE id = ? AND incarnation = ?`",
+  "note": "estimate written for an unwritten report"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "outcome = 'enrolled' AND heartbeat_due_ms < ?`,",
+  "new": "outcome = 'enrolled' AND ? IS NOT NULL`,",
+  "note": "due time moved earlier"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "        params: [now + HEARTBEAT_LOST_MS, c.mch, c.inc, now + HEARTBEAT_LOST_MS],",
+  "new": "        params: [now + HEARTBEAT_LOST_MS + 1, c.mch, c.inc, now + HEARTBEAT_LOST_MS],",
+  "note": "due time off by one"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "outcome = 'enrolled' AND heartbeat_due_ms < ?`,",
+  "new": "outcome = 'enrolled' AND heartbeat_due_ms < 0 * ?`,",
+  "note": "heartbeat doesn't move the due time"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms <= ?",
+  "note": "due inclusive"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     ORDER BY v.heartbeat_due_ms, v.machine_id, v.incarnation",
+  "new": "     ORDER BY v.machine_id, v.incarnation",
+  "note": "not oldest first"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "m.incarnation = v.incarnation AND m.state = 'running') AS running",
+  "new": "m.incarnation = v.incarnation) AS running",
+  "note": "non-running read as running"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "    if (!r.running) {",
+  "new": "    if (!r.running && r.due_ms < 0) {",
+  "note": "never deferred"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "          params: [env.now + HEARTBEAT_LOST_MS, r.machine_id,",
+  "new": "          params: [env.now + 1, r.machine_id,",
+  "note": "deferred too little"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "WHERE ${same} AND NOT ${running}`",
+  "new": "WHERE ${same} AND 0 * ? * ? = 0`",
+  "note": "deferral doesn't recheck the machine"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "AND outcome = 'enrolled' AND heartbeat_due_ms = ?`;",
+  "new": "AND outcome = 'enrolled' AND heartbeat_due_ms >= 0 * ?`;",
+  "note": "due time not rechecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "                WHERE ${same} AND watchdog_version = ? AND ${running}`",
+  "new": "                WHERE ${same} AND watchdog_version >= 0 * ? AND ${running}`",
+  "note": "version not rechecked"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "                WHERE ${same} AND watchdog_version = ? AND ${running}`",
+  "new": "                WHERE ${same} AND watchdog_version = ? AND 0 * ? * ? = 0`",
+  "note": "mark doesn't recheck the machine"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "params: [at + HEARTBEAT_LOST_MS, r.machine_id,",
+  "new": "params: [at, r.machine_id,",
+  "note": "enroll due time without the 120 s"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "),\n  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL)\n",
+  "new": ")\n",
+  "note": "enrolled without a due time"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND (NEW.heartbeat_due_ms IS NULL OR NEW.heartbeat_due_ms < OLD.heartbeat_due_ms)",
+  "new": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND NEW.heartbeat_due_ms < OLD.heartbeat_due_ms",
+  "note": "due time clearable"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND (NEW.heartbeat_due_ms IS NULL OR NEW.heartbeat_due_ms < OLD.heartbeat_due_ms)",
+  "new": "WHEN 0",
+  "note": "due time movable earlier"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "WHEN NEW.last_ms <= OLD.last_ms\n",
+  "new": "WHEN NEW.last_ms < OLD.last_ms\n",
+  "note": "same-instant report replaceable"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "WHEN NEW.last_ms <= OLD.last_ms\n",
+  "new": "WHEN 0\n",
+  "note": "older report replaceable"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "",
+  "note": "no due index"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation);",
+  "note": "due index not partial"
+ },
+ {
+  "file": "migrations/0013_agent_heartbeat.sql",
+  "old": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX vm_launches_heartbeat_due ON vm_launches (machine_id, incarnation, heartbeat_due_ms) WHERE outcome = 'enrolled';",
+  "note": "due index not in due order"
  }
 ]
