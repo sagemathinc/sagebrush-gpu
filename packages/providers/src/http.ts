@@ -86,3 +86,56 @@ export function failureName(e: unknown): string {
   }
   return "error";
 }
+
+/** How reading a whole reply body ended. */
+export type BodyRead = { ok: true; text: string } | { ok: false; why: "too_large" | "unreadable" | "timeout" };
+
+/**
+ * A whole reply body, at most `maxBytes`, by `deadline` (a Date.now() time), as strict UTF-8.
+ * A chunk that would take the body past `maxBytes` is never kept or copied: the read stops and
+ * the stream is cancelled. So does a body still open at the deadline (a stalled stream), one that
+ * can't be read, or one that isn't UTF-8. text() is never called.
+ */
+export async function readBody(res: HttpResponse, maxBytes: number, deadline: number): Promise<BodyRead> {
+  let reader;
+  try {
+    reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  } catch {
+    return { ok: false, why: "unreadable" };
+  }
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((ok) => {
+    timer = setTimeout(() => ok("late"), Math.max(0, deadline - Date.now()));
+  });
+  try {
+    for (;;) {
+      // Checked before every read too: a chunk that is always ready can't outrun the deadline.
+      if (Date.now() >= deadline) return { ok: false, why: "timeout" };
+      const next = await Promise.race([reader.read(), late]);
+      if (next === "late") return { ok: false, why: "timeout" };
+      if (next.done) break;
+      // Checked before the chunk is kept: nothing past maxBytes is ever held or copied.
+      if (next.value.length > maxBytes - size) return { ok: false, why: "too_large" };
+      parts.push(next.value);
+      size += next.value.length;
+    }
+  } catch {
+    return { ok: false, why: "unreadable" };
+  } finally {
+    clearTimeout(timer);
+    reader.cancel().catch(() => {});
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) {
+    all.set(p, at);
+    at += p.length;
+  }
+  try {
+    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(all) };
+  } catch {
+    return { ok: false, why: "unreadable" };
+  }
+}

@@ -7,7 +7,7 @@ import { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { ProviderError } from "./errors.ts";
-import { isSuccess, readPrefix, type Fetch, type HttpResponse } from "./http.ts";
+import { isSuccess, readBody, readPrefix, type Fetch, type HttpResponse } from "./http.ts";
 import { accountSpendPerHr, podAction, readLogs } from "./probes/cli.ts";
 import { RunPodAdapter } from "./runpod/adapter.ts";
 import { ShadeformAdapter } from "./shadeform/adapter.ts";
@@ -181,6 +181,77 @@ test("readPrefix: a locked stream gives '' (it would throw on getReader)", async
 test("readPrefix: the spy sees an allocation as large as the chunk when one is made (control)", async () => {
   const { largest } = await withAllocationSpy(async () => new Uint8Array(1 << 20).length);
   assert.equal(largest, 1 << 20);
+});
+
+// ---------------------------------------------------------------- readBody
+
+const LATER = () => Date.now() + 5_000;
+
+test("readBody: a whole body up to the cap; one byte over is too_large; text() never called", async () => {
+  const exact = chunks([fill(3000, "a"), fill(1096, "b")]);
+  assert.deepEqual(await readBody(response(exact.stream), 4096, LATER()), { ok: true, text: "a".repeat(3000) + "b".repeat(1096) });
+  assert.equal(exact.stats.pulls, 3, "read to the end");
+  const over = chunks([fill(3000, "a"), fill(1097, "b"), fill(10, "c")]);
+  assert.deepEqual(await readBody(response(over.stream), 4096, LATER()), { ok: false, why: "too_large" });
+  assert.equal(over.stats.pulls, 2, "the read stops at the chunk that crosses the cap");
+  assert.equal(over.stats.cancelled, true);
+  assert.deepEqual(await readBody(response(new Response("").body), 4096, LATER()), { ok: true, text: "" });
+});
+
+test("readBody: an oversized single chunk is refused without keeping or copying it", async () => {
+  const { stream, stats } = chunks([fill(1 << 20, "a")]);
+  const { result, largest, count } = await withAllocationSpy(() => readBody(response(stream), 4096, LATER()));
+  assert.deepEqual(result, { ok: false, why: "too_large" });
+  assert.equal(count, 0, `allocated ${largest}`);
+  assert.equal(stats.pulls, 1);
+  assert.equal(stats.cancelled, true);
+  // Control: an accepted body is copied once, at its own size.
+  const ok = chunks([fill(2000, "a"), fill(2000, "b")]);
+  const r = await withAllocationSpy(() => readBody(response(ok.stream), 4096, LATER()));
+  assert.equal(r.largest, 4000);
+});
+
+test("readBody: a stalled body ends at the deadline, cancelled", async () => {
+  let cancelled = false;
+  const stalled = new ReadableStream<Uint8Array>({
+    pull() {
+      return new Promise<void>(() => {});
+    },
+    cancel() {
+      cancelled = true;
+    },
+  }, { highWaterMark: 0 });
+  // Raced against 2 s so a read that ignores its deadline fails here by name, not by a test timeout.
+  const hung = new Promise<"hung">((ok) => setTimeout(() => ok("hung"), 2_000).unref());
+  assert.deepEqual(await Promise.race([readBody(response(stalled), 4096, Date.now() + 50), hung]), { ok: false, why: "timeout" });
+  assert.equal(cancelled, true);
+  // A deadline already past gives the read no time, even for a body that is ready at once.
+  const ready = chunks([fill(10, "a")]);
+  assert.deepEqual(await readBody(response(ready.stream), 4096, Date.now() - 1), { ok: false, why: "timeout" });
+  assert.equal(ready.stats.pulls, 0);
+  // An endless trickle of ready chunks under the cap stops at the deadline.
+  let pulls = 0;
+  const trickle = new ReadableStream<Uint8Array>({
+    async pull(ctl) {
+      pulls++;
+      await new Promise((ok) => setTimeout(ok, 5));
+      ctl.enqueue(new Uint8Array(1).fill(0x61));
+    },
+  }, { highWaterMark: 0 });
+  assert.deepEqual(await readBody(response(trickle), 1 << 20, Date.now() + 60), { ok: false, why: "timeout" });
+  assert.ok(pulls < 100, `pulls ${pulls}`);
+});
+
+test("readBody: a failing, locked, missing or non-UTF-8 body is unreadable", async () => {
+  const failing = new ReadableStream<Uint8Array>({ pull(ctl) { ctl.error(new Error("cut")); } });
+  assert.deepEqual(await readBody(response(failing), 4096, LATER()), { ok: false, why: "unreadable" });
+  const locked = new Response("x").body!;
+  locked.getReader();
+  assert.deepEqual(await readBody(response(locked), 4096, LATER()), { ok: false, why: "unreadable" });
+  assert.deepEqual(await readBody(response(null), 4096, LATER()), { ok: false, why: "unreadable" });
+  assert.deepEqual(await readBody(response(undefined), 4096, LATER()), { ok: false, why: "unreadable" });
+  const bad = chunks([new Uint8Array([0x7b, 0xff, 0x7d])]);
+  assert.deepEqual(await readBody(response(bad.stream), 4096, LATER()), { ok: false, why: "unreadable" });
 });
 
 // ---------------------------------------------------------------- adapters, natively

@@ -3122,11 +3122,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
-  "new": "const kind: ProviderErrorKind = \"unknown\";"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "signal: AbortSignal.timeout(this.#timeoutMs),",
   "new": ""
  },
@@ -3149,21 +3144,6 @@
   "file": "src/hyperstack/adapter.ts",
   "old": "if (!(res.status >= 200 && res.status < 300)) throw",
   "new": "if (!(res.status >= 200 && res.status < 400)) throw"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "    if (!(res.status >= 200 && res.status < 300)) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n",
-  "new": "    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n    if (!(res.status >= 200 && res.status < 300)) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "reply cut off (${failureName(e)})`, res.status);",
-  "new": "reply cut off (${String(e)})`, res.status);"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "\"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off",
-  "new": "\"unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off"
  },
  {
   "file": "src/hyperstack/adapter.ts",
@@ -3367,11 +3347,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "page <= MAX_PAGES; page++",
-  "new": "page < MAX_PAGES; page++"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "const PAGE = 100;",
   "new": "const PAGE = 50;"
  },
@@ -3449,11 +3424,6 @@
   "file": "src/http.ts",
   "old": "while (size < maxBytes) {",
   "new": "while (size <= maxBytes) {"
- },
- {
-  "file": "src/http.ts",
-  "old": "    reader.cancel().catch(() => {});\n",
-  "new": ""
  },
  {
   "file": "src/http.ts",
@@ -3662,28 +3632,188 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "new Set([\"CREATING\", \"BUILD\", \"ACTIVE\"])",
-  "new": "new Set([\"CREATING\", \"BUILD\", \"ACTIVE\", \"ERROR\", \"DELETING\"])"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "if (!STARTING_STATUSES.has(vm[\"status\"])) out.push(\"status\");",
-  "new": ""
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "if (!(ip === null || ip === undefined || isPublicIpv4(ip))) out.push(\"floating_ip\");",
   "new": ""
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "if (opts.starting === true) {",
-  "new": "if (true) {"
+  "old": "new Set([\"CREATING\", \"BUILD\"])",
+  "new": "new Set([\"CREATING\", \"BUILD\", \"ERROR\"])"
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "if (opts.starting === true) {",
+  "old": "if (!BUILDING_STATUSES.has(vm[\"status\"])) out.push(\"status\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (opts.starting === true && vm[\"status\"] !== \"ACTIVE\") {",
+  "new": "if (opts.starting === true) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (opts.starting === true && vm[\"status\"] !== \"ACTIVE\") {",
   "new": "if (false) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (opts.starting === true && vm[\"status\"] !== \"ACTIVE\") {",
+  "new": "if (vm[\"status\"] !== \"ACTIVE\") {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (stop?.() === true) return `; stopped",
+  "new": "if (false) return `; stopped"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      await this.deleteKeypair(keyId);\n      return \"\";\n    } catch {\n      return `; keypair",
+  "new": "      await this.deleteKeypair(keyId);\n      return \"\";\n    } catch {\n      return \"\"; //`; keypair"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (left !== \"\") throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack VM ${id} was created${left}`",
+  "new": "    if (false) throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack VM ${id} was created${left}`"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      const left = await this.#removeKey(keyId, keyName, stop);\n      throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack VM ${id} could not be read back",
+  "new": "      const left = await this.#removeKey(keyId, keyName, undefined);\n      throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack VM ${id} could not be read back"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      const left = await this.#removeKey(keyId, keyName, stop);\n      throw new ProviderError(\"hyperstack\", \"spec_mismatch\"",
+  "new": "      const left = await this.#removeKey(keyId, keyName, undefined);\n      throw new ProviderError(\"hyperstack\", \"spec_mismatch\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    const left = await this.#removeKey(keyId, keyName, stop);\n    if (left !== \"\")",
+  "new": "    const left = await this.#removeKey(keyId, keyName, undefined);\n    if (left !== \"\")"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "this.#list(RECOVERY_PAGES, stop)",
+  "new": "this.#list(MAX_PAGES, stop)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "this.#list(RECOVERY_PAGES, stop)",
+  "new": "this.#list(RECOVERY_PAGES, undefined)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const RECOVERY_PAGES = 5;",
+  "new": "const RECOVERY_PAGES = 6;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (stop?.() === true) throw new ProviderError(\"hyperstack\", \"unknown\", STOPPED);",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "e instanceof ProviderError && e.message === STOPPED ?",
+  "new": "false ?"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "page <= maxPages; page++",
+  "new": "page < maxPages; page++"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "return this.#list(MAX_PAGES, undefined);",
+  "new": "return this.#list(RECOVERY_PAGES, undefined);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "script.length > MAX_SCRIPT_BYTES || ",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "LONE_SURROGATE.test(script) || ",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": " || new TextEncoder().encode(script).length > MAX_SCRIPT_BYTES) {",
+  "new": ") {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "export const MAX_SCRIPT_BYTES = 49_149;",
+  "new": "export const MAX_SCRIPT_BYTES = 49_150;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "/[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])|(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]/",
+  "new": "/[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])/"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "/[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])|(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]/",
+  "new": "/(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]/"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const read = await readBody(res, MAX_REPLY_BYTES, deadline);",
+  "new": "const read = await readBody(res, MAX_REPLY_BYTES * 2, deadline);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const read = await readBody(res, MAX_REPLY_BYTES, deadline);",
+  "new": "const read = await readBody(res, MAX_REPLY_BYTES, deadline + 60_000);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "export const MAX_REPLY_BYTES = 4 * 1024 * 1024;",
+  "new": "export const MAX_REPLY_BYTES = 4 * 1024 * 1024 - 1;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";\n      throw new ProviderError(\"hyperstack\", kind, `Hyperstack ${method} ${path.split(\"?\")[0]}: reply not read",
+  "new": "      const kind: ProviderErrorKind = \"unknown\";\n      throw new ProviderError(\"hyperstack\", kind, `Hyperstack ${method} ${path.split(\"?\")[0]}: reply not read"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";\n      throw new ProviderError(\"hyperstack\", kind, `Hyperstack ${method} ${path.split(\"?\")[0]}: response is not JSON",
+  "new": "      const kind: ProviderErrorKind = \"unknown\";\n      throw new ProviderError(\"hyperstack\", kind, `Hyperstack ${method} ${path.split(\"?\")[0]}: response is not JSON"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "      if (Date.now() >= deadline) return { ok: false, why: \"timeout\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/http.ts",
+  "old": "if (next.value.length > maxBytes - size) return { ok: false, why: \"too_large\" };",
+  "new": "if (next.value.length >= maxBytes - size) return { ok: false, why: \"too_large\" };"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "if (next.value.length > maxBytes - size) return { ok: false, why: \"too_large\" };",
+  "new": "if (size > maxBytes) return { ok: false, why: \"too_large\" };"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "new TextDecoder(\"utf-8\", { fatal: true })",
+  "new": "new TextDecoder(\"utf-8\")"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "    reader.cancel().catch(() => {});\n  }\n  const all = new Uint8Array(size);",
+  "new": "  }\n  const all = new Uint8Array(size);"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "Math.max(0, deadline - Date.now())",
+  "new": "60_000"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "    reader = (res.body as ReadableStream<Uint8Array>).getReader();\n  } catch {\n    return { ok: false, why: \"unreadable\" };",
+  "new": "    reader = (res.body as ReadableStream<Uint8Array>).getReader();\n  } catch {\n    return { ok: true, text: \"\" };"
  },
  {
   "file": "src/hyperstack/adapter.ts",
@@ -3882,11 +4012,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "return true;\n    } catch {\n      return false;",
-  "new": "return true;\n    } catch {\n      return true;"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "    stopBefore();\n    const flavorName",
   "new": "    const flavorName"
  },
@@ -3907,11 +4032,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "if (stop?.() === true) throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `${cause.message}; stopped",
-  "new": "if (false) throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `${cause.message}; stopped"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "if (e.kind !== \"outcome_unknown\" && e.kind !== \"transient\") {",
   "new": "if (e.kind !== \"outcome_unknown\") {"
  },
@@ -3919,16 +4039,6 @@
   "file": "src/hyperstack/adapter.ts",
   "old": "if (e.kind !== \"outcome_unknown\" && e.kind !== \"transient\") {",
   "new": "if (e.kind !== \"transient\") {"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "if (!(await this.#removeKey(keyId))) {\n          throw",
-  "new": "if (false) {\n          throw"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "        throw e;\n      }\n      // The VM may exist",
-  "new": "      }\n      // The VM may exist"
  },
  {
   "file": "src/hyperstack/adapter.ts",
@@ -3967,11 +4077,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "if (!(await this.#removeKey(keyId))) {\n      throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack VM ${id} was created",
-  "new": "if (false) {\n      throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack VM ${id} was created"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "if (!isObject(vm) || vm[\"id\"] !== Number(id)) throw",
   "new": "if (!isObject(vm)) throw"
  },
@@ -3979,5 +4084,25 @@
   "file": "src/hyperstack/adapter.ts",
   "old": "echo: \"unobservable\" as const",
   "new": "echo: \"matched\" as const"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (!(res.status >= 200 && res.status < 300)) throw hyperstackError",
+  "new": "    await readBody(res, MAX_REPLY_BYTES, deadline);\n    if (!(res.status >= 200 && res.status < 300)) throw hyperstackError"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "        throw new ProviderError(\"hyperstack\", e.kind, `${e.message}${left}`, e.httpStatus, e.retryAfterSeconds);",
+  "new": "        throw new ProviderError(\"hyperstack\", e.kind, `${e.message}`, e.httpStatus, e.retryAfterSeconds);"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "    reader.cancel().catch(() => {});\n  }\n  return new TextDecoder().decode(buf",
+  "new": "  }\n  return new TextDecoder().decode(buf"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "        const left = await this.#removeKey(keyId, keyName, stop);\n        throw",
+  "new": "        const left = await this.#removeKey(keyId, keyName, undefined);\n        throw"
  }
 ]

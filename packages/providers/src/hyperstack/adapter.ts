@@ -12,7 +12,7 @@ import type { webcrypto } from "node:crypto";
 import { bootScriptSha256 } from "@sbgpu/machine";
 
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
+import { failureName, readBody, retryAfterSeconds, type Fetch } from "../http.ts";
 import { machineName, parseMachineName } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
 import {
@@ -33,6 +33,14 @@ export const HYPERSTACK_API = "https://infrahub-api.nexgencloud.com/v1";
 /** VMs per page of the machine list. */
 const PAGE = 100;
 const MAX_PAGES = 50;
+/** A lost create's recovery lists at most this many pages (500 VMs); a longer list proves nothing. */
+const RECOVERY_PAGES = 5;
+/** The largest reply body read; a larger one is an unreadable reply. */
+export const MAX_REPLY_BYTES = 4 * 1024 * 1024;
+/** The largest boot script, in UTF-8 bytes: its base64 (65532 characters) fits user_data. */
+export const MAX_SCRIPT_BYTES = 49_149;
+/** A UTF-16 surrogate without its partner: such a string has no UTF-8 form. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const TIMEOUT_MS = 30_000;
 
 export interface HyperstackOptions {
@@ -106,6 +114,9 @@ const STATES: Readonly<Record<string, MachineState>> = {
 };
 
 export const UNREADABLE = "<unreadable>";
+
+/** The message of a list stopped at the caller's deadline. */
+const STOPPED = "Hyperstack VM list stopped at the caller's deadline";
 
 /** A VM's command: Hyperstack doesn't echo user_data, so it is unobservable (never "matched"). */
 export const VM_COMMAND: readonly string[] = Object.freeze([COMMAND_UNOBSERVABLE]);
@@ -235,8 +246,8 @@ function isEmpty(x: unknown): boolean {
   return x === null || x === undefined || (Array.isArray(x) && x.length === 0);
 }
 
-/** VM statuses a just-created VM may show before it is ACTIVE. */
-const STARTING_STATUSES: ReadonlySet<unknown> = new Set(["CREATING", "BUILD", "ACTIVE"]);
+/** VM statuses a just-created VM shows before it is ACTIVE. */
+const BUILDING_STATUSES: ReadonlySet<unknown> = new Set(["CREATING", "BUILD"]);
 
 /** What the announce check needs from a fresh VM, and what it must match. */
 export interface VmReadbackExpectation {
@@ -253,17 +264,17 @@ export interface VmReadbackExpectation {
  * Enhanced Monitoring off; no volumes, labels or callback URL; and the exact name, environment,
  * flavor, image and keypair.
  *
- * `starting`: the check right after create. Only availability may still be pending: the status may
- * be CREATING or BUILD, and the floating IP absent or not yet attached (an address that is there
- * must still be public). Every other field is checked in full.
+ * `starting`: the check right after create. Only a VM still building (CREATING or BUILD) may have
+ * its floating IP pending: absent or not yet attached, though an address that is there must be
+ * public. An ACTIVE VM must have it all: a public IPv4, attached. Every other field is checked in full.
  */
 export function vmReadbackProblems(vm: unknown, want: VmReadbackExpectation, opts: { starting?: boolean } = {}): string[] {
   if (!isObject(vm)) return ["unreadable"];
   const out: string[] = [];
   const name = (x: unknown) => (isObject(x) ? x["name"] : undefined);
   const ip = vm["floating_ip"];
-  if (opts.starting === true) {
-    if (!STARTING_STATUSES.has(vm["status"])) out.push("status");
+  if (opts.starting === true && vm["status"] !== "ACTIVE") {
+    if (!BUILDING_STATUSES.has(vm["status"])) out.push("status");
     if (!(ip === null || ip === undefined || isPublicIpv4(ip))) out.push("floating_ip");
   } else {
     if (vm["status"] !== "ACTIVE") out.push("status");
@@ -360,7 +371,12 @@ export function vmLaunchScript(spec: LaunchSpec): string {
     throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: a VM launcher must be exactly /bin/sh -c <script>");
   }
   if (spec.bootToken !== "") throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: a VM launch carries no boot token");
-  return l[2];
+  const script = l[2];
+  // Every UTF-16 unit is at least one UTF-8 byte, so a longer string is too long without encoding it.
+  if (script.length > MAX_SCRIPT_BYTES || LONE_SURROGATE.test(script) || new TextEncoder().encode(script).length > MAX_SCRIPT_BYTES) {
+    throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: the boot script is too long for user_data, or not text");
+  }
+  return script;
 }
 
 export class HyperstackAdapter implements ProviderAdapter {
@@ -388,6 +404,7 @@ export class HyperstackAdapter implements ProviderAdapter {
    * classified before any body read: an error reply's body is never read.
    */
   async #call(method: "GET" | "POST" | "DELETE", path: string, body?: string): Promise<unknown> {
+    const deadline = Date.now() + this.#timeoutMs;
     const init: Parameters<Fetch>[1] = {
       method,
       headers: { api_key: this.#apiKey, Accept: "application/json" },
@@ -407,12 +424,14 @@ export class HyperstackAdapter implements ProviderAdapter {
       throw new ProviderError("hyperstack", "outcome_unknown", `Hyperstack ${method} ${path.split("?")[0]}: no response (${failureName(e)})`);
     }
     if (!(res.status >= 200 && res.status < 300)) throw hyperstackError(res.status, res.headers.get("Retry-After"));
-    let text;
-    try {
-      text = await res.text();
-    } catch (e) {
-      throw new ProviderError("hyperstack", "outcome_unknown", `Hyperstack ${method} ${path.split("?")[0]}: reply cut off (${failureName(e)})`, res.status);
+    // The body is read within the same deadline and at most MAX_REPLY_BYTES. A body that can't be
+    // read whole is like a lost reply to a change (it may have happened) and a failed read.
+    const read = await readBody(res, MAX_REPLY_BYTES, deadline);
+    if (!read.ok) {
+      const kind: ProviderErrorKind = method === "GET" ? "unknown" : "outcome_unknown";
+      throw new ProviderError("hyperstack", kind, `Hyperstack ${method} ${path.split("?")[0]}: reply not read (${read.why})`, res.status);
     }
+    const text = read.text;
     if (text === "") return null;
     try {
       return JSON.parse(text);
@@ -544,10 +563,8 @@ export class HyperstackAdapter implements ProviderAdapter {
       if (!(e instanceof ProviderError)) throw e;
       if (e.kind !== "outcome_unknown" && e.kind !== "transient") {
         // A definite refusal: no VM. The key goes too.
-        if (!(await this.#removeKey(keyId))) {
-          throw new ProviderError("hyperstack", e.kind, `${e.message}; keypair ${keyName} could not be removed`, e.httpStatus, e.retryAfterSeconds);
-        }
-        throw e;
+        const left = await this.#removeKey(keyId, keyName, stop);
+        throw new ProviderError("hyperstack", e.kind, `${e.message}${left}`, e.httpStatus, e.retryAfterSeconds);
       }
       // The VM may exist, and may still need the key: keep it, and look once by name.
       id = await this.#recover(name, keyName, e, stop);
@@ -560,18 +577,17 @@ export class HyperstackAdapter implements ProviderAdapter {
     try {
       vm = await this.#getVm(id);
     } catch {
-      const left = (await this.#removeKey(keyId)) ? "" : `; keypair ${keyName} could not be removed`;
+      const left = await this.#removeKey(keyId, keyName, stop);
       throw new ProviderError("hyperstack", "unknown", `Hyperstack VM ${id} could not be read back${left}`, null, null, id);
     }
     const problems = vmReadbackProblems(vm, { name, environmentName, flavorName, imageName: spec.image, keypairName: keyName }, { starting: true });
     if (problems.length > 0) {
-      const left = (await this.#removeKey(keyId)) ? "" : `; keypair ${keyName} could not be removed`;
+      const left = await this.#removeKey(keyId, keyName, stop);
       throw new ProviderError("hyperstack", "spec_mismatch", `Hyperstack VM ${id} is not the launch shape: ${problems.join(", ")}${left}`, null, null, id);
     }
     // The key leaves the account before the VM may be used: a VM whose key may remain is terminated.
-    if (!(await this.#removeKey(keyId))) {
-      throw new ProviderError("hyperstack", "unknown", `Hyperstack VM ${id} was created, but keypair ${keyName} could not be removed`, null, null, id);
-    }
+    const left = await this.#removeKey(keyId, keyName, stop);
+    if (left !== "") throw new ProviderError("hyperstack", "unknown", `Hyperstack VM ${id} was created${left}`, null, null, id);
     return { providerMachineId: id, status: vmStatus(vm, this.#observedAt()), integrity };
   }
 
@@ -603,12 +619,12 @@ export class HyperstackAdapter implements ProviderAdapter {
    */
   async #recover(name: string, keyName: string, cause: ProviderError, stop: (() => boolean) | undefined): Promise<string> {
     const kept = `keypair ${keyName} kept for reconciliation`;
-    if (stop?.() === true) throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; stopped at the caller's deadline; ${kept}`);
     let found: ProviderMachineStatus[];
     try {
-      found = (await this.listMachines()).filter((s) => s.machineId !== null && machineName(s.machineId) === name);
-    } catch {
-      throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; the VM list could not be read; ${kept}`);
+      found = (await this.#list(RECOVERY_PAGES, stop)).filter((s) => s.machineId !== null && machineName(s.machineId) === name);
+    } catch (e) {
+      const why = e instanceof ProviderError && e.message === STOPPED ? "stopped at the caller's deadline" : "the VM list could not be read";
+      throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; ${why}; ${kept}`);
     }
     if (found.length === 0) throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; no VM named ${name} yet; ${kept}`);
     if (found.length > 1) {
@@ -626,13 +642,17 @@ export class HyperstackAdapter implements ProviderAdapter {
     return vm;
   }
 
-  /** Remove the launch's key from the account; false if that failed (it is then left, by name). */
-  async #removeKey(keyId: number): Promise<boolean> {
+  /**
+   * Remove the launch's key from the account. "" if it is gone; otherwise why it is left, by name,
+   * for the error to carry: the delete failed, or the caller stopped (then no request is made).
+   */
+  async #removeKey(keyId: number, keyName: string, stop: (() => boolean) | undefined): Promise<string> {
+    if (stop?.() === true) return `; stopped at the caller's deadline; keypair ${keyName} kept`;
     try {
       await this.deleteKeypair(keyId);
-      return true;
+      return "";
     } catch {
-      return false;
+      return `; keypair ${keyName} could not be removed`;
     }
   }
 
@@ -701,11 +721,17 @@ export class HyperstackAdapter implements ProviderAdapter {
    * must carry a readable name, or the list fails.
    */
   async listMachines(): Promise<ProviderMachineStatus[]> {
+    return this.#list(MAX_PAGES, undefined);
+  }
+
+  /** The list, reading at most `maxPages`; `stop` is checked before every page's request. */
+  async #list(maxPages: number, stop: (() => boolean) | undefined): Promise<ProviderMachineStatus[]> {
     const out: ProviderMachineStatus[] = [];
     const seen = new Set<string>();
     let total: number | null = null;
     let read = 0;
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    for (let page = 1; page <= maxPages; page++) {
+      if (stop?.() === true) throw new ProviderError("hyperstack", "unknown", STOPPED);
       const qs = new URLSearchParams({ page: String(page), pageSize: String(PAGE) });
       const json = await this.#call("GET", `/core/virtual-machines?${qs}`);
       const observedAt = this.#observedAt();
@@ -731,7 +757,7 @@ export class HyperstackAdapter implements ProviderAdapter {
       read += rows.length;
       if (read >= total) return out;
     }
-    throw new ProviderError("hyperstack", "unknown", `Hyperstack VM list has more than ${MAX_PAGES} pages`);
+    throw new ProviderError("hyperstack", "unknown", `Hyperstack VM list has more than ${maxPages} pages`);
   }
 
   /** Import one launch's public key; returns the keypair's id. */

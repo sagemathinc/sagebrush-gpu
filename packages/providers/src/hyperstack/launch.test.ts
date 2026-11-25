@@ -8,7 +8,7 @@ import { expectedSpec, specDrift } from "../drift.ts";
 import { ProviderError } from "../errors.ts";
 import type { Fetch, HttpRequest } from "../http.ts";
 import type { LaunchSpec } from "../types.ts";
-import { createBody, HyperstackAdapter, vmLaunchScript, vmReadbackProblems, type HyperstackLaunchConfig } from "./adapter.ts";
+import { createBody, HyperstackAdapter, MAX_REPLY_BYTES, MAX_SCRIPT_BYTES, vmLaunchScript, vmReadbackProblems, type HyperstackLaunchConfig } from "./adapter.ts";
 
 const KEY = "test-key-not-a-real-key";
 const NOW = new Date("2026-11-25T12:00:00.000Z");
@@ -43,7 +43,7 @@ function mockFetch(route: Route) {
     const r = route(init.method, path, calls.length);
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? "" : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
-    return { status: r.status, headers: { get: () => null }, text: async () => text };
+    return { status: r.status, headers: { get: () => null }, text: async () => { throw new Error("text() must not be called"); }, body: new Response(text).body };
   };
   return { fetch, calls };
 }
@@ -317,7 +317,7 @@ test("launch: a definite create refusal removes the key and keeps the provider's
 test("launch: a key that can't be removed after create fails the launch with the VM's id (it can't enroll)", async () => {
   for (const r of [{ status: 500 }, { status: 403 }, new Error("reset")] as Reply[]) {
     const { a, calls } = launcher(routes({ delete: r }));
-    await assert.rejects(a.launch(spec), fails("unknown", { id: "4242", message: new RegExp(`VM 4242 was created, but keypair ${KEY_NAME} could not be removed`) }));
+    await assert.rejects(a.launch(spec), fails("unknown", { id: "4242", message: new RegExp(`VM 4242 was created; keypair ${KEY_NAME} could not be removed$`) }));
     assert.deepEqual(trail(calls), HAPPY);
   }
   // A key already gone (404) is removed.
@@ -371,6 +371,26 @@ test("launch: every security and identity field is read back; any difference fai
 
 test("launch: only availability may be pending at readback (CREATING/BUILD, no IP yet)", async () => {
   for (const over of [{ status: "CREATING" }, { status: "BUILD", floating_ip: undefined }, { status: "ACTIVE", floating_ip: "185.10.20.7", floating_ip_status: "ATTACHED" }, { floating_ip: "185.10.20.7" }, { volume_attachments: null, labels: null, callback_url: "" }]) {
+    const { a } = launcher(routes({ get: { status: 200, body: { instance: vm(over) } } }));
+    assert.equal((await a.launch(spec)).providerMachineId, "4242", JSON.stringify(over));
+  }
+});
+
+test("launch: an ACTIVE VM at readback must have its public IPv4, attached", async () => {
+  const cases: Array<[Record<string, unknown>, string]> = [
+    [{ status: "ACTIVE", floating_ip: null, floating_ip_status: "ATTACHED" }, "floating_ip"],
+    [{ status: "ACTIVE", floating_ip: undefined }, "floating_ip, floating_ip_status"],
+    [{ status: "ACTIVE", floating_ip: "185.10.20.7", floating_ip_status: "DETACHED" }, "floating_ip_status"],
+    [{ status: "ACTIVE", floating_ip: "185.10.20.7", floating_ip_status: "ATTACHING" }, "floating_ip_status"],
+    [{ status: "ACTIVE", floating_ip: "10.0.0.5", floating_ip_status: "ATTACHED" }, "floating_ip"],
+  ];
+  for (const [over, words] of cases) {
+    const { a, calls } = launcher(routes({ get: { status: 200, body: { instance: vm(over) } } }));
+    await assert.rejects(a.launch(spec), fails("spec_mismatch", { id: "4242", message: new RegExp(`launch shape: ${words}$`) }), JSON.stringify(over));
+    assert.deepEqual(trail(calls), HAPPY);
+  }
+  // Beside them, still building: the IP may be pending.
+  for (const over of [{ status: "BUILD", floating_ip: null, floating_ip_status: "DETACHED" }, { status: "CREATING", floating_ip: "185.10.20.7", floating_ip_status: "ATTACHING" }]) {
     const { a } = launcher(routes({ get: { status: 200, body: { instance: vm(over) } } }));
     assert.equal((await a.launch(spec)).providerMachineId, "4242", JSON.stringify(over));
   }
@@ -442,21 +462,152 @@ test("launch: a lost create with several VMs by that name fails with their ids a
 
 // ---------------------------------------------------------------- the caller's deadline
 
-test("launch: shouldStop is honoured before every request; no request after a stop, not even cleanup", async () => {
-  // Stop after n requests: 0 (before the flavor read), 1 (before the key), 2 (before create), 3 (after create).
-  const expected: Array<[number, string, string | null, RegExp]> = [
-    [0, "unknown", null, /before creating a VM$/],
-    [1, "unknown", null, /before creating a VM$/],
-    [2, "unknown", null, new RegExp(`before creating a VM; keypair ${KEY_NAME} kept$`)],
-    [3, "outcome_unknown", "4242", new RegExp(`after creating VM 4242; keypair ${KEY_NAME} kept$`)],
+test("launch: shouldStop is honoured before every request, on every path, cleanup and recovery included", async () => {
+  type Row = [string, Partial<Record<"flavors" | "import" | "create" | "list" | "get" | "delete", Reply>>, number, string, string | null, RegExp];
+  const kept = `keypair ${KEY_NAME} kept`;
+  const lost = { create: new Error("reset"), list: { status: 200, body: { count: 1, instances: [vm()] } } };
+  const rows: Row[] = [
+    // The happy path: flavors, import, create, readback, delete.
+    ["happy", {}, 0, "unknown", null, /before creating a VM$/],
+    ["happy", {}, 1, "unknown", null, /before creating a VM$/],
+    ["happy", {}, 2, "unknown", null, new RegExp(`before creating a VM; ${kept}$`)],
+    ["happy", {}, 3, "outcome_unknown", "4242", new RegExp(`after creating VM 4242; ${kept}$`)],
+    ["happy", {}, 4, "unknown", "4242", new RegExp(`VM 4242 was created; stopped at the caller's deadline; ${kept}$`)],
+    // A definite refusal: flavors, import, create (409), delete.
+    ["refused", { create: { status: 409 } }, 3, "unplaceable", null, new RegExp(`\\(unplaceable\\); stopped at the caller's deadline; ${kept}$`)],
+    // A failed readback: ..., readback (500), delete.
+    ["readback fails", { get: { status: 500 } }, 4, "unknown", "4242", new RegExp(`could not be read back; stopped at the caller's deadline; ${kept}$`)],
+    // A readback mismatch: ..., readback, delete.
+    ["mismatch", { get: { status: 200, body: { instance: vm({ labels: ["x"] }) } } }, 4, "spec_mismatch", "4242", new RegExp(`labels; stopped at the caller's deadline; ${kept}$`)],
+    // A lost create: ..., create (lost), list, readback, delete.
+    ["lost", lost, 3, "outcome_unknown", null, new RegExp(`stopped at the caller's deadline; ${kept} for reconciliation$`)],
+    ["lost", lost, 4, "outcome_unknown", "4242", new RegExp(`after creating VM 4242; ${kept}$`)],
+    ["lost", lost, 5, "unknown", "4242", new RegExp(`VM 4242 was created; stopped at the caller's deadline; ${kept}$`)],
   ];
-  for (const [n, kind, id, message] of expected) {
-    const { a, calls } = launcher(routes());
-    await assert.rejects(a.launch(spec, { shouldStop: () => calls.length >= n }), fails(kind, { id, message }), String(n));
-    assert.equal(calls.length, n);
+  for (const [what, over, n, kind, id, message] of rows) {
+    const { a, calls } = launcher(routes(over));
+    await assert.rejects(a.launch(spec, { shouldStop: () => calls.length >= n }), fails(kind, { id, message }), `${what} ${n}`);
+    assert.equal(calls.length, n, `${what} ${n}: no request after the stop`);
   }
-  // A lost create, then a stop: no recovery list.
-  const lost = launcher(routes({ create: new Error("reset") }));
-  await assert.rejects(lost.a.launch(spec, { shouldStop: () => lost.calls.length >= 3 }), fails("outcome_unknown", { message: /stopped at the caller's deadline; keypair/ }));
-  assert.equal(lost.calls.length, 3);
+  // Controls: with no stop, each path makes one more request than its last stop row allows.
+  for (const [over, count] of [[{}, 5], [{ create: { status: 409 } }, 4], [{ get: { status: 500 } }, 5], [lost, 6]] as const) {
+    const { a, calls } = launcher(routes(over));
+    await a.launch(spec, { shouldStop: () => false }).catch(() => {});
+    assert.equal(calls.length, count);
+  }
+});
+
+test("launch: recovery checks the stop before every page; a stop during page 1 requests no page 2", async () => {
+  const page = (n: number) => ({ status: 200, body: { count: 200, instances: Array.from({ length: 100 }, (_, i) => vm({ id: 10_000 + n * 100 + i, name: `other-${n}-${i}` })) } });
+  let pages = 0;
+  const route: Route = (method, path, n) => {
+    if (method === "GET" && path.startsWith("/core/virtual-machines?")) {
+      pages++;
+      return page(pages);
+    }
+    return routes({ create: new Error("reset") })(method, path, n);
+  };
+  const stopped = launcher(route);
+  await assert.rejects(stopped.a.launch(spec, { shouldStop: () => pages >= 1 }), fails("outcome_unknown", { message: /stopped at the caller's deadline; keypair/ }));
+  assert.equal(pages, 1);
+  // Control: without the stop, page 2 is read (and no VM is ours).
+  pages = 0;
+  const control = launcher(route);
+  await assert.rejects(control.a.launch(spec), fails("outcome_unknown", { message: /no VM named/ }));
+  assert.equal(pages, 2);
+});
+
+test("launch: recovery reads at most 5 pages; a longer list proves nothing", async () => {
+  let pages = 0;
+  const route: Route = (method, path, n) => {
+    if (method === "GET" && path.startsWith("/core/virtual-machines?")) {
+      pages++;
+      return { status: 200, body: { count: 600, instances: Array.from({ length: 100 }, (_, i) => vm({ id: 20_000 + pages * 100 + i, name: `other-${i}` })) } };
+    }
+    return routes({ create: new Error("reset") })(method, path, n);
+  };
+  const { a } = launcher(route);
+  await assert.rejects(a.launch(spec), fails("outcome_unknown", { message: /the VM list could not be read; keypair/ }));
+  assert.equal(pages, 5);
+  // The full list (the watchdog's) still reads past 5 pages.
+  pages = 0;
+  const m = mockFetch(route);
+  assert.deepEqual(await new HyperstackAdapter({ apiKey: KEY, fetch: m.fetch }).listMachines(), []);
+  assert.equal(pages, 6);
+});
+
+// ---------------------------------------------------------------- the script, admitted before any work
+
+test("launch: the script is admitted by its UTF-8 size before any hash, encoding or request", async () => {
+  const at = (script: string) => ({ ...spec, launcher: ["/bin/sh", "-c", script] });
+  const ok = [
+    "a".repeat(MAX_SCRIPT_BYTES),
+    `${"\u00e9".repeat((MAX_SCRIPT_BYTES - 1) / 2)}a`, // 2-byte characters
+    "\u20ac".repeat(MAX_SCRIPT_BYTES / 3), // 3-byte characters
+    `${"\u{1F600}".repeat((MAX_SCRIPT_BYTES - 1) / 4)}a`, // 4-byte characters
+  ];
+  for (const script of ok) {
+    assert.equal(Buffer.byteLength(script, "utf8"), MAX_SCRIPT_BYTES);
+    const { a, calls } = launcher(routes());
+    const r = await a.launch(at(script));
+    assert.equal(r.integrity!.bootScriptSha256, createHash("sha256").update(script, "utf8").digest("hex"));
+    assert.deepEqual(trail(calls), HAPPY);
+  }
+  const tooLong = [
+    "a".repeat(MAX_SCRIPT_BYTES + 1),
+    "\u00e9".repeat((MAX_SCRIPT_BYTES + 1) / 2), // 49150 bytes, 24575 characters
+    `${"\u20ac".repeat(MAX_SCRIPT_BYTES / 3)}a`,
+    "\u{1F600}".repeat((MAX_SCRIPT_BYTES + 3) / 4),
+    "a".repeat(1 << 20),
+    "ok\uD800", // a lone surrogate has no UTF-8 form
+    "\uDC00ok",
+  ];
+  for (const script of tooLong) {
+    const { a, calls } = launcher(routes());
+    await assert.rejects(a.launch(at(script)), fails("invalid_request", { message: /too long for user_data, or not text/ }));
+    assert.equal(calls.length, 0);
+  }
+});
+
+test("launch: an oversized script does no encoding or hashing at all", async () => {
+  const Encoder = globalThis.TextEncoder;
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  let encodes = 0;
+  let digests = 0;
+  globalThis.TextEncoder = class extends Encoder {
+    override encode(input?: string) {
+      encodes++;
+      return super.encode(input);
+    }
+  } as typeof TextEncoder;
+  crypto.subtle.digest = (async (...args: Parameters<typeof digest>) => {
+    digests++;
+    return digest(...args);
+  }) as typeof crypto.subtle.digest;
+  try {
+    const { a, calls } = launcher(routes());
+    await assert.rejects(a.launch({ ...spec, launcher: ["/bin/sh", "-c", "a".repeat(1 << 20)] }), fails("invalid_request"));
+    assert.equal(calls.length, 0);
+    assert.equal(encodes, 0);
+    assert.equal(digests, 0);
+    // Control: an admitted script is encoded and hashed.
+    const ok = launcher(routes());
+    await ok.a.launch(spec);
+    assert.ok(encodes > 0 && digests > 0);
+  } finally {
+    globalThis.TextEncoder = Encoder;
+    crypto.subtle.digest = digest;
+  }
+});
+
+// ---------------------------------------------------------------- reply bodies, bounded
+
+test("launch: a create reply over MAX_REPLY_BYTES is a lost response: recovery by name, key kept", async () => {
+  const big = JSON.stringify({ status: true, instances: [vm()], pad: "x".repeat(MAX_REPLY_BYTES) });
+  const { a, calls } = launcher(routes({ create: { status: 200, body: big } }));
+  await assert.rejects(a.launch(spec), fails("outcome_unknown", { message: /no VM named/ }));
+  assert.deepEqual(trail(calls).slice(-1), ["GET /core/virtual-machines"]);
+  // The same reply over the cap but recovered by name is read back like any other.
+  const found = launcher(routes({ create: { status: 200, body: big }, list: { status: 200, body: { count: 1, instances: [vm()] } } }));
+  assert.equal((await found.a.launch(spec)).providerMachineId, "4242");
 });
