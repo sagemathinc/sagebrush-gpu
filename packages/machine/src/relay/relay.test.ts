@@ -546,6 +546,9 @@ test("the machine's byte bucket bounds all its traffic, whatever the legs: over 
   assert.deepEqual([RELAY_LIMITS.machineBytesBurst, RELAY_LIMITS.machineBytesPerSecond], [16 * 1024 * 1024, 4 * 1024 * 1024]);
   const mch = newId("machine");
   await doPost(mch, "__machinerate", JSON.stringify({ perSecond: 64 * 1024, burst: 1024 * 1024 }));
+  // (time frozen: the bucket can't refill while the frames arrive, however slowly a loaded machine delivers them, so
+  // what gets through is the burst and no more, and a reconnect afterwards finds it still spent)
+  await freeze(mch, Date.now());
   const p = await peer(mch, 1); // (it acks every receipt)
   const pages: Leg[] = [];
   for (let i = 0; i < 4; i++) pages.push(await page(mch, 1));
@@ -566,7 +569,7 @@ test("the machine's byte bucket bounds all its traffic, whatever the legs: over 
   assert.ok(codes.includes(4429), JSON.stringify(codes));
   assert.ok(!codes.includes(4008) && !codes.includes(1013), JSON.stringify(codes));
   const delivered = p.msgs.filter((m) => m.endsWith(chunk)).length * (chunk.length + 3 + RELAY_LIMITS.overhead);
-  assert.ok(delivered <= 1024 * 1024 + 2 * 64 * 1024, `${delivered} of ${sent}`);
+  assert.ok(delivered <= 1024 * 1024, `${delivered} of ${sent}`);
   // (a new page right away finds the bucket still spent: a reconnect doesn't refill it)
   const g2 = await page(mch, 1);
   for (let i = 0; i < 4 && g2.closed === null; i++) g2.send(chunk);
