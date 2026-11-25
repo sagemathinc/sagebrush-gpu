@@ -163,6 +163,12 @@ test("exchangeCode: tokens and the verified user; every failure classed", async 
   fake.grant("c4", { subject: SUB, sid: SID, verifier: "v4", noRefresh: true });
   const r4 = await exchangeCode(CONFIG, "c4", "v4", fake.fetch);
   assert.equal(r4.ok && r4.refreshToken, null);
+  // an empty or oversized refresh token is none; the longest is kept
+  for (const [refresh, kept] of [["", null], ["r".repeat(8193), null], ["r".repeat(8192), "r".repeat(8192)]] as const) {
+    fake.grant("c5", { subject: SUB, sid: SID, verifier: "v5", refresh });
+    const r5 = await exchangeCode(CONFIG, "c5", "v5", fake.fetch);
+    assert.equal(r5.ok && r5.refreshToken, kept, String(refresh.length));
+  }
 });
 
 test("refreshSession: rotated on success; refused only for invalid_grant", async () => {

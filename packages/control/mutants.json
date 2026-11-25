@@ -1545,5 +1545,388 @@
   "file": "migrations/0007_sessions.sql",
   "old": "DROP TABLE sign_in_links;",
   "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!clientId || !issuer || !jwksUrl || !apiKey || !stateKey || !refreshKeys) return null;",
+  "new": "if (!clientId || !issuer || !jwksUrl || !apiKey || !stateKey) return null;"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (u.protocol !== \"https:\" || u.origin !== api) throw",
+  "new": "if (u.origin !== api) throw"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!CLIENT_ID.test(clientId)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!CLIENT_ID.test(iss)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!CLIENT_ID.test(jw)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (stateKey.length < 32) throw",
+  "new": "if (stateKey.length < 5) throw"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!(await crypto.subtle.verify(\"HMAC\", await hmacKey(key), mac, utf8(MAC_LABEL + parts[0])))) return null;",
+  "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (typeof st.s !== \"string\" || !TOKEN.test(st.s) ||",
+  "new": "if (typeof st.s !== \"string\" ||"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (typeof st.r !== \"string\" || typeof st.x !== \"number\" || !Number.isSafeInteger(st.x)) return null;",
+  "new": "if (typeof st.r !== \"string\" || typeof st.x !== \"number\") return null;"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "r: isSafeReturnPath(ret) ? ret : \"/\",",
+  "new": "r: ret ?? \"/\","
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "x: deps.now() + STATE_TTL_MS,",
+  "new": "x: deps.now() + 2 * STATE_TTL_MS,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "challenge: await sha256B64url(st.v) });",
+  "new": "challenge: st.v });"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!st || st.x <= now || ctx.query.get(\"state\") !== st.s) return outcome(\"expired\");",
+  "new": "if (!st || st.x < now || ctx.query.get(\"state\") !== st.s) return outcome(\"expired\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!st || st.x <= now || ctx.query.get(\"state\") !== st.s) return outcome(\"expired\");",
+  "new": "if (!st || st.x <= now) return outcome(\"expired\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "const ret = isSafeReturnPath(st.r) ? st.r : \"/\";",
+  "new": "const ret = st.r;",
+  "note": "the return path re-checked at the callback"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    if (!code && !providerError) return outcome(\"error\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "WHERE (SELECT COUNT(*) FROM auth_states WHERE expires_ms > ?) < ?`,",
+  "new": "WHERE (SELECT COUNT(*) FROM auth_states WHERE expires_ms > ?) <= ?`,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "WHERE (SELECT COUNT(*) FROM auth_states WHERE expires_ms > ?) < ?`,",
+  "new": "WHERE (SELECT COUNT(*) FROM auth_states) < ? + 0 * ?`,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "      return outcome(\"expired\"); // (already spent: a replay)",
+  "new": "      return outcome(\"unavailable\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    if (spent !== 1) return outcome(\"unavailable\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (providerError || !code || code.length > 1024) return outcome(\"error\");",
+  "new": "if (!code || code.length > 1024) return outcome(\"error\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!ex.ok) return outcome(ex.kind === \"unavailable\" ? \"unavailable\" : \"error\");",
+  "new": "if (!ex.ok) return outcome(\"error\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!ver.ok) return outcome(ver.kind === \"unavailable\" ? \"unavailable\" : \"error\");",
+  "new": "if (!ver.ok) return outcome(\"error\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    if (!ex.refreshToken) return outcome(\"error\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "const email = ex.user && ex.user.id === ver.subject ? ex.user.email : null;",
+  "new": "const email = ex.user ? ex.user.email : null;"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "AND EXISTS (SELECT 1 FROM members WHERE email = ? AND status <> 'removed')`,",
+  "new": "AND EXISTS (SELECT 1 FROM members WHERE email = ?)`,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "AND NOT EXISTS (SELECT 1 FROM users WHERE email = ?)\n",
+  "new": "AND 1 = 1 OR ? IS NULL\n"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "                  AND NOT EXISTS (SELECT 1 FROM identities WHERE iss = ? AND sub = ?)`,\n          params: [iss, sub, email, now, now, email, iss, sub],",
+  "new": "                  AND ? IS NOT NULL AND ? IS NOT NULL`,\n          params: [iss, sub, email, now, now, email, iss, sub],"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "WHERE email = ? AND status = 'invited' AND user_id IS NULL`,",
+  "new": "WHERE email = ? AND status = 'invited' AND user_id IS NULL AND 0`,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now, iss, sub],",
+  "new": "params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now - 1, iss, sub],"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "      return outcome(otherIdentity(e) ? \"refused\" : \"unavailable\");",
+  "new": "      return outcome(\"unavailable\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    if (made[0]?.n !== 1) return outcome(\"refused\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "return redirect(ret, [sessionCookie(sessionValue, Math.floor(deps.config.sessionTtlMs / 1000)), CLEAR_AUTH_COOKIE]);",
+  "new": "return redirect(ret, [sessionCookie(sessionValue, Math.floor(deps.config.sessionTtlMs / 1000))]);"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "const outcome = (o: SignInOutcome) => redirect(`/?${SIGN_IN_OUTCOME_PARAM}=${o}`, [CLEAR_AUTH_COOKIE]);",
+  "new": "const outcome = (o: SignInOutcome) => redirect(`/?${SIGN_IN_OUTCOME_PARAM}=${o}`, []);"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (now - r.validated_ms < VALIDATE_EVERY_MS) return;",
+  "new": "if (now - r.validated_ms <= VALIDATE_EVERY_MS) return;"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "const inGrace = now - r.validated_ms < VALIDATE_EVERY_MS + OUTAGE_GRACE_MS;",
+  "new": "const inGrace = now - r.validated_ms <= VALIDATE_EVERY_MS + OUTAGE_GRACE_MS;"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    if (!inGrace) throw new HttpError(\"unavailable\"",
+  "new": "    if (inGrace || !inGrace) throw new HttpError(\"unavailable\""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "[now, hash, r.validated_ms, now - REFRESH_CLAIM_MS],",
+  "new": "[now, hash, r.validated_ms, now],"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "WHERE id_sha256 = ? AND validated_ms = ? AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)`,",
+  "new": "WHERE id_sha256 = ? AND (validated_ms = ? OR 1) AND (refresh_claim_ms IS NULL OR refresh_claim_ms <= ?)`,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!sub || id[0]!.iss !== a.workos.issuer) return ended",
+  "new": "if (!sub) return ended"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "  if (!rt) return ended(\"sign in again\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!res.ok) return res.kind === \"refused\" ? ended(\"your sign-in has ended; sign in again\") : unavailable();",
+  "new": "if (!res.ok) return unavailable();"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!res.ok) return res.kind === \"refused\" ? ended(\"your sign-in has ended; sign in again\") : unavailable();",
+  "new": "if (!res.ok) return ended(\"x\");"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "if (!ver.ok) return ver.kind === \"unavailable\" ? unavailable() : ended(\"sign in again\");",
+  "new": "if (!ver.ok) return unavailable();"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "  if (ver.subject !== sub) return ended(\"sign in again\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "...(res.user && res.user.id === sub && res.user.email",
+  "new": "...(res.user && res.user.email"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "params: [sealed.version, sealed.ct, now, hash, now],",
+  "new": "params: [sealed.version, sealed.ct, now - 1, hash, now],"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    await deps.db.run(`UPDATE sessions SET revoked_ms = ? WHERE id_sha256 = ? AND revoked_ms IS NULL`, [now, hash]);\n",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    issuer: c.issuer,\n",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (p.iat > nowS + SKEW_S) return \"future\";",
+  "new": "if (p.iat > nowS + SKEW_S + 1) return \"future\";"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (p.client_id !== c.clientId) return \"client\";",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (typeof p.sub !== \"string\" || !SUBJECT.test(p.sub)) return \"subject\";",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (typeof p.sid !== \"string\" || !SID.test(p.sid)) return \"session\";",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "export const SUBJECT = /^user_[A-Za-z0-9]{1,123}$/;",
+  "new": "export const SUBJECT = /^user_[A-Za-z0-9]{1,124}$/;"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (refresh && e && now - e.tried <= KID_REFRESH_MS) {",
+  "new": "if (refresh && e && now - e.tried < 0) {"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (!refresh && e?.failed && now - e.tried <= FAIL_COOLDOWN_MS) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "const current = e?.keys && now - e.at <= JWKS_TTL_MS ? e.keys : null;",
+  "new": "const current = e?.keys && now - e.at < JWKS_TTL_MS ? e.keys : null;"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (e instanceof errors.JWKSNoMatchingKey && attempt === 0 && ks.retry) continue;",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "const r = await f(c.jwksUrl, {",
+  "new": "const r = await f(`${api(c)}/sso/jwks/${c.clientId}`, {",
+  "note": "the key set from configuration, not our client id"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    if (n > max) {\n      await reader.cancel",
+  "new": "    if (n > max * 100) {\n      await reader.cancel"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (r.status >= 500 || r.status === 429 || r.status === 408) return { ok: false, kind: \"unavailable\", status: r.status };",
+  "new": "if (r.status >= 500) return { ok: false, kind: \"unavailable\", status: r.status };"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "return { ok: false, kind: e && (e.error === \"invalid_grant\" || e.code === \"invalid_grant\") ? \"refused\" : \"unavailable\", status: r.status };",
+  "new": "return { ok: false, kind: \"refused\", status: r.status };"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (r.status !== 400) return { ok: false, kind: \"unavailable\", status: r.status };",
+  "new": ""
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "const ok = u.email_verified === true && e.length <= EMAIL_MAX &&",
+  "new": "const ok = e.length <= EMAIL_MAX &&"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "const ok = u.email_verified === true && e.length <= EMAIL_MAX &&",
+  "new": "const ok = u.email_verified === true && e.length < EMAIL_MAX &&"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "const rt = typeof j.refresh_token === \"string\" && j.refresh_token.length > 0 && j.refresh_token.length <= TOKEN_MAX ? j.refresh_token : null;",
+  "new": "const rt = typeof j.refresh_token === \"string\" ? j.refresh_token : null;"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "code_challenge_method: \"S256\",",
+  "new": "code_challenge_method: \"plain\","
+ },
+ {
+  "file": "src/seal.ts",
+  "old": "const aad = (c: SealContext, version: string) => enc.encode(`sbgpu-refresh\\n${c.env}\\n${c.identity}\\n${c.session}\\n${version}`);",
+  "new": "const aad = (c: SealContext, version: string) => enc.encode(`sbgpu-refresh\\n${c.env}\\n${c.identity}\\n${version}`);"
+ },
+ {
+  "file": "src/seal.ts",
+  "old": "const aad = (c: SealContext, version: string) => enc.encode(`sbgpu-refresh\\n${c.env}\\n${c.identity}\\n${c.session}\\n${version}`);",
+  "new": "const aad = (c: SealContext, version: string) => enc.encode(`sbgpu-refresh\\n${c.identity}\\n${c.session}\\n${version}`);"
+ },
+ {
+  "file": "src/seal.ts",
+  "old": "if (!VERSION.test(v) || raw.length !== 32 || keys.has(v)) return null;",
+  "new": "if (!VERSION.test(v) || keys.has(v)) return null;"
+ },
+ {
+  "file": "src/seal.ts",
+  "old": "if (!VERSION.test(v) || raw.length !== 32 || keys.has(v)) return null;",
+  "new": "if (!VERSION.test(v) || raw.length !== 32) return null;"
+ },
+ {
+  "file": "src/seal.ts",
+  "old": "current ??= v;",
+  "new": "current = v;"
+ },
+ {
+  "file": "migrations/0008_identities.sql",
+  "old": "  user_id TEXT NOT NULL UNIQUE REFERENCES users (id),",
+  "new": "  user_id TEXT NOT NULL REFERENCES users (id),",
+  "note": "two identities for one user"
+ },
+ {
+  "file": "migrations/0008_identities.sql",
+  "old": "  CHECK ((validated_ms IS NULL) = (refresh_sealed IS NULL) AND (refresh_sealed IS NULL) = (refresh_version IS NULL));",
+  "new": "  CHECK (1);"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates]);",
+  "new": "Object.freeze([pruneSessions]);"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,",
+  "new": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,"
  }
 ]

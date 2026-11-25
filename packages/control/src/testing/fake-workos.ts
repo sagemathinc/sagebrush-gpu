@@ -33,6 +33,8 @@ export interface CodeGrant {
   email?: string;
   /** Another access token than the usual one. */
   token?: string;
+  /** Another refresh token than a fresh one (an empty or an oversized one). */
+  refresh?: string;
   noRefresh?: boolean;
 }
 
@@ -152,7 +154,7 @@ export class FakeWorkos {
       const rt = "rt_" + randomBytes(9).toString("hex");
       if (!c.noRefresh) this.rts.set(rt, { subject: c.subject, sid: c.sid, email });
       const user = "user" in c ? c.user : { id: c.subject, email, email_verified: true };
-      return Response.json({ access_token: c.token ?? this.sign(this.claims(c.subject, c.sid, this.now())), ...(c.noRefresh ? {} : { refresh_token: rt }), user });
+      return Response.json({ access_token: c.token ?? this.sign(this.claims(c.subject, c.sid, this.now())), ...(c.noRefresh ? {} : { refresh_token: c.refresh ?? rt }), user });
     }
     return new Response("not found", { status: 404 });
   };

@@ -2,7 +2,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { newId, type Me } from "@sbgpu/api";
-import { AUTH_COOKIE, MAX_LIVE_STATES, OUTAGE_GRACE_MS, STATE_TTL_MS, VALIDATE_EVERY_MS, authConfigFromEnv, packState, unpackState, type AuthConfig } from "./auth.ts";
+import { AUTH_COOKIE, MAX_LIVE_STATES, OUTAGE_GRACE_MS, STATE_TTL_MS, VALIDATE_EVERY_MS, authConfigFromEnv, packState, revalidate, unpackState, type AuthConfig, type SessionRow } from "./auth.ts";
 import { DEFAULT_CONFIG } from "./app.ts";
 import { stmt } from "./db.ts";
 import { SESSION_COOKIE } from "./http.ts";
@@ -83,10 +83,12 @@ test("config: off unless every part is set; malformed parts refused; the environ
     ["WORKOS_JWKS_URL", "https://api.workos.com/sso/jwks/"],
     ["WORKOS_JWKS_URL", "https://evil.example/sso/jwks/client_01A"],
     ["STATE_KEY", "short"],
-    ["WORKOS_API", "http://api.workos.test"],
   ] as const) {
     assert.throws(() => authConfigFromEnv({ ...env, [k]: v }), Error, `${k}=${v}`);
   }
+  // a plain-http API origin, even with an issuer and key set under it
+  const http = "http://api.workos.test";
+  assert.throws(() => authConfigFromEnv({ ...env, WORKOS_API: http, WORKOS_ISSUER: `${http}/user_management/${DEFAULT_CLIENT}`, WORKOS_JWKS_URL: `${http}/sso/jwks/${DEFAULT_CLIENT}` }), /https origin/);
   // a test API origin: the issuer and key set must be under it
   const t = authConfigFromEnv({ ...env, WORKOS_API: WORKOS_API, WORKOS_ISSUER: ISSUER, WORKOS_JWKS_URL: JWKS_URL })!;
   assert.equal(t.workos.api, WORKOS_API);
@@ -218,8 +220,15 @@ test("the state: missing, forged, expired, another sign-in's, replayed; no code 
   await check(await finish(await begin(), { query: "" }).then(async () => (await call(w, "GET", `/v1/auth/callback?error=access_denied&state=${(await begin()).state}`)).res), "expired", "no cookie, error");
   const e = await begin();
   await check(await finish(e, { query: `error=access_denied&state=${e.state}` }), "error", "provider error");
+  // a provider error with a code that would work: still the error
   const both = await begin();
-  await check(await finish(both, { query: `code=x&error=access_denied&state=${both.state}` }), "error", "a code and an error");
+  fake.grantChallenge("code_both", both.challenge, { subject: "user_01ADA", sid: "session_01BOTH", email: "ada@example.com" });
+  await check(await finish(both, { query: `code=code_both&error=access_denied&state=${both.state}` }), "error", "a code and an error");
+  // the return path is checked again at the callback (a cookie signed with our key, whatever it carries)
+  const odd = await begin();
+  const st = (await unpackState(STATE_KEY, odd.cookie.split("=")[1]!))!;
+  const forged = { ...odd, cookie: `${AUTH_COOKIE}=${await packState(STATE_KEY, { ...st, r: "//evil.example/x" })}` };
+  assert.equal(where(await finish(forged)), "/");
   // expired: 10 minutes after the start
   const late = await begin();
   w.clock.t += STATE_TTL_MS;
@@ -355,11 +364,13 @@ test("revalidation ends the session when it can't be trusted: another issuer, an
   await w.db.batch([stmt(`UPDATE identities SET iss = 'https://other.example/user_management/client_01X'`)]);
   await revoked(c);
   await w.db.batch([stmt(`UPDATE identities SET iss = ?`, ISSUER)]);
-  // the sealed token doesn't open (tampered)
+  // the sealed token doesn't open (tampered): ended without asking WorkOS
   c = await fresh();
   hour();
   await w.db.batch([stmt(`UPDATE sessions SET refresh_sealed = 'AAAA' || substr(refresh_sealed, 5) WHERE revoked_ms IS NULL`)]);
+  const asked = fake.refreshCalls;
   await revoked(c);
+  assert.equal(fake.refreshCalls, asked);
   // the refreshed token is another client's, or another person's
   for (const claims of [{ client_id: DEFAULT_CLIENT }, { sub: "user_01EVE" }]) {
     c = await fresh();
@@ -391,4 +402,16 @@ test("schema: a session's WorkOS fields come all together or not at all; one ide
   }
   await w.db.batch([stmt(`INSERT INTO identities (iss, sub, user_id, email, email_ticket, created_ms) VALUES ('i', 'user_01A', ?, NULL, 0, ?)`, user, T0)]);
   await assert.rejects(w.db.batch([stmt(`INSERT INTO identities (iss, sub, user_id, email, email_ticket, created_ms) VALUES ('i', 'user_01B', ?, NULL, 0, ?)`, user, T0)]), /UNIQUE/);
+});
+
+test("revalidation: a request holding an old view of the session doesn't refresh it again", async () => {
+  await addMember(w, "ada@example.com");
+  const cookie = sessionOf(await finish(await begin()))!;
+  const stale = { ...(await w.db.all<SessionRow & { id_sha256: string }>(`SELECT id_sha256, user_id, refresh_version, refresh_sealed, validated_ms FROM sessions`))[0]! };
+  w.clock.t += VALIDATE_EVERY_MS;
+  assert.equal((await call(w, "GET", "/v1/me", { cookie })).res.status, 200);
+  assert.equal(fake.refreshCalls, 1);
+  // (the stale row's validated_ms is the old one: its claim must not take; it's served, nothing refreshed)
+  await revalidate(w.deps, stale.id_sha256, stale);
+  assert.equal(fake.refreshCalls, 1);
 });
