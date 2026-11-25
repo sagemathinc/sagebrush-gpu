@@ -304,6 +304,21 @@ test("vmStatus: settings that differ from the launch shape are named", () => {
   assert.ok(Number.isNaN(neg.diskGb));
 });
 
+test("vmStatus: a VM still building may lack its IP; an ACTIVE one may not; labels and a callback are unexpected", () => {
+  const settings = (over: Record<string, unknown>) => vmStatus(vm(over), T).unexpectedSettings;
+  assert.deepEqual(settings({ status: "BUILD", floating_ip: null }), []);
+  assert.deepEqual(settings({ status: "CREATING", floating_ip: undefined }), []);
+  assert.deepEqual(settings({ status: "ACTIVE", floating_ip: null }), ["floating_ip:none"]);
+  assert.deepEqual(settings({ status: "BUILD", floating_ip: "10.0.0.5" }), [`floating_ip:${UNREADABLE}`]);
+  assert.deepEqual(settings({ status: "BUILD", floating_ip: "185.10.20.7" }), []);
+  assert.deepEqual(settings({ labels: ["x"] }), ["labels"]);
+  assert.deepEqual(settings({ labels: "x" }), ["labels"]);
+  assert.deepEqual(settings({ labels: null, callback_url: "" }), []);
+  assert.deepEqual(settings({ callback_url: "https://example.com/hook" }), ["callback_url"]);
+  assert.deepEqual(settings({ callback_url: 5 }), ["callback_url"]);
+  assert.deepEqual(vmStatus(vm(), T).command, ["<unobservable>"]);
+});
+
 // ---------------------------------------------------------------- isPublicIpv4
 
 // Each block that is not globally reachable (IANA IPv4 Special-Purpose Address Registry), by its
@@ -393,6 +408,8 @@ test("vmReadbackProblems: each difference is named, and only it", () => {
     [{ image: { name: "Ubuntu" } }, "image"],
     [{ keypair: { name: "sbg-k-1" } }, "keypair"],
     [{ keypair: null }, "keypair"],
+    [{ labels: ["x"] }, "labels"],
+    [{ callback_url: "https://example.com/hook" }, "callback_url"],
   ];
   for (const [over, why] of cases) assert.deepEqual(vmReadbackProblems(vm(over), WANT), [why], JSON.stringify(over));
   for (const x of [null, [], "vm"]) assert.deepEqual(vmReadbackProblems(x, WANT), ["unreadable"]);

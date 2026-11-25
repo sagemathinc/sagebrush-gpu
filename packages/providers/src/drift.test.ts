@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { commandShape, driftMarkers, expectedSpec, fieldShape, isDriftMarker, specDrift } from "./drift.ts";
-import { bootEnvNames, type AdapterInfo, type LaunchSpec, type ProviderMachineStatus } from "./types.ts";
+import { bootEnvNames, COMMAND_UNOBSERVABLE, type AdapterInfo, type LaunchSpec, type ProviderMachineStatus } from "./types.ts";
 
 const info: AdapterInfo = { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootDelivery: { kind: "env", name: "SBGPU_BOOT_TOKEN" } };
 const spec: LaunchSpec = {
@@ -57,7 +57,13 @@ test("announce delivery: a VM's expected environment is exactly empty", () => {
   const vmInfo: AdapterInfo = { provider: "hyperstack", selfIdentity: null, bootDelivery: { kind: "announce" } };
   const e = expectedSpec({ ...spec, bootToken: "" }, vmInfo, "4242");
   assert.deepEqual(e.envNames, []);
-  const vm = { ...clean, provider: "hyperstack" as const, providerMachineId: "4242" };
+  // A VM's command can't be observed: expected and reported as the unobservable marker, never as the launcher.
+  assert.deepEqual(e.command, [COMMAND_UNOBSERVABLE]);
+  const vm = { ...clean, provider: "hyperstack" as const, providerMachineId: "4242", envNames: [], command: [COMMAND_UNOBSERVABLE] };
+  assert.deepEqual(specDrift(e, vm), []);
+  assert.deepEqual(specDrift(e, { ...vm, command: [...spec.launcher] }).map((d) => d.field), ["command"]);
+  // A container's expected command stays its launcher.
+  assert.deepEqual(expectedSpec(spec, info, "pod1").command, [...spec.launcher]);
   assert.deepEqual(specDrift(e, { ...vm, envNames: [] }).filter((d) => d.field === "envNames"), []);
   for (const envNames of [["SBGPU_BOOT_TOKEN"], [""], ["<unreadable>"]]) {
     assert.deepEqual(specDrift(e, { ...vm, envNames }).map((d) => d.field), ["envNames"], JSON.stringify(envNames));

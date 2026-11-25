@@ -38,9 +38,28 @@ export interface LaunchSpec {
   maxProviderCostPerHour: Micros;
 }
 
+/**
+ * A machine's command as reported by a provider that can't show it (a VM's user_data isn't
+ * echoed), and as expected of such a machine. It means "unobservable", never "matched": a VM's
+ * command integrity is bound by the boot-script hash its launcher announces instead.
+ */
+export const COMMAND_UNOBSERVABLE = "<unobservable>";
+
+/** What a VM launch sent, hashed locally before the create request. */
+export interface LaunchIntegrity {
+  /** SHA-256 (lowercase hex) of the boot script's UTF-8 bytes exactly as sent in user_data. */
+  bootScriptSha256: string;
+  /** SHA-256 (lowercase hex) of the exact create request body bytes. */
+  requestSha256: string;
+  /** The provider doesn't echo user_data, so it can't be compared. */
+  echo: "unobservable";
+}
+
 export interface LaunchResult {
   providerMachineId: string;
   status: ProviderMachineStatus;
+  /** VM launches only. */
+  integrity?: LaunchIntegrity;
 }
 
 /** How a machine learns its own provider id (a cross-check at enrollment, not a secret). */

@@ -20,8 +20,10 @@ HTTP status and our error kind.
 | `terminate(id)` | Idempotent. There is no provider "stop": a stop is always a terminate (workspaces live in R2), and a restart is a new launch plus a restore. |
 | `listMachines()` | Every machine of ours the provider knows, for the watchdog and for orphan recovery. A partial list is an error, never a result. |
 
-`info` says which environment variable carries the boot token and how a machine learns its own
-provider id (`selfIdentity`, a cross-check at enrollment only: user code can read and fake it).
+`info` says how a machine gets its boot token (`bootDelivery`, a closed choice: `env` with the
+variable's name for a container, or `announce` for a VM, which has no provider-side environment
+and whose `LaunchSpec.bootToken` is `""`) and how a machine learns its own provider id
+(`selfIdentity`, a cross-check at enrollment only: user code can read and fake it).
 
 Quotes are not an adapter method: an `Offer` is the provider's price, and the control plane adds
 the margin (`priceSplit` in `@sbgpu/api`).
@@ -331,12 +333,40 @@ Shadeform.
 
 Over Hyperstack's public Infrahub API (`https://infrahub-api.nexgencloud.com/v1`, key in the
 `api_key` header). It is built from Hyperstack's API reference and tested only against mocks:
-nothing here has called Hyperstack. Hyperstack is a VM provider, and VM mode's boot design is
-reviewed, but no VM launch is.
+nothing here has called Hyperstack. Hyperstack is a VM provider (VM mode: the launcher announces
+itself and gets its boot token back, so a VM has no provider-side environment).
 
-- **launch() always refuses** (`invalid_request`, "VM launch is not enabled") before any request.
-  The create path lands separately, under its own review. Until then, Hyperstack must not be in any
-  project's `allowedProviders`.
+- **Launch is off in production.** Without `HyperstackOptions.launch` (which only tests pass),
+  launch() refuses (`invalid_request`, "VM launch is not enabled") before any request, and
+  Hyperstack must not be in any project's `allowedProviders`.
+- **Launch, as tested.** Every check on the spec comes before any request:
+  - the launcher must be exactly `["/bin/sh", "-c", script]`, and the boot token empty;
+  - the machine id, GPU, count, disk and image name are checked;
+  - the region's environment comes from the launch config's map, by own property, with a checked name.
+
+  Then:
+  1. one flavor read: exactly one flavor may match the GPU, count, region and disk, and it must be in stock;
+  2. a per-launch key: only its public half is imported; the private key is never exportable and is dropped at once;
+  3. one create request, from a fixed, byte-deterministic body (`createBody`): one VM, a public
+     IPv4, port randomization and Enhanced Monitoring off, no security rules, and `user_data` =
+     base64 of the script's bytes. It has no labels, callback or volumes;
+  4. one readback of the full launch shape (`vmReadbackProblems(..., { starting: true })`): only
+     the status (CREATING/BUILD) and the IP's availability may still be pending;
+  5. the key's removal from the account.
+
+  The result carries `integrity`: the SHA-256 of the boot script as sent (the shared
+  `bootScriptSha256` definition) and of the exact create body bytes, with the echo
+  `"unobservable"`. Once a VM exists, any failure (a readback difference, a key that can't be
+  removed) throws with its id, so the caller terminates it: a VM whose key may remain never comes
+  back as launched.
+
+  A definite create refusal removes the key and keeps the provider's kind. A lost create response
+  keeps the key (the create may still need it) and lists VMs once, by name:
+  - one VM is read back like any other;
+  - none leaves the outcome unknown;
+  - several fail with their ids.
+
+  `shouldStop` is honoured before every request; after a stop no request is made, not even cleanup.
 - **Offers** come from `GET /core/flavors` and `GET /pricebook`:
   - only flavors with exactly the GPU count asked for, in a region `HYPERSTACK_REGIONS` gives a country;
   - the price is the pricebook entry named exactly as the flavor's GPU, per GPU-hour, times the
@@ -348,12 +378,14 @@ reviewed, but no VM launch is.
   - the image is the VM's image name, the disk its flavor's disk;
   - there are no environment names (a VM gets its boot token from the announce, not from the provider);
   - ports are the ingress security rules;
-  - any security rule, port randomization not off, Enhanced Monitoring not off, or no public
-    IPv4 floating IP is an unexpected setting. A public IPv4 is one outside every block of
+  - any security rule, port randomization not off, Enhanced Monitoring not off, a label, a
+    callback URL, a floating IP that isn't a public IPv4, or none on an ACTIVE VM (one still
+    building may not have it yet) is an unexpected setting. A public IPv4 is one outside every block of
     IANA's IPv4 special-purpose registry that isn't globally reachable, multicast and 240.0.0.0/4.
     Anything unreadable stays unreadable, so drift fails closed;
-  - the command is a fixed marker, so no Hyperstack VM ever matches a launch spec. Until the
-    launch path brings its delivery form, every Hyperstack VM shows as drifted.
+  - the command is `<unobservable>` (`COMMAND_UNOBSERVABLE`): user_data isn't echoed. An
+    announce-delivery machine's expected command is the same marker, so drift neither matches nor
+    flags it. The command's integrity is bound by the boot-script hash the launcher announces.
 
   `SHUTOFF`, `HIBERNATED` and `DELETING` are `stopping` (a stopped VM is still billed); only
   `DELETED` or a 404 is `terminated`.
@@ -369,7 +401,7 @@ reviewed, but no VM launch is.
     Whether a floating IP is really exclusive is an open question to Hyperstack.
   - `vmReadbackProblems(vm, want)` names every difference from the exact launch shape: ACTIVE, the
     attached public IPv4, port randomization off, no security rules, Enhanced Monitoring off, no
-    volumes, and the exact name, environment, flavor, image and keypair.
+    volumes, labels or callback URL, and the exact name, environment, flavor, image and keypair.
 - **Per-launch keypair.**
   - `perLaunchKeypair()` makes an Ed25519 pair whose private key can't be exported, with its OpenSSH public line.
   - `importKeypair` accepts only our names (`sbg-…`) and that one line shape; `deleteKeypair` is idempotent on 404.
