@@ -2641,5 +2641,89 @@
   "old": "status >= 100 && status <= 599 ? status : null",
   "new": "status >= 0 ? status : null",
   "note": "status range"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  \"listen22-start\", \"pid1\", \"environ\", \"files\", \"metadata\", \"history\", \"listen22-end\", \"done\",",
+  "new": "  \"pid1\", \"environ\", \"files\", \"metadata\", \"history\", \"listen22-end\", \"done\",",
+  "note": "listen22-start required"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  \"listen22-start\", \"pid1\", \"environ\", \"files\", \"metadata\", \"history\", \"listen22-end\", \"done\",",
+  "new": "  \"listen22-start\", \"pid1\", \"environ\", \"files\", \"metadata\", \"history\", \"done\",",
+  "note": "listen22-end required"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  \"listen22-start\", \"pid1\", \"environ\", \"files\", \"metadata\", \"history\", \"listen22-end\", \"done\",",
+  "new": "  \"listen22-start\", \"pid1\", \"environ\", \"files\", \"metadata\", \"listen22-end\", \"history\", \"done\",",
+  "note": "listen22-end position"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (!ok) failures.push(\"bad-listen22-report\");",
+  "new": "      if (false) failures.push(\"bad-listen22-report\");",
+  "note": "listen22 report checked"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "const ok = p.paths.length === 0 && (",
+  "new": "const ok = (",
+  "note": "listen22 paths"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "(p.pass ? p.detail === \"no-listener\" : p.detail === \"listener\" || p.detail === \"unreadable\")",
+  "new": "(p.pass || p.detail === \"listener\" || p.detail === \"unreadable\")",
+  "note": "pass detail"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "p.detail === \"listener\" || p.detail === \"unreadable\")",
+  "new": "p.detail !== \"no-listener\")",
+  "note": "fail detail vocabulary"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "p.detail === \"listener\" || p.detail === \"unreadable\")",
+  "new": "p.detail === \"listener\")",
+  "note": "unreadable"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (p.check === \"listen22-start\" || p.check === \"listen22-end\") {",
+  "new": "    if (p.check === \"listen22-start\") {",
+  "note": "end checked too"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    if (p.check === \"listen22-start\" || p.check === \"listen22-end\") {",
+  "new": "    if (p.check === \"listen22-end\") {",
+  "note": "start checked too"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  if (o.execute && (o.agentUrl !== PINNED_PROBE_AGENT.url || o.agentSha256 !== PINNED_PROBE_AGENT.sha256)) {",
+  "new": "  if (false) {",
+  "note": "pin enforced"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "(o.agentUrl !== PINNED_PROBE_AGENT.url || o.agentSha256 !== PINNED_PROBE_AGENT.sha256)",
+  "new": "(o.agentSha256 !== PINNED_PROBE_AGENT.sha256)",
+  "note": "pin url"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "(o.agentUrl !== PINNED_PROBE_AGENT.url || o.agentSha256 !== PINNED_PROBE_AGENT.sha256)",
+  "new": "(o.agentUrl !== PINNED_PROBE_AGENT.url)",
+  "note": "pin sha"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  if (o.execute && (o.agentUrl !== PINNED_PROBE_AGENT.url",
+  "new": "  if ((o.agentUrl !== PINNED_PROBE_AGENT.url",
+  "note": "pin only for execute"
  }
 ]
