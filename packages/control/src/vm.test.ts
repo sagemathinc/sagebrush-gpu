@@ -51,7 +51,7 @@ beforeEach(async () => {
 
 let pmid = 1000;
 /** A machine with an open VM launch; returns what the launcher knows. */
-async function launch(o: { firstActiveMs?: number; ipv4?: string } = {}) {
+async function launch(o: { firstActiveMs?: number; ipv4?: string; bootScriptSha256?: string } = {}) {
   const machineId = newId("machine");
   const providerMachineId = String(++pmid);
   const nonce = randomBytes(16).toString("base64url");
@@ -64,7 +64,7 @@ async function launch(o: { firstActiveMs?: number; ipv4?: string } = {}) {
     stmt(
       `INSERT INTO launches (machine_id, incarnation, mode, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, next_ms, created_ms, outcome)
        VALUES (?, 1, 'vm', 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, 'launched')`,
-      machineId, providerMachineId, sha(nonce), SCRIPT, sha("agent"), o.ipv4 ?? IP, o.firstActiveMs ?? T0, (o.firstActiveMs ?? T0) + ANNOUNCE_DEADLINE_MS, T0,
+      machineId, providerMachineId, sha(nonce), o.bootScriptSha256 ?? SCRIPT, sha("agent"), o.ipv4 ?? IP, o.firstActiveMs ?? T0, (o.firstActiveMs ?? T0) + ANNOUNCE_DEADLINE_MS, T0,
     ),
   ]);
   vm.facts.set(providerMachineId, { state: "active", ipv4: o.ipv4 ?? IP, exclusive: true });
@@ -310,7 +310,7 @@ test("schema: one token per launch, at most 120 s; reasons exactly for terminati
   await assert.rejects(w.db.batch([stmt(`UPDATE launches SET outcome = 'terminate' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
   await assert.rejects(w.db.batch([stmt(`UPDATE launches SET terminate_reason = 'second-announce' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
   await assert.rejects(w.db.batch([stmt(`UPDATE launches SET outcome = 'issued' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
-  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET boot_script_sha256 = ? WHERE machine_id = ?`, SCRIPT.toUpperCase(), l.machineId)]), /CHECK/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET boot_script_sha256 = ? WHERE machine_id = ?`, SCRIPT.toUpperCase(), l.machineId)]), /intent is fixed/); // (its CHECK: vm-launch's text bounds)
 });
 
 test("announce: a launch of an older incarnation, or an IP that's a prefix of the launch's, is refused untouched", async () => {
@@ -348,8 +348,7 @@ test("announce: the boot script's hash is the shared vector's (the same bytes on
   // what the start path records: the hash of the exact rendered script (gpu-wide definition in @sbgpu/machine)
   const hash = await bootScriptSha256(renderBootScript(BOOT_SCRIPT_VECTOR.values));
   assert.equal(hash, BOOT_SCRIPT_VECTOR.sha256);
-  const l = await launch();
-  await w.db.batch([stmt(`UPDATE launches SET boot_script_sha256 = ? WHERE machine_id = ?`, hash, l.machineId)]);
+  const l = await launch({ bootScriptSha256: hash });
   assert.equal((await announce(bodyOf(l, { bootScriptSha256: SCRIPT }))).res.status, 403); // (another script's hash)
   assert.equal((await announce(bodyOf(l, { bootScriptSha256: BOOT_SCRIPT_VECTOR.sha256 }))).res.status, 200);
 });
