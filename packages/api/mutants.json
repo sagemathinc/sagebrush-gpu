@@ -996,5 +996,23 @@
   "old": "  return (CREDENTIAL_STATUSES as readonly unknown[]).includes(x);",
   "new": "  return typeof x === \"string\";",
   "note": "status: any string"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  busy: {\n    code: \"conflict\",",
+  "new": "  busy: {\n    code: \"invalidState\",",
+  "note": "refusals: busy's code"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  tooManyChecks: {\n    code: \"rateLimited\",",
+  "new": "  tooManyChecks: {\n    code: \"unavailable\",",
+  "note": "refusals: tooManyChecks' code"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  signedOut: {\n    code: \"unauthenticated\",",
+  "new": "  signedOut: {\n    code: \"forbidden\",",
+  "note": "refusals: signedOut's code"
  }
 ]

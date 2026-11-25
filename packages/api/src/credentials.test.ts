@@ -77,6 +77,9 @@ test("the refusals: fixed words with their codes, and reauthenticate is a 403", 
       reauthenticate: "reauthenticate",
       unknownProvider: "notFound",
       noKey: "notFound",
+      busy: "conflict",
+      tooManyChecks: "rateLimited",
+      signedOut: "unauthenticated",
     },
   );
   const messages = Object.values(CREDENTIAL_REFUSALS).map((r) => r.message);

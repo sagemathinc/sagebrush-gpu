@@ -75,6 +75,9 @@ export interface PutCredentialRequest {
  * Every refusal on the credential routes, each with its code and its fixed words. The server
  * answers only these on those routes, and none of the words contain, or are built from, a
  * submitted value. The page shows its own words for each (and never a server message).
+ * "Nothing was saved" holds for a replace too: a refused new key leaves the previous one as
+ * it was. Changes to one provider's key are serialized across owners (busy, never a lost
+ * update), and the provider checks behind PUT are rate-limited per organization.
  */
 export const CREDENTIAL_REFUSALS = Object.freeze({
   badShape: {
@@ -108,6 +111,18 @@ export const CREDENTIAL_REFUSALS = Object.freeze({
   noKey: {
     code: "notFound",
     message: "No key is set for this provider.",
+  },
+  busy: {
+    code: "conflict",
+    message: "Another change to this provider's key is in progress. Nothing was saved.",
+  },
+  tooManyChecks: {
+    code: "rateLimited",
+    message: "Too many key checks for now. Try again in a few minutes. Nothing was saved.",
+  },
+  signedOut: {
+    code: "unauthenticated",
+    message: "Sign in to see or change provider keys.",
   },
 } as const satisfies Record<string, { code: ErrorCode; message: string }>);
 export type CredentialRefusal = keyof typeof CREDENTIAL_REFUSALS;
