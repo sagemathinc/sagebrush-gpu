@@ -208,6 +208,18 @@ The relay forwards at once or closes: there is no queue behind a slow leg. Jupyt
 
 **Close codes:** 1001 dead page, 1003 binary, 1008 malformed, 1009 too big, 1011 storage failure at a hello, 1013 receiver not reading, 4000 closed by the agent, 4001 the agent is gone (the page shows "reconnecting" and retries with a fresh page token, backing off 1, 2, 4 … 30 s), 4008 message rate, 4009 replaced, 4403 refused or revoked (no retry with the same token), 4429 the machine's byte rate or token set.
 
+**The lifecycle contract** (SEC ruling, Nov 24; control's machine lifecycle must keep it):
+- **(a)** A stop completes only once `revokeMachine(env, mch, inc)` has returned true, meaning the machine's object wrote `revokedThrough >= inc` durably before answering. false, a throw or no answer leave the stop pending; the cron retries it, one attempt at a time. The `inc` is the machine's current incarnation (or higher): an ack for a lower one revokes nothing current, though `revokeMachine` would return true.
+- **(b)** No page token is minted for a machine while a revoke for it is in flight, has failed or isn't acknowledged yet, nor once the machine is stopped.
+
+The lifecycle's tests run `assertRelayLifecycleContract(make)` (`@sbgpu/testing/relay-contract`, in the test-only package, so no runtime package exports it). `make` receives a scripted stand-in for `revokeMachine`, injected wherever the lifecycle calls it. It returns the machine (`mch`, `inc`), `stop()` (one attempt per call: `"stopped"` or `"stopping"`) and `mintPageToken()` (a token, or null when refused). The scenarios:
+- minting works before any stop (the control);
+- a revoke answering false, or throwing, leaves the stop pending and minting refused, and a retry that's acknowledged completes it;
+- a revoke in flight refuses minting and doesn't complete the stop until it answers;
+- every revoke names the machine and its current incarnation;
+- a stopped machine mints nothing;
+- a `stop()` that never answers fails the check rather than hanging it.
+
 ### 4.1 Terminal protocol (agreed with ui, Nov 24)
 
 Ported from Sagebrush's runner terminal, minus its DPoP layer (the relay authenticates the page here).

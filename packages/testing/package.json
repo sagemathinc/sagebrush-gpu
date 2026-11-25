@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "description": "Test helpers shared by the packages: Workers, Durable Objects and D1 in Miniflare.",
-  "exports": { "./worker": "./src/worker.ts" }
+  "exports": { "./worker": "./src/worker.ts", "./relay-contract": "./src/relay-contract.ts" }
 }

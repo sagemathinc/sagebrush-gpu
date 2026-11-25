@@ -28,5 +28,131 @@
   "old": "    await mf.dispose().catch(() => {});",
   "new": "    void 0;",
   "note": "harness: a failed start leaves Miniflare running"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    assert.ok(typeof tok === \"string\" && tok.length > 0, \"no page token before any stop: the contract can't be checked\");",
+  "new": "",
+  "note": "relay contract: no control (minting before a stop)"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "      assert.equal(await attemptOnce(lc, rev, `attempt ${n}`), \"stopping\", `a stop completed with the revoke answering ${failing} (attempt ${n})`);",
+  "new": "      await attemptOnce(lc, rev, `attempt ${n}`);",
+  "note": "relay contract: a stop completing without an ack allowed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "      assert.equal(await within(lc.mintPageToken(), \"mintPageToken()\"), null, `a page token minted after a revoke answered ${failing} (attempt ${n})`);",
+  "new": "",
+  "note": "relay contract: minting after a failed revoke allowed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    assert.equal(await within(lc.mintPageToken(), \"mintPageToken()\"), null, \"a page token minted while a revoke was in flight\");",
+  "new": "",
+  "note": "relay contract: minting while a revoke is in flight allowed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    assert.equal(await within(lc.mintPageToken(), \"mintPageToken()\"), null, \"a page token minted for a stopped machine\");",
+  "new": "",
+  "note": "relay contract: minting for a stopped machine allowed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "c.inc >= lc.inc,",
+  "new": "c.inc >= 0,",
+  "note": "relay contract: a lower incarnation's revoke accepted"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    return await within(lc.stop(), \"stop()\");",
+  "new": "    return await lc.stop();",
+  "note": "relay contract: a stop that never answers hangs the check"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "  assert.equal(made, 1, `a stop attempt made ${made} revoke calls, not one (${what})`);",
+  "new": "  assert.ok(made >= 1, `a stop attempt made ${made} revoke calls, not one (${what})`);",
+  "note": "relay contract: more than one revoke per attempt allowed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "  assert.equal(made, 1, `a stop attempt made ${made} revoke calls, not one (${what})`);",
+  "new": "  assert.ok(made <= 1, `a stop attempt made ${made} revoke calls, not one (${what})`);",
+  "note": "relay contract: an attempt without a revoke allowed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "      assert.equal(await within(lc.mintPageToken(), \"mintPageToken()\"), null, `a page token minted after a revoke answered ${failing} (attempt ${n})`);",
+  "new": "      if (n === 1) assert.equal(await within(lc.mintPageToken(), \"mintPageToken()\"), null, `a page token minted after a revoke answered ${failing} (attempt ${n})`);",
+  "note": "relay contract: minting after a second failure allowed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    for (const n of [1, 2]) {",
+  "new": "    for (const n of [1]) {",
+  "note": "relay contract: one failed attempt only"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "if (!pkg.isDirectory() || pkg.name === \"testing\") continue;",
+  "new": "if (!pkg.isDirectory()) continue;",
+  "note": "boundary: the test-only package scans itself"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "SOURCE.test(e.name) && !TEST.test(e.name)",
+  "new": "SOURCE.test(e.name)",
+  "note": "boundary: test files count as runtime"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "const SOURCE = /\\.(ts|tsx|js|mjs)$/;",
+  "new": "const SOURCE = /\\.(ts|tsx)$/;",
+  "note": "boundary: .js sources unscanned"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "      if (e.name !== \"node_modules\") yield* files(p);",
+  "new": "      void p;",
+  "note": "boundary: subdirectories unscanned"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "|[^\"'`]*\\/testing\\/src\\/[^\"'`]*)",
+  "new": "|@@none@@)",
+  "note": "boundary: relative paths into the package missed"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "\\bimport\\s*\\(?\\s*|",
+  "new": "",
+  "note": "boundary: import statements and dynamic imports missed"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "|\\brequire\\s*\\(\\s*)",
+  "new": ")",
+  "note": "boundary: require missed"
+ },
+ {
+  "file": "src/boundary.ts",
+  "old": "(?:\\/[^\"'`]*)?",
+  "new": "",
+  "note": "boundary: subpaths of the package missed"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    assert.ok(made <= 1, `a stop attempt made ${made} revoke calls, more than one (the retry after the one in flight)`);",
+  "new": "    assert.ok(made === 1, `a stop attempt made ${made} revoke calls, more than one (the retry after the one in flight)`);",
+  "note": "relay contract: an acked retry must call revoke again"
+ },
+ {
+  "file": "src/relay-contract.ts",
+  "old": "    assert.ok(made <= 1, `a stop attempt made ${made} revoke calls, more than one (the retry after the one in flight)`);",
+  "new": "    assert.ok(true, `a stop attempt made ${made} revoke calls, more than one (the retry after the one in flight)`);",
+  "note": "relay contract: any number of calls on the retry after a hold"
  }
 ]
