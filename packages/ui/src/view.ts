@@ -1,7 +1,7 @@
 // What the screens show and allow, as pure functions of API objects, so the decisions
 // are tested without a DOM. Components only lay these out.
 
-import type { Machine, ProjectLabels, QuoteRefusal, SpendMeter, StopReason } from "@sbgpu/api";
+import type { BillingMode, Machine, ProjectLabels, QuoteRefusal, SpendMeter, StopReason } from "@sbgpu/api";
 import { MACHINE_DOMAIN } from "./config.ts";
 import { withArticle } from "./labels.ts";
 import { computeMeter, formatDuration, type MeterBand } from "./meter.ts";
@@ -126,7 +126,7 @@ export interface MeterView {
   storage: string;
 }
 
-export function meterView(meter: SpendMeter): MeterView {
+export function meterView(meter: SpendMeter, mode: BillingMode = "resold"): MeterView {
   const m = computeMeter({
     allocation: meter.amount,
     spent: meter.spent.total,
@@ -142,7 +142,7 @@ export function meterView(meter: SpendMeter): MeterView {
     remaining: formatUsd(m.remaining),
     allocation: formatUsd(meter.amount),
     reserved: meter.reserved > 0 ? formatUsd(meter.reserved) : null,
-    rate: running ? formatPriceSplit(rate.providerCost, rate.margin) : null,
+    rate: running ? formatPriceSplit(rate.providerCost, rate.margin, mode) : null,
     timeLeft: running && m.secondsLeft != null ? `about ${formatDuration(m.secondsLeft)} left at ${formatRate(rate.total)}` : null,
     storage: `${formatBytes(meter.storage.usedBytes)} of ${formatBytes(meter.storage.quotaBytes)}`,
   };

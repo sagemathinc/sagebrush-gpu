@@ -4,30 +4,13 @@
 
 import type { VNode } from "preact";
 import { useEffect } from "preact/hooks";
-import type { BillingMode } from "@sbgpu/api";
+import { BILLING_WORDS } from "../billing.ts";
 import { formatUsd } from "../money.ts";
 import { Link, type Nav } from "./components.ts";
 import { html } from "./html.ts";
 import type { Store } from "./store.ts";
 
-/** The words for each billing mode. Never "no charge" or "no markup": byok has a fee by agreement. */
-export const BILLING_WORDS: {
-  readonly [M in BillingMode]: { about: string; unassigned: string; total: string; spent: string };
-} = {
-  resold: {
-    about: "Credit is bought from us and assigned to projects as budgets.",
-    unassigned: "Credit not yet assigned to projects",
-    total: "Credit bought in all",
-    spent: "Spent",
-  },
-  byok: {
-    about:
-      "Machines run on your organization's own provider accounts, which the providers bill. Our flat fee is set in your agreement. Project budgets limit what each project may spend.",
-    unassigned: "Budget not yet assigned to projects",
-    total: "Budget granted in all",
-    spent: "Metered use",
-  },
-};
+export { BILLING_WORDS };
 
 export function OrgPage({ store, orgId, nav }: { store: Store; orgId: string; nav: Nav }): VNode {
   const known = store.me.value?.orgs.some((o) => o.orgId === orgId) ?? false;

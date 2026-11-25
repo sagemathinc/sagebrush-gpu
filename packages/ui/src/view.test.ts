@@ -205,3 +205,10 @@ test("jupyterUrl: only exactly the machine's own https origin", () => {
   assert.equal(jupyterUrl(`https://m-${id}.machines.invalid/x`, id), `https://m-${id}.machines.invalid/x`);
   assert.equal(jupyterUrl(ok, id), null);
 });
+
+test("meterView under byok: the rate without a service part", () => {
+  const running = meter({ currentRatePerHour: { providerCost: 480_000, margin: 0, total: 480_000 } });
+  assert.equal(meterView(running, "byok").rate, "$0.48/h");
+  assert.equal(meterView(running).rate, "provider $0.48/h + service $0.00/h = $0.48/h"); // resold, the default
+  assert.equal(meterView(meter(), "byok").rate, null);
+});

@@ -87,3 +87,13 @@ test("price splits are rounded alike so the parts add up", () => {
   assert.deepEqual(priceText(125_000, 125_000), { total: "$0.250/h", parts: "provider $0.125 + service $0.125" });
   assert.throws(() => splitDecimals(0.5, 1), RangeError);
 });
+
+test("under byok a price is one rate, and the parts say who bills; resold is unchanged", () => {
+  assert.equal(formatPriceSplit(480_000, 0, "byok"), "$0.48/h");
+  assert.equal(formatPriceSplit(480_000, 144_000, "byok"), "$0.62/h"); // (byok runs at margin 0; any margin is still in the total)
+  assert.equal(formatPriceSplit(50, 0, "byok"), "$0.0001/h");
+  assert.deepEqual(priceText(480_000, 0, "byok"), { total: "$0.48/h", parts: "billed by the provider to your organization" });
+  assert.equal(formatPriceSplit(480_000, 144_000, "resold"), formatPriceSplit(480_000, 144_000));
+  assert.deepEqual(priceText(480_000, 144_000, "resold"), { total: "$0.62/h", parts: "provider $0.48 + service $0.14" });
+  assert.doesNotMatch(formatPriceSplit(480_000, 0, "byok") + priceText(480_000, 0, "byok").parts, /service|no charge|no markup|free/i);
+});

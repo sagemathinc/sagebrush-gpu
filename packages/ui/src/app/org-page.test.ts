@@ -122,7 +122,7 @@ test("an organization on its own provider accounts: a budget, metered use, and n
   assert.match(text, /Projects \(1\) Project Budget Allocated Metered use Lab 0 \$100\.00 \$0\.00 \$0\.00/);
   assert.doesNotMatch(text, /credit/i);
   for (const words of Object.values(BILLING_WORDS)) {
-    for (const w of Object.values(words)) assert.doesNotMatch(w, /no charge|no markup|free|without (a )?fee/i, w);
+    for (const w of Object.values(words)) if (w !== null) assert.doesNotMatch(w, /no charge|no markup|free|without (a )?fee/i, w);
   }
   page.unmount();
 });
