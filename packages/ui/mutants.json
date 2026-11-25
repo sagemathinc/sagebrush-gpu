@@ -946,8 +946,8 @@
  },
  {
   "file": "src/manage.ts",
-  "old": "if (ACCRUING_STATES.includes(m.state)) running.set",
-  "new": "if (m.state !== \"deleted\") running.set"
+  "old": "if (ACCRUING_STATES.includes(m.state)) running.set(m.memberId",
+  "new": "if (m.state !== \"deleted\") running.set(m.memberId"
  },
  {
   "file": "src/manage.ts",
@@ -2216,18 +2216,18 @@
  },
  {
   "file": "src/manage.ts",
-  "old": "reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId",
-  "new": "reserved: 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId"
+  "old": "reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return {\n        teamId",
+  "new": "reserved: 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return {\n        teamId"
  },
  {
   "file": "src/manage.ts",
-  "old": "      const spent = meter?.spent.total ?? 0;\n      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId",
-  "new": "      const spent = 0;\n      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return { teamId"
+  "old": "      const spent = meter?.spent.total ?? 0;\n      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return {\n        teamId",
+  "new": "      const spent = 0;\n      const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });\n      return {\n        teamId"
  },
  {
   "file": "src/manage.ts",
-  "old": "return { teamId: t.id, name: t.name, memberCount: t.memberCount,",
-  "new": "return { teamId: t.id, name: t.name, memberCount: 0,"
+  "old": "        memberCount: t.memberCount,",
+  "new": "        memberCount: 0,"
  },
  {
   "file": "src/manage.ts",
@@ -2548,5 +2548,30 @@
   "file": "src/app/org-page.ts",
   "old": "if (org == null || store.orgId.value !== orgId) return",
   "new": "if (org == null) return"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "    if (ACCRUING_STATES.includes(m.state)) running.set(m.allocationId,",
+  "new": "    if (true) running.set(m.allocationId,"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        running: running.get(t.allocationId) ?? 0,",
+  "new": "        running: 0,"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "const machines = row.running === 0 ? \"\" :",
+  "new": "const machines = row.running === 1 ? \"\" :"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "` Its ${row.running} running ${row.running === 1 ? \"machine\" : \"machines\"} will be stopped.`",
+  "new": "` Its ${row.running} running machines will be stopped.`"
+ },
+ {
+  "file": "src/app/teams-section.ts",
+  "old": "teamRows(store.teams.value, store.meters.value, store.allMachines.value)",
+  "new": "teamRows(store.teams.value, store.meters.value, [])"
  }
 ]

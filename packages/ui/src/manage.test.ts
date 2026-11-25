@@ -136,13 +136,16 @@ function team(id: string, name: string, memberCount = 0): Team {
 }
 
 test("teamRows: by name, each with its own meter; a team without one shows zeros", () => {
-  const rows = teamRows([team("t2", "beta", 3), team("t1", "Alpha", 2), team("t3", "gamma")], [meter("alc_t2", 50_000_000, 20_000_000, 5_000_000), meter("alc_t1", 10_000_000, 9_000_000)]);
+  const onTeam = (allocationId: string, state: Machine["state"]) => ({ allocationId, state }) as Machine;
+  const machines = [onTeam("alc_t2", "running"), onTeam("alc_t2", "saving"), onTeam("alc_t2", "stopped"), onTeam("alc_t1", "starting"), onTeam("alc_a", "running")];
+  const rows = teamRows([team("t2", "beta", 3), team("t1", "Alpha", 2), team("t3", "gamma")], [meter("alc_t2", 50_000_000, 20_000_000, 5_000_000), meter("alc_t1", 10_000_000, 9_000_000)], machines);
+  assert.deepEqual(rows.map((r) => r.running), [1, 2, 0]); // stopped ones and other allocations don't count
   assert.deepEqual(rows.map((r) => r.name), ["Alpha", "beta", "gamma"]); // code-point order, as the server sorts
-  assert.deepEqual(rows[1], { teamId: "t2", name: "beta", memberCount: 3, allocation: 50_000_000, spent: 20_000_000, remaining: 25_000_000, band: rows[1]!.band });
+  assert.deepEqual(rows[1], { teamId: "t2", name: "beta", memberCount: 3, allocation: 50_000_000, spent: 20_000_000, remaining: 25_000_000, band: rows[1]!.band, running: 2 });
   assert.deepEqual([rows[0]!.allocation, rows[0]!.spent, rows[0]!.remaining], [10_000_000, 9_000_000, 1_000_000]);
   assert.notEqual(rows[0]!.band, rows[1]!.band); // 10% left is flagged, 50% isn't
   assert.deepEqual([rows[2]!.allocation, rows[2]!.spent, rows[2]!.remaining, rows[2]!.memberCount], [0, 0, 0, 0]);
-  assert.deepEqual(teamRows([], []), []);
+  assert.deepEqual(teamRows([], [], machines), []);
 });
 
 test("checkTeamName: trimmed, 1 to 100 characters, not another team's name", () => {

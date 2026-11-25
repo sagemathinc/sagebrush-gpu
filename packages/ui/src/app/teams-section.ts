@@ -92,10 +92,12 @@ function NewTeam({ store }: { store: Store }): VNode | null {
 export function TeamsSection({ store }: { store: Store }): VNode {
   const labels = store.labels.value;
   const manage = store.canManage.value;
-  const rows = teamRows(store.teams.value, store.meters.value);
+  const rows = teamRows(store.teams.value, store.meters.value, store.allMachines.value);
   const remove = (row: TeamRow) => {
     const people = row.memberCount === 1 ? `1 ${labels.member} leaves` : `${row.memberCount} ${plural(labels.member)} leave`;
-    const message = `Delete ${row.name}? Its ${people} the ${labels.team}, and its ${formatUsd(row.allocation)} allocation returns to the ${labels.project}.`;
+    // The delete doesn't stop them; with nothing left on the allocation, the meter does.
+    const machines = row.running === 0 ? "" : ` Its ${row.running} running ${row.running === 1 ? "machine" : "machines"} will be stopped.`;
+    const message = `Delete ${row.name}? Its ${people} the ${labels.team}, and its ${formatUsd(row.allocation)} allocation returns to the ${labels.project}.${machines}`;
     if (window.confirm(message)) void store.deleteTeam(row.teamId);
   };
   return html`<section class="card">

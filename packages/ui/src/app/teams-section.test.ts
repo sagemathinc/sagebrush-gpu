@@ -217,3 +217,21 @@ test("nothing is sent for an unchanged allocation or a rename to the same name; 
   assert.doesNotMatch(m.section()!.textContent!, /A name has/);
   m.page.unmount();
 });
+
+test("deleting a team with running machines says they will be stopped", async () => {
+  const m = await open();
+  const b = m.t.demo.backend;
+  const manager = b.currentUserId;
+  b.currentUserId = [...b.users.values()].find((u) => u.email === EMAILS.teamMember)!.id;
+  assert.equal(b.request("POST", `/v1/projects/${m.t.demo.projectId}/machines`, {}, { gpuType: "L4", chargeTo: "team" }).status, 200);
+  b.currentUserId = manager;
+  await m.t.store.refresh();
+  await settle();
+  const asked = m.confirm(false);
+  m.page.qa<HTMLButtonElement>("table.teams button").find((x) => x.textContent === "Delete")!.click();
+  await settle();
+  assert.deepEqual(asked, [
+    "Delete Team Llama? Its 2 students leave the team, and its $50.00 allocation returns to the course. Its 1 running machine will be stopped.",
+  ]);
+  m.page.unmount();
+});

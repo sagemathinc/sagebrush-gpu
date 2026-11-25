@@ -151,11 +151,17 @@ export interface TeamRow {
   spent: Micros;
   remaining: Micros;
   band: MeterBand;
+  /** Machines running (or starting, or saving) on the team's allocation. */
+  running: number;
 }
 
-/** One row per team, by name, joined with its allocation's meter. */
-export function teamRows(teams: readonly Team[], meters: readonly SpendMeter[]): TeamRow[] {
+/** One row per team, by name, joined with its allocation's meter and running machines. */
+export function teamRows(teams: readonly Team[], meters: readonly SpendMeter[], machines: readonly Machine[]): TeamRow[] {
   const meterOf = new Map(meters.map((m) => [m.allocationId, m]));
+  const running = new Map<string, number>();
+  for (const m of machines) {
+    if (ACCRUING_STATES.includes(m.state)) running.set(m.allocationId, (running.get(m.allocationId) ?? 0) + 1);
+  }
   return [...teams]
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .map((t) => {
@@ -163,7 +169,16 @@ export function teamRows(teams: readonly Team[], meters: readonly SpendMeter[]):
       const allocation = meter?.amount ?? 0;
       const spent = meter?.spent.total ?? 0;
       const view = computeMeter({ allocation, spent, reserved: meter?.reserved ?? 0, ratePerHour: meter?.currentRatePerHour.total ?? 0 });
-      return { teamId: t.id, name: t.name, memberCount: t.memberCount, allocation, spent, remaining: view.remaining, band: view.band };
+      return {
+        teamId: t.id,
+        name: t.name,
+        memberCount: t.memberCount,
+        allocation,
+        spent,
+        remaining: view.remaining,
+        band: view.band,
+        running: running.get(t.allocationId) ?? 0,
+      };
     });
 }
 
