@@ -2620,5 +2620,11 @@
   "old": "        if not any(unit == a[\"unit\"] + s or unit.startswith(a[\"unit\"] + \"@\") for a in allow[\"neutralisedAgents\"]",
   "new": "        if not any(unit == a[\"unit\"] + s or unit.startswith(a[\"unit\"]) for a in allow[\"neutralisedAgents\"]",
   "note": "neutralise: gate: a unit merely starting with an agent's name judged"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/neutralise.py",
+  "old": "    return sorted(out)  # (in pid order, whatever order the directory lists them)",
+  "new": "    return out",
+  "note": "neutralise: user pids in listing order"
  }
 ]

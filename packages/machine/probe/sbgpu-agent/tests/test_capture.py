@@ -29,6 +29,15 @@ def random_key(prefix="", n=40, chars=ALNUM):
     return "_".join((prefix, body)) if prefix else body
 
 
+def fixed_key(prefix, n):
+    """A key for rows that assert its shape (its classes): the same on every run, still made at run time, and
+    holding a digit, a lower- and an upper-case letter whatever n (>= 3) is.  (A random key can lack a class: the
+    shape then differs, and the row fails one run in a thousand.)"""
+    body = "".join(ALNUM[(7 * i + 3) % len(ALNUM)] for i in range(n - 3)) + ALNUM[61] + ALNUM[30] + ALNUM[4]
+    assert any(c.isdigit() for c in body) and any(c.islower() for c in body) and any(c.isupper() for c in body)
+    return "_".join((prefix, body))
+
+
 CLEAN_NET = tempfile.mkdtemp(prefix="sbgpu-net-")  # (socket tables where nothing listens on 22)
 for _n in ("tcp", "tcp6"):
     with open(os.path.join(CLEAN_NET, _n), "w") as _f:
@@ -62,7 +71,7 @@ class Base(unittest.TestCase):
 class PrologueTest(Base):
     def test_the_capture(self):
         d = self.tmp()
-        key = random_key("rpa", 40)
+        key = fixed_key("rpa", 40)  # (its shape is asserted below: no random class)
         r, salt = run_prologue(d, key)
         self.assertEqual(r.returncode, 0, r.stderr)
         path = d + "/probe-capture"
@@ -373,7 +382,7 @@ class RunTest(Base):
             f.write(b"PATH=/usr/bin\0")
         with open(self.proc + "/1/cmdline", "wb") as f:
             f.write(b"/usr/bin/python3\0-I\0-S\0/opt/sbgpu/agent/x/sbgpu-agent\0")
-        self.key = random_key("rpa", 40)
+        self.key = fixed_key("rpa", 40)  # (the run's shape, v44-rpa-dlsu, is asserted: no random class)
         r, self.salt = run_prologue(self.root + "/opt/sbgpu", self.key)
         self.assertEqual(r.returncode, 0, r.stderr)
 
