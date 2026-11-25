@@ -105,7 +105,9 @@ test("launches: terminated exactly with its time, in both modes", async () => {
     const m = await machine(p);
     await assert.rejects(insert(m, { outcome: "terminated", terminate_reason: "abort", next_ms: null }), /CHECK/, `${p}: terminated without its time`);
     await assert.rejects(insert(m, { outcome: "terminate", terminate_reason: "abort", terminated_ms: T0 }), /CHECK/, `${p}: a time before terminated`);
-    await insert(m, { outcome: "terminate", terminate_reason: "abort" });
+    // (inserted creating, then marked to terminate: a container launch moves only with its rate, 0015)
+    await insert(m);
+    await upd(m, `outcome = 'terminate', terminate_reason = 'abort'`);
     await upd(m, `outcome = 'terminated', terminated_ms = ?, next_ms = NULL`, T0);
   }
 });
