@@ -26,8 +26,12 @@ class Client {
     };
     this.ws.onclose = (e) => (this.closed = { code: e.code });
   }
-  async opened() {
-    await new Promise((r) => (this.ws.onopen = r));
+  async opened(ms = 10_000) {
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("the WebSocket did not open")), ms);
+      this.ws.onopen = () => (clearTimeout(t), resolve(undefined));
+      this.ws.onerror = () => (clearTimeout(t), reject(new Error("the WebSocket failed to open")));
+    });
   }
   send(m: object) {
     this.ws.send(JSON.stringify(m));
@@ -44,7 +48,10 @@ class Client {
   }
 }
 
-test("hello, open, type, output, ack, resize, reattach with replay, exit", async () => {
+// A step that never finishes fails the test rather than hanging the run.
+const TIMEOUT = { timeout: 60_000 };
+
+test("hello, open, type, output, ack, resize, reattach with replay, exit", TIMEOUT, async () => {
   const a = new Client(server.port);
   await a.opened();
   a.send({ t: "hello", token: "dev" });
@@ -57,6 +64,10 @@ test("hello, open, type, output, ack, resize, reattach with replay, exit", async
   a.send({ t: "resize", rows: 30, cols: 100 });
   a.type("stty size\n");
   await a.until(() => a.out.includes("30 100"));
+  // the shell doesn't inherit the helper's control pipe (fd 3): it would outlive the helper
+  a.type("[ -e /dev/fd/3 ] && echo fd3-$((3*3)) || echo nofd3-$((3*3))\n");
+  await a.until(() => /(^|[^o])fd3-9|nofd3-9/.test(a.out));
+  assert.ok(a.out.includes("nofd3-9"), "the shell holds fd 3");
   a.ws.close();
   await a.until(() => a.closed !== null);
 
@@ -75,7 +86,7 @@ test("hello, open, type, output, ack, resize, reattach with replay, exit", async
   b.ws.close();
 });
 
-test("a bad hello closes 4403; errors and closes as the agent's protocol has them", async () => {
+test("a bad hello closes 4403; errors and closes as the agent's protocol has them", TIMEOUT, async () => {
   const c = new Client(server.port);
   await c.opened();
   c.send({ t: "hello", token: "nope" });
@@ -116,4 +127,14 @@ test("a bad hello closes 4403; errors and closes as the agent's protocol has the
   f.send({ t: "ack", upto: sent + 1 });
   await f.until(() => f.closed !== null);
   assert.equal(f.closed!.code, 1008);
+});
+
+test("close() ends the open pages, so a failed run still exits", TIMEOUT, async () => {
+  const g = new Client(server.port);
+  await g.opened();
+  g.send({ t: "hello", token: "dev" });
+  g.send({ t: "open", rows: 24, cols: 80 });
+  await g.until(() => g.msgs.some((m) => m.t === "live"));
+  server.close();
+  await g.until(() => g.closed !== null, 5_000);
 });
