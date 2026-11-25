@@ -271,8 +271,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
-  "old": "if not isinstance(enrolled.get(\"incarnation\"), int) or not isinstance(enrolled.get(\"relayUrl\"), str):",
-  "new": "if not isinstance(enrolled.get(\"relayUrl\"), str):",
+  "old": "if not isinstance(enrolled.get(\"incarnation\"), int) or not isinstance(enrolled.get(\"relayUrl\"), str):\n        return EXIT_REFUSED",
+  "new": "if not isinstance(enrolled.get(\"relayUrl\"), str):\n        return EXIT_REFUSED",
   "note": "agent: enroll: incarnation not required"
  },
  {
@@ -1273,8 +1273,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/main.py",
-  "old": "if not isinstance(enrolled.get(\"incarnation\"), int) or not isinstance(enrolled.get(\"relayUrl\"), str):",
-  "new": "if not isinstance(enrolled.get(\"incarnation\"), int):",
+  "old": "if not isinstance(enrolled.get(\"incarnation\"), int) or not isinstance(enrolled.get(\"relayUrl\"), str):\n        return EXIT_REFUSED",
+  "new": "if not isinstance(enrolled.get(\"incarnation\"), int):\n        return EXIT_REFUSED",
   "note": "agent relay: enroll: relayUrl not required"
  },
  {
