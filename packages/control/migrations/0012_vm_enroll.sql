@@ -3,7 +3,12 @@
 -- token, a failing gate report, a signing failure after the commit). The gate's report is
 -- kept per launch, and enroll_guard is the enroll batch's all-or-nothing guard.
 --
--- vm_launches is rebuilt (a CHECK and a NOT NULL column can't be changed in place). VM mode is
+-- Text bounds count stored bytes, not characters, and no bounded text may hold a NUL: SQLite's
+-- length() and GLOB stop at an embedded NUL. The hashes are exactly 64 bytes, no NUL, lowercase
+-- hex; the provider id and the IPv4 are ASCII (characters and bytes agree, which no NUL or
+-- multibyte character passes); the gate's words are at most 2048 bytes, no NUL.
+--
+-- vm_launches and boot_tokens are rebuilt (a CHECK and a NOT NULL column can't be changed in place). VM mode is
 -- unreachable (nothing creates a launch), so no row can exist; this first statement refuses
 -- the migration, before anything else here runs, if one does (json() of text that isn't JSON
 -- is the error).
@@ -12,6 +17,7 @@ SELECT CASE
   THEN json('refused: VM launches exist; this rebuild assumes none')
 END;
 
+DROP TABLE boot_tokens;
 DROP INDEX vm_launches_next;
 DROP TABLE vm_launches;
 
@@ -20,15 +26,15 @@ CREATE TABLE vm_launches (
   incarnation INTEGER NOT NULL CHECK (incarnation BETWEEN 0 AND 9007199254740991),
   provider TEXT NOT NULL CHECK (provider IN ('hyperstack', 'shadeform', 'nebius')),
   -- the provider's id for the VM: null until the create has returned it
-  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR length(provider_machine_id) BETWEEN 1 AND 64),
+  provider_machine_id TEXT CHECK (provider_machine_id IS NULL OR (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)))),
   -- the launch nonce's and the exact boot script's SHA-256 (lowercase hex); the nonce itself is never stored
-  nonce_sha256 TEXT NOT NULL CHECK (length(nonce_sha256) = 64 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),
-  boot_script_sha256 TEXT NOT NULL CHECK (length(boot_script_sha256) = 64 AND boot_script_sha256 NOT GLOB '*[^0-9a-f]*'),
+  nonce_sha256 TEXT NOT NULL CHECK (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),
+  boot_script_sha256 TEXT NOT NULL CHECK (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0 AND boot_script_sha256 NOT GLOB '*[^0-9a-f]*'),
   -- the agent's SHA-256 (lowercase hex) this launch pins: enroll refuses any other
-  agent_sha256 TEXT NOT NULL CHECK (length(agent_sha256) = 64 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),
+  agent_sha256 TEXT NOT NULL CHECK (length(CAST(agent_sha256 AS BLOB)) = 64 AND instr(agent_sha256, char(0)) = 0 AND agent_sha256 NOT GLOB '*[^0-9a-f]*'),
   -- the ACTIVE facts: the VM's exclusive public IPv4 (canonical dotted form) and when it was
   -- first seen ACTIVE; both null until then, and always together
-  ipv4 TEXT CHECK (ipv4 IS NULL OR length(ipv4) BETWEEN 7 AND 15),
+  ipv4 TEXT CHECK (ipv4 IS NULL OR (length(CAST(ipv4 AS BLOB)) BETWEEN 7 AND 15 AND length(ipv4) = length(CAST(ipv4 AS BLOB)))),
   first_active_ms INTEGER CHECK (first_active_ms IS NULL OR first_active_ms BETWEEN 0 AND 9007199254740991),
   announce_ms INTEGER CHECK (announce_ms IS NULL OR announce_ms BETWEEN 0 AND 9007199254740991),
   outcome TEXT NOT NULL CHECK (outcome IN ('creating', 'launched', 'issued', 'enrolled', 'terminate', 'terminated')),
@@ -61,13 +67,30 @@ CREATE TABLE vm_launches (
 ) STRICT;
 CREATE INDEX vm_launches_next ON vm_launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;
 
+-- (as in 0009, with its text bounded in bytes)
+CREATE TABLE boot_tokens (
+  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0 AND token_sha256 NOT GLOB '*[^0-9a-f]*'),
+  machine_id TEXT NOT NULL,
+  incarnation INTEGER NOT NULL,
+  provider_machine_id TEXT NOT NULL CHECK (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB))),
+  nonce_sha256 TEXT NOT NULL CHECK (length(CAST(nonce_sha256 AS BLOB)) = 64 AND instr(nonce_sha256, char(0)) = 0 AND nonce_sha256 NOT GLOB '*[^0-9a-f]*'),
+  issued_ms INTEGER NOT NULL CHECK (issued_ms BETWEEN 0 AND 9007199254740991),
+  expires_ms INTEGER NOT NULL CHECK (expires_ms BETWEEN 0 AND 9007199254740991),
+  used_ms INTEGER CHECK (used_ms IS NULL OR used_ms BETWEEN 0 AND 9007199254740991),
+  -- single use, at most 120 s from issue
+  CHECK (expires_ms > issued_ms AND expires_ms - issued_ms <= 120000),
+  -- one token per launch
+  UNIQUE (machine_id, incarnation),
+  FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)
+) STRICT;
+
 -- The gate's report at enroll, canonical (sorted, distinct, known words; JSON text), one per
 -- launch, written in the same batch as the enroll or its gate-failed termination.
 CREATE TABLE gate_reports (
   machine_id TEXT NOT NULL,
   incarnation INTEGER NOT NULL,
-  -- (json_type refuses text that isn't JSON)
-  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(words) <= 2048),
+  -- (json_type refuses text that isn't JSON; the bound is in stored bytes, and no NUL may hide a tail)
+  words TEXT NOT NULL CHECK (json_type(words) = 'array' AND length(CAST(words AS BLOB)) <= 2048 AND instr(words, char(0)) = 0),
   at_ms INTEGER NOT NULL CHECK (at_ms BETWEEN 0 AND 9007199254740991),
   PRIMARY KEY (machine_id, incarnation),
   FOREIGN KEY (machine_id, incarnation) REFERENCES vm_launches (machine_id, incarnation)

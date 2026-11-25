@@ -171,7 +171,8 @@ export async function recordLaunchIntent(
   ]);
 }
 
-const PROVIDER_ID = /^[^\s]{1,64}$/;
+/** A provider's instance id: 1 to 64 printable ASCII characters (the schema bounds the same bytes). */
+const PROVIDER_ID = /^[\x21-\x7e]{1,64}$/;
 
 /**
  * The provider's id for a creating launch, once the create returned it: idempotent for the

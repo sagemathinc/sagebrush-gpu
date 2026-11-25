@@ -97,7 +97,7 @@ test("the provider id: idempotent for the same id, refused for another, or past 
   assert.equal(await recordProviderId(w.db, l.machineId, 1, "x".repeat(64)), "refused"); // (a different id, though well formed)
   // malformed ids, on a launch with no id yet (so only the format refuses them)
   const f = await intent();
-  for (const bad of ["", "x".repeat(65), "has space", "tab\there", "line\n"]) {
+  for (const bad of ["", "x".repeat(65), "has space", "tab\there", "line\n", "vm-\u00e9", "vm\u0000x"]) {
     assert.equal(await recordProviderId(w.db, f.machineId, 1, bad), "refused", JSON.stringify(bad));
     assert.equal(await recordActive(w.db, f.machineId, 1, { providerMachineId: bad, ipv4: IP, firstActiveMs: T0 }), "refused", JSON.stringify(bad));
   }
@@ -325,4 +325,61 @@ test("the 0012 rebuild refuses existing launches, before changing anything", () 
   );
   const cols = (raw as unknown as import("node:sqlite").DatabaseSync).prepare(`SELECT name FROM pragma_table_info('vm_launches') WHERE name = 'agent_sha256'`).all();
   assert.deepEqual(cols, []); // (the old table, untouched)
+});
+
+test("schema (0012): every bounded text counts stored bytes and holds no NUL", async () => {
+  const l = await intent();
+  const NUL = String.fromCharCode(0);
+  const upd = (col: string, v: string) => w.db.batch([stmt(`UPDATE vm_launches SET ${col} = ? WHERE machine_id = ?`, v, l.machineId)]);
+  // the hashes: exactly 64 bytes, no NUL, lowercase hex
+  const badHashes = [
+    AGENT + NUL + "x".repeat(100_000), // (64 hex, then a NUL and a long tail)
+    AGENT.slice(0, 63) + NUL, // (exactly 64 bytes, with a NUL)
+    AGENT.slice(0, 62) + NUL + "x", // (64 bytes: a NUL, then a non-hex byte)
+    "ab" + NUL, // (a short one)
+    AGENT.slice(0, 62) + "\u00e9", // (64 bytes, a multibyte character)
+    AGENT.slice(0, 63) + "\u00e9", // (65 bytes)
+    AGENT.slice(1), // (63 hex characters)
+    AGENT + "0", // (65 hex characters)
+  ];
+  for (const col of ["nonce_sha256", "boot_script_sha256", "agent_sha256"]) {
+    for (const bad of badHashes) await assert.rejects(upd(col, bad), /CHECK/, `${col} ${JSON.stringify(bad.slice(0, 70))}`);
+    await upd(col, AGENT);
+  }
+  // the provider id: 1 to 64 bytes of ASCII, no NUL
+  await assert.rejects(upd("provider_machine_id", "vm" + NUL + "x".repeat(100)), /CHECK/);
+  await assert.rejects(upd("provider_machine_id", "vm" + NUL), /CHECK/);
+  await assert.rejects(upd("provider_machine_id", "\u00e9".repeat(32)), /CHECK/); // (64 bytes, not ASCII)
+  await assert.rejects(upd("provider_machine_id", "v".repeat(65)), /CHECK/);
+  await upd("provider_machine_id", "v".repeat(64));
+  // the IPv4 (with the id, as the state matrix wants for a launched row)
+  const active = (ip: string) => w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'launched', ipv4 = ?, first_active_ms = ? WHERE machine_id = ?`, ip, T0, l.machineId)]);
+  await assert.rejects(active(IP + NUL + "x".repeat(1000)), /CHECK/);
+  await assert.rejects(active("203.0.113" + NUL), /CHECK/);
+  await assert.rejects(active("203.0.113.\u00e9"), /CHECK/);
+  await active(IP);
+  // gate words: at most 2048 bytes, no NUL (a multibyte character counts its bytes)
+  const report = (words: string) => w.db.batch([stmt(`INSERT INTO gate_reports (machine_id, incarnation, words, at_ms) VALUES (?, 1, ?, ?)`, l.machineId, words, T0)]);
+  const bytes = (x: string) => new TextEncoder().encode(x).length;
+  await assert.rejects(report("[]" + NUL + "x".repeat(100_000)), /CHECK/); // (a long tail)
+  await assert.rejects(report("[]" + NUL), /CHECK/); // (a short one, inside the cap)
+  const maxNul = `["${"a".repeat(2043)}"]` + NUL; // (2048 bytes exactly, the last a NUL)
+  assert.equal(bytes(maxNul), 2048);
+  await assert.rejects(report(maxNul), /CHECK/);
+  const emoji = "\ud83d\ude00"; // (4 bytes, 2 UTF-16 units)
+  const multi = (n4: number, pad: number) => `["${emoji.repeat(n4)}${"a".repeat(pad)}"]`;
+  assert.deepEqual([bytes(multi(511, 0)), bytes(multi(511, 1))], [2048, 2049]);
+  await assert.rejects(report(multi(511, 1)), /CHECK/); // (2049 bytes, 516 characters)
+  await report(multi(511, 0)); // (2048 bytes: kept)
+  await w.db.batch([stmt(`DELETE FROM gate_reports WHERE machine_id = ?`, l.machineId)]);
+  // boot tokens: the same bounds
+  const tok = (h: string, pid: string, nonce: string) =>
+    w.db.batch([stmt(`INSERT INTO boot_tokens (token_sha256, machine_id, incarnation, provider_machine_id, nonce_sha256, issued_ms, expires_ms) VALUES (?, ?, 1, ?, ?, ?, ?)`, h, l.machineId, pid, nonce, T0, T0 + 1000)]);
+  for (const bad of badHashes) {
+    await assert.rejects(tok(bad, "v", AGENT), /CHECK/, `token ${JSON.stringify(bad.slice(0, 70))}`);
+    await assert.rejects(tok(AGENT, "v", bad), /CHECK/, `nonce ${JSON.stringify(bad.slice(0, 70))}`);
+  }
+  await assert.rejects(tok(AGENT, "v" + NUL, AGENT), /CHECK/);
+  await assert.rejects(tok(AGENT, "\u00e9".repeat(32), AGENT), /CHECK/);
+  await tok(AGENT, "v".repeat(64), AGENT);
 });
