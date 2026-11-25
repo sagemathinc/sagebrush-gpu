@@ -1795,5 +1795,47 @@
   "old": "return literal || byLength;",
   "new": "return literal;",
   "note": "pN reading"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "const FAILURE_NAMES = new Set([\"AbortError\", \"TimeoutError\", \"TypeError\"]);",
+  "new": "const FAILURE_NAMES = new Set([\"AbortError\", \"TimeoutError\"]);",
+  "note": "failureName: TypeError"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "return e instanceof Error && FAILURE_NAMES.has(e.name) ? e.name : \"error\";",
+  "new": "return e instanceof Error ? e.name : \"error\";",
+  "note": "failureName: allowlist"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "return e instanceof Error && FAILURE_NAMES.has(e.name) ? e.name : \"error\";",
+  "new": "return e instanceof Error && FAILURE_NAMES.has(e.name) ? e.name : String(e);",
+  "note": "failureName: non-error"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const name = failureName(e);",
+  "new": "      const name = e instanceof Error ? e.name : \"error\";",
+  "note": "runpod: e.name verbatim"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "    report.launchError = e instanceof ProviderError ? { kind: e.kind, httpStatus: e.httpStatus } : { kind: \"driver-error\", httpStatus: null };\n",
+  "new": "",
+  "note": "launchError recorded"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "{ kind: e.kind, httpStatus: e.httpStatus }",
+  "new": "{ kind: e.kind, httpStatus: null }",
+  "note": "launchError status"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": ": { kind: \"driver-error\", httpStatus: null };",
+  "new": ": null;",
+  "note": "launchError driver-error"
  }
 ]

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
-import type { Fetch, HttpRequest } from "../http.ts";
+import { failureName, type Fetch, type HttpRequest } from "../http.ts";
 import type { LaunchSpec } from "../types.ts";
 import { expectedSpec, specDrift } from "../drift.ts";
 import { podStatus, runpodError, RunPodAdapter, UNREADABLE } from "./adapter.ts";
@@ -380,6 +380,23 @@ test("errors never carry provider text, which can echo the boot token", async ()
 test("errors never carry the API key", async () => {
   const { a } = adapter([new TypeError(`connect failed Bearer ${KEY}`), { status: 500, body: "" }]);
   await assert.rejects(a.launch(spec), (e: unknown) => e instanceof Error && !e.message.includes(KEY));
+});
+
+test("a fetch failure is named by a fixed word, never by the exception's own name or text", async () => {
+  // A fetch that puts the key in both the name and the message.
+  const poisoned = Object.assign(new Error(`failed ${KEY}`), { name: `Bearer ${KEY}` });
+  const { a } = adapter([poisoned]);
+  await assert.rejects(
+    a.status("p"),
+    (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && !e.message.includes(KEY) && e.message.endsWith("no response (error)"),
+  );
+  for (const name of ["AbortError", "TimeoutError", "TypeError"]) {
+    const { a: b } = adapter([Object.assign(new Error(KEY), { name })]);
+    await assert.rejects(b.status("p"), (e: unknown) => e instanceof ProviderError && e.message.endsWith(`no response (${name})`) && !e.message.includes(KEY));
+  }
+  assert.equal(failureName("TypeError"), "error");
+  assert.equal(failureName(null), "error");
+  assert.equal(failureName(Object.assign(new Error("x"), { name: "SyntaxError" })), "error");
 });
 
 test("a non-JSON success body is an error", async () => {
