@@ -20,10 +20,12 @@ import {
   type SpendMeter,
   type UpdateProjectRequest,
 } from "@sbgpu/api";
-import { ApiError, type Client } from "../client.ts";
+import { ApiError, type Client, type FetchFn } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
 import { jupyterUrl } from "../view.ts";
 import { terminalUrl } from "../terminal/session.ts";
+import type { PollTimers } from "./polling.ts";
+import { ProviderKeys, WINDOW_TIMERS } from "./provider-keys.ts";
 
 export interface StoreOptions {
   /** The UI's own host (location.host); the terminal relay must be on it. */
@@ -32,6 +34,12 @@ export interface StoreOptions {
   devTerminal?: { url: string; token: string };
   /** Pages read per list per refresh (default MAX_LIST_PAGES); tests use a smaller cap. */
   maxListPages?: number;
+  /** The provider keys' own request path (default: fetch), apart from the client's. */
+  credentialFetch?: FetchFn;
+  /** A monotonic clock, ms (default performance.now): the reauth window is measured on it. */
+  monotonic?: () => number;
+  /** The reauth window's timer (default the real one). */
+  timers?: PollTimers;
 }
 
 /**
@@ -107,11 +115,20 @@ export class Store {
   #pollError: string | null = null;
 
   readonly #options: StoreOptions;
+  readonly #monotonic: () => number;
+  /** An organization's provider keys (its owners', under byok): on the organization's page. */
+  readonly keys: ProviderKeys;
 
   constructor(client: Client, now: () => number = Date.now, options: StoreOptions = {}) {
     this.client = client;
     this.now = now;
     this.#options = options;
+    this.#monotonic = options.monotonic ?? (() => performance.now());
+    this.keys = new ProviderKeys(
+      options.credentialFetch ?? ((input, init) => fetch(input, init)),
+      { monotonic: this.#monotonic, timers: options.timers ?? WINDOW_TIMERS },
+      () => this.#endSession(),
+    );
   }
 
   pollDelayMs(): number {
@@ -156,6 +173,7 @@ export class Store {
    */
   #endSession(): void {
     this.#generation++;
+    this.keys.endSession();
     batch(() => {
       this.me.value = null;
       this.meLoaded.value = true;
@@ -181,9 +199,14 @@ export class Store {
   // ---------------------------------------------------------------- session
 
   async loadMe(): Promise<void> {
+    // (the reauth window counts from just before the request is sent, never from its answer)
+    const sentAt = this.#monotonic();
     try {
-      this.me.value = await this.client.call("getMe");
+      const me = await this.client.call("getMe");
+      this.me.value = me;
+      this.keys.setWindow(sentAt, me.recentAuthForMs);
     } catch (err) {
+      this.keys.closeWindow();
       if (!(err instanceof ApiError && err.code === "unauthenticated")) {
         this.error.value = err instanceof Error ? err.message : String(err);
       }
