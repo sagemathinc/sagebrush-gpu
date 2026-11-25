@@ -334,7 +334,8 @@ reviewed, but no VM launch is.
 - **Offers** come from `GET /core/flavors` and `GET /pricebook`:
   - only flavors with exactly the GPU count asked for, in a region `HYPERSTACK_REGIONS` gives a country;
   - the price is the pricebook entry named exactly as the flavor's GPU, per GPU-hour, times the
-    count (to confirm against a real read); an entry that appears twice prices nothing;
+    count (to confirm against a real read). An entry that appears twice prices nothing, and so does
+    a price that rounds to 0 micros or whose total is not a safe integer;
   - one offer per GPU type and region, preferring one in stock. Stock is `none` when
     `stock_available` is false and `unknown` otherwise.
 - **Status.** A VM maps to our status as follows:
@@ -342,7 +343,9 @@ reviewed, but no VM launch is.
   - there are no environment names (a VM gets its boot token from the announce, not from the provider);
   - ports are the ingress security rules;
   - any security rule, port randomization not off, Enhanced Monitoring not off, or no public
-    IPv4 floating IP is an unexpected setting. Anything unreadable stays unreadable, so drift fails closed;
+    IPv4 floating IP is an unexpected setting. A public IPv4 is one outside every block of
+    IANA's IPv4 special-purpose registry that isn't globally reachable, multicast and 240.0.0.0/4.
+    Anything unreadable stays unreadable, so drift fails closed;
   - the command is a fixed marker, so no Hyperstack VM ever matches a launch spec. Until the
     launch path brings its delivery form, every Hyperstack VM shows as drifted.
 
@@ -364,8 +367,9 @@ reviewed, but no VM launch is.
 - **Per-launch keypair.**
   - `perLaunchKeypair()` makes an Ed25519 pair whose private key can't be exported, with its OpenSSH public line.
   - `importKeypair` accepts only our names (`sbg-…`) and that one line shape; `deleteKeypair` is idempotent on 404.
-- **Errors** keep no provider text and name a fetch failure only by a fixed word. An unreadable
-  reply to a POST or DELETE is `outcome_unknown`.
+- **Errors** are classified by HTTP status before any body read, so an error reply's body is
+  never read. They keep no provider text and name a fetch failure only by a fixed word. A 2xx
+  body that can't be read is `outcome_unknown`; an unreadable reply to a POST or DELETE is too.
 
 ## Not yet
 

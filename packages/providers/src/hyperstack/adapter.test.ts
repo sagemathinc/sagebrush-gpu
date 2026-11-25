@@ -20,11 +20,13 @@ const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
 const NOW = new Date("2026-11-25T12:00:00.000Z");
 const T = NOW.toISOString();
 
-type Reply = { status: number; body?: unknown; headers?: Record<string, string> } | Error;
+/** One reply; `textThrows` makes reading its body fail, as a cut-off stream does. */
+type Reply = { status: number; body?: unknown; headers?: Record<string, string>; textThrows?: boolean } | Error;
 
-/** A fetch that answers from a list of replies, in order, and records every request. */
+/** A fetch that answers from a list of replies, in order, and records every request and body read. */
 function mockFetch(replies: Reply[]) {
   const calls: Array<{ url: string; init: HttpRequest }> = [];
+  const reads = { n: 0 };
   const fetch: Fetch = async (url, init) => {
     calls.push({ url, init });
     const r = replies.shift();
@@ -32,14 +34,22 @@ function mockFetch(replies: Reply[]) {
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? "" : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
     const headers = new Map(Object.entries(r.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
-    return { status: r.status, headers: { get: (n: string) => headers.get(n.toLowerCase()) ?? null }, text: async () => text };
+    return {
+      status: r.status,
+      headers: { get: (n: string) => headers.get(n.toLowerCase()) ?? null },
+      text: async () => {
+        reads.n++;
+        if (r.textThrows === true) throw new Error(`stream cut ${KEY}`);
+        return text;
+      },
+    };
   };
-  return { fetch, calls };
+  return { fetch, calls, reads };
 }
 
 function adapter(replies: Reply[]) {
   const m = mockFetch(replies);
-  return { a: new HyperstackAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls };
+  return { a: new HyperstackAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls, reads: m.reads };
 }
 
 /** A VM (InstanceFields) as Hyperstack's API reference describes it, in the VM-mode launch shape. */
@@ -148,6 +158,50 @@ test("#call: network failure is outcome_unknown and names no key; HTTP errors ne
   await assert.rejects(b.a.status("4242"), (e: unknown) => e instanceof ProviderError && e.kind === "transient" && !e.message.includes(KEY));
 });
 
+test("#call: an error status is classified with no body read; status and Retry-After kept", async () => {
+  const cases: Array<[Reply, string, number | null]> = [
+    [{ status: 404, textThrows: true }, "not_found", null],
+    [{ status: 429, textThrows: true, headers: { "Retry-After": "7" } }, "rate_limited", 7],
+    [{ status: 500, textThrows: true, headers: { "Retry-After": "7" } }, "transient", null],
+    [{ status: 302, textThrows: true }, "unknown", null],
+  ];
+  for (const [r, kind, retry] of cases) {
+    const status = (r as { status: number }).status;
+    const g = adapter([r]);
+    await assert.rejects(g.a.listOffers({ gpuCount: 1 }), (e: unknown) => {
+      assert.ok(e instanceof ProviderError);
+      assert.equal(e.kind, kind);
+      assert.equal(e.httpStatus, status);
+      assert.equal(e.retryAfterSeconds, retry);
+      return true;
+    });
+    assert.equal(g.reads.n, 0, String(status));
+  }
+  // A 404 is still gone, a 404 DELETE still done, and a 404 to instanceFacts still absent, unread.
+  const s = adapter([{ status: 404, textThrows: true }]);
+  assert.equal((await s.a.status("4242")).state, "terminated");
+  const d = adapter([{ status: 404, textThrows: true }]);
+  await d.a.terminate("4242");
+  const f = adapter([{ status: 404, textThrows: true }]);
+  assert.deepEqual(await f.a.instanceFacts("4242"), { state: "absent", ipv4: null, exclusive: false });
+  const k = adapter([{ status: 404, textThrows: true }]);
+  await k.a.deleteKeypair(77);
+  assert.equal(s.reads.n + d.reads.n + f.reads.n + k.reads.n, 0);
+});
+
+test("#call: a 2xx body that can't be read is outcome_unknown, naming no key", async () => {
+  for (const status of [200, 201, 204]) {
+    const g = adapter([{ status, textThrows: true }]);
+    await assert.rejects(g.a.terminate("4242"), (e: unknown) => {
+      assert.ok(e instanceof ProviderError && e.kind === "outcome_unknown" && e.httpStatus === status);
+      assert.ok(!e.message.includes(KEY) && !e.message.includes("stream cut"));
+      return true;
+    });
+    assert.equal(g.reads.n, 1);
+  }
+  assert.equal(await adapter([{ status: 200, textThrows: true }]).a.instanceFacts("4242"), "unavailable");
+});
+
 test("#call: unreadable JSON is unknown on GET, outcome_unknown on POST and DELETE", async () => {
   await rejects(adapter([{ status: 200, body: "{nope" }]).a.status("4242"), "unknown");
   await rejects(adapter([{ status: 200, body: "{nope" }]).a.terminate("4242"), "outcome_unknown");
@@ -245,16 +299,59 @@ test("vmStatus: settings that differ from the launch shape are named", () => {
 
 // ---------------------------------------------------------------- isPublicIpv4
 
-test("isPublicIpv4: routable addresses only", () => {
-  for (const ip of ["185.10.20.7", "8.8.8.8", "1.0.0.1", "172.15.0.1", "172.32.0.1", "100.63.0.1", "100.128.0.1", "169.253.1.1", "192.1.0.1", "198.17.0.1", "198.20.0.1", "223.255.255.255", "11.0.0.0"]) {
+// Each block that is not globally reachable (IANA IPv4 Special-Purpose Address Registry), by its
+// first and last address, and the public addresses just outside it.
+const BLOCKS: Array<[first: string, last: string, below: string | null, above: string | null]> = [
+  ["0.0.0.0", "0.255.255.255", null, "1.0.0.0"],
+  ["10.0.0.0", "10.255.255.255", "9.255.255.255", "11.0.0.0"],
+  ["100.64.0.0", "100.127.255.255", "100.63.255.255", "100.128.0.0"],
+  ["127.0.0.0", "127.255.255.255", "126.255.255.255", "128.0.0.0"],
+  ["169.254.0.0", "169.254.255.255", "169.253.255.255", "169.255.0.0"],
+  ["172.16.0.0", "172.31.255.255", "172.15.255.255", "172.32.0.0"],
+  ["192.0.0.0", "192.0.0.255", "191.255.255.255", "192.0.1.0"],
+  ["192.0.2.0", "192.0.2.255", "192.0.1.255", "192.0.3.0"],
+  ["192.88.99.0", "192.88.99.255", "192.88.98.255", "192.88.100.0"],
+  ["192.168.0.0", "192.168.255.255", "192.167.255.255", "192.169.0.0"],
+  ["198.18.0.0", "198.19.255.255", "198.17.255.255", "198.20.0.0"],
+  ["198.51.100.0", "198.51.100.255", "198.51.99.255", "198.51.101.0"],
+  ["203.0.113.0", "203.0.113.255", "203.0.112.255", "203.0.114.0"],
+  ["224.0.0.0", "239.255.255.255", "223.255.255.255", null],
+  ["240.0.0.0", "255.255.255.255", null, null],
+];
+
+test("isPublicIpv4: every non-global block refused at both ends; its neighbours accepted", () => {
+  for (const [first, last, below, above] of BLOCKS) {
+    assert.equal(isPublicIpv4(first), false, first);
+    assert.equal(isPublicIpv4(last), false, last);
+    if (below !== null) assert.equal(isPublicIpv4(below), true, below);
+    if (above !== null) assert.equal(isPublicIpv4(above), true, above);
+  }
+  // Named single addresses inside them.
+  for (const ip of ["169.254.169.254", "192.0.0.8", "192.0.0.9", "192.0.0.170", "192.88.99.2", "198.51.100.1", "203.0.113.1", "192.0.2.1", "255.255.255.255"]) {
+    assert.equal(isPublicIpv4(ip), false, ip);
+  }
+  // Globally reachable special-purpose blocks, and ordinary addresses.
+  for (const ip of ["192.31.196.1", "192.52.193.1", "192.175.48.1", "185.10.20.7", "8.8.8.8", "1.1.1.1", "192.1.0.1", "198.51.0.1", "203.0.0.1"]) {
     assert.equal(isPublicIpv4(ip), true, ip);
   }
-  for (const ip of [
-    "0.1.2.3", "10.0.0.1", "127.0.0.1", "169.254.169.254", "172.16.0.1", "172.31.255.255", "192.168.1.1", "100.64.0.1", "100.127.0.1",
-    "192.0.0.1", "198.18.0.1", "198.19.0.1", "224.0.0.1", "255.255.255.255", "256.1.1.1", "01.2.3.4", "1.2.3", "1.2.3.4 ", " 1.2.3.4",
-    "1.2.3.4\n", "::1", "", null, 1, undefined,
-  ]) {
+});
+
+test("isPublicIpv4: only plain dotted quads", () => {
+  for (const ip of ["256.1.1.1", "1.256.1.1", "1.1.1.256", "01.2.3.4", "1.02.3.4", "1.2.3", "1.2.3.4.5", "1.2.3.4 ", " 1.2.3.4", "1.2.3.4\n", "::1", "::ffff:8.8.8.8", "0x8.8.8.8", "", null, 1, 134744072, undefined]) {
     assert.equal(isPublicIpv4(ip), false, String(ip));
+  }
+  for (const ip of ["8.8.8.8", "100.0.0.0", "99.250.199.9", "223.0.0.1"]) assert.equal(isPublicIpv4(ip), true, ip);
+});
+
+test("instanceFacts and readback: a non-global floating IP is no IPv4, never exclusive; a neighbour is", async () => {
+  for (const ip of ["198.51.100.7", "203.0.113.7", "192.88.99.2", "192.0.2.7", "100.64.0.7"]) {
+    assert.deepEqual(await adapter([{ status: 200, body: { instance: vm({ floating_ip: ip }) } }]).a.instanceFacts("4242"), { state: "active", ipv4: null, exclusive: false }, ip);
+    assert.deepEqual(vmReadbackProblems(vm({ floating_ip: ip }), WANT), ["floating_ip"], ip);
+    assert.deepEqual(vmStatus(vm({ floating_ip: ip }), T).unexpectedSettings, [`floating_ip:${UNREADABLE}`], ip);
+  }
+  for (const ip of ["198.51.101.7", "203.0.114.7", "192.88.100.2", "192.0.3.7"]) {
+    assert.deepEqual(await adapter([{ status: 200, body: { instance: vm({ floating_ip: ip }) } }]).a.instanceFacts("4242"), { state: "active", ipv4: ip, exclusive: true }, ip);
+    assert.deepEqual(vmReadbackProblems(vm({ floating_ip: ip }), WANT), [], ip);
   }
 });
 
@@ -337,6 +434,32 @@ const HYPERSTACK = "https://infrahub-api.nexgencloud.com/v1";
 test("listOffers: a flavor with another GPU count is no offer", async () => {
   const { a } = adapter([{ status: 200, body: flavors([flavor()]) }, { status: 200, body: BOOK }]);
   assert.deepEqual(await a.listOffers({ gpuCount: 2 }), []);
+});
+
+test("listOffers: the total micro-price must be a safe integer; the exact boundary is accepted", async () => {
+  const offers = async (value: string, gpuCount: number) => {
+    const { a } = adapter([{ status: 200, body: flavors([flavor({ gpu_count: gpuCount })]) }, { status: 200, body: `[{"name":"RTX-A6000","value":${value}}]` }]);
+    return a.listOffers({ gpuCount });
+  };
+  // 3002399751580330 micros a GPU-hour, times 3, is 2^53 - 2: safe.
+  const ok = await offers("3002399751.58033", 3);
+  assert.equal(ok.length, 1);
+  assert.equal(ok[0]!.providerCostPerHour, 9007199254740990);
+  assert.ok(Number.isSafeInteger(ok[0]!.providerCostPerHour));
+  // One micro more a GPU-hour is past 2^53: no offer.
+  assert.deepEqual(await offers("3002399751.580331", 3), []);
+  // A unit that is safe alone, with an unsafe product.
+  assert.deepEqual(await offers("4e9", 3), []);
+  assert.equal((await offers("4e9", 2))[0]!.providerCostPerHour, 8e15);
+});
+
+test("listOffers: a price that rounds to no micros is no price", async () => {
+  const offers = async (value: string) => {
+    const { a } = adapter([{ status: 200, body: flavors([flavor()]) }, { status: 200, body: `[{"name":"RTX-A6000","value":${value}}]` }]);
+    return a.listOffers({ gpuCount: 1 });
+  };
+  assert.deepEqual(await offers("4e-7"), []);
+  assert.equal((await offers("5e-7"))[0]!.providerCostPerHour, 1);
 });
 
 test("listOffers: a non-finite price is no price", async () => {
@@ -431,7 +554,7 @@ test("listOffers: malformed lists fail; a bad count throws before any request", 
   await rejects(adapter([{ status: 200, body: [] }, { status: 200, body: BOOK }]).a.listOffers({ gpuCount: 1 }), "unknown");
   await rejects(adapter([{ status: 200, body: flavors([]) }, { status: 200, body: { data: "x" } }]).a.listOffers({ gpuCount: 1 }), "unknown");
   await rejects(adapter([{ status: 200, body: flavors([]) }, { status: 200, body: null }]).a.listOffers({ gpuCount: 1 }), "unknown");
-  for (const n of [0, -1, 1.5, Number.NaN]) {
+  for (const n of [0, -1, 1.5, Number.NaN, 2 ** 53, 1e300, Number.POSITIVE_INFINITY]) {
     const { a, calls } = adapter([]);
     await assert.rejects(a.listOffers({ gpuCount: n }), RangeError);
     assert.equal(calls.length, 0);

@@ -2857,68 +2857,113 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "if (a === 0 || a === 10 || a === 127 || a >= 224) return false;",
-  "new": "if (a === 10 || a === 127 || a >= 224) return false;"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "a === 0 || a === 10 || a === 127 ||",
-  "new": "a === 0 || a === 127 ||"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "a === 10 || a === 127 || a >= 224",
-  "new": "a === 10 || a >= 224"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "a >= 224) return false;",
-  "new": "a > 224) return false;"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "if (a === 169 && b === 254) return false;",
+  "old": "  [\"0.0.0.0\", 8],\n",
   "new": ""
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "a === 172 && b >= 16 && b <= 31",
-  "new": "a === 172 && b > 16 && b <= 31"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "b >= 16 && b <= 31) return",
-  "new": "b >= 16 && b < 31) return"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "if (a === 192 && b === 168) return false;",
+  "old": "  [\"10.0.0.0\", 8],\n",
   "new": ""
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "a === 100 && b >= 64 && b <= 127",
-  "new": "a === 100 && b > 64 && b <= 127"
+  "old": "  [\"100.64.0.0\", 10],",
+  "new": "  [\"100.64.0.0\", 11],"
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "b >= 64 && b <= 127) return",
-  "new": "b >= 64 && b < 127) return"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "if (a === 192 && b === 0) return false;",
+  "old": "  [\"100.64.0.0\", 10],\n",
   "new": ""
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "b === 18 || b === 19",
-  "new": "b === 18"
+  "old": "  [\"127.0.0.0\", 8],\n",
+  "new": ""
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "(b === 18 || b === 19)",
-  "new": "(b === 19)"
+  "old": "  [\"169.254.0.0\", 16],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"172.16.0.0\", 12],",
+  "new": "  [\"172.16.0.0\", 13],"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"172.16.0.0\", 12],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"192.0.0.0\", 24],",
+  "new": "  [\"192.0.0.0\", 16],"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"192.0.0.0\", 24],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"192.0.2.0\", 24],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"192.88.99.0\", 24],",
+  "new": "  [\"192.88.99.0\", 32],"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"192.168.0.0\", 16],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"198.18.0.0\", 15],",
+  "new": "  [\"198.18.0.0\", 16],"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"198.18.0.0\", 15],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"198.51.100.0\", 24],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"203.0.113.0\", 24],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"224.0.0.0\", 4],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  [\"240.0.0.0\", 4],\n",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const size = 2 ** (32 - bits);",
+  "new": "const size = 2 ** (31 - bits);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (Math.floor(n / size) === Math.floor(ipv4Number(base) / size)) return false;",
+  "new": "if (n >= ipv4Number(base) && n < ipv4Number(base) + size - 1) return false;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "n * 256 + Number(part)",
+  "new": "n * 255 + Number(part)"
  },
  {
   "file": "src/hyperstack/adapter.ts",
@@ -3107,13 +3152,43 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
+  "old": "    if (res.status >= 300) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n",
+  "new": "    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"hyperstack\", \"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n    if (res.status >= 300) throw hyperstackError(res.status, res.headers.get(\"Retry-After\"));\n"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "reply cut off (${failureName(e)})`, res.status);",
+  "new": "reply cut off (${String(e)})`, res.status);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "\"outcome_unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off",
+  "new": "\"unknown\", `Hyperstack ${method} ${path.split(\"?\")[0]}: reply cut off"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
   "old": "if (text === \"\") return null;",
   "new": ""
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "if (!Number.isInteger(query.gpuCount) || query.gpuCount < 1) throw",
-  "new": "if (query.gpuCount < 1) throw"
+  "old": "if (!Number.isSafeInteger(query.gpuCount) || query.gpuCount < 1) throw",
+  "new": "if (!Number.isInteger(query.gpuCount) || query.gpuCount < 1) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (unit < 1 || !Number.isSafeInteger(total)) continue;",
+  "new": "if (unit < 1) continue;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (unit < 1 || !Number.isSafeInteger(total)) continue;",
+  "new": "if (!Number.isSafeInteger(total)) continue;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (unit < 1 || !Number.isSafeInteger(total))",
+  "new": "if (unit < 0 || !Number.isSafeInteger(total))"
  },
  {
   "file": "src/hyperstack/adapter.ts",
@@ -3127,13 +3202,13 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "!Number.isFinite(e[\"value\"]) || e[\"value\"] <= 0) continue;",
-  "new": "e[\"value\"] <= 0) continue;"
+  "old": "!Number.isFinite(e[\"value\"]) || e[\"value\"] < 0) continue;",
+  "new": "e[\"value\"] < 0) continue;"
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "e[\"value\"] <= 0) continue;",
-  "new": "e[\"value\"] < 0) continue;"
+  "old": " || e[\"value\"] < 0) continue;",
+  "new": ") continue;"
  },
  {
   "file": "src/hyperstack/adapter.ts",
@@ -3147,7 +3222,7 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "providerCostPerHour: unit * query.gpuCount,",
+  "old": "providerCostPerHour: total,",
   "new": "providerCostPerHour: unit,"
  },
  {
@@ -3164,11 +3239,6 @@
   "file": "src/hyperstack/adapter.ts",
   "old": "prev === undefined || offer.stock",
   "new": "true || offer.stock"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "unit === undefined || Number.isNaN(unit)",
-  "new": "unit === undefined"
  },
  {
   "file": "src/hyperstack/adapter.ts",

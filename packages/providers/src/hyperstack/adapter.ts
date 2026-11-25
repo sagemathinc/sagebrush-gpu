@@ -95,17 +95,41 @@ function count(x: unknown): number {
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$/;
 
-/** A globally routable IPv4 address: not private, loopback, link-local, CGNAT, multicast or reserved. */
+/**
+ * Blocks no VM address may be in: every block of IANA's IPv4 Special-Purpose Address Registry
+ * that isn't globally reachable (all of 192.0.0.0/24, and all of the deprecated 192.88.99.0/24 for
+ * its 6a44 relay address), multicast, and the reserved 240.0.0.0/4 with the broadcast address.
+ */
+const NOT_GLOBAL: ReadonlyArray<readonly [string, number]> = [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+];
+
+function ipv4Number(x: string): number {
+  return x.split(".").reduce((n, part) => n * 256 + Number(part), 0);
+}
+
+/** A globally reachable IPv4 address, in dotted-quad form without leading zeros. */
 export function isPublicIpv4(x: unknown): boolean {
   if (typeof x !== "string" || !IPV4.test(x)) return false;
-  const [a, b] = x.split(".").map(Number) as [number, number, number, number];
-  if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
-  if (a === 169 && b === 254) return false;
-  if (a === 172 && b >= 16 && b <= 31) return false;
-  if (a === 192 && b === 168) return false;
-  if (a === 100 && b >= 64 && b <= 127) return false;
-  if (a === 192 && b === 0) return false;
-  if (a === 198 && (b === 18 || b === 19)) return false;
+  const n = ipv4Number(x);
+  for (const [base, bits] of NOT_GLOBAL) {
+    const size = 2 ** (32 - bits);
+    if (Math.floor(n / size) === Math.floor(ipv4Number(base) / size)) return false;
+  }
   return true;
 }
 
@@ -258,7 +282,10 @@ export class HyperstackAdapter implements ProviderAdapter {
     this.#timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   }
 
-  /** One API call. Network failures and timeouts throw kind "outcome_unknown". */
+  /**
+   * One API call. Network failures and timeouts throw kind "outcome_unknown". An error status is
+   * classified before any body read: an error reply's body is never read.
+   */
   async #call(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<unknown> {
     const init: Parameters<Fetch>[1] = {
       method,
@@ -270,14 +297,18 @@ export class HyperstackAdapter implements ProviderAdapter {
       init.body = JSON.stringify(body);
     }
     let res;
-    let text;
     try {
       res = await this.#fetch(this.#base + path, init);
-      text = await res.text();
     } catch (e) {
       throw new ProviderError("hyperstack", "outcome_unknown", `Hyperstack ${method} ${path.split("?")[0]}: no response (${failureName(e)})`);
     }
     if (res.status >= 300) throw hyperstackError(res.status, res.headers.get("Retry-After"));
+    let text;
+    try {
+      text = await res.text();
+    } catch (e) {
+      throw new ProviderError("hyperstack", "outcome_unknown", `Hyperstack ${method} ${path.split("?")[0]}: reply cut off (${failureName(e)})`, res.status);
+    }
     if (text === "") return null;
     try {
       return JSON.parse(text);
@@ -298,7 +329,7 @@ export class HyperstackAdapter implements ProviderAdapter {
    * against a real read). One offer per GPU type and region (they share one price), preferring one in stock.
    */
   async listOffers(query: OfferQuery): Promise<Offer[]> {
-    if (!Number.isInteger(query.gpuCount) || query.gpuCount < 1) throw new RangeError("gpuCount must be a positive integer");
+    if (!Number.isSafeInteger(query.gpuCount) || query.gpuCount < 1) throw new RangeError("gpuCount must be a positive integer");
     const flavors = await this.#call("GET", "/core/flavors");
     const book = await this.#call("GET", "/pricebook");
     if (!isObject(flavors) || !Array.isArray(flavors["data"])) {
@@ -308,7 +339,7 @@ export class HyperstackAdapter implements ProviderAdapter {
     if (entries === null) throw new ProviderError("hyperstack", "unknown", "Hyperstack pricebook is malformed");
     const perGpu = new Map<string, number>();
     for (const e of entries) {
-      if (!isObject(e) || typeof e["name"] !== "string" || typeof e["value"] !== "number" || !Number.isFinite(e["value"]) || e["value"] <= 0) continue;
+      if (!isObject(e) || typeof e["name"] !== "string" || typeof e["value"] !== "number" || !Number.isFinite(e["value"]) || e["value"] < 0) continue;
       // Two entries for one name are ambiguous: neither is used.
       perGpu.set(e["name"], perGpu.has(e["name"]) ? Number.NaN : usdToMicros(e["value"]));
     }
@@ -322,14 +353,18 @@ export class HyperstackAdapter implements ProviderAdapter {
         const region = f["region_name"];
         const country = hyperstackCountry(region);
         const unit = typeof f["gpu"] === "string" ? perGpu.get(f["gpu"]) : undefined;
-        if (gpuType === null || country === null || typeof region !== "string" || unit === undefined || Number.isNaN(unit)) continue;
+        if (gpuType === null || country === null || typeof region !== "string" || unit === undefined) continue;
+        // A price that rounds to no micros, an ambiguous one (NaN), or one whose total isn't a safe
+        // integer is no price.
+        const total = unit * query.gpuCount;
+        if (unit < 1 || !Number.isSafeInteger(total)) continue;
         const offer: Offer = {
           provider: "hyperstack",
           gpuType,
           gpuCount: query.gpuCount,
           dataCenter: region,
           country,
-          providerCostPerHour: unit * query.gpuCount,
+          providerCostPerHour: total,
           stock: f["stock_available"] ? "unknown" : "none",
           observedAt,
         };
