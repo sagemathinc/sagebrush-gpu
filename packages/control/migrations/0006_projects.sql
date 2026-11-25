@@ -14,7 +14,8 @@
 -- guard, and it fails before anything else here has run. If any organization's budgets add
 -- up past the safe range, json() of text that isn't JSON is the error (a SUM past 2^63
 -- fails here too, with SQLite's own integer overflow). Every later statement then holds
--- for any database 0005 accepts:
+-- for any database 0005 accepts, except for a random-id collision or a resource failure
+-- (as with newId's ids, and any statement):
 --   the opening amounts are SUMs of positive budgets the guard bounds, and single budgets
 --   that 0005's CHECK bounds; times are projects' created_ms, bounded by the same CHECK;
 --   org_id and (project_id, org_id) are the projects' own, which 0005's keys guarantee;
