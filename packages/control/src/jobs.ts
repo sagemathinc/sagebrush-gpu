@@ -25,4 +25,16 @@ export const pruneSessions: ScheduledJob = {
   },
 };
 
-export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions]);
+/** Spent sign-in states past their expiry (a state can't be used after it anyway), soonest expired first. */
+export const pruneAuthStates: ScheduledJob = {
+  name: "prune sign-in states",
+  async run(db, nowMs) {
+    const r = await db.run(
+      `DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,
+      [nowMs, PRUNE_BATCH],
+    );
+    return r.changes;
+  },
+};
+
+export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates]);

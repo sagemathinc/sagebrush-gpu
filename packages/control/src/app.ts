@@ -23,13 +23,15 @@ import {
   type RouteAccess,
 } from "@sbgpu/api";
 import type { Db } from "./db.ts";
-import { HttpError, SECURITY_HEADERS, json } from "./http.ts";
+import { SIGN_IN_HANDLERS, authConfigFromEnv, revalidate, type AuthConfig, type SessionRow } from "./auth.ts";
+import { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, cookieValue, json, sessionCookie, sha256Hex } from "./http.ts";
+import type { Fetch } from "./workos.ts";
 import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
 import { normalizeEmail } from "./validate.ts";
 
-export { HttpError, SECURITY_HEADERS, json, normalizeEmail };
+export { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, json, normalizeEmail, sha256Hex };
 
 // ---------------------------------------------------------------- config
 
@@ -39,9 +41,11 @@ export interface AppConfig {
   /** Machines are served at https://m-<machineId>.<machineDomain>/ (the deploy config's MACHINE_DOMAIN). */
   machineDomain: string;
   sessionTtlMs: number;
+  /** Sign-in through WorkOS; null when it isn't configured (sign-in then answers "unavailable"). */
+  auth: AuthConfig | null;
 }
 
-export const DEFAULT_CONFIG: Omit<AppConfig, "appOrigin" | "machineDomain"> = {
+export const DEFAULT_CONFIG: Omit<AppConfig, "appOrigin" | "machineDomain" | "auth"> = {
   sessionTtlMs: 30 * 24 * 60 * 60_000,
 };
 
@@ -58,7 +62,7 @@ export function configFromEnv(env: Record<string, unknown>): AppConfig {
   const u = new URL(appOrigin);
   if (u.protocol !== "https:" || u.origin !== appOrigin || u.username || u.password) throw new Error("APP_ORIGIN must be an https origin");
   if (typeof machineDomain !== "string" || !HOSTNAME.test(machineDomain)) throw new Error("MACHINE_DOMAIN must be a lowercase hostname");
-  return { ...DEFAULT_CONFIG, appOrigin, machineDomain };
+  return { ...DEFAULT_CONFIG, appOrigin, machineDomain, auth: authConfigFromEnv(env) };
 }
 
 // ---------------------------------------------------------------- deps
@@ -68,6 +72,8 @@ export interface AppDeps {
   now(): number;
   randomBytes(n: number): Uint8Array;
   config: AppConfig;
+  /** Outbound requests (WorkOS). */
+  fetch: Fetch;
   /** Runs work after the response (the Worker's ctx.waitUntil). */
   waitUntil(work: Promise<unknown>): void;
 }
@@ -85,49 +91,13 @@ export function withSecurityHeaders(res: Response): Response {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
-export const SESSION_COOKIE = "__Host-sbgpu_session";
 export const MAX_BODY_BYTES = 64 * 1024;
 
 function fail(e: HttpError): Response {
   return json(ERROR_STATUS[e.code], errorBody(e.code, e.message));
 }
 
-const B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-export function base64url(bytes: Uint8Array): string {
-  let out = "";
-  let bits = 0;
-  let acc = 0;
-  for (const b of bytes) {
-    acc = (acc << 8) | b;
-    bits += 8;
-    while (bits >= 6) {
-      bits -= 6;
-      out += B64URL[(acc >> bits) & 63];
-    }
-  }
-  if (bits > 0) out += B64URL[(acc << (6 - bits)) & 63];
-  return out;
-}
 
-export async function sha256Hex(text: string): Promise<string> {
-  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
-  return [...d].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function cookieValue(req: Request, name: string): string | null {
-  const header = req.headers.get("cookie");
-  if (!header) return null;
-  for (const part of header.split(";")) {
-    const i = part.indexOf("=");
-    if (i < 0) continue;
-    if (part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
-  }
-  return null;
-}
-
-function sessionCookie(value: string, maxAgeSeconds: number): string {
-  return `${SESSION_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}`;
-}
 
 /**
  * The stream's bytes if they total at most `cap`, else null. Each chunk's size is checked
@@ -202,11 +172,12 @@ async function sessionUser(deps: AppDeps, req: Request): Promise<{ userId: strin
   // a malformed value hashes to nothing stored, so it fails the lookup below
   if (!value) throw new HttpError("unauthenticated", "sign in first");
   const hash = await sha256Hex(value);
-  const rows = await deps.db.all<{ user_id: string }>(
-    `SELECT user_id FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`,
+  const rows = await deps.db.all<SessionRow>(
+    `SELECT user_id, refresh_version, refresh_sealed, validated_ms FROM sessions WHERE id_sha256 = ? AND revoked_ms IS NULL AND expires_ms > ?`,
     [hash, deps.now()],
   );
   if (rows.length !== 1) throw new HttpError("unauthenticated", "sign in first");
+  await revalidate(deps, hash, rows[0]!);
   return { userId: rows[0]!.user_id, hash };
 }
 
@@ -287,31 +258,6 @@ async function buildMe(db: Db, userId: string): Promise<Me> {
   };
 }
 
-/**
- * A signed-in person's first steps, in one batch: their user (created on the first sign-in,
- * by verified email), their invitations to projects made active, and a new session.
- * Returns the session's cookie (Set-Cookie value) and the user. `email` must be normalized
- * and verified by whoever signed the person in (WorkOS's callback); nothing here checks it.
- */
-export async function startSession(deps: AppDeps, email: string): Promise<{ setCookie: string; userId: string }> {
-  const now = deps.now();
-  const sessionValue = base64url(deps.randomBytes(32));
-  await deps.db.batch([
-    { sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING`, params: [newId("user"), email, now] },
-    {
-      sql: `UPDATE members SET user_id = (SELECT id FROM users WHERE email = ?), status = 'active'
-            WHERE email = ? AND status = 'invited' AND user_id IS NULL`,
-      params: [email, email],
-    },
-    {
-      sql: `INSERT INTO sessions (id_sha256, user_id, created_ms, expires_ms) SELECT ?, id, ?, ? FROM users WHERE email = ?`,
-      params: [await sha256Hex(sessionValue), now, now + deps.config.sessionTtlMs, email],
-    },
-  ]);
-  const user = await deps.db.all<{ id: string }>(`SELECT id FROM users WHERE email = ?`, [email]);
-  return { setCookie: sessionCookie(sessionValue, Math.floor(deps.config.sessionTtlMs / 1000)), userId: user[0]!.id };
-}
-
 const AUTH_HANDLERS: Handlers = {
   async signOut(ctx) {
     await ctx.deps.db.run(`UPDATE sessions SET revoked_ms = ? WHERE id_sha256 = ? AND revoked_ms IS NULL`, [ctx.deps.now(), ctx.sessionHash]);
@@ -323,7 +269,7 @@ const AUTH_HANDLERS: Handlers = {
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 

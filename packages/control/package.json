@@ -4,5 +4,16 @@
   "private": true,
   "type": "module",
   "description": "The control plane: Cloudflare Worker + D1 (API, ledger, allocations, watchdog).",
-  "exports": { ".": "./src/index.ts" }, "dependencies": { "@sbgpu/api": "workspace:*", "@sbgpu/machine": "workspace:*", "@sbgpu/providers": "workspace:*" }, "devDependencies": { "@sbgpu/testing": "workspace:*" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@sbgpu/api": "workspace:*",
+    "@sbgpu/machine": "workspace:*",
+    "@sbgpu/providers": "workspace:*",
+    "jose": "6.2.17"
+  },
+  "devDependencies": {
+    "@sbgpu/testing": "workspace:*"
+  }
 }
