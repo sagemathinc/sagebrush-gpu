@@ -15,7 +15,7 @@ import type { ProviderErrorKind } from "./errors.ts";
 import { isGpuType } from "./gpus.ts";
 import type { CountryCode, GpuTypeId, Micros, Offer, ProviderId, StockLevel } from "./types.ts";
 
-export const PROVIDERS: readonly ProviderId[] = ["runpod", "shadeform", "hyperstack", "nebius"];
+export const PROVIDERS: readonly ProviderId[] = ["runpod", "shadeform", "hyperstack", "nebius", "vast"];
 export const STOCK_LEVELS: readonly StockLevel[] = ["high", "medium", "low", "none", "unknown"];
 export const LAUNCH_OUTCOMES = ["launched", "no_capacity", "refused", "error"] as const;
 export type LaunchOutcome = (typeof LAUNCH_OUTCOMES)[number];

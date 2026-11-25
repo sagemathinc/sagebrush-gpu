@@ -56,6 +56,10 @@ test("lists: distinct, known, bounded", () => {
   assert.equal(ok({ allowedProviders: ["runpod", "runpod"] }), false);
   assert.equal(ok({ allowedProviders: ["gcp"] }), false);
   assert.equal(ok({ allowedProviders: ["runpod", "shadeform", "hyperstack", "nebius"] }), true);
+  // "vast" is a known provider (a mock-only adapter); allowing it launches nothing until it's wired
+  // and the database accepts it (control's vast-unwired test)
+  assert.equal(ok({ allowedProviders: ["runpod", "shadeform", "hyperstack", "nebius", "vast"] }), true);
+  assert.equal(ok({ allowedProviders: ["vast", "vast"] }), false);
   assert.equal(why({ allowedCountries: null }), "ok");
   assert.equal(why({ allowedCountries: ["GB", "SE"] }), "ok");
   assert.equal(ok({ allowedCountries: ["gb"] }), false);

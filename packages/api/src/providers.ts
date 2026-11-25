@@ -7,7 +7,7 @@ import type { Micros } from "./money.ts";
 import type { MachineId } from "./ids.ts";
 import type { IsoTime } from "./time.ts";
 
-export const PROVIDER_IDS = ["runpod", "shadeform", "hyperstack", "nebius"] as const;
+export const PROVIDER_IDS = ["runpod", "shadeform", "hyperstack", "nebius", "vast"] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 export function isProviderId(x: unknown): x is ProviderId {
