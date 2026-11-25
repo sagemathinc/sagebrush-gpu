@@ -75,3 +75,64 @@ export function specDrift(expected: ExpectedSpec, observed: ProviderMachineStatu
   }
   return out;
 }
+
+/** The fields specDrift can report: every marker starts with one of these. */
+const DRIFT_FIELDS: ReadonlySet<string> = new Set([
+  "provider", "providerMachineId", "machineId", "gpuType", "gpuCount", "dataCenter", "image", "diskGb",
+  "volumeGb", "envNames", "exposedPorts", "unexpectedSettings", "command", "providerCostPerHour",
+]);
+
+/** The words an adapter's unexpectedSettings entries are built from; any other word reads "other". */
+const SETTING_WORDS: ReadonlySet<string> = new Set([
+  // RunPod
+  "cloud", "ssh", "proxy", "direct", "template", "globalNetworking", "enabled",
+  // Shadeform
+  "key", "shade_cloud", "false", "rental", "template_id", "cluster_id", "commitment_id", "set",
+]);
+
+/** The token adapters use for a field they couldn't read (their UNREADABLE). */
+const UNREADABLE_TOKEN = "<unreadable>";
+
+/**
+ * Where a machine drifted, as fixed words only, safe to report anywhere: the drifted fields'
+ * names and, for unexpectedSettings, each setting with every word outside a fixed vocabulary
+ * replaced by "other" (and an unreadable value by "unreadable"). Never an observed value: those
+ * can be provider text, environment names or ids.
+ */
+export function driftMarkers(drift: readonly Drift[], observed: ProviderMachineStatus): string[] {
+  const out: string[] = [];
+  for (const d of drift) {
+    if (!DRIFT_FIELDS.has(d.field)) {
+      out.push("other");
+      continue;
+    }
+    if (d.field !== "unexpectedSettings") {
+      out.push(d.field);
+      continue;
+    }
+    const settings = Array.isArray(observed.unexpectedSettings) ? observed.unexpectedSettings : [];
+    if (settings.length === 0) out.push("unexpectedSettings");
+    for (const s of settings) {
+      const words = String(s).split(":").map((w) => (w === UNREADABLE_TOKEN ? "unreadable" : SETTING_WORDS.has(w) ? w : "other"));
+      // No adapter writes more than three words; a longer setting is just "other".
+      out.push(["unexpectedSettings", ...(words.length <= 3 ? words : ["other"])].join(":"));
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether a string is a marker driftMarkers can produce: a drift field's name (or "other"), and
+ * for unexpectedSettings, words from the fixed vocabulary, "other" or "unreadable". The report
+ * checks every marker with this, so nothing outside these fixed words can reach it.
+ */
+export function isDriftMarker(m: unknown): boolean {
+  if (typeof m !== "string") return false;
+  const [field, ...words] = m.split(":");
+  if (words.length === 0) return field === "other" || DRIFT_FIELDS.has(field!);
+  return (
+    field === "unexpectedSettings" &&
+    words.length <= 3 &&
+    words.every((w) => w === "other" || w === "unreadable" || SETTING_WORDS.has(w))
+  );
+}

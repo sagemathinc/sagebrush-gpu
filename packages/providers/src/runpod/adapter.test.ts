@@ -263,6 +263,35 @@ for (const [what, change, kind] of badPods) {
   });
 }
 
+test("a rejected pod's error says where it drifted, in fixed words, never with RunPod's values", async () => {
+  const cases: Array<[Record<string, unknown>, string[]]> = [
+    [{ env: { SBGPU_BOOT_TOKEN: "t", PUBLIC_KEY_MARKER: "k" } }, ["envNames"]],
+    [{ entrypoint: ["/start-MARKER.sh"] }, ["command"]],
+    [{ cost: 0.71 }, ["providerCostPerHour"]],
+    [{ cloud: "COMMUNITY_MARKER" }, ["unexpectedSettings:cloud:other"]],
+    [{ ssh: undefined }, ["unexpectedSettings:ssh:unreadable"]],
+    [{ ssh: { proxy: null } }, ["unexpectedSettings:ssh:direct:unreadable"]],
+    [{ ssh: { proxy: "1.2.3.4:22", direct: null, MARKER: null } }, ["unexpectedSettings:ssh:proxy"]],
+    [{ ssh: { proxy: null, direct: null, MARKER: "x" } }, ["unexpectedSettings:ssh:other"]],
+    [{ template: "tmpl_MARKER" }, ["unexpectedSettings:template:other"]],
+    [{ globalNetworking: { enabled: true } }, ["unexpectedSettings:globalNetworking:enabled"]],
+    [{ globalNetworking: null }, ["unexpectedSettings:globalNetworking:unreadable"]],
+    [{ ports: ["22/tcp"], image: "MARKER:latest" }, ["image", "exposedPorts"]],
+  ];
+  for (const [change, markers] of cases) {
+    const { a } = adapter([{ status: 201, body: { ...POD, ...change } }]);
+    await assert.rejects(
+      a.launch(spec),
+      (e: unknown) =>
+        e instanceof ProviderError && JSON.stringify(e.drift) === JSON.stringify(markers) && !JSON.stringify(e.drift).includes("MARKER") && Object.isFrozen(e.drift),
+      JSON.stringify(change),
+    );
+  }
+  // Errors that aren't about drift carry none.
+  const { a } = adapter([{ status: 400, body: "no capacity" }]);
+  await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.drift === null);
+});
+
 for (const [what, change] of malformed) {
   test(`a pod with ${what} is never accepted, and drifts when polled`, async () => {
     const pod = { ...POD, ...change };

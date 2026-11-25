@@ -406,7 +406,7 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "const name = e instanceof Error ? e.name : \"error\";",
+  "old": "const name = failureName(e);",
   "new": "const name = e instanceof Error ? e.message : \"error\";"
  },
  {
@@ -611,8 +611,8 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "        status.providerMachineId,\n      );\n    }\n    return",
-  "new": "        null,\n      );\n    }\n    return"
+  "old": "        status.providerMachineId,\n        driftMarkers(drift, status),\n      );\n    }\n    return",
+  "new": "        null,\n        driftMarkers(drift, status),\n      );\n    }\n    return"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -1822,19 +1822,19 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "    report.launchError = e instanceof ProviderError ? { kind: e.kind, httpStatus: e.httpStatus } : { kind: \"driver-error\", httpStatus: null };\n",
+  "old": "    report.launchError =\n      e instanceof ProviderError\n        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift) }\n        : { kind: \"driver-error\", httpStatus: null, drift: null };\n",
   "new": "",
   "note": "launchError recorded"
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "{ kind: e.kind, httpStatus: e.httpStatus }",
-  "new": "{ kind: e.kind, httpStatus: null }",
+  "old": "{ kind: e.kind, httpStatus: e.httpStatus, drift:",
+  "new": "{ kind: e.kind, httpStatus: null, drift:",
   "note": "launchError status"
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": ": { kind: \"driver-error\", httpStatus: null };",
+  "old": ": { kind: \"driver-error\", httpStatus: null, drift: null };",
   "new": ": null;",
   "note": "launchError driver-error"
  },
@@ -1855,5 +1855,131 @@
   "old": "  } catch {\n    // A throwing getter (or a proxy that throws on instanceof) names nothing.\n  }\n  return \"error\";",
   "new": "  } finally {\n  }\n  return \"error\";",
   "note": "failureName: throwing getter"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    if (!DRIFT_FIELDS.has(d.field)) {\n      out.push(\"other\");\n      continue;\n    }\n",
+  "new": "",
+  "note": "markers: unknown field"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    if (settings.length === 0) out.push(\"unexpectedSettings\");\n",
+  "new": "",
+  "note": "markers: bare field"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "(w === UNREADABLE_TOKEN ? \"unreadable\" : SETTING_WORDS.has(w) ? w : \"other\")",
+  "new": "(SETTING_WORDS.has(w) ? w : \"other\")",
+  "note": "markers: unreadable"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "SETTING_WORDS.has(w) ? w : \"other\"",
+  "new": "w",
+  "note": "markers: vocabulary"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  \"cloud\", \"ssh\", \"proxy\", \"direct\", \"template\", \"globalNetworking\", \"enabled\",",
+  "new": "  \"cloud\", \"ssh\", \"proxy\", \"direct\", \"template\", \"globalNetworking\", \"enabled\", \"COMMUNITY\",",
+  "note": "markers: no provider values"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "out.push([\"unexpectedSettings\", ...(words.length <= 3 ? words : [\"other\"])].join(\":\"));",
+  "new": "out.push((words.length <= 3 ? words : [\"other\"]).join(\":\"));",
+  "note": "markers: prefix"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "this.drift = drift === null ? null : Object.freeze([...drift]);",
+  "new": "this.drift = drift === null ? null : [...drift];",
+  "note": "drift frozen"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "        driftMarkers(drift, status),\n",
+  "new": "",
+  "note": "runpod passes drift"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "drift: reportableDrift(e.drift) }",
+  "new": "drift: e.drift === null ? null : [...e.drift] }",
+  "note": "report filters drift"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return drift.slice(0, 32).filter(",
+  "new": "return drift.slice(0, 33).filter(",
+  "note": "marker cap"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "  if (!Array.isArray(drift)) return null;\n",
+  "new": "",
+  "note": "drift null"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (words.length === 0) return field === \"other\" || DRIFT_FIELDS.has(field!);",
+  "new": "  if (words.length === 0) return true;",
+  "note": "isDriftMarker: field names"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (words.length === 0) return field === \"other\" || DRIFT_FIELDS.has(field!);",
+  "new": "  if (words.length === 0) return DRIFT_FIELDS.has(field!);",
+  "note": "isDriftMarker: other"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    field === \"unexpectedSettings\" &&\n",
+  "new": "",
+  "note": "isDriftMarker: only settings have words"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    words.length <= 3 &&\n",
+  "new": "",
+  "note": "isDriftMarker: depth"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "words.every((w) => w === \"other\" || w === \"unreadable\" || SETTING_WORDS.has(w))",
+  "new": "words.every((w) => w !== \"\")",
+  "note": "isDriftMarker: vocabulary"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "w === \"other\" || w === \"unreadable\" || SETTING_WORDS.has(w)",
+  "new": "w === \"unreadable\" || SETTING_WORDS.has(w)",
+  "note": "isDriftMarker: other word"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (typeof m !== \"string\") return false;\n",
+  "new": "",
+  "note": "isDriftMarker: non-string"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "...(words.length <= 3 ? words : [\"other\"])",
+  "new": "...words",
+  "note": "markers: depth cap"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": ".filter((m): m is string => isDriftMarker(m));",
+  "new": ".filter((m): m is string => typeof m === \"string\");",
+  "note": "report: vocabulary check"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));",
+  "new": "return drift.filter((m): m is string => isDriftMarker(m)).slice(0, 32);",
+  "note": "cap before filtering"
  }
 ]

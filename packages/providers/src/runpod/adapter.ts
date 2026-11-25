@@ -4,7 +4,7 @@
 // container entrypoint (PID 1); no ports, no RunPod SSH or Jupyter, no template, no volume; the
 // only environment variable is the boot token. Secure Cloud only.
 
-import { specDrift, expectedSpec } from "../drift.ts";
+import { driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
 import { machineName, parseMachineName } from "../machine-name.ts";
@@ -454,6 +454,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
         null,
         null,
         status.providerMachineId,
+        driftMarkers(drift, status),
       );
     }
     return { providerMachineId: status.providerMachineId, status };

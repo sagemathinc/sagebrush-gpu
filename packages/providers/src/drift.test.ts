@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { expectedSpec, specDrift } from "./drift.ts";
+import { driftMarkers, expectedSpec, isDriftMarker, specDrift } from "./drift.ts";
 import type { AdapterInfo, LaunchSpec, ProviderMachineStatus } from "./types.ts";
 
 const info: AdapterInfo = { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootTokenEnv: "SBGPU_BOOT_TOKEN" };
@@ -120,4 +120,44 @@ test("drift reports both values", () => {
   assert.deepEqual(specDrift(expected, { ...clean, providerCostPerHour: 900_000 }), [
     { field: "providerCostPerHour", expected: "<= 700000", observed: "900000" },
   ]);
+});
+
+test("driftMarkers: field names, and settings in a fixed vocabulary only", () => {
+  const d = (field: string) => ({ field, expected: "e", observed: "o" });
+  assert.deepEqual(driftMarkers([], clean), []);
+  assert.deepEqual(driftMarkers([d("image"), d("command"), d("envNames"), d("providerCostPerHour")], clean), ["image", "command", "envNames", "providerCostPerHour"]);
+  for (const f of ["provider", "providerMachineId", "machineId", "gpuType", "gpuCount", "dataCenter", "diskGb", "volumeGb", "exposedPorts"]) {
+    assert.deepEqual(driftMarkers([d(f)], clean), [f]);
+  }
+  // A field specDrift never reports is "other", never its own name.
+  assert.deepEqual(driftMarkers([d("MARKER")], clean), ["other"]);
+  const withSettings = (unexpectedSettings: string[]) => ({ ...clean, unexpectedSettings });
+  assert.deepEqual(
+    driftMarkers([d("unexpectedSettings")], withSettings(["cloud:COMMUNITY", "ssh:proxy", "ssh:direct:<unreadable>", "template:MARKER", "globalNetworking:enabled", "ssh:key", "shade_cloud:false", "rental:spot", "template_id:set", "cluster_id:<unreadable>", "commitment_id:set", "MARKER"])),
+    [
+      "unexpectedSettings:cloud:other", "unexpectedSettings:ssh:proxy", "unexpectedSettings:ssh:direct:unreadable", "unexpectedSettings:template:other",
+      "unexpectedSettings:globalNetworking:enabled", "unexpectedSettings:ssh:key", "unexpectedSettings:shade_cloud:false", "unexpectedSettings:rental:other",
+      "unexpectedSettings:template_id:set", "unexpectedSettings:cluster_id:unreadable", "unexpectedSettings:commitment_id:set", "unexpectedSettings:other",
+    ],
+  );
+  // The field without any setting to name, and prototype names are not vocabulary.
+  assert.deepEqual(driftMarkers([d("unexpectedSettings")], withSettings([])), ["unexpectedSettings"]);
+  assert.deepEqual(driftMarkers([d("unexpectedSettings")], withSettings(["constructor:toString"])), ["unexpectedSettings:other:other"]);
+  assert.deepEqual(driftMarkers([d("toString")], clean), ["other"]);
+});
+
+test("isDriftMarker accepts exactly what driftMarkers can produce", () => {
+  // Everything driftMarkers produces passes.
+  const d = (field: string) => ({ field, expected: "e", observed: "o" });
+  const all = driftMarkers(
+    ["provider", "image", "command", "MARKER", "unexpectedSettings"].map(d),
+    { ...clean, unexpectedSettings: ["cloud:COMMUNITY", "ssh:direct:<unreadable>", "MARKER:x:y", "shade_cloud:false", "a:b:c:d:e"] },
+  );
+  for (const m of all) assert.equal(isDriftMarker(m), true, m);
+  for (const m of ["SYNTHETICSECRET", "unexpectedSettings:SYNTHETICSECRET", "image:other", "other:other", "", "unexpectedSettings:",
+    "unexpectedSettings:ssh:proxy:other:other", "toString", "unexpectedSettings:constructor", "__proto__", "Image", 7, null, undefined]) {
+    assert.equal(isDriftMarker(m), false, String(m));
+  }
+  assert.equal(isDriftMarker("unexpectedSettings:ssh:proxy:other"), true);
+  assert.deepEqual(driftMarkers([d("unexpectedSettings")], { ...clean, unexpectedSettings: ["a:b:c:d", "a:b:c"] }), ["unexpectedSettings:other", "unexpectedSettings:other:other:other"]);
 });

@@ -19,7 +19,7 @@
 // CLI (cli.ts) is a dry run unless given --execute and that reference.
 
 import { BOOT_TOKEN_ENV, renderBootScript, renderProbePrologue } from "@sbgpu/machine";
-import { specDrift, expectedSpec } from "../drift.ts";
+import { isDriftMarker, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { machineName } from "../machine-name.ts";
 import { terminateAndConfirm } from "../placement.ts";
@@ -349,7 +349,16 @@ export interface ProbeReport {
    * Why the launch failed, as our own fixed words: the ProviderError's kind and HTTP status, or
    * "driver-error" for anything else. Never the provider's text. null when the launch succeeded.
    */
-  launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null } | null;
+  launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null; drift: string[] | null } | null;
+}
+
+/**
+ * Drift markers fit for the report: of the first 32 entries (the cap comes before any check), only
+ * markers driftMarkers can produce; everything else is dropped.
+ */
+export function reportableDrift(drift: readonly unknown[] | null): string[] | null {
+  if (!Array.isArray(drift)) return null;
+  return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));
 }
 
 /**
@@ -425,7 +434,10 @@ export async function runEradicationProbe(
     rate = Math.max(rate, launched.status.providerCostPerHour ?? rate);
   } catch (e) {
     report.aborts.push("launch-failed");
-    report.launchError = e instanceof ProviderError ? { kind: e.kind, httpStatus: e.httpStatus } : { kind: "driver-error", httpStatus: null };
+    report.launchError =
+      e instanceof ProviderError
+        ? { kind: e.kind, httpStatus: e.httpStatus, drift: reportableDrift(e.drift) }
+        : { kind: "driver-error", httpStatus: null, drift: null };
     // A failed launch may still have left a pod. With its id: clean it up.
     const left = e instanceof ProviderError ? e.providerMachineId : null;
     if (left !== null) {
