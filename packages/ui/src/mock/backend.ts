@@ -47,6 +47,7 @@ import {
   toIso,
   type Allocation,
   type BasisPoints,
+  type BillingMode,
   type EndpointName,
   type Endpoints,
   type ErrorCode,
@@ -269,11 +270,13 @@ export class MockBackend {
     return true;
   }
 
-  addOrg(name: string, marginBps: BasisPoints, credit: Micros): Organization {
+  addOrg(name: string, marginBps: BasisPoints, credit: Micros, billingMode: BillingMode = "resold"): Organization {
+    // As the control plane holds it: a byok organization runs at margin 0.
+    if (billingMode === "byok" && marginBps !== 0) throw new Error("a byok organization runs at margin 0");
     const org: Organization = {
       id: this.newId("org"),
       name,
-      billingMode: "resold",
+      billingMode,
       marginBps,
       unassignedCredit: credit,
       totalCredit: credit,
@@ -941,10 +944,11 @@ export class MockBackend {
 
     getOrg: ({ params }) => this.#org(params.orgId),
 
-    listProjects: ({ params }) => ({
-      items: [...this.projects.values()].filter((p) => p.orgId === params.orgId).map((p) => this.#projectView(p)),
-      next: null,
-    }),
+    listProjects: ({ params, query }) =>
+      pageOf(
+        [...this.projects.values()].filter((p) => p.orgId === params.orgId).map((p) => this.#projectView(p)),
+        query.cursor,
+      ),
 
     getProject: ({ params }) => this.#projectView(this.#project(params.projectId)),
 

@@ -4,6 +4,7 @@ export type Route =
   | { name: "home" }
   | { name: "project"; projectId: string }
   | { name: "manage"; projectId: string }
+  | { name: "org"; orgId: string }
   | { name: "notFound" };
 
 const SEGMENT = /^[A-Za-z0-9._-]+$/;
@@ -15,6 +16,7 @@ export function parseRoute(pathname: string): Route {
     if (parts.length === 2) return { name: "project", projectId: parts[1] as string };
     if (parts.length === 3 && parts[2] === "manage") return { name: "manage", projectId: parts[1] as string };
   }
+  if (parts[0] === "o" && parts.length === 2 && SEGMENT.test(parts[1] ?? "")) return { name: "org", orgId: parts[1] as string };
   return { name: "notFound" };
 }
 
@@ -26,6 +28,8 @@ export function routePath(route: Route): string {
       return `/p/${encodeURIComponent(route.projectId)}`;
     case "manage":
       return `/p/${encodeURIComponent(route.projectId)}/manage`;
+    case "org":
+      return `/o/${encodeURIComponent(route.orgId)}`;
     case "notFound":
       return "/";
   }
