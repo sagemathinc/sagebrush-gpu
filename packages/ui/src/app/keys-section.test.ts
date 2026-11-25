@@ -354,6 +354,52 @@ for (const outcome of ["held", "success", "refusal", "network"] as const) {
   });
 }
 
+test("a list read that started before a save ended doesn't undo the save: it's discarded and read again", async () => {
+  const k = await keysPage();
+  const reads = () => k.keysLog().filter((l) => l.startsWith("KEYS GET")).length;
+  // A save with no answer reads the list again; that read is held, its snapshot already made.
+  const releaseList = k.t.gate(/GET .*\/credentials$/);
+  k.t.failOnce(new TypeError("offline"));
+  k.submit("shadeform");
+  await settle();
+  assert.equal(reads(), 2);
+  // Meanwhile Vast.ai is saved.
+  k.submit("vast");
+  await settle();
+  assert.match(k.row("vast")!.textContent!, new RegExp(`^Vast\\.ai ?${KEY_STATUS_WORDS.ok}`));
+  const releaseReread = k.t.gate(/GET .*\/credentials$/); // (the read again, held: the page in between)
+  releaseList();
+  await settle();
+  assert.equal(reads(), 3, "the old snapshot is read again");
+  assert.match(k.row("vast")!.textContent!, new RegExp(`^Vast\\.ai ?${KEY_STATUS_WORDS.ok}`), "the old snapshot was discarded, not shown");
+  releaseReread();
+  await settle();
+  assert.match(k.row("vast")!.textContent!, new RegExp(`^Vast\\.ai ?${KEY_STATUS_WORDS.ok}`));
+  assert.equal(k.t.store.keys.rows.value!.find((r) => r.provider === "vast")!.fingerprint, mockFingerprint(KEY));
+});
+
+test("a removal while an older list read is held: the removal's re-read isn't lost, and the old snapshot doesn't bring the key back", async () => {
+  const k = await keysPage();
+  k.submit("vast");
+  await settle();
+  const reads = () => k.keysLog().filter((l) => l.startsWith("KEYS GET")).length;
+  const releaseList = k.t.gate(/GET .*\/credentials$/);
+  k.t.failOnce(new TypeError("offline"));
+  k.submit("shadeform");
+  await settle();
+  const before = reads();
+  k.button("vast", "Remove")!.click();
+  await settle();
+  k.button("vast", "Remove key")!.click();
+  await settle();
+  assert.equal(k.b.credentials.has(`${k.orgA.id}|vast`), false, "removed on the server");
+  releaseList();
+  await settle();
+  assert.equal(reads(), before + 1, "read again once the old read ended");
+  assert.match(k.row("vast")!.textContent!, new RegExp(`^Vast\\.ai ?${KEY_STATUS_WORDS.none}`));
+  assert.equal(k.t.store.keys.rows.value!.find((r) => r.provider === "vast")!.fingerprint, null);
+});
+
 // ---------------------------------------------------------------- outcomes and words
 
 test("every refusal shows the page's own words, never the server's; the field is empty after each, and nothing is retried", async () => {

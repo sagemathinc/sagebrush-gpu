@@ -100,6 +100,8 @@ export class ProviderKeys {
   readonly #clocks: KeyClocks;
   readonly #signedOut: () => void;
   #generation = 0;
+  /** Credential changes ended so far (any outcome): a list read that saw this move is stale. */
+  #writes = 0;
   readonly #controllers = new Set<AbortController>();
   #deadline: number | null = null;
   #timer: unknown = null;
@@ -216,13 +218,21 @@ export class ProviderKeys {
     this.notices.value = { ...this.notices.value, [provider]: KEY_REFUSAL_WORDS[refusal] };
   }
 
+  /**
+   * Read the list. A read during which a credential change ended may predate the change: its
+   * rows are discarded and the list is read again. (A change's own re-read, asked for while
+   * an older read is in flight, is that case: the older read is stale and reads again.)
+   */
   async #load(): Promise<void> {
     const t = this.#begin("list");
     if (t == null) return;
+    const writes = this.#writes;
     const o = await credentialRequest(this.#fetch, "GET", credentialsPath(t.orgId), null, t.controller.signal, readCredentialList);
     if (!this.#end(t)) return;
-    if (o.ok) this.rows.value = o.value;
-    else this.#refused("list", o.refusal);
+    const stale = writes !== this.#writes;
+    if (!o.ok) this.#refused("list", o.refusal);
+    else if (!stale) this.rows.value = o.value;
+    if (stale) void this.#load();
   }
 
   /** Start a request for `slot`, unless one is in flight there (or no organization is open). */
@@ -251,6 +261,7 @@ export class ProviderKeys {
 
   #settle<T>(t: Ticket, o: CredentialOutcome<T>, applied: (value: T) => string): boolean {
     if (!this.#end(t)) return false;
+    this.#writes++;
     const slot = t.slot as ProviderId;
     if (o.ok) {
       const words = applied(o.value);

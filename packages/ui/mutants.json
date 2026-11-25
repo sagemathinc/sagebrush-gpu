@@ -3371,8 +3371,8 @@
  },
  {
   "file": "src/app/provider-keys.ts",
-  "old": "    if (o.ok) this.rows.value = o.value;",
-  "new": "    if (o.ok) this.rows.value = o.value.slice(1);",
+  "old": "    else if (!stale) this.rows.value = o.value;",
+  "new": "    else if (!stale) this.rows.value = o.value.slice(1);",
   "note": "load: rows dropped"
  },
  {
@@ -3524,5 +3524,23 @@
   "old": "    void keys.remove(row.provider).then(() => {\n      if (field.current) field.current.value = \"\";\n    });",
   "new": "    void keys.remove(row.provider);",
   "note": "remove: the field not emptied when it ends"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    else if (!stale) this.rows.value = o.value;",
+  "new": "    else this.rows.value = o.value;",
+  "note": "list: a snapshot older than a change applied"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (stale) void this.#load();\n",
+  "new": "",
+  "note": "list: no read again after a stale snapshot (a removal's re-read lost)"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.#writes++;\n",
+  "new": "",
+  "note": "list: changes don't make older snapshots stale"
  }
 ]
