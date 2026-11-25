@@ -8,6 +8,7 @@ import { DEFAULT_CONFIG, HANDLERS, createApp, type AppDeps, type Handlers } from
 import { startSession } from "./sessions.ts";
 import type { AuthConfig } from "../auth.ts";
 import type { Fetch } from "../workos.ts";
+import type { VmProvider } from "../vm.ts";
 import { normalizeEmail } from "../validate.ts";
 import { stmt } from "../db.ts";
 import { sqliteDb, type TestDb } from "./sqlite.ts";
@@ -27,7 +28,7 @@ export interface World {
 }
 
 export async function world(
-  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch } = {},
+  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch; vm?: VmProvider } = {},
 ): Promise<World> {
   const db = sqliteDb(o.upgrade ? { upgrade: o.upgrade } : {});
   const pending: Promise<unknown>[] = [];
@@ -43,6 +44,7 @@ export async function world(
       return b;
     },
     config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: o.auth ?? null },
+    vm: o.vm ?? null,
     fetch:
       o.fetch ??
       (async () => {

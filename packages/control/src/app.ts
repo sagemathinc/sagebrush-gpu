@@ -26,6 +26,7 @@ import type { Db } from "./db.ts";
 import { SIGN_IN_HANDLERS, authConfigFromEnv, revalidate, type AuthConfig, type SessionRow } from "./auth.ts";
 import { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, cookieValue, json, sessionCookie, sha256Hex } from "./http.ts";
 import type { Fetch } from "./workos.ts";
+import { VM_HANDLERS, type VmProvider } from "./vm.ts";
 import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
@@ -74,6 +75,8 @@ export interface AppDeps {
   config: AppConfig;
   /** Outbound requests (WorkOS). */
   fetch: Fetch;
+  /** VM mode's provider adapter; null where none is wired (VM announces are then refused). */
+  vm: VmProvider | null;
   /** Runs work after the response (the Worker's ctx.waitUntil). */
   waitUntil(work: Promise<unknown>): void;
 }
@@ -269,7 +272,7 @@ const AUTH_HANDLERS: Handlers = {
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 

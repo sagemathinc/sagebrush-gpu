@@ -66,6 +66,7 @@ async function world(handlers?: Handlers): Promise<World> {
     fetch: async () => {
       throw new Error("no network in tests");
     },
+    vm: null,
   };
   const orgId = newId("org");
   const projectId = newId("project");

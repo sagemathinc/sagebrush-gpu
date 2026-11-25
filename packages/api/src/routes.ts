@@ -13,6 +13,8 @@ import type { IsoTime } from "./time.ts";
 import type { OrgRole, ProjectRole } from "./objects.ts";
 import type {
   AgentAbortRequest,
+  AgentAnnounceRequest,
+  AgentAnnounceResponse,
   AgentEnrollRequest,
   AgentEnrollResponse,
   AgentHeartbeatRequest,
@@ -152,6 +154,7 @@ export interface Endpoints {
   openJupyterLink: { method: "POST"; path: "/v1/machines/:machineId/jupyter-link"; params: { machineId: MachineId }; query: {}; body: {}; response: { url: string; expiresAt: IsoTime } };
 
   // agent (on the machine)
+  agentAnnounce: { method: "POST"; path: "/v1/agent/announce"; params: {}; query: {}; body: AgentAnnounceRequest; response: AgentAnnounceResponse };
   agentEnroll: { method: "POST"; path: "/v1/agent/enroll"; params: {}; query: {}; body: AgentEnrollRequest; response: AgentEnrollResponse };
   agentHeartbeat: { method: "POST"; path: "/v1/agent/heartbeat"; params: {}; query: {}; body: AgentHeartbeatRequest; response: AgentHeartbeatResponse };
   agentWorkspaceToken: { method: "POST"; path: "/v1/agent/workspace-token"; params: {}; query: {}; body: { incarnation: number }; response: AgentWorkspaceTokenResponse };
@@ -227,6 +230,12 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   openMachineSession: { method: "POST", path: "/v1/machines/:machineId/session", access: machineMember, note: "the machine's own member only" },
   openJupyterLink: { method: "POST", path: "/v1/machines/:machineId/jupyter-link", access: machineMember, note: "the machine's own member only" },
 
+  agentAnnounce: {
+    method: "POST",
+    path: "/v1/agent/announce",
+    access: { auth: "public" },
+    note: "VM mode: authenticated by the launch nonce, the edge's client IPv4 and the boot script's hash; one attempt (a second terminates); every refusal is one fixed 403",
+  },
   agentEnroll: { method: "POST", path: "/v1/agent/enroll", access: { auth: "public" }, note: "authenticated by the boot token in the body (bootExchange); a second use is refused (tokenReused), alerted and terminates the machine" },
   agentHeartbeat: { method: "POST", path: "/v1/agent/heartbeat", access: { auth: "agent" } },
   agentWorkspaceToken: { method: "POST", path: "/v1/agent/workspace-token", access: { auth: "agent" } },

@@ -2,6 +2,7 @@
   "name": "sbgpu-control",
   "main": "src/entry.ts",
   "compatibility_date": "2026-07-01",
+  "workers_dev": false,
   "assets": {
     "directory": "../ui/dist/web",
     "binding": "ASSETS",

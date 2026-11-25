@@ -416,6 +416,27 @@ export interface AgentEnrollRequest {
   hostname: string;
 }
 
+/**
+ * VM mode (draft 5): the launcher's one announce, from the VM's own IPv4, after its local
+ * gate. Exactly these keys. A refusal of any kind is one fixed 403; a second announce
+ * terminates the machine.
+ */
+export interface AgentAnnounceRequest {
+  machineId: MachineId;
+  /** The launch's single-use nonce (16 random bytes, base64url, from user_data). */
+  nonce: string;
+  /** SHA-256 (lowercase hex) of the exact UTF-8 bytes of the VM-mode boot script the VM received. */
+  bootScriptSha256: string;
+}
+export const ANNOUNCE_NONCE_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+export const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
+
+export interface AgentAnnounceResponse {
+  /** Single use, for enroll, within 120 s. */
+  bootToken: string;
+  expiresAt: IsoTime;
+}
+
 /** Closed list: the machine never sends free text here. */
 export const AGENT_ABORT_REASONS = ["env-not-clean", "extra-process", "key-file", "other"] as const;
 export type AgentAbortReason = (typeof AGENT_ABORT_REASONS)[number];
