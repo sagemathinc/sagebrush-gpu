@@ -191,11 +191,6 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "        if (m.email === email && m.status === \"invited\") {",
-  "new": "        if (false) {"
- },
- {
-  "file": "src/mock/backend.ts",
   "old": "if (rec.m.memberId === member.id) this.#beginStop(rec, \"manager\", true);",
   "new": ""
  },
@@ -696,11 +691,6 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "${demoAccounts && demoAccounts.length > 0",
-  "new": "${demoAccounts"
- },
- {
-  "file": "src/app/components.ts",
   "old": "${m.finalSaveIncomplete ? html`",
   "new": "${false ? html`"
  },
@@ -841,11 +831,6 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#endSession();\n  }\n\n  // ----",
-  "new": "  }\n\n  // ----"
- },
- {
-  "file": "src/app/store.ts",
   "old": "  #endSession(): void {\n    this.#generation++;\n",
   "new": "  #endSession(): void {\n"
  },
@@ -958,16 +943,6 @@
   "file": "src/app/store.ts",
   "old": "      if (generation !== this.#generation) return true;\n      this.#pollError",
   "new": "      this.#pollError"
- },
- {
-  "file": "src/app/store.ts",
-  "old": "      this.#generation++;\n      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;",
-  "new": "      this.#generation++;\n      batch(() => {\n        this.me.value = me;"
- },
- {
-  "file": "src/app/store.ts",
-  "old": "      this.#generation++;\n      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;",
-  "new": "      this.#sessionGeneration++;\n      batch(() => {\n        this.me.value = me;"
  },
  {
   "file": "src/app/store.ts",
@@ -1683,5 +1658,165 @@
   "file": "src/app/components.ts",
   "old": "    ${cut ? html`<p class=\"warn small\">${`Showing your first",
   "new": "    ${false ? html`<p class=\"warn small\">${`Showing your first"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": ".filter((m) => m.email === address && m.status === \"invited\");",
+  "new": ".filter((m) => m.email === address);"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const demo = demoAccounts && demoAccounts.length > 0 ? demoAccounts : null;",
+  "new": "const demo = demoAccounts ? demoAccounts : null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#endSession();\n    // Only this site's session ends",
+  "new": "    // Only this site's session ends"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
+  "new": "    this.#generation++;\n    this.signInNotice.value = null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
+  "new": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const address = email.trim().toLowerCase();",
+  "new": "const address = email.toLowerCase();"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const address = email.trim().toLowerCase();",
+  "new": "const address = email.trim();"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (invited.length === 0) return false;\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (invited.length === 0) return false;",
+  "new": "      if (invited.length === 0) return true;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      m.userId = user.id;\n      m.status = \"active\";",
+  "new": "      m.status = \"active\";"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      m.userId = user.id;\n      m.status = \"active\";",
+  "new": "      m.userId = user.id;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    this.currentUserId = user.id;\n    return true;",
+  "new": "    return true;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;\n",
+  "new": "    this.#sessionGeneration++;\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.signInNotice.value = null;\n    await this.loadMe();",
+  "new": "    this.signInNotice.value = null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "if (ok != null) this.signInNotice.value = \"signedOut\";",
+  "new": "this.signInNotice.value = \"signedOut\";"
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "return returnTo !== \"/\" && isSafeReturnPath(returnTo)",
+  "new": "return isSafeReturnPath(returnTo)"
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "return returnTo !== \"/\" && isSafeReturnPath(returnTo)",
+  "new": "return returnTo !== \"/\""
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "?return=${encodeURIComponent(returnTo)}",
+  "new": "?return=${returnTo}"
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "  if (!params.has(SIGN_IN_OUTCOME_PARAM)) return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "  params.delete(SIGN_IN_OUTCOME_PARAM);\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "outcome: isSignInOutcome(value) ? value : null",
+  "new": "outcome: value as SignInOutcome | null"
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "search: params.size > 0 ? `?${params}` : \"\"",
+  "new": "search: `?${params}`"
+ },
+ {
+  "file": "src/app/signin.ts",
+  "old": "search: params.size > 0 ? `?${params}` : \"\"",
+  "new": "search: \"\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const retry = notice === \"error\" || notice === \"expired\" || notice === \"unavailable\";",
+  "new": "const retry = notice === \"expired\" || notice === \"unavailable\";"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const retry = notice === \"error\" || notice === \"expired\" || notice === \"unavailable\";",
+  "new": "const retry = notice === \"error\" || notice === \"unavailable\";"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const retry = notice === \"error\" || notice === \"expired\" || notice === \"unavailable\";",
+  "new": "const retry = notice === \"error\" || notice === \"expired\";"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "class=${notice === \"signedOut\" ? \"notice\" : \"notice warn\"}",
+  "new": "class=\"notice warn\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "        e.preventDefault();\n        void demo[0]?.signIn();",
+  "new": "        void demo[0]?.signIn();"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "        e.preventDefault();\n        void demo[0]?.signIn();",
+  "new": "        e.preventDefault();"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const onClick = demo\n",
+  "new": "  const onClick = true\n"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "href=${signInHref(nav.path)}",
+  "new": "href=${signInHref(\"/\")}"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${notice ? html`<p class=",
+  "new": "${notice && notice !== \"signedOut\" ? html`<p class="
  }
 ]

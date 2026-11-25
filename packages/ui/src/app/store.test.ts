@@ -4,14 +4,14 @@ import { createClient } from "../client.ts";
 import { mockFetch } from "../mock/fetch.ts";
 import { seedDemo, type Demo } from "../mock/seed.ts";
 import { FAST_POLL_MS, MAX_LIST_PAGES, SLOW_POLL_MS, Store } from "./store.ts";
-import { controllable } from "./testkit.ts";
+import { controllable, signInAs } from "./testkit.ts";
 
 const MIN = 60_000;
 
 export async function signedIn(email?: string): Promise<{ demo: Demo; store: Store }> {
   const demo = seedDemo();
   const store = new Store(createClient({ fetch: mockFetch(demo.backend) }), () => demo.backend.now());
-  await store.verifySignIn(`mock:${email ?? demo.emails.member}`);
+  await signInAs(store, demo.backend, email ?? demo.emails.member);
   return { demo, store };
 }
 
@@ -25,14 +25,37 @@ test("loadMe: signed out is not an error", async () => {
   assert.equal(store.error.value, null);
 });
 
-test("sign-in: a bad token is an error and leaves you signed out", async () => {
+test("sessionStarted loads the new session's /me; signing out says so, but not a 401", async () => {
   const demo = seedDemo();
   const store = new Store(createClient({ fetch: mockFetch(demo.backend) }));
-  assert.equal(await store.verifySignIn("mock:nobody"), false);
+  store.signInNotice.value = "expired";
+  await signInAs(store, demo.backend, demo.emails.member);
+  assert.equal(store.me.value?.user.email, demo.emails.member);
+  assert.equal(store.signInNotice.value, null); // a new session clears an old notice
+  await store.signOut();
   assert.equal(store.me.value, null);
-  assert.match(store.error.value ?? "", /sign-in link/);
-  assert.equal(await store.requestSignInLink("x@example.org"), true);
-  assert.equal(store.error.value, null);
+  assert.equal(store.signInNotice.value, "signedOut");
+  // A session that ends on its own (a 401) isn't a sign-out.
+  await signInAs(store, demo.backend, demo.emails.member);
+  demo.backend.currentUserId = null;
+  await store.openProject(demo.projectId);
+  assert.equal(store.me.value, null);
+  assert.equal(store.signInNotice.value, null);
+});
+
+test("a sign-out the server refused isn't reported as one", async () => {
+  const demo = seedDemo();
+  const inner = mockFetch(demo.backend);
+  const store = new Store(
+    createClient({
+      fetch: (url, init) =>
+        url.endsWith("/v1/auth/sign-out") ? Promise.resolve(Response.json({ error: { code: "internal", message: "down" } }, { status: 500 })) : inner(url, init),
+    }),
+  );
+  await signInAs(store, demo.backend, demo.emails.member);
+  await store.signOut();
+  assert.equal(store.signInNotice.value, null);
+  assert.match(store.error.value ?? "", /down/);
 });
 
 test("openProject loads the project, meters, machines and a quote per GPU type", async () => {
@@ -146,7 +169,7 @@ async function counted(email?: string) {
   const sent: string[] = [];
   const inner = mockFetch(demo.backend);
   const store = new Store(createClient({ fetch: (url, init) => (sent.push(`${init.method} ${url}`), inner(url, init)) }), () => demo.backend.now());
-  await store.verifySignIn(`mock:${email ?? demo.emails.member}`);
+  await signInAs(store, demo.backend, email ?? demo.emails.member);
   await store.openProject(demo.projectId);
   return { demo, store, starts: () => sent.filter((x) => x === `POST /v1/projects/${demo.projectId}/machines`).length };
 }
@@ -373,7 +396,7 @@ test("stale poll: a 401 asked in the current session ends it, even after navigat
 test("stale poll: a 401 from before a re-sign-in doesn't end the new session", async () => {
   const { t, poll } = await stalePoll(unauthenticated);
   await t.store.signOut();
-  await t.store.verifySignIn(`mock:${t.demo.emails.member}`);
+  await signInAs(t.store, t.demo.backend, t.demo.emails.member);
   await t.store.openProject(t.otherId);
   t.release();
   assert.equal(await poll, true);
@@ -413,7 +436,7 @@ test("an action's 401 from before a re-sign-in doesn't end the new session", asy
   const started = t.store.start("L4");
   await new Promise((r) => setTimeout(r, 0));
   await t.store.signOut();
-  await t.store.verifySignIn(`mock:${t.demo.emails.member}`);
+  await signInAs(t.store, t.demo.backend, t.demo.emails.member);
   t.release();
   assert.equal(await started, false);
   assert.equal(t.store.me.value?.user.email, t.demo.emails.member);
@@ -426,7 +449,7 @@ test("signing in as someone else drops the previous session's load in flight", a
   t.hold(new RegExp(`^GET /v1/projects/${a}$`));
   const first = t.store.openProject(a);
   await new Promise((r) => setTimeout(r, 0));
-  await t.store.verifySignIn(`mock:${t.demo.emails.manager}`);
+  await signInAs(t.store, t.demo.backend, t.demo.emails.manager);
   t.release();
   await first;
   assert.equal(t.store.me.value?.user.email, t.demo.emails.manager);
@@ -441,7 +464,7 @@ test("an action's success from a replaced session changes nothing in the new one
   const started = t.store.start("L4");
   await new Promise((r) => setTimeout(r, 0));
   await t.store.signOut();
-  await t.store.verifySignIn(`mock:${t.demo.emails.teamMember}`);
+  await signInAs(t.store, t.demo.backend, t.demo.emails.teamMember);
   await t.store.openProject(t.otherId);
   t.store.error.value = "the new session's own message";
   t.release();
@@ -531,7 +554,7 @@ test("manager actions need a project", async () => {
   assert.equal(await t.store.removeMember("mbr_x"), false);
   assert.equal(await t.store.stopAll(), null);
   assert.equal(await t.store.spendCsv("day"), null);
-  assert.equal(t.log.filter((x) => !x.includes("/auth/")).length, 0);
+  assert.deepEqual(t.log, ["GET /v1/me"]); // signing in; nothing since
 });
 
 /** A manager of both projects, with a bulk change whose first PUT answers late. */
@@ -558,7 +581,7 @@ async function heldBulk() {
 test("a bulk change stops quietly after a sign-out and sign-in; nothing more is sent", async () => {
   const { t, bulk, amount, puts } = await heldBulk();
   await t.store.signOut();
-  await t.store.verifySignIn(`mock:${t.demo.emails.manager}`);
+  await signInAs(t.store, t.demo.backend, t.demo.emails.manager);
   t.release();
   assert.equal(await bulk, null);
   assert.equal(puts(), 1);

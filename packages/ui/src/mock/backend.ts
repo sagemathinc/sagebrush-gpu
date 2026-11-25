@@ -8,7 +8,8 @@
 // gets notFound and one with too low a role forbidden; allocations may not add up to more
 // than the project budget (conflict); member changes follow @sbgpu/api's authz; lists page
 // 200 at a time. Mock-only: a page's cursor is an offset, and a removed member's allocation
-// still counts toward the budget.
+// still counts toward the budget. Sign-in is a browser navigation through WorkOS, never a
+// fetch, so the mock has no sign-in routes: signInAs stands in for the whole round trip.
 
 import {
   ACCRUING_STATES,
@@ -242,6 +243,27 @@ export class MockBackend {
     const user: User = { id: this.newId("user"), email: email.toLowerCase(), name, createdAt: toIso(this.#now) };
     this.users.set(user.id, user);
     return user;
+  }
+
+  /**
+   * The mock's stand-in for the WorkOS sign-in and our callback's admission: an account is
+   * admitted when it is already a user here or has an invitation, and admission makes its
+   * invitations active. A refused account (false) leaves the session as it was.
+   */
+  signInAs(email: string): boolean {
+    const address = email.trim().toLowerCase();
+    const invited = [...this.members.values()].filter((m) => m.email === address && m.status === "invited");
+    let user = [...this.users.values()].find((u) => u.email === address);
+    if (user === undefined) {
+      if (invited.length === 0) return false;
+      user = this.addUser(address);
+    }
+    for (const m of invited) {
+      m.userId = user.id;
+      m.status = "active";
+    }
+    this.currentUserId = user.id;
+    return true;
   }
 
   addOrg(name: string, marginBps: BasisPoints, credit: Micros): Organization {
@@ -906,24 +928,6 @@ export class MockBackend {
   // ---------------------------------------------------------------- handlers
 
   readonly #handlers: { [N in EndpointName]?: Handler<N> } = {
-    requestSignInLink: () => ({ ok: true }),
-
-    verifySignInLink: ({ body }) => {
-      // The mock's sign-in token is "mock:<email>".
-      const token = typeof body.token === "string" ? body.token : "";
-      const email = token.startsWith("mock:") ? token.slice(5).toLowerCase() : "";
-      if (!isEmail(email)) throw new ApiFail("unauthenticated", "invalid or expired sign-in link");
-      const user = [...this.users.values()].find((u) => u.email === email) ?? this.addUser(email);
-      for (const m of this.members.values()) {
-        if (m.email === email && m.status === "invited") {
-          m.userId = user.id;
-          m.status = "active";
-        }
-      }
-      this.currentUserId = user.id;
-      return this.#me(user);
-    },
-
     signOut: () => {
       this.currentUserId = null;
       return { ok: true };

@@ -4,7 +4,7 @@
 import type { ComponentChildren, VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.ts";
-import type { Machine, PriceListItem, ProjectLabels, Quote, SpendMeter } from "@sbgpu/api";
+import type { Machine, PriceListItem, ProjectLabels, Quote, SignInOutcome, SpendMeter } from "@sbgpu/api";
 import { capitalize, withArticle } from "../labels.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
 import { ago, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "../view.ts";
@@ -13,6 +13,7 @@ import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
 import { ManagePage } from "./manage-page.ts";
 import { TerminalPanel } from "./terminal-panel.ts";
+import { signInHref } from "./signin.ts";
 
 export { html };
 
@@ -27,8 +28,8 @@ export interface Nav {
 export interface DemoAccount {
   label: string;
   email: string;
-  /** The mock's sign-in token for this account. */
-  token: string;
+  /** Signs in as this account in the mock (the whole WorkOS round trip). */
+  signIn: () => Promise<void>;
 }
 
 export function Link({ nav, to, children }: { nav: Nav; to: Route; children: ComponentChildren }): VNode {
@@ -52,31 +53,35 @@ function ErrorBanner({ store }: { store: Store }): VNode | null {
 
 // ---------------------------------------------------------------- sign-in
 
-export function SignIn({ store, demoAccounts }: { store: Store; demoAccounts?: DemoAccount[] | undefined }): VNode {
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-  const busy = store.isBusy("signin");
-  const submit = async (e: Event) => {
-    e.preventDefault();
-    if (await store.requestSignInLink(email.trim())) setSent(true);
-  };
+const SIGN_IN_NOTICES: { readonly [K in SignInOutcome | "signedOut"]: string } = {
+  refused: "This Sagebrush account hasn't been invited to a project here. Ask whoever runs your project to invite the email address you use with Sagebrush.",
+  error: "Signing in didn't work.",
+  expired: "Signing in took too long or was interrupted.",
+  unavailable: "Signing in isn't possible at the moment.",
+  signedOut: "Signed out of sagebrush-gpu.",
+};
+
+export function SignIn({ store, nav, demoAccounts }: { store: Store; nav: Nav; demoAccounts?: DemoAccount[] | undefined }): VNode {
+  const notice = store.signInNotice.value;
+  const retry = notice === "error" || notice === "expired" || notice === "unavailable";
+  const demo = demoAccounts && demoAccounts.length > 0 ? demoAccounts : null;
+  // The demo has no WorkOS: the button signs in as its first account.
+  const onClick = demo
+    ? (e: Event) => {
+        e.preventDefault();
+        void demo[0]?.signIn();
+      }
+    : undefined;
   return html`<main class="narrow">
     <h1>Sign in</h1>
-    ${sent
-      ? html`<p>Check your email for a sign-in link. It works once, for a few minutes.</p>`
-      : html`<form onSubmit=${submit}>
-          <label for="email">Email</label>
-          <input id="email" type="email" required autocomplete="email" value=${email}
-            onInput=${(e: Event) => setEmail((e.target as HTMLInputElement).value)} />
-          <button type="submit" disabled=${busy}>Email me a sign-in link</button>
-        </form>`}
-    ${demoAccounts && demoAccounts.length > 0
+    ${notice ? html`<p class=${notice === "signedOut" ? "notice" : "notice warn"} role="status">${SIGN_IN_NOTICES[notice]}</p>` : null}
+    <p><a class="button" href=${signInHref(nav.path)} onClick=${onClick}>${retry ? "Try again" : "Sign in with your Sagebrush account"}</a></p>
+    ${demo
       ? html`<section class="demo">
           <h2>Demo accounts (mock data)</h2>
           <ul>
-            ${demoAccounts.map(
-              (a) => html`<li><button class="secondary" disabled=${busy}
-                onClick=${() => store.verifySignIn(a.token)}>${a.label}</button> <span class="muted">${a.email}</span></li>`,
+            ${demo.map(
+              (a) => html`<li><button class="secondary" onClick=${() => a.signIn()}>${a.label}</button> <span class="muted">${a.email}</span></li>`,
             )}
           </ul>
         </section>`
@@ -287,7 +292,7 @@ export function App({
   const me = store.me.value;
   let page: VNode;
   if (!store.meLoaded.value) page = html`<main><p class="muted">Loading…</p></main>`;
-  else if (me == null) page = html`<${SignIn} store=${store} demoAccounts=${demoAccounts} />`;
+  else if (me == null) page = html`<${SignIn} store=${store} nav=${nav} demoAccounts=${demoAccounts} />`;
   else {
     const route = parseRoute(nav.path);
     page =

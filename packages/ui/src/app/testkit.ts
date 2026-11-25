@@ -3,7 +3,14 @@
 import { createClient } from "../client.ts";
 import { mockFetch } from "../mock/fetch.ts";
 import { seedDemo } from "../mock/seed.ts";
+import type { MockBackend } from "../mock/backend.ts";
 import { Store, type StoreOptions } from "./store.ts";
+
+/** Signs `store` in as `email`, as a WorkOS round trip would; the account must be admitted. */
+export async function signInAs(store: Store, backend: MockBackend, email: string): Promise<void> {
+  if (!backend.signInAs(email)) throw new Error(`the mock refused ${email}`);
+  await store.sessionStarted();
+}
 
 /**
  * A store whose requests can be held: hold(pattern) makes matching requests wait until
@@ -47,7 +54,7 @@ export async function controllable(email?: string, options: StoreOptions = {}) {
     return replaced ? replaced.make() : (answer as Promise<Response>);
   };
   const store = new Store(createClient({ fetch: fetchFn }), () => demo.backend.now(), options);
-  await store.verifySignIn(`mock:${email ?? demo.emails.member}`);
+  await signInAs(store, demo.backend, email ?? demo.emails.member);
   return {
     demo,
     store,

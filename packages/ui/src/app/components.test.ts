@@ -9,6 +9,7 @@ import { seedDemo } from "../mock/seed.ts";
 import { App, GpuRow, html, MeterCard, ProjectPage, type Nav } from "./components.ts";
 import { GENERIC_LABELS } from "../labels.ts";
 import { Store } from "./store.ts";
+import { signInAs } from "./testkit.ts";
 
 const MIN = 60_000;
 
@@ -30,26 +31,54 @@ function text(markup: string): string {
 async function memberStore(email?: string) {
   const demo = seedDemo();
   const store = new Store(createClient({ fetch: mockFetch(demo.backend) }), () => demo.backend.now());
-  await store.verifySignIn(`mock:${email ?? demo.emails.member}`);
+  await signInAs(store, demo.backend, email ?? demo.emails.member);
   await store.openProject(demo.projectId);
   return { demo, store };
 }
 
-test("before /me loads: a loading page; signed out: sign-in, with demo accounts only when given", async () => {
+test("before /me loads: a loading page; signed out: one sign-in link, with demo accounts only when given", async () => {
   const demo = seedDemo();
   const store = new Store(createClient({ fetch: mockFetch(demo.backend) }));
   assert.match(text(renderToString(html`<${App} store=${store} nav=${nav("/")} />`)), /Loading/);
   await store.loadMe();
-  const plain = text(renderToString(html`<${App} store=${store} nav=${nav("/")} />`));
-  assert.match(plain, /Sign in Email Email me a sign-in link/);
-  assert.doesNotMatch(plain, /Demo accounts/);
+  const out = renderToString(html`<${App} store=${store} nav=${nav("/")} />`);
+  assert.equal(text(out), "sagebrush-gpu Sign in Sign in with your Sagebrush account");
+  assert.match(out, /<a class="button" href="\/v1\/auth\/start">/);
+  assert.doesNotMatch(out, /<form|<input|role="status"|role="alert"/);
   assert.doesNotMatch(renderToString(html`<${App} store=${store} nav=${nav("/")} demoAccounts=${[]} />`), /Demo accounts/);
-  assert.doesNotMatch(renderToString(html`<${App} store=${store} nav=${nav("/")} />`), /role="alert"/);
+  // Signed out on a deeper page: come back to it.
+  assert.match(renderToString(html`<${App} store=${store} nav=${nav("/p/prj_1/manage")} />`), /href="\/v1\/auth\/start\?return=%2Fp%2Fprj_1%2Fmanage"/);
   const withDemo = renderToString(
-    html`<${App} store=${store} nav=${nav("/")} demoAccounts=${[{ label: "A member", email: "ada@example.org", token: "mock:ada@example.org" }]} />`,
+    html`<${App} store=${store} nav=${nav("/")} demoAccounts=${[{ label: "A member", email: "ada@example.org", signIn: async () => {} }]} />`,
   );
   assert.match(text(withDemo), /Demo accounts \(mock data\) A member ada@example.org/);
   assert.doesNotMatch(withDemo, /Sign out/);
+});
+
+test("the sign-in screen says why it is showing; only a passing failure offers Try again", async () => {
+  const demo = seedDemo();
+  const store = new Store(createClient({ fetch: mockFetch(demo.backend) }));
+  await store.loadMe();
+  const shown = () => {
+    const out = renderToString(html`<${App} store=${store} nav=${nav("/")} />`);
+    const notice = /<p class="([^"]*)" role="status">([^<]*)<\/p>/.exec(out);
+    const link = /<a class="button"[^>]*>([^<]*)<\/a>/.exec(out);
+    return [notice?.[1], notice?.[2]?.replace(/&#39;|&apos;/g, "'"), link?.[1]];
+  };
+  store.signInNotice.value = "refused";
+  assert.deepEqual(shown(), [
+    "notice warn",
+    "This Sagebrush account hasn't been invited to a project here. Ask whoever runs your project to invite the email address you use with Sagebrush.",
+    "Sign in with your Sagebrush account",
+  ]);
+  store.signInNotice.value = "error";
+  assert.deepEqual(shown(), ["notice warn", "Signing in didn't work.", "Try again"]);
+  store.signInNotice.value = "expired";
+  assert.deepEqual(shown(), ["notice warn", "Signing in took too long or was interrupted.", "Try again"]);
+  store.signInNotice.value = "unavailable";
+  assert.deepEqual(shown(), ["notice warn", "Signing in isn't possible at the moment.", "Try again"]);
+  store.signInNotice.value = "signedOut";
+  assert.deepEqual(shown(), ["notice", "Signed out of sagebrush-gpu.", "Sign in with your Sagebrush account"]);
 });
 
 test("home lists the user's projects with links that keep ?mock=1", async () => {
@@ -114,11 +143,11 @@ test("saving and stopped machines say what is happening and why", async () => {
 test("a hard stop is explained, and an empty allocation is called out", async () => {
   const demo = seedDemo();
   const store = new Store(createClient({ fetch: mockFetch(demo.backend) }), () => demo.backend.now());
-  await store.verifySignIn(`mock:${demo.emails.manager}`);
+  await signInAs(store, demo.backend, demo.emails.manager);
   const grace = [...demo.backend.members.values()].find((m) => m.email === demo.emails.lowMember);
   assert.ok(grace);
   await store.client.call("setMemberAllocation", { params: { projectId: demo.projectId, memberId: grace.id }, body: { amount: 400_000 } });
-  await store.verifySignIn(`mock:${demo.emails.lowMember}`);
+  await signInAs(store, demo.backend, demo.emails.lowMember);
   await store.openProject(demo.projectId);
   await store.start("L4");
   demo.backend.advance(40 * MIN);
@@ -164,9 +193,9 @@ test("a stop without a save and a provider failure are both shown", async () => 
   await store.start("L4");
   demo.backend.advance(90_000);
   const id = store.machines.value[0]?.id as string;
-  await store.verifySignIn(`mock:${demo.emails.manager}`);
+  await signInAs(store, demo.backend, demo.emails.manager);
   await store.client.call("stopMachine", { params: { machineId: id }, body: { save: false } });
-  await store.verifySignIn(`mock:${demo.emails.member}`);
+  await signInAs(store, demo.backend, demo.emails.member);
   demo.backend.advance(MIN);
   await store.refresh();
   let t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
