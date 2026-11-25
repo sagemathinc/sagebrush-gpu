@@ -58,7 +58,8 @@ export function vastFilterName(vastName: string): string {
  * after the last comma. Any other shape gives null, which no locality preset matches.
  */
 export function vastCountry(geolocation: unknown): string | null {
-  if (typeof geolocation !== "string") return null;
+  // a long string is refused, not matched: the two letters would be a slice keeping it alive
+  if (typeof geolocation !== "string" || geolocation.length > 128) return null;
   const m = /,\s*([A-Z]{2})$/.exec(geolocation);
   return m === null ? null : m[1]!;
 }

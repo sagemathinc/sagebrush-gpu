@@ -244,6 +244,9 @@ test("every way out of our launch shape drifts, and unreadable fields fail close
   assert.equal(s({ volume_info: { volume_id: 1 } }).volumeGb, Number.POSITIVE_INFINITY);
   for (const env of ["SBGPU_BOOT_TOKEN=x", [7], ["-p 22:22"], ["NOEQUALS"], [["A"]], [["A", 1]]]) assert.deepEqual(s({ extra_env: env }).envNames, [UNREADABLE], JSON.stringify(env));
   assert.deepEqual(s({ extra_env: ["A=1", "SBGPU_BOOT_TOKEN=x"] }).envNames, ["A", "SBGPU_BOOT_TOKEN"]);
+  // a name that isn't a variable name is unreadable, with or without "="
+  for (const env of [["1A=x"], ["A B=x"], ["=x"], [`${"N".repeat(129)}=x`], [["1A", "x"]]]) assert.deepEqual(s({ extra_env: env }).envNames, [UNREADABLE], JSON.stringify(env));
+  assert.deepEqual(s({ extra_env: [`${"N".repeat(128)}=x`] }).envNames, ["N".repeat(128)]);
   assert.deepEqual(s({ image_args: [1] }).command, [UNREADABLE]);
   assert.deepEqual(s({ image_args: null }).command, [UNREADABLE]);
   assert.ok(Number.isNaN(s({ disk_space: 40.5 }).diskGb));
@@ -596,6 +599,9 @@ test("a status keeps bounded fields: at each bound copied, one over unreadable",
   assert.equal(s({ extra_env: Array.from({ length: MAX_ENV }, (_, i) => `E${i}=1`) }).envNames.length, MAX_ENV);
   assert.deepEqual(s({ extra_env: Array.from({ length: MAX_ENV + 1 }, (_, i) => `E${i}=1`) }).envNames, [UNREADABLE]);
   assert.deepEqual(s({ extra_env: [`A=${"v".repeat(9000)}`] }).envNames, [UNREADABLE]);
+  // the entry bound, exactly: 8192 characters in all kept, 8193 unreadable
+  assert.deepEqual(s({ extra_env: [`A=${"v".repeat(8190)}`] }).envNames, ["A"]);
+  assert.deepEqual(s({ extra_env: [`A=${"v".repeat(8191)}`] }).envNames, [UNREADABLE]);
   const ports = (n: number, len = 6) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`${String(i).padStart(len - 4, "0")}/tcp`, []]));
   assert.equal(s({ ports: ports(MAX_PORTS) }).exposedPorts.length, MAX_PORTS);
   assert.deepEqual(s({ ports: ports(MAX_PORTS + 1) }).exposedPorts, [UNREADABLE]);
@@ -652,6 +658,62 @@ test("listMachines: 100 full pages of 64 KiB commands keep only bounded text", a
   assert.equal(got.length, MAX_PAGES * 25);
   assert.ok(got.every((x) => x.command.length === 1 && x.command[0] === UNREADABLE));
   assert.ok(got.reduce((t, x) => t + retainedChars(x), 0) <= MAX_LIST_CHARS);
+});
+
+test("kept text holds no long strings alive: short slices of large replies are never kept (heap, after GC)", async () => {
+  // A short slice (or a template over one) of a long string keeps the whole long string alive,
+  // which retainedChars can't see. A child Node with --expose-gc drives the real adapter over mock
+  // JSON pages and reports how much heap the returned lists keep after a collection.
+  const { spawnSync } = await import("node:child_process");
+  const child = `
+    const { VastAdapter } = await import(process.env.ADAPTER);
+    const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
+    const row = (id, over) => ({ id, label: "sbg-" + MID, actual_status: "running", intended_status: "running", machine_id: 4242,
+      gpu_name: "RTX 4090", gpu_ram: 24564, num_gpus: 1, image_uuid: "img", image_runtype: "args", image_args: ["/l"],
+      extra_env: ["SBGPU_BOOT_TOKEN=x"], is_bid: false, verification: "verified", dph_total: 0.4, disk_space: 40, ...over });
+    const big = (n, id) => String(id).padEnd(n, "x");
+    const adapterFor = (pages) => {
+      let i = 0;
+      const fetch = async () => new Response(JSON.stringify(pages[i++]), { status: 200 });
+      return new VastAdapter({ apiKey: "k", fetch, now: () => new Date(0) });
+    };
+    const pagesOf = (rows, per) => {
+      const out = [];
+      for (let i = 0; i < rows.length; i += per) out.push({ success: true, instances: rows.slice(i, i + per), next_token: i + per < rows.length ? "t" + i : null });
+      return out;
+    };
+    const kept = [];
+    async function measure(make) {
+      gc(); gc();
+      const before = process.memoryUsage().heapUsed;
+      const got = await make();
+      kept.push(got);
+      gc(); gc();
+      return { delta: process.memoryUsage().heapUsed - before, n: got.length };
+    }
+    const MIB = 1 << 20;
+    const out = {
+      actual_status: await measure(() => adapterFor(pagesOf(Array.from({ length: 12 }, (_, i) => row(i + 1, { actual_status: big(2 * MIB, i) })), 1)).listMachines()),
+      intended_status: await measure(() => adapterFor(pagesOf(Array.from({ length: 12 }, (_, i) => row(i + 1, { intended_status: big(2 * MIB, i) })), 1)).listMachines()),
+      image_runtype: await measure(() => adapterFor(pagesOf(Array.from({ length: 100 }, (_, i) => row(i + 1, { image_runtype: big(256 * 1024, i) })), 10)).listMachines()),
+      verification: await measure(() => adapterFor(pagesOf(Array.from({ length: 100 }, (_, i) => row(i + 1, { verification: big(256 * 1024, i) })), 10)).listMachines()),
+      extra_env: await measure(() => adapterFor(pagesOf(Array.from({ length: 100 }, (_, i) => row(i + 1, { extra_env: Array.from({ length: 32 }, (_, k) => ("E" + k).padEnd(100, "N") + "=" + big(8000, i * 100 + k)) })), 10)).listMachines()),
+      geolocation: await measure(() => adapterFor([{ offers: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, machine_id: 4242 + i, gpu_name: "RTX 4090", gpu_ram: 24564, num_gpus: 1, geolocation: big(300 * 1024, i) + ", SE", dph_total: 0.4, reliability: 0.99, rentable: true, rented: false, is_bid: false, verification: "verified", datacenter: true })) }]).listOffers({ gpuCount: 1 })),
+    };
+    process.stdout.write(JSON.stringify(out));
+  `;
+  const r = spawnSync(process.execPath, ["--expose-gc", "--input-type=module", "-e", child], {
+    env: { ...process.env, ADAPTER: new URL("./adapter.ts", import.meta.url).href },
+    encoding: "utf8",
+    timeout: 120_000,
+    maxBuffer: 1 << 20,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const got = JSON.parse(r.stdout) as Record<string, { delta: number; n: number }>;
+  // every row is kept (its long fields unreadable), and the lists keep well under 4 MiB, against the
+  // ~25 MiB a slice of each long field would hold
+  assert.deepEqual(Object.fromEntries(Object.entries(got).map(([k, v]) => [k, v.n])), { actual_status: 12, intended_status: 12, image_runtype: 100, verification: 100, extra_env: 100, geolocation: 0 });
+  for (const [k, v] of Object.entries(got)) assert.ok(v.delta < 4 * 1024 * 1024, `${k}: ${v.delta} bytes kept`);
 });
 
 test("the key never reaches a message, whatever fails", async () => {

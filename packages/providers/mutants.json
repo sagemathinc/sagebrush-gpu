@@ -4237,7 +4237,7 @@
  },
  {
   "file": "src/vast/adapter.ts",
-  "old": "if (typeof name !== \"string\" || !ENV_NAME.test(name) || (typeof e === \"string\" && !e.includes(\"=\"))) return [UNREADABLE];",
+  "old": "if (typeof name !== \"string\" || !ENV_NAME.test(name)) return [UNREADABLE];",
   "new": "if (typeof name !== \"string\") return [UNREADABLE];"
  },
  {
@@ -4499,5 +4499,40 @@
   "file": "src/vast/adapter.ts",
   "old": "|| o[\"rented\"] !== false ",
   "new": "|| o[\"rented\"] === true "
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "out.push(detached(name));",
+  "new": "out.push(name);"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "return x === null || x === undefined ? \"null\" : (shortWord(x) ?? UNREADABLE);",
+  "new": "return x === null || x === undefined ? \"null\" : typeof x === \"string\" ? x.slice(0, 32) : UNREADABLE;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "out.push(`runtype:${shortWord(rt) ?? UNREADABLE}`);",
+  "new": "out.push(`runtype:${typeof rt === \"string\" ? rt.slice(0, 32) : UNREADABLE}`);"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "out.push(`verification:${shortWord(ver) ?? UNREADABLE}`);",
+  "new": "out.push(`verification:${typeof ver === \"string\" ? ver.slice(0, 32) : UNREADABLE}`);"
+ },
+ {
+  "file": "src/vast/catalog.ts",
+  "old": " || geolocation.length > 128) return null;",
+  "new": ") return null;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (typeof e === \"string\" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];",
+  "new": "if (typeof e === \"string\" && e.length > MAX_ENV_ENTRY_CHARS + 1) return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (typeof e === \"string\" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];",
+  "new": "if (typeof e === \"string\" && e.length >= MAX_ENV_ENTRY_CHARS) return [UNREADABLE];"
  }
 ]

@@ -121,6 +121,19 @@ const MAX_PORT_CHARS = 32;
 /** The most status text one machine list may retain; a longer list is refused, never returned in part. */
 export const MAX_LIST_CHARS = 1_000_000;
 
+/**
+ * A short provider word, kept whole, or null when it is long. Never a slice: a short slice (or a
+ * template over one) of a long string keeps the whole long string alive.
+ */
+function shortWord(x: unknown, max = 32): string | null {
+  return typeof x === "string" && x.length <= max ? x : null;
+}
+
+/** A fresh copy of a short string, holding nothing of the string it was cut from. */
+function detached(s: string): string {
+  return JSON.parse(JSON.stringify(s)) as string;
+}
+
 /** The characters of text a status keeps: what MAX_LIST_CHARS counts. */
 export function retainedChars(s: ProviderMachineStatus): number {
   const sum = (xs: readonly string[]) => xs.reduce((n, x) => n + x.length, 0);
@@ -149,9 +162,10 @@ function envNamesOf(extraEnv: unknown): string[] {
   const out: string[] = [];
   for (const e of extraEnv) {
     if (typeof e === "string" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];
-    const name = typeof e === "string" ? e.split("=")[0] : Array.isArray(e) && e.length === 2 && typeof e[1] === "string" ? e[0] : undefined;
-    if (typeof name !== "string" || !ENV_NAME.test(name) || (typeof e === "string" && !e.includes("="))) return [UNREADABLE];
-    out.push(name);
+    const name = typeof e === "string" ? (e.includes("=") ? e.slice(0, e.indexOf("=")) : undefined) : Array.isArray(e) && e.length === 2 && typeof e[1] === "string" ? e[0] : undefined;
+    if (typeof name !== "string" || !ENV_NAME.test(name)) return [UNREADABLE];
+    // its own copy: a slice would keep the whole entry, value included, alive
+    out.push(detached(name));
   }
   return out;
 }
@@ -173,7 +187,7 @@ export function vastState(actual: unknown, intended: unknown): MachineState {
 function unexpectedSettings(inst: Record<string, unknown>): string[] {
   const out: string[] = [];
   const rt = inst["image_runtype"];
-  if (rt !== "args") out.push(`runtype:${typeof rt === "string" ? rt.slice(0, 32) : UNREADABLE}`);
+  if (rt !== "args") out.push(`runtype:${shortWord(rt) ?? UNREADABLE}`);
   if (inst["is_bid"] !== false) out.push(`bid:${inst["is_bid"] === true ? "true" : UNREADABLE}`);
   const onstart = inst["onstart"];
   if (onstart !== null && onstart !== undefined && onstart !== "") out.push(`onstart:${typeof onstart === "string" ? "set" : UNREADABLE}`);
@@ -184,7 +198,7 @@ function unexpectedSettings(inst: Record<string, unknown>): string[] {
     if (v !== null && v !== undefined && v !== "") out.push(`template:${k}`);
   }
   const ver = inst["verification"];
-  if (ver !== "verified") out.push(`verification:${typeof ver === "string" ? ver.slice(0, 32) : UNREADABLE}`);
+  if (ver !== "verified") out.push(`verification:${shortWord(ver) ?? UNREADABLE}`);
   return out;
 }
 
@@ -206,9 +220,9 @@ export function instanceStatus(inst: unknown, observedAt: string): ProviderMachi
   return {
     provider: "vast",
     providerMachineId: String(id),
-    machineId: typeof inst["label"] === "string" ? parseMachineName(inst["label"]) : null,
+    machineId: shortWord(inst["label"], 64) !== null ? parseMachineName(inst["label"] as string) : null,
     state: vastState(actual, intended),
-    rawStatus: `${typeof actual === "string" ? actual : "null"}/${typeof intended === "string" ? intended : "null"}`.slice(0, 64),
+    rawStatus: `${statusWord(actual)}/${statusWord(intended)}`,
     gpuType: typeof inst["gpu_name"] === "string" ? gpuFromVast(inst["gpu_name"], inst["gpu_ram"]) : null,
     gpuCount: count(inst["num_gpus"]),
     dataCenter: vastDataCenter(inst["machine_id"]),
@@ -229,6 +243,11 @@ export function instanceStatus(inst: unknown, observedAt: string): ProviderMachi
     providerCostPerHour: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? usdToMicros(cost) : null,
     observedAt,
   };
+}
+
+/** A status word for rawStatus: a short string as is, null as "null", anything else unreadable. */
+function statusWord(x: unknown): string {
+  return x === null || x === undefined ? "null" : (shortWord(x) ?? UNREADABLE);
 }
 
 /** The image args, copied only within MAX_ARGS and MAX_COMMAND_CHARS; anything else is unreadable. */
