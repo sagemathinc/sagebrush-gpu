@@ -89,6 +89,36 @@ class Found:
         return (self.detail is None, self.paths, self.detail or default)
 
 
+# ---- 0. listen22: nothing may listen on TCP port 22 (an sshd would be a way in that the probe doesn't see)
+NET_MAX = 4 * 1024 * 1024  # (bytes read from each table: past it the table counts as unreadable)
+_NET_ROW = re.compile(rb"\s*\d+:\s+([0-9A-F]{8}|[0-9A-F]{32}):([0-9A-F]{4})\s+[0-9A-F]{8,32}:[0-9A-F]{4}\s+([0-9A-F]{2})\s")
+
+
+def check_listen22(net="/proc/net"):
+    """Neither /proc/net/tcp nor /proc/net/tcp6 has a row in LISTEN (0A) on local port 22 (0016), on any address:
+    'no-listener' passes; 'listener' fails, and so does 'unreadable' (a table missing, over NET_MAX, or a row this
+    doesn't parse: fail closed).  Nothing about the sockets is reported."""
+    found = False
+    for name in ("tcp", "tcp6"):
+        try:
+            with open(os.path.join(net, name), "rb") as f:
+                data = f.read(NET_MAX + 1)
+        except OSError:
+            return False, [], "unreadable"
+        rows = data.split(b"\n")
+        if len(data) > NET_MAX or not rows[0].split()[:1] == [b"sl"]:
+            return False, [], "unreadable"
+        for row in rows[1:]:
+            if not row.strip():
+                continue
+            m = _NET_ROW.match(row)
+            if not m:
+                return False, [], "unreadable"
+            if m.group(2) == b"0016" and m.group(3) == b"0A":
+                found = True
+    return (not found), [], "listener" if found else "no-listener"
+
+
 # ---- 1. pid1
 def check_pid1(proc="/proc", pid=None, entry_suffix="sbgpu-agent"):
     """The probe is PID 1 (the launcher exec'd it, keeping its PID), /proc/1/cmdline is python running it, and no

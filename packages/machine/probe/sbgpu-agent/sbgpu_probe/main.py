@@ -4,7 +4,10 @@ It is installed and started exactly as the machine agent is (the unchanged launc
 its hash, and execs it as PID 1 with the allowlisted environment), and never contacts the control plane.  Its only
 output is the result lines on stdout:
 
-  SBGPU-PROBE {"v":1,"boot":n,"check":"pid1|environ|files|metadata|history|done","pass":bool,"paths":[...],"detail":"..."}
+  SBGPU-PROBE {"v":1,"boot":n,"check":"listen22-start|pid1|environ|files|metadata|history|listen22-end|done","pass":bool,
+               "paths":[...],"detail":"..."}
+
+listen22-start comes first and listen22-end just before done: nothing may listen on TCP port 22 at any stage.
 
 After "done" it stays up as PID 1 (reaping orphans) until SIGTERM, so the driver decides when the container stops.
 """
@@ -18,7 +21,7 @@ import time
 from sbgpu_probe import capture, checks
 
 PREFIX = "SBGPU-PROBE "
-CHECK_ORDER = ("pid1", "environ", "files", "metadata", "history", "done")
+CHECK_ORDER = ("listen22-start", "pid1", "environ", "files", "metadata", "history", "listen22-end", "done")
 FILES_LIMIT_S = 600
 BOOTS_FILE = "/opt/sbgpu/probe-boots"
 CAPTURE_FILE = "/opt/sbgpu/probe-capture"
@@ -68,12 +71,15 @@ def run(out=sys.stdout, root="/", proc="/proc", pid=None, boots_file=BOOTS_FILE,
         clock=time.monotonic, capture_file=CAPTURE_FILE):
     """Every check, in order; a check that raises fails with 'error'.  Returns the boot number."""
     boot = next_boot(boots_file)
+    net = os.path.join(proc, "net")
     plan = (
+        ("listen22-start", lambda: checks.check_listen22(net)),
         ("pid1", lambda: pid1_with_capture(proc, pid, capture_file)),
         ("environ", lambda: checks.check_environ(proc=proc)),
         ("files", lambda: checks.check_files(root=root, proc=proc, deadline=clock() + FILES_LIMIT_S, clock=clock)),
         ("metadata", lambda: checks.check_metadata(get=get)),
         ("history", lambda: checks.check_history(root=root)),
+        ("listen22-end", lambda: checks.check_listen22(net)),
     )
     for name, fn in plan:
         try:

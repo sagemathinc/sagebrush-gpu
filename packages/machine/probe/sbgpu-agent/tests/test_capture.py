@@ -29,10 +29,16 @@ def random_key(prefix="", n=40, chars=ALNUM):
     return "_".join((prefix, body)) if prefix else body
 
 
-def run_prologue(d, key, salt=None, extra_env=None):
+CLEAN_NET = tempfile.mkdtemp(prefix="sbgpu-net-")  # (socket tables where nothing listens on 22)
+for _n in ("tcp", "tcp6"):
+    with open(os.path.join(CLEAN_NET, _n), "w") as _f:
+        _f.write("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n")
+
+
+def run_prologue(d, key, salt=None, extra_env=None, net=CLEAN_NET):
     salt = salt or secrets.token_hex(32)
     with open(PROLOGUE) as f:
-        script = "SBGPU_PROBE_SALT='%s'\nSBGPU_PROBE_DIR='%s'\n" % (salt, d) + f.read()
+        script = "SBGPU_PROBE_SALT='%s'\nSBGPU_PROBE_DIR='%s'\nSBGPU_PROBE_NET='%s'\n" % (salt, d, net) + f.read()
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
     if key is not None:
         env["RUNPOD" + "_API_KEY"] = key
@@ -96,6 +102,45 @@ class PrologueTest(Base):
         self.assertEqual(rec["bytes"], len(key.encode()))
         self.assertEqual(rec["classes"], "dhlosu")
         self.assertEqual(rec["sha256"], expected_digest(salt, key))
+
+    def test_port_22_is_checked_before_the_key_is_touched(self):
+        from test_probe import write_net, row4, row6
+        key = random_key("rpa")
+        for rows4, rows6 in (([row4(0, "00000000", "0016", "0A")], []), ([], [row6(0, "0" * 32, "0016", "0A")])):
+            d, net = self.tmp(), self.tmp()
+            write_net(net, rows4, rows6)
+            r, _ = run_prologue(d, key, net=net + "/net")
+            self.assertEqual(r.returncode, 3)
+            self.assertEqual(r.stderr, b"sbgpu-probe: a listener on port 22, or /proc/net unreadable\n")
+            self.assertEqual(os.listdir(d), [])
+            self.assertNotIn(key.encode(), r.stdout + r.stderr)
+            # (before the key at all: with no key, still 3, not the no-key 2)
+            r, _ = run_prologue(d, None, net=net + "/net")
+            self.assertEqual(r.returncode, 3)
+        # (unreadable or malformed tables: the same)
+        for case in ("no tcp6", "a bad row"):
+            d, net = self.tmp(), self.tmp()
+            write_net(net, [row4(0, "00000000", "1F90", "0A")])
+            if case == "no tcp6":
+                os.unlink(net + "/net/tcp6")
+            else:
+                with open(net + "/net/tcp", "a") as f:
+                    f.write("   1: zz\n")
+            r, _ = run_prologue(d, key, net=net + "/net")
+            self.assertEqual(r.returncode, 3, case)
+            self.assertEqual(os.listdir(d), [], case)
+        # (a table past 4 MiB, every row harmless: unreadable, the same)
+        d, net = self.tmp(), self.tmp()
+        write_net(net, [row4(i % 9999, "00000000", "1F90", "0A") for i in range(4 * 1024 * 1024 // 120 + 10)])
+        self.assertGreater(os.path.getsize(net + "/net/tcp"), 4 * 1024 * 1024)
+        r, _ = run_prologue(d, key, net=net + "/net")
+        self.assertEqual(r.returncode, 3)
+        # (the control: other listeners, and 22 not listening, pass)
+        d, net = self.tmp(), self.tmp()
+        write_net(net, [row4(0, "00000000", "1F90", "0A"), row4(1, "0A000002", "0016", "01", rport="D431")],
+                  [row6(0, "0" * 32, "0017", "0A")])
+        r, _ = run_prologue(d, key, net=net + "/net")
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_fails_closed(self):
         d = self.tmp()
@@ -168,8 +213,10 @@ class PrologueTest(Base):
         d = self.tmp()
         key = random_key("rpa")
         with open(PROLOGUE) as f:
-            script = "SBGPU_PROBE_SALT='%s'\nSBGPU_PROBE_DIR='%s'\n" % (secrets.token_hex(32), d) + f.read()
-        script += 'test "${' + "RUNPOD" + '_API_KEY-}" = "$EXPECT" && test -z "${SBGPU_PROBE_SALT-}${SBGPU_PROBE_DIR-}" && echo fell-through\n'
+            script = "SBGPU_PROBE_SALT='%s'\nSBGPU_PROBE_DIR='%s'\nSBGPU_PROBE_NET='%s'\n" % (secrets.token_hex(32), d,
+                                                                                         CLEAN_NET) + f.read()
+        script += ('test "${' + "RUNPOD" + '_API_KEY-}" = "$EXPECT" && '
+                   'test -z "${SBGPU_PROBE_SALT-}${SBGPU_PROBE_DIR-}${SBGPU_PROBE_NET-}" && echo fell-through\n')
         r = subprocess.run(["/bin/sh", "-c", script], env={"PATH": os.environ["PATH"], "RUNPOD" + "_API_KEY": key, "EXPECT": key},
                            capture_output=True)
         self.assertEqual(r.stdout, b"fell-through\n", r.stderr)
@@ -319,6 +366,7 @@ class RunTest(Base):
         self.root = self.tmp()
         self.proc = self.root + "/proc"
         os.makedirs(self.proc + "/1")
+        shutil.copytree(CLEAN_NET, self.proc + "/net")
         with open(self.proc + "/mounts", "w") as f:
             f.write("none / overlay rw 0 0\nproc /proc proc rw 0 0\n")
         with open(self.proc + "/1/environ", "wb") as f:

@@ -80,11 +80,16 @@ const SALT_RE = /^[0-9a-f]{64}$/;
  * launcher, as `["/bin/sh", "-c", renderProbePrologue(salt) + renderBootScript(values)]`.  It captures, from the
  * provider's injected RUNPOD_API_KEY, only a salted digest, the byte length, a coarse class set and a short prefix (or
  * none), into a 0600 file the probe agent reads; then it falls through into the launcher.  Never used in production.
- * `saltHex`: 32 random bytes as 64 lowercase hex, fresh per run.  `dir` is for tests only (default /opt/sbgpu).
+ * Before it touches the key, it stops if anything listens on TCP port 22.
+ * `saltHex`: 32 random bytes as 64 lowercase hex, fresh per run.  `dir` and `netDir` are for tests only (defaults
+ * /opt/sbgpu and /proc/net).
  */
-export function renderProbePrologue(saltHex: string, opts: { dir?: string } = {}): string {
+export function renderProbePrologue(saltHex: string, opts: { dir?: string; netDir?: string } = {}): string {
   if (!SALT_RE.test(saltHex)) throw new Error("the salt must be 64 lowercase hex");
   const dir = opts.dir ?? "/opt/sbgpu";
-  if (!PREFIX_RE.test(dir) || dir.split("/").includes("..")) throw new Error("dir must be an absolute plain path");
-  return `SBGPU_PROBE_SALT='${saltHex}'\nSBGPU_PROBE_DIR='${dir}'\n` + PROBE_PROLOGUE_SH;
+  const net = opts.netDir ?? "/proc/net";
+  for (const [what, p] of [["dir", dir], ["netDir", net]] as const) {
+    if (!PREFIX_RE.test(p) || p.split("/").includes("..")) throw new Error(`${what} must be an absolute plain path`);
+  }
+  return `SBGPU_PROBE_SALT='${saltHex}'\nSBGPU_PROBE_DIR='${dir}'\nSBGPU_PROBE_NET='${net}'\n` + PROBE_PROLOGUE_SH;
 }
