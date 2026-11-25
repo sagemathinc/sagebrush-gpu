@@ -20,10 +20,11 @@ import type { Db } from "./db.ts";
 import { HttpError, base64url, json, sha256Hex } from "./http.ts";
 import { closeAccrual } from "./ledger.ts";
 
-/** What the provider adapter says about an instance (gpu2's InstanceFacts, @sbgpu/providers). */
-export type InstanceFacts = { state: "active" | "absent" | "other"; ipv4: string | null; exclusive: boolean } | "unavailable";
+import type { InstanceFacts } from "@sbgpu/providers";
 
-/** The two calls VM mode needs from a provider adapter. */
+export type { InstanceFacts };
+
+/** The two calls VM mode needs from a provider adapter (the Hyperstack adapter has them). */
 export interface VmProvider {
   instanceFacts(providerMachineId: string): Promise<InstanceFacts>;
   /** Idempotent; throws when the provider can't confirm the request was taken. */
@@ -143,11 +144,12 @@ export const VM_HANDLERS: Handlers = {
       throw new HttpError("badRequest", "an announce is exactly machineId, nonce and bootScriptSha256");
     }
     const now = deps.now();
-    // the machine's open VM launch (its current incarnation)
+    // the machine's VM launch for its current incarnation, unless it's already terminated
+    // (an enrolled one included: a valid second announce after enroll terminates too)
     const rows = await deps.db.all<LaunchRow>(
       `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.nonce_sha256, v.boot_script_sha256, v.ipv4, v.first_active_ms, v.announce_ms, v.watchdog_version
        FROM vm_launches v JOIN machines m ON m.id = v.machine_id AND m.incarnation = v.incarnation
-       WHERE v.machine_id = ? AND v.outcome IN ('launched', 'issued', 'terminate')`,
+       WHERE v.machine_id = ? AND v.outcome <> 'terminated'`,
       [machineId],
     );
     const r = rows[0];

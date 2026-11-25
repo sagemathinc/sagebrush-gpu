@@ -3,8 +3,15 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { newId } from "@sbgpu/api";
 import { stmt } from "./db.ts";
+import { openAccrual } from "./ledger.ts";
 import { ANNOUNCE_DEADLINE_MS, BOOT_TOKEN_TTL_MS, PROVIDER_CALL_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, canonicalIpv4, runVmWatchdog, terminateAttempt, type InstanceFacts, type JobEnv, type VmProvider } from "./vm.ts";
 import { ORIGIN, T0, addMember, world, type World } from "./testing/world.ts";
+import { BOOT_SCRIPT_VECTOR, bootScriptSha256, renderBootScript } from "@sbgpu/machine";
+import type { HyperstackAdapter } from "@sbgpu/providers";
+
+// (the Hyperstack adapter is a VmProvider: a compile-time check)
+const _adapterFits: (a: HyperstackAdapter) => VmProvider = (a) => a;
+void _adapterFits;
 
 const IP = "203.0.113.7";
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
@@ -179,8 +186,11 @@ test("announce: a provider that never answers is unavailable after its deadline"
 test("announce: a second announce, right or racing, terminates; one token at most", async () => {
   const l = await launch();
   assert.equal((await announce(bodyOf(l))).res.status, 200);
+  w.clock.t += 1000;
+  const calls = vm.factsCalls;
   const again = await announce(bodyOf(l));
   assert.deepEqual([again.res.status, again.json], [403, REFUSED]);
+  assert.equal(vm.factsCalls, calls + 1); // (only the termination's own read: the second announce never reaches the facts check)
   const row = await launchRow(l.machineId);
   assert.deepEqual([row.outcome, row.terminate_reason], ["terminated", "second-announce"]);
   assert.ok(vm.terminated.includes(l.providerMachineId));
@@ -300,4 +310,45 @@ test("schema: one token per launch, at most 120 s; reasons exactly for terminati
   await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET terminate_reason = 'second-announce' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
   await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'issued' WHERE machine_id = ?`, l.machineId)]), /CHECK/);
   await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET boot_script_sha256 = ? WHERE machine_id = ?`, SCRIPT.toUpperCase(), l.machineId)]), /CHECK/);
+});
+
+test("announce: a launch of an older incarnation, or an IP that's a prefix of the launch's, is refused untouched", async () => {
+  const l = await launch();
+  await w.db.batch([stmt(`UPDATE machines SET incarnation = 2 WHERE id = ?`, l.machineId)]);
+  assert.equal((await announce(bodyOf(l))).res.status, 403);
+  assert.equal((await launchRow(l.machineId)).outcome, "launched");
+  const p = await launch({ ipv4: "203.0.113.70" });
+  assert.equal((await announce(bodyOf(p), { "cf-connecting-ip": "203.0.113.7" })).res.status, 403);
+  assert.equal((await launchRow(p.machineId)).outcome, "launched");
+  assert.equal((await announce(bodyOf(p), { "cf-connecting-ip": "203.0.113.70" })).res.status, 200);
+});
+
+test("announce: a valid second announce after enroll terminates too", async () => {
+  const l = await launch();
+  assert.equal((await announce(bodyOf(l))).res.status, 200);
+  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled' WHERE machine_id = ?`, l.machineId)]);
+  w.clock.t += 1000;
+  assert.equal((await announce(bodyOf(l))).res.status, 403);
+  const row = await launchRow(l.machineId);
+  assert.deepEqual([row.outcome, row.terminate_reason], ["terminated", "second-announce"]);
+});
+
+test("watchdog: confirmation closes the machine's open accrual at that time", async () => {
+  const l = await launch({ firstActiveMs: T0 - ANNOUNCE_DEADLINE_MS });
+  await w.db.batch(openAccrual(l.machineId, { incarnation: 1, provider: "hyperstack", providerCostPerHour: 1_000_000, marginBps: 3000, startMs: T0 - ANNOUNCE_DEADLINE_MS }));
+  w.clock.t = T0 + 30_000;
+  await runVmWatchdog(env());
+  const a = await w.db.all<{ end_ms: number | null }>(`SELECT end_ms FROM machine_accruals WHERE machine_id = ?`, [l.machineId]);
+  assert.deepEqual(a.map((x) => x.end_ms), [T0 + 30_000]);
+  assert.equal(WATCHDOG_BATCH, 20);
+});
+
+test("announce: the boot script's hash is the shared vector's (the same bytes on all three sides)", async () => {
+  // what the start path records: the hash of the exact rendered script (gpu-wide definition in @sbgpu/machine)
+  const hash = await bootScriptSha256(renderBootScript(BOOT_SCRIPT_VECTOR.values));
+  assert.equal(hash, BOOT_SCRIPT_VECTOR.sha256);
+  const l = await launch();
+  await w.db.batch([stmt(`UPDATE vm_launches SET boot_script_sha256 = ? WHERE machine_id = ?`, hash, l.machineId)]);
+  assert.equal((await announce(bodyOf(l, { bootScriptSha256: SCRIPT }))).res.status, 403); // (another script's hash)
+  assert.equal((await announce(bodyOf(l, { bootScriptSha256: BOOT_SCRIPT_VECTOR.sha256 }))).res.status, 200);
 });
