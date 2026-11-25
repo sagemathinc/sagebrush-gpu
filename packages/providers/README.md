@@ -201,12 +201,19 @@ exists), and a command that doesn't read back as sent.
     masked from all output and never reported. The report records the URL, the pin and the sha256
     of the complete argv. The boot token is random; nothing exchanges it.
   - **Results:** read from the container log (`SBGPU-PROBE {v, boot, check, pass, paths,
-    detail}` lines). `judgeStage` passes a stage only if it holds exactly one run of pid1, environ,
-    files, metadata, history and done, in that order, all passing and in one boot. Every raw log
+    detail}` lines). `judgeStage` passes a stage only if it holds exactly one run of listen22-start,
+    pid1, environ, files, metadata, history, listen22-end and done, in that order (the probe
+    agent's own `CHECK_ORDER`, which a test reads from its source), all passing and in one boot.
+    Both listen22 lines (no TCP listener on port 22, IPv4 or IPv6, at the start and just before
+    done) carry no paths and pass only with `no-listener`; `listener` and `unreadable` fail, and
+    anything else is `bad-listen22-report`. Every raw log
     line, probe lines included, is scanned before parsing, and every decoded field of an accepted
     probe line again after it (JSON escapes such as `\u0052` hide from a raw scan): the key's name
     or a key-shaped string anywhere fails the stage, and the probe agent searches by the captured
     value itself (`found-value`), whatever its format.
+  - **The pinned agent:** a paid run (`--execute`) takes only `PINNED_PROBE_AGENT` (cli.ts), the
+    release built from the agent that prints those eight checks, so an older agent can never meet
+    this judge.
   - **Capture:** each stage's passing pid1 reports the key's shape (e.g. `v44-rpa-dlsu`) and the
     salted digest. The driver compares shape and digest across the three stages internally; the
     report carries only `observedShape` and the boolean `captureConsistent`, never a digest. An

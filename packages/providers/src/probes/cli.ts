@@ -3,8 +3,9 @@
 //
 //   node packages/providers/src/probes/cli.ts --agent-url URL --agent-sha256 HEX --control-url URL [options]
 //
-//   --agent-url URL        https URL of the pinned probe agent tarball (required)
-//   --agent-sha256 HEX     its sha256, 64 lowercase hex (required)
+//   --agent-url URL        https URL of the probe agent tarball (required; with --execute, exactly
+//                          PINNED_PROBE_AGENT's)
+//   --agent-sha256 HEX     its sha256, 64 lowercase hex (required; with --execute, exactly the pin)
 //   --control-url URL      https URL of the control plane (required; checked by the launcher)
 //                          The launcher argv is built from these and a fresh random salt: the
 //                          probe-only prologue (@sbgpu/machine renderProbePrologue) followed by the
@@ -50,6 +51,16 @@ export const AUTHORIZED_KEY_FILE = "/run/secrets/cocalc/runpod";
 export const MAX_KEY_FILE_BYTES = 512;
 
 export const DEFAULT_IMAGE = "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404";
+
+/**
+ * The only probe agent a paid run may launch: the release built from the commit whose agent
+ * prints exactly PROBE_CHECKS (listen22-start ... listen22-end, done). Pinned here so the judge and
+ * the agent change together: an older tarball (six checks) can never meet this judge in a paid run.
+ */
+export const PINNED_PROBE_AGENT = {
+  url: "https://github.com/sagemathinc/sagebrush-gpu/releases/download/probe-agent-8de3c4382a7d/sbgpu-probe-agent.tar.gz",
+  sha256: "8de3c4382a7d04c88cd5eb4217c6d89a9da03faa395e7c03df46dd7d7e434324",
+} as const;
 
 export interface CliOptions {
   agentUrl: string;
@@ -111,6 +122,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
   }
   if (!isGpuType(o.gpu)) throw new RangeError(`unknown GPU type: ${o.gpu}`);
   if (o.execute && o.approval.trim().length < 8) throw new RangeError("--execute needs --approval");
+  if (o.execute && (o.agentUrl !== PINNED_PROBE_AGENT.url || o.agentSha256 !== PINNED_PROBE_AGENT.sha256)) {
+    throw new RangeError("--execute needs the pinned probe agent (PINNED_PROBE_AGENT)");
+  }
   if (o.execute && o.keyFile !== AUTHORIZED_KEY_FILE) throw new RangeError(`--execute needs --key-file ${AUTHORIZED_KEY_FILE}`);
   if (!o.execute && o.keyFile !== "") throw new RangeError("--key-file is only for --execute");
   return o;

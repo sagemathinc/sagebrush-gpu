@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
@@ -8,6 +14,7 @@ import {
   completeEventsLength,
   finishRun,
   MAX_KEY_FILE_BYTES,
+  PINNED_PROBE_AGENT,
   parseArgs,
   planFor,
   readKeyFile,
@@ -30,6 +37,7 @@ import {
   parseLogSse,
   parseProbeLine,
   CALL_TIMEOUT_MS,
+  PROBE_CHECKS,
   ProbeFormatError,
   probeLauncher,
   RESERVE_MS,
@@ -43,7 +51,10 @@ const line = (check: string, pass = true, extra: Record<string, unknown> = {}) =
 const DIG = "d".repeat(64);
 const SHAPE_DETAIL = "v44-rpa-dlsu";
 const pid1 = (digest = DIG, shape = SHAPE_DETAIL) => line("pid1", true, { detail: shape, paths: [`digest:${digest}`] });
-const RUN = [pid1(), ...["environ", "files", "metadata", "history", "done"].map((c) => line(c))];
+const L22 = (where: "start" | "end", pass = true, detail = pass ? "no-listener" : "listener") => line(`listen22-${where}`, pass, { detail });
+const RUN = [L22("start"), pid1(), ...["environ", "files", "metadata", "history"].map((c) => line(c)), L22("end"), line("done")];
+/** RUN with pid1 (its second line) replaced. */
+const withPid1 = (l: string) => [RUN[0]!, l, ...RUN.slice(2)];
 
 // ---------------------------------------------------------------- lines and stages
 
@@ -96,14 +107,27 @@ const stageFailures: Array<[string, string[], string]> = [
   ["a missing check", RUN.filter((l) => !l.includes('"metadata"')), "checks-incomplete-or-out-of-order"],
   ["checks out of order", [RUN[1]!, RUN[0]!, ...RUN.slice(2)], "checks-incomplete-or-out-of-order"],
   ["a repeated run", [...RUN, ...RUN], "checks-incomplete-or-out-of-order"],
-  ["no done", RUN.slice(0, 5), "checks-incomplete-or-out-of-order"],
+  ["no done", RUN.slice(0, 7), "checks-incomplete-or-out-of-order"],
+  ["no listen22-start", RUN.slice(1), "checks-incomplete-or-out-of-order"],
+  ["no listen22-end", RUN.filter((l) => !l.includes('"listen22-end"')), "checks-incomplete-or-out-of-order"],
+  ["two listen22-start and no listen22-end", [...RUN.slice(0, 6), L22("start"), RUN[7]!], "checks-incomplete-or-out-of-order"],
+  ["two listen22-end and no listen22-start", [L22("end"), ...RUN.slice(1)], "checks-incomplete-or-out-of-order"],
+  ["listen22-end before history", [...RUN.slice(0, 5), RUN[6]!, RUN[5]!, RUN[7]!], "checks-incomplete-or-out-of-order"],
+  ["a listener at the start", [L22("start", false), ...RUN.slice(1)], "check-failed"],
+  ["a listener at the end", [...RUN.slice(0, 6), L22("end", false), RUN[7]!], "check-failed"],
+  ["unreadable /proc/net at the start", [L22("start", false, "unreadable"), ...RUN.slice(1)], "check-failed"],
+  ["a passing listen22 with another detail", [L22("start", true, "listener"), ...RUN.slice(1)], "bad-listen22-report"],
+  ["a passing listen22 with no detail", [...RUN.slice(0, 6), L22("end", true, ""), RUN[7]!], "bad-listen22-report"],
+  ["a failing listen22 with another detail", [L22("start", false, "found-name"), ...RUN.slice(1)], "bad-listen22-report"],
+  ["a failing listen22 with no-listener", [...RUN.slice(0, 6), L22("end", false, "no-listener"), RUN[7]!], "bad-listen22-report"],
+  ["a listen22 with paths", [line("listen22-start", true, { detail: "no-listener", paths: ["/proc/net/tcp"] }), ...RUN.slice(1)], "bad-listen22-report"],
   ["two boots", [...RUN.slice(0, 3), ...RUN.slice(3).map((l) => l.replace('"boot":1', '"boot":2'))], "several-boots-in-one-stage"],
   ["a failed check", RUN.map((l) => (l.includes('"environ"') ? line("environ", false, { paths: ["/proc/7/environ"] }) : l)), "check-failed"],
   ["a malformed probe line", [...RUN, "SBGPU-PROBE {"], "malformed-probe-line"],
   ["the key name in a log line", [...RUN, "export RUNPOD_API_KEY"], "key-name-in-log"],
   ["a key assignment in a log line", [...RUN, "env: RUNPOD_API_KEY=x"], "key-shaped-string-in-log"],
   ["a key-shaped string in a log line", [...RUN, "token rpa_ABCDEFGHIJKLMNOPQRSTUV"], "key-shaped-string-in-log"],
-  ["a key-shaped string inside a probe line", [...RUN.slice(0, 5), line("done", true, { paths: ["/tmp/rpa_ABCDEFGHIJKLMNOPQRSTUV"] })], "key-shaped-string-in-log"],
+  ["a key-shaped string inside a probe line", [...RUN.slice(0, 7), line("done", true, { paths: ["/tmp/rpa_ABCDEFGHIJKLMNOPQRSTUV"] })], "key-shaped-string-in-log"],
 ];
 
 for (const [what, lines, failure] of stageFailures) {
@@ -659,14 +683,30 @@ test("parseArgs: dry run by default; execute needs an approval; no way to pass a
   assert.equal(o.execute, false);
   assert.equal(o.gpu, "RTX-A4000");
   assert.equal(o.maxUsd, 3);
-  assert.equal(parseArgs([...ARGS, "--execute", "--approval", "William 2026-12-01", "--key-file", AUTHORIZED_KEY_FILE]).execute, true);
+  const PIN = ["--agent-url", PINNED_PROBE_AGENT.url, "--agent-sha256", PINNED_PROBE_AGENT.sha256, "--control-url", agent.controlUrl];
+  const EXEC = ["--execute", "--approval", "William 2026-12-01", "--key-file", AUTHORIZED_KEY_FILE];
+  assert.equal(parseArgs([...PIN, ...EXEC]).execute, true);
+  // A paid run takes only the pinned agent: not another hash, not another URL, not the old six-check release.
+  const OLD = "a9269fd34b5d72f116e1ddfe67e4be034ec64f689e1c00f607b5606b12f7e686";
   for (const bad of [
-    [...ARGS, "--execute", "--approval", "William 2026-12-01"],
-    [...ARGS, "--execute", "--approval", "William 2026-12-01", "--key-file", "/tmp/key"],
-    [...ARGS, "--execute", "--approval", "William 2026-12-01", "--key-file", AUTHORIZED_KEY_FILE + "/"],
-    [...ARGS, "--key-file", AUTHORIZED_KEY_FILE],
-    [...ARGS, "--execute", "--key-file", AUTHORIZED_KEY_FILE],
-    [...ARGS, "--execute", "--approval", "ok", "--key-file", AUTHORIZED_KEY_FILE],
+    [...ARGS, ...EXEC],
+    ["--agent-url", PINNED_PROBE_AGENT.url, "--agent-sha256", OLD, "--control-url", agent.controlUrl, ...EXEC],
+    ["--agent-url", PINNED_PROBE_AGENT.url.replace("8de3c4382a7d", "a9269fd34b5d"), "--agent-sha256", PINNED_PROBE_AGENT.sha256, "--control-url", agent.controlUrl, ...EXEC],
+    ["--agent-url", PINNED_PROBE_AGENT.url + "?x", "--agent-sha256", PINNED_PROBE_AGENT.sha256, "--control-url", agent.controlUrl, ...EXEC],
+  ]) {
+    assert.throws(() => parseArgs(bad), /pinned probe agent/, JSON.stringify(bad));
+  }
+  // Dry runs may name any agent (nothing launches).
+  assert.equal(parseArgs(ARGS).agentSha256, HASH);
+  assert.match(PINNED_PROBE_AGENT.sha256, /^[0-9a-f]{64}$/);
+  assert.ok(PINNED_PROBE_AGENT.url.includes(`/probe-agent-${PINNED_PROBE_AGENT.sha256.slice(0, 12)}/`));
+  for (const bad of [
+    [...PIN, "--execute", "--approval", "William 2026-12-01"],
+    [...PIN, "--execute", "--approval", "William 2026-12-01", "--key-file", "/tmp/key"],
+    [...PIN, "--execute", "--approval", "William 2026-12-01", "--key-file", AUTHORIZED_KEY_FILE + "/"],
+    [...PIN, "--key-file", AUTHORIZED_KEY_FILE],
+    [...PIN, "--execute", "--key-file", AUTHORIZED_KEY_FILE],
+    [...PIN, "--execute", "--approval", "ok", "--key-file", AUTHORIZED_KEY_FILE],
   ]) {
     assert.throws(() => parseArgs(bad), RangeError, JSON.stringify(bad));
   }
@@ -793,7 +833,7 @@ test("validShape: exactly the prologue's grammar, with each field's edges", () =
 
 for (const [what, l] of badCaptures) {
   test(`a passing pid1 with ${what} fails the stage (bad-capture-report), with no digest`, () => {
-    const { result, digest } = judgeStageWithDigest([l, ...RUN.slice(1)]);
+    const { result, digest } = judgeStageWithDigest(withPid1(l));
     assert.equal(result.pass, false);
     assert.ok(result.failures.includes("bad-capture-report"), JSON.stringify(result.failures));
     assert.equal(digest, null);
@@ -803,10 +843,10 @@ for (const [what, l] of badCaptures) {
 
 test("a failed stage gives no digest, and digests never appear in reported paths", () => {
   const failingPid1 = line("pid1", false, { detail: "bad-capture", paths: [`digest:${DIG}`, "/opt/sbgpu/probe-capture"] });
-  const { result, digest } = judgeStageWithDigest([failingPid1, ...RUN.slice(1)]);
+  const { result, digest } = judgeStageWithDigest(withPid1(failingPid1));
   assert.equal(digest, null);
   assert.deepEqual(result.failedChecks, [{ check: "pid1", detail: "bad-capture", paths: ["/opt/sbgpu/probe-capture"] }]);
-  const { digest: d2 } = judgeStageWithDigest([...RUN.slice(0, 2), line("files", false), ...RUN.slice(3)]);
+  const { digest: d2 } = judgeStageWithDigest([...RUN.slice(0, 3), line("files", false), ...RUN.slice(4)]);
   assert.equal(d2, null);
 });
 
@@ -831,8 +871,8 @@ test("a clean run with the same capture in every stage passes; the report has th
 });
 
 for (const [what, stage3] of [
-  ["a different digest", [pid1("e".repeat(64)), ...RUN.slice(1)]],
-  ["a different shape", [pid1(DIG, "v45-rpa-dlsu"), ...RUN.slice(1)]],
+  ["a different digest", withPid1(pid1("e".repeat(64)))],
+  ["a different shape", withPid1(pid1(DIG, "v45-rpa-dlsu"))],
 ] as const) {
   test(`${what} after stop/start is inconsistent: aborted, never pass`, async () => {
     const w: World = { log: [], stages: [RUN, RUN, [...stage3]] };
@@ -1232,5 +1272,111 @@ test("an unreadable diagnostic never blocks cleanup: the pod is terminated, the 
     assert.equal(r.terminatedConfirmed, true);
     assert.equal(r.providerMachineId, "podX");
     assert.ok(!JSON.stringify(r).includes(CANARY));
+  }
+});
+
+test("a listen22 failure is a failed check, well formed: listener and unreadable at either end", () => {
+  for (const detail of ["listener", "unreadable"]) {
+    for (const lines of [[L22("start", false, detail), ...RUN.slice(1)], [...RUN.slice(0, 6), L22("end", false, detail), RUN[7]!]]) {
+      const r = judgeStage(lines);
+      assert.deepEqual(r.failures, ["check-failed"], detail);
+      assert.equal(r.complete, true);
+      assert.deepEqual(r.failedChecks.map((c) => [c.detail, c.paths]), [[detail, []]]);
+    }
+  }
+});
+
+// ---------------------------------------------------------------- the probe agent's contract
+
+test("the judge's check order is exactly the probe agent's CHECK_ORDER", () => {
+  // Read from the agent's own source, so the two can never drift apart unnoticed.
+  const src = readFileSync(new URL("../../../machine/probe/sbgpu-agent/sbgpu_probe/main.py", import.meta.url), "utf8");
+  const m = /^CHECK_ORDER = \(([^)]*)\)$/m.exec(src);
+  assert.ok(m, "CHECK_ORDER not found in the probe agent");
+  const order = [...m[1]!.matchAll(/"([a-z0-9-]+)"/g)].map((x) => x[1]);
+  assert.deepEqual(order, [...PROBE_CHECKS]);
+});
+
+test("an eight-line transcript as the probe agent prints it passes; the old six-line one fails", () => {
+  // Lines byte-for-byte in the agent's format: json.dumps with separators (",", ":") and these key orders.
+  const agentLine = (check: string, detail: string, paths: string[] = []) =>
+    `SBGPU-PROBE {"v":1,"boot":1,"check":"${check}","pass":true,"paths":${JSON.stringify(paths)},"detail":"${detail}"}`;
+  const eight = [
+    agentLine("listen22-start", "no-listener"),
+    agentLine("pid1", SHAPE_DETAIL, [`digest:${DIG}`]),
+    agentLine("environ", ""), agentLine("files", ""), agentLine("metadata", ""), agentLine("history", ""),
+    agentLine("listen22-end", "no-listener"),
+    agentLine("done", ""),
+  ];
+  const r = judgeStage(eight);
+  assert.deepEqual([r.pass, r.complete, r.failures], [true, true, []]);
+  const six = eight.filter((l) => !l.includes('"listen22-'));
+  const old = judgeStage(six);
+  assert.deepEqual([old.pass, old.complete], [false, false]);
+  assert.deepEqual(old.failures, ["checks-incomplete-or-out-of-order"]);
+});
+
+// ---------------------------------------------------------------- the real agent, and the pinned bytes
+
+const AGENT_DIR = fileURLToPath(new URL("../../../machine/probe/sbgpu-agent", import.meta.url));
+
+/**
+ * One boot's transcript from the real probe agent (sbgpu_probe.main.run) against a fake root built
+ * with the agent's own test fixtures, with a real capture from the real prologue. `net` changes
+ * /proc/net before the run: "listener" puts a LISTEN socket on :22, "unreadable" removes tcp6.
+ */
+function realTranscript(net: "clean" | "listener" | "unreadable"): string[] {
+  const program = `
+import io, os, sys
+agent = sys.argv[1]
+sys.path[:0] = [agent, os.path.join(agent, "tests")]
+from sbgpu_probe import main
+import test_probe as tp
+from test_capture import random_key, run_prologue
+t = tp.Tree()
+try:
+    t.process(1)
+    r, _ = run_prologue(t.dir + "/opt/sbgpu", random_key("rpa"))
+    assert r.returncode == 0, r.stderr
+    if sys.argv[2] == "listener":
+        tp.write_net(t.proc, [tp.row4(0, "00000000", "0016", "0A")], [])
+    elif sys.argv[2] == "unreadable":
+        os.remove(t.proc + "/net/tcp6")
+    out = io.StringIO()
+    main.run(out=out, root=t.dir, proc=t.proc, pid=1, boots_file=t.dir + "/opt/sbgpu/probe-boots",
+             get=lambda *a: None, capture_file=t.dir + "/opt/sbgpu/probe-capture")
+    sys.stdout.write(out.getvalue())
+finally:
+    t.close()
+`;
+  return execFileSync("python3", ["-I", "-c", program, AGENT_DIR, net], { encoding: "utf8" }).split("\n").filter((l) => l !== "");
+}
+
+test("the real probe agent's transcript passes the judge; a real listener or unreadable table fails it", () => {
+  const clean = realTranscript("clean");
+  assert.equal(clean.length, PROBE_CHECKS.length);
+  const r = judgeStage(clean);
+  assert.deepEqual([r.pass, r.complete, r.failures], [true, true, []]);
+  assert.ok(r.shape !== null && validShape(r.shape));
+  for (const [net, detail] of [["listener", "listener"], ["unreadable", "unreadable"]] as const) {
+    const lines = realTranscript(net);
+    const f = judgeStage(lines);
+    assert.deepEqual([f.pass, f.complete, f.failures], [false, true, ["check-failed"]], net);
+    assert.deepEqual(f.failedChecks.map((c) => [c.check, c.detail, c.paths]), [["listen22-start", detail, []], ["listen22-end", detail, []]], net);
+  }
+});
+
+test("PINNED_PROBE_AGENT.sha256 is the sha256 of the probe tarball built from this repository's agent", () => {
+  // No network: the reproducible build (build-tarball.py) of the agent source, hashed here.
+  const dir = mkdtempSync(join(tmpdir(), "sbgpu-pin-"));
+  try {
+    const out = join(dir, "probe.tar.gz");
+    const script = fileURLToPath(new URL("../../../machine/scripts/build-tarball.py", import.meta.url));
+    execFileSync("python3", ["-I", script, AGENT_DIR, out], { stdio: ["ignore", "ignore", "inherit"] });
+    const bytes = readFileSync(out);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), PINNED_PROBE_AGENT.sha256);
+    assert.ok(PINNED_PROBE_AGENT.url.endsWith(`/probe-agent-${PINNED_PROBE_AGENT.sha256.slice(0, 12)}/sbgpu-probe-agent.tar.gz`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

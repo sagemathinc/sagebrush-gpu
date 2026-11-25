@@ -28,8 +28,14 @@ import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../type
 // ---------------------------------------------------------------- the probe agent's report
 
 export const PROBE_PREFIX = "SBGPU-PROBE ";
-/** The checks of one boot, in the order the probe agent runs them. */
-export const PROBE_CHECKS = ["pid1", "environ", "files", "metadata", "history", "done"] as const;
+/**
+ * The checks of one boot, in the order the probe agent runs them. The two port-22 checks (SEC,
+ * Nov 24) bracket the rest: no TCP listener on port 22, IPv4 or IPv6, at the start of every boot
+ * and again just before done.
+ */
+export const PROBE_CHECKS = [
+  "listen22-start", "pid1", "environ", "files", "metadata", "history", "listen22-end", "done",
+] as const;
 export type ProbeCheck = (typeof PROBE_CHECKS)[number];
 
 export interface ProbeLine {
@@ -170,6 +176,11 @@ export function judgeStageWithDigest(lines: readonly string[]): { result: StageR
       if (field.includes(KEY_NAME)) failures.push("key-name-in-log");
     }
     probe.push(p);
+    if (p.check === "listen22-start" || p.check === "listen22-end") {
+      // Only the three fixed outcomes, no paths, and a pass that agrees with its detail.
+      const ok = p.paths.length === 0 && (p.pass ? p.detail === "no-listener" : p.detail === "listener" || p.detail === "unreadable");
+      if (!ok) failures.push("bad-listen22-report");
+    }
     if (p.check === "pid1" && p.pass) {
       // A passing pid1 must carry exactly the shape and one digest, nothing else.
       const m = p.paths.length === 1 ? DIGEST_PATH.exec(p.paths[0]!) : null;
