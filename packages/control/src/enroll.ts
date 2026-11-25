@@ -12,6 +12,7 @@
 import { DEFAULT_POLICY, isBootTokenShape, mergePolicy, parseGateReport, signToken, toIso, type AgentClaims, type AgentEnrollResponse, type ProjectPolicy, type VmGateReport } from "@sbgpu/api";
 import type { Ctx, Handlers } from "./app.ts";
 import type { Stmt } from "./db.ts";
+import { HEARTBEAT_LOST_MS } from "./heartbeat.ts";
 import { HttpError, base64url, json, sha256Hex } from "./http.ts";
 import { terminateAttempt, withDeadline, type InstanceFacts, type JobEnv } from "./vm.ts";
 
@@ -197,9 +198,9 @@ export const ENROLL_HANDLERS: Handlers = {
         useToken(r, at, true),
         took,
         {
-          sql: `UPDATE vm_launches SET outcome = 'enrolled', next_ms = NULL, watchdog_version = watchdog_version + 1
+          sql: `UPDATE vm_launches SET outcome = 'enrolled', next_ms = NULL, heartbeat_due_ms = ?, watchdog_version = watchdog_version + 1
                 WHERE machine_id = ? AND incarnation = ? AND provider = ? AND provider_machine_id = ? AND outcome = 'issued' AND watchdog_version = ?`,
-          params: [r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],
+          params: [at + HEARTBEAT_LOST_MS, r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],
         },
         took,
         { sql: `UPDATE machines SET state = 'running' WHERE id = ? AND incarnation = ? AND state = 'starting'`, params: [r.machine_id, r.incarnation] },

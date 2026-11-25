@@ -9,7 +9,7 @@ import { startSession } from "./sessions.ts";
 import type { AuthConfig } from "../auth.ts";
 import type { Fetch } from "../workos.ts";
 import type { VmProvider } from "../vm.ts";
-import type { AgentSignerSource } from "../signer.ts";
+import type { AgentKeysSource, AgentSignerSource } from "../signer.ts";
 import { normalizeEmail } from "../validate.ts";
 import { stmt } from "../db.ts";
 import { sqliteDb, type TestDb } from "./sqlite.ts";
@@ -31,7 +31,7 @@ export interface World {
 }
 
 export async function world(
-  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch; vm?: VmProvider; agentSigner?: AgentSignerSource } = {},
+  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch; vm?: VmProvider; agentSigner?: AgentSignerSource; agentPublicKeys?: AgentKeysSource } = {},
 ): Promise<World> {
   const db = sqliteDb(o.upgrade ? { upgrade: o.upgrade } : {});
   const pending: Promise<unknown>[] = [];
@@ -59,6 +59,7 @@ export async function world(
     },
     // (no signer unless a test gives one: VM enroll then refuses)
     agentSigner: o.agentSigner ?? (async () => null),
+    agentPublicKeys: o.agentPublicKeys ?? (async () => null),
     alert: (line) => {
       alerts.push(line);
     },

@@ -14,7 +14,7 @@ import { configFromEnv, createApp, withSecurityHeaders, type AppConfig } from ".
 import { d1Db, type D1Like, type Db } from "./db.ts";
 import { json } from "./http.ts";
 import { SCHEDULED_JOBS, type ScheduledJob } from "./jobs.ts";
-import { loadAgentSigner } from "./signer.ts";
+import { loadAgentPublicKeys, loadAgentSigner } from "./signer.ts";
 import { errorBody, type ErrorCode } from "@sbgpu/api";
 
 export interface WorkerEnv extends RelayRouteEnv {
@@ -72,6 +72,7 @@ export function createWorker(o: WorkerOptions = {}) {
         vm: null,
         waitUntil: guardedWaitUntil(ctx, log),
         agentSigner: () => loadAgentSigner(env.AGENT_SIGNING_JWK, env.AGENT_SIGNING_KID, env.AGENT_PUBLIC_KEYS),
+        agentPublicKeys: () => loadAgentPublicKeys(env.AGENT_PUBLIC_KEYS),
         alert: (line) => log(`control: alert: ${line}`),
       });
       return app.fetch(req);

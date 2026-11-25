@@ -15,6 +15,7 @@ import {
   projectRoleAtLeast,
   ROUTES,
   toIso,
+  type AgentClaims,
   type EndpointName,
   type ErrorCode,
   type Me,
@@ -28,7 +29,9 @@ import { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, cookieValue, js
 import type { Fetch } from "./workos.ts";
 import { ANNOUNCE_MAX_BODY_BYTES, VM_HANDLERS, type VmProvider } from "./vm.ts";
 import { ENROLL_HANDLERS, ENROLL_MAX_BODY_BYTES } from "./enroll.ts";
-import type { AgentSignerSource } from "./signer.ts";
+import type { AgentKeysSource, AgentSignerSource } from "./signer.ts";
+import { agentAuth } from "./agent-auth.ts";
+import { HEARTBEAT_HANDLERS, HEARTBEAT_MAX_BODY_BYTES } from "./heartbeat.ts";
 import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
@@ -83,6 +86,8 @@ export interface AppDeps {
   waitUntil(work: Promise<unknown>): void;
   /** The agent-token signer, proved ready per use; null when it isn't (VM enroll then refuses). */
   agentSigner: AgentSignerSource;
+  /** The pinned public keys by kid, for verifying agent tokens; null when the pins are malformed. */
+  agentPublicKeys: AgentKeysSource;
   /** An operator alert: a fixed line (never a token, key, address or other value). */
   alert(line: string): void;
 }
@@ -102,7 +107,7 @@ export function withSecurityHeaders(res: Response): Response {
 
 export const MAX_BODY_BYTES = 64 * 1024;
 /** Routes whose bodies are smaller still (read, counted and refused the same way, before any handler). */
-const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES };
+const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };
 
 function fail(e: HttpError): Response {
   return json(ERROR_STATUS[e.code], errorBody(e.code, e.message));
@@ -176,6 +181,8 @@ export interface Ctx {
   /** The caller's effective role in the route's scope, when it has one. */
   projectRole: ProjectRole | null;
   orgRole: OrgRole | null;
+  /** Set for agent routes: the verified agent token's claims. */
+  agent: AgentClaims | null;
 }
 
 async function sessionUser(deps: AppDeps, req: Request): Promise<{ userId: string; hash: string }> {
@@ -224,7 +231,10 @@ async function authorize(ctx: Ctx, access: RouteAccess): Promise<void> {
   const { deps } = ctx;
   if (access.auth === "public") return;
   if (access.auth === "system") throw new HttpError("forbidden", "operators only");
-  if (access.auth === "agent") throw new HttpError("unauthenticated", "agent tokens are not accepted yet");
+  if (access.auth === "agent") {
+    ctx.agent = await agentAuth(ctx);
+    return;
+  }
   const s = await sessionUser(deps, ctx.req);
   ctx.userId = s.userId;
   ctx.sessionHash = s.hash;
@@ -280,7 +290,7 @@ const AUTH_HANDLERS: Handlers = {
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS, ...HEARTBEAT_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 
@@ -310,6 +320,7 @@ export function createApp(deps: AppDeps, handlers: Handlers = HANDLERS): { fetch
           sessionHash: null,
           projectRole: null,
           orgRole: null,
+          agent: null,
         };
         await authorize(ctx, spec.access);
         const handler = handlers[match.name];
