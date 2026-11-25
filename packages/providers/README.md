@@ -321,9 +321,63 @@ Shadeform.
   - Terminate is `POST .../delete`, idempotent on 404. A 409 counts as done only if a fresh status shows the instance deleting or gone.
 - **Errors** keep no provider text (bodies can echo request values), and name a fetch failure only by a fixed word (`failureName`). An unreadable reply to a POST is `outcome_unknown`.
 
+## Hyperstack (`src/hyperstack/`, mock-only)
+
+Over Hyperstack's public Infrahub API (`https://infrahub-api.nexgencloud.com/v1`, key in the
+`api_key` header). It is built from Hyperstack's API reference and tested only against mocks:
+nothing here has called Hyperstack. Hyperstack is a VM provider, and VM mode's boot design is
+reviewed, but no VM launch is.
+
+- **launch() always refuses** (`invalid_request`, "VM launch is not enabled") before any request.
+  The create path lands separately, under its own review. Until then, Hyperstack must not be in any
+  project's `allowedProviders`.
+- **Offers** come from `GET /core/flavors` and `GET /pricebook`:
+  - only flavors with exactly the GPU count asked for, in a region `HYPERSTACK_REGIONS` gives a country;
+  - the price is the pricebook entry named exactly as the flavor's GPU, per GPU-hour, times the
+    count (to confirm against a real read). An entry that appears twice prices nothing, and so does
+    a price that rounds to 0 micros or whose total is not a safe integer;
+  - one offer per GPU type and region, preferring one in stock. Stock is `none` when
+    `stock_available` is false and `unknown` otherwise.
+- **Status.** A VM maps to our status as follows:
+  - the image is the VM's image name, the disk its flavor's disk;
+  - there are no environment names (a VM gets its boot token from the announce, not from the provider);
+  - ports are the ingress security rules;
+  - any security rule, port randomization not off, Enhanced Monitoring not off, or no public
+    IPv4 floating IP is an unexpected setting. A public IPv4 is one outside every block of
+    IANA's IPv4 special-purpose registry that isn't globally reachable, multicast and 240.0.0.0/4.
+    Anything unreadable stays unreadable, so drift fails closed;
+  - the command is a fixed marker, so no Hyperstack VM ever matches a launch spec. Until the
+    launch path brings its delivery form, every Hyperstack VM shows as drifted.
+
+  `SHUTOFF`, `HIBERNATED` and `DELETING` are `stopping` (a stopped VM is still billed); only
+  `DELETED` or a 404 is `terminated`.
+- **List and terminate.**
+  - The list is read by page number, 100 per page, at most 50 pages, with the same fail-closed checks as Shadeform's.
+  - Terminate is `DELETE /core/virtual-machines/{id}`, idempotent on 404. A 409 counts as done only if a fresh status shows the VM deleting or gone.
+- **For the announce.**
+  - `instanceFacts(id)` is the provider facts, read now:
+    - `absent` (404 or `DELETED`), `active` or `other`, with the public IPv4;
+    - `exclusive` only for an attached public IPv4 with port randomization off and no security rules;
+    - any failure is `"unavailable"`, never a throw.
+
+    Whether a floating IP is really exclusive is an open question to Hyperstack.
+  - `vmReadbackProblems(vm, want)` names every difference from the exact launch shape: ACTIVE, the
+    attached public IPv4, port randomization off, no security rules, Enhanced Monitoring off, no
+    volumes, and the exact name, environment, flavor, image and keypair.
+- **Per-launch keypair.**
+  - `perLaunchKeypair()` makes an Ed25519 pair whose private key can't be exported, with its OpenSSH public line.
+  - `importKeypair` accepts only our names (`sbg-…`) and that one line shape; `deleteKeypair` is idempotent on 404.
+- **Redirects are never followed.** Every request sets `redirect: "manual"`; Workers don't
+  implement `"error"`. Any non-2xx status, a 3xx or a status 0 included, is refused, so the
+  `api_key` header never reaches a second origin. A native test with two local origins checks this,
+  with a follow-mode control.
+- **Errors** are classified by HTTP status before any body read, so an error reply's body is
+  never read. They keep no provider text and name a fetch failure only by a fixed word. A 2xx
+  body that can't be read is `outcome_unknown`; an unreadable reply to a POST or DELETE is too.
+
 ## Not yet
 
-- Hyperstack/Nebius, after the Dec 12 provider decision.
+- Nebius, after the Dec 12 provider decision.
 
 ## Tests
 
