@@ -1,6 +1,7 @@
 // An organization's page, for anyone with a role in it: how it pays for machines, its
 // credit (or, for an organization on its own provider accounts, its budget) not yet given
-// to projects, and its projects with their budgets.
+// to projects, and its projects with their budgets; and for its owners, under byok, its
+// provider keys (keys-section.ts).
 
 import type { VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -9,6 +10,7 @@ import { BILLING_WORDS } from "../billing.ts";
 import { checkMove, exactUsd, moveBounds } from "../budget-move.ts";
 import { formatUsd } from "../money.ts";
 import { Link, type Nav } from "./components.ts";
+import { KeysSection } from "./keys-section.ts";
 import { html } from "./html.ts";
 import type { Store } from "./store.ts";
 
@@ -63,6 +65,7 @@ export function OrgPage({ store, orgId, nav }: { store: Store; orgId: string; na
         <div><dt>${words.total}</dt><dd>${formatUsd(org.totalCredit)}</dd></div>
       </dl>
     </section>
+    ${owner && org.billingMode === "byok" ? html`<${KeysSection} keys=${store.keys} orgId=${orgId} />` : null}
     <section class="card">
       <h2>Projects (${projects.length}${cut ? "+" : ""})</h2>
       ${cut ? html`<p class="warn small">${`Showing the first ${projects.length} projects.`}</p>` : null}

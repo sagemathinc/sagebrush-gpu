@@ -6,14 +6,16 @@
 //   then: new WebSocket("ws://127.0.0.1:8790/api/relay/v1/page?machine=mch_dev&chan=terminal")
 //         first message {"t":"hello","token":"dev"}
 //
-// It follows the relay's page side (DESIGN.md section 4): after the hello, {"relay":"ready","gen":n}; a receipt
+// It follows the relay's page side (DESIGN.md section 4.1): after the hello, {"relay":"ready","gen":n}; a receipt
 // {"relay":"receipt","r":…,"upto":n} after every 256 KiB sent, which the page must ack ({"relay":"ack","r":…}): past
 // 1 MiB unacknowledged, or 16 receipts out, the page is closed 1013; {"relay":"ping"} answered with pong, and a page
 // silent for 40 s closed 1001; any other relay control closes 1008.  And the agent's protocol (sbgpu_agent/terminal.py): hello; open (new) and open (reattach, with replay); in
 // and inack; resize; ack credit (256 KiB high, 64 KiB low); kill; exit last; the errors not_open, sessions,
 // unknown_session, elsewhere (then 4009); a malformed message closes the page (1002 or 1008); 4403 for a bad hello;
-// 1009 and 1003 for too big and binary.  Simplified: input is written at once (no input credit), output isn't
-// coalesced, and an exited session stays 10 minutes.  No Node dependencies: a minimal RFC 6455 server (text frames,
+// 1009 and 1003 for too big and binary.  Output credit is the agent's: while the page is paused (256 KiB
+// unacknowledged, until acks bring it to 64 KiB) the PTY isn't read, so the program blocks in write(); nothing is
+// skipped from the live stream.  Simplified: input is written at once (no input credit), output isn't coalesced, and
+// an exited session stays 10 minutes.  No Node dependencies: a minimal RFC 6455 server (text frames,
 // no extensions) and a Python PTY helper.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -165,15 +167,26 @@ function pump(p: Page): void {
   }
 }
 
+/**
+ * Output credit as the agent has it (DESIGN.md section 4.1): while the attached page is paused (256 KiB unacknowledged,
+ * until acks bring it to 64 KiB) the helper's output isn't read, so the PTY fills and the program blocks in write().
+ * Nothing goes to the ring only. With no page attached, output is read into the ring (a reattach replays it).
+ */
+function flow(s: Session): void {
+  const p = s.page;
+  const stdout = s.child.stdout!;
+  if (p && !p.exited && p.paused) stdout.pause();
+  else stdout.resume();
+}
+
 function output(s: Session, b: Buffer): void {
   ringAppend(s, b);
   const p = s.page;
   if (!p || p.exited) return;
-  // Beyond the credit, output goes to the ring only (a reattach replays it).
-  const queued = p.pending.reduce((n, x) => n + x.length, 0);
-  const room = MOCK_LIMITS.creditHigh - (p.sent - p.acked) - queued;
-  if (room > 0) p.pending.push(b.subarray(0, room));
+  // (what was read before the pause took hold waits in pending, and is sent as credit allows)
+  p.pending.push(b);
   pump(p);
+  flow(s);
 }
 
 function newSession(rows: number, cols: number): Session {
@@ -217,6 +230,8 @@ function attach(p: Page, s: Session): void {
   p.replaying = true;
   p.exitDue = s.exit !== null;
   p.pending.push(Buffer.from("\x1bc"), replayBytes(s));
+  // (the helper may still be paused for the page taken over: the replay is at least as long as that page's
+  // unacknowledged output, so this page pauses too, and its acks resume the reading)
   pump(p);
 }
 
@@ -278,7 +293,8 @@ function onMessage(p: Page, text: string): void {
       }
       p.acked = upto as number;
       if (p.paused && p.sent - p.acked <= MOCK_LIMITS.creditLow) p.paused = false;
-      return pump(p);
+      pump(p);
+      return flow(s);
     }
     case "kill": {
       if (keys !== "session,t" || msg.session !== s.id) return p.close(1002, "a kill for another session");
@@ -328,6 +344,13 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
   // (the relay's accounting toward the page: bytes sent and acknowledged, receipts out, the last ping)
   const rx = { sent: 0, acked: 0, since: 0, tokens: [] as Array<[string, number]> };
   let lastPing = Date.now();
+  // The page goes, closed or dropped; the session lives on, for a reattach, and with no page its output is
+  // read into the ring again.
+  const detach = (): void => {
+    if (page.session?.page !== page) return;
+    page.session.page = null;
+    flow(page.session);
+  };
   const write = (text: string): boolean => {
     if (closed) return false;
     const w = Buffer.byteLength(text) + MOCK_LIMITS.overhead;
@@ -377,7 +400,7 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
       b.writeUInt16BE(code, 0);
       b.write(reason, 2);
       socket.end(frame(8, b));
-      if (page.session?.page === page) page.session.page = null;
+      detach();
     },
     session: null,
     sent: 0,
@@ -398,7 +421,7 @@ function upgrade(req: IncomingMessage, socket: Duplex): void {
     clearTimeout(timer);
     clearInterval(dead);
     closed = true;
-    if (page.session?.page === page) page.session.page = null; // the session lives on, for a reattach
+    detach();
   });
   socket.on("error", () => socket.destroy());
   socket.on("data", (chunk: Buffer) => {
