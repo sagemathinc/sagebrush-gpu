@@ -420,10 +420,24 @@ test("announce: the body is at most 1 KiB, refused before anything happens", asy
     if (res === null) continue; // (the platform may refuse a lying length itself)
     assert.equal(res.status, 400, what);
   }
+  // streamed, with no length declared: counted as it arrives
+  const streamed = (raw: string) => {
+    const bytes = new TextEncoder().encode(raw);
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (let i = 0; i < bytes.length; i += 100) c.enqueue(bytes.slice(i, i + 100));
+        c.close();
+      },
+    });
+    return w.app.fetch(new Request(`${ORIGIN}/v1/agent/announce`, { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": IP }, body, duplex: "half" } as RequestInit));
+  };
+  assert.equal((await streamed(padded(ANNOUNCE_MAX_BODY_BYTES + 1))).status, 400);
+  // nothing happened for any of them
   assert.equal(vm.factsCalls, 0);
   assert.equal((await launchRow(l.machineId)).outcome, "launched");
   assert.deepEqual(await w.db.all(`SELECT 1 FROM boot_tokens`), []);
-  assert.equal((await post(padded(ANNOUNCE_MAX_BODY_BYTES))).status, 200);
+  // exactly 1024, streamed: accepted
+  assert.equal((await streamed(padded(ANNOUNCE_MAX_BODY_BYTES))).status, 200);
   assert.equal(ANNOUNCE_MAX_BODY_BYTES, 1024);
 });
 
