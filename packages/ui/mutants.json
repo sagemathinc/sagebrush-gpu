@@ -1696,8 +1696,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    this.currentUserId = user.id;\n    return true;",
-  "new": "    return true;"
+  "old": "    this.currentUserId = user.id;\n    this.authenticatedAt = this.#now;",
+  "new": "    this.authenticatedAt = this.#now;"
  },
  {
   "file": "src/app/store.ts",
@@ -2954,5 +2954,593 @@
   "file": "src/app/store.ts",
   "old": "    return published !== null;",
   "new": "    return published === true;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (user == null) refuse(\"signedOut\");",
+  "new": "    if (user == null) throw new ApiFail(\"unauthenticated\", \"sign in first\");",
+  "note": "credentials: generic words without a session"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#orgRole(orgId, user.id) !== \"owner\") refuse(\"notOwner\");",
+  "new": "    if (this.#orgRole(orgId, user.id) == null) refuse(\"notOwner\");",
+  "note": "credentials: a viewer passes"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#org(orgId).billingMode !== \"byok\") refuse(\"notByok\");",
+  "new": "",
+  "note": "credentials: resold organizations too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "&& !(this.#keyProviders as readonly string[]).includes(params.provider)) refuse(\"unknownProvider\");",
+  "new": "&& params.provider === \"nebius\") refuse(\"unknownProvider\");",
+  "note": "credentials: any listed provider id"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return this.runpodKeys ? [...MOCK_KEY_PROVIDERS, \"runpod\"] : MOCK_KEY_PROVIDERS;",
+  "new": "    return [...MOCK_KEY_PROVIDERS, \"runpod\"];",
+  "note": "credentials: RunPod without the flag"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (CREDENTIAL_ROUTES.has(match.name)) this.#checkCredentialAccess(match.params, user);\n      else this.#checkAccess",
+  "new": "      this.#checkAccess",
+  "note": "credentials: generic access"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#recentAuthForMs() == null) refuse(\"reauthenticate\");",
+  "new": "",
+  "note": "credentials: no reauth needed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return left > 0 ? left : null;",
+  "new": "    return left >= 0 ? left : null;",
+  "note": "reauth: open at its end"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return left > 0 ? left : null;",
+  "new": "    return left > 1000 ? left : null;",
+  "note": "reauth: closes a second early"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const left = this.authenticatedAt + RECENT_AUTH_WINDOW_MS - this.#now;",
+  "new": "    const left = this.authenticatedAt + 2 * RECENT_AUTH_WINDOW_MS - this.#now;",
+  "note": "reauth: ten minutes"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    this.authenticatedAt = this.#now; // (a WorkOS sign-in",
+  "new": "    this.authenticatedAt ??= this.#now; // (a WorkOS sign-in",
+  "note": "reauth: a new sign-in doesn't reopen"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.currentUserId = null;\n      this.authenticatedAt = null;",
+  "new": "      this.currentUserId = null;",
+  "note": "reauth: sign-out keeps it"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return { user, orgs, projects, recentAuthForMs: this.#recentAuthForMs() };",
+  "new": "    return { user, orgs, projects };",
+  "note": "me: no window"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      this.#requireRecentAuth();",
+  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");",
+  "note": "put: reauth before the shape"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");",
+  "new": "      if (typeof key !== \"string\") refuse(\"badShape\");",
+  "note": "put: any string"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (check === \"rejected\") refuse(\"rejected\");",
+  "new": "",
+  "note": "put: a rejected key kept"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (check !== \"ok\") refuse(\"checkUnavailable\");",
+  "new": "      if (check === \"unavailable\" && false) refuse(\"checkUnavailable\");",
+  "note": "put: an unchecked key kept"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        fingerprint: mockFingerprint(key),",
+  "new": "        fingerprint: key,",
+  "note": "put: the key kept as its fingerprint"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        setBy: (user as User).email,",
+  "new": "        setBy: (user as User).id,",
+  "note": "put: setBy is the id"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    deleteCredential: ({ params }) => {\n      this.#requireRecentAuth();",
+  "new": "    deleteCredential: ({ params }) => {",
+  "note": "delete: no reauth"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!this.credentials.delete(`${params.orgId}|${params.provider}`)) refuse(\"noKey\");",
+  "new": "      this.credentials.delete(`${params.orgId}|${params.provider}`);",
+  "note": "delete: none is fine"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (m.provider === provider && PROVIDER_LIVE_STATES.has(m.state) && this.projects",
+  "new": "if (m.provider === provider && this.projects",
+  "note": "running: stopped ones counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "&& this.projects.get(m.projectId)?.orgId === orgId) runningMachines++;",
+  "new": ") runningMachines++;",
+  "note": "running: other orgs counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (m.provider === provider && PROVIDER_LIVE_STATES",
+  "new": "if (PROVIDER_LIVE_STATES",
+  "note": "running: other providers counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const PROVIDER_LIVE_STATES: ReadonlySet<MachineState> = new Set<MachineState>([\"starting\", \"running\", \"saving\", \"stopping\"]);",
+  "new": "const PROVIDER_LIVE_STATES: ReadonlySet<MachineState> = new Set<MachineState>([\"starting\", \"saving\", \"stopping\"]);",
+  "note": "running: running ones not counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    h = Math.imul(h, 0x01000193) >>> 0;",
+  "new": "    h = (h + 1) >>> 0;",
+  "note": "fingerprint: not of the key"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "  return h.toString(16).padStart(8, \"0\");",
+  "new": "  return h.toString(16);",
+  "note": "fingerprint: not padded"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!PATH.test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "new": "",
+  "note": "request: any path"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "const PATH = /^\\/v1\\/orgs\\/[A-Za-z0-9._-]+\\/credentials(\\/[a-z]+)?$/;",
+  "new": "const PATH = /^\\/v1\\/orgs\\/[A-Za-z0-9._-]+\\/credentials(\\/[a-z]+)?/;",
+  "note": "request: path unanchored"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": ", signal, redirect: \"error\" };",
+  "new": ", signal };",
+  "note": "request: redirects followed"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "headers: { accept: \"application/json\" }, signal,",
+  "new": "headers: { accept: \"application/json\" },",
+  "note": "request: no abort"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  } catch {\n    return Promise.resolve({ ok: false, refusal: \"network\" });\n  }",
+  "new": "  } catch (e) {\n    throw e;\n  }",
+  "note": "request: a thrown fetch throws"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "    () => ({ ok: false, refusal: \"network\" }) as const,",
+  "new": "    (e: unknown) => ({ ok: false, refusal: \"network\", e }) as const,",
+  "note": "request: the error kept in the outcome"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (response.ok) {\n    const value",
+  "new": "  if (response.status < 500) {\n    const value",
+  "note": "request: a refusal read as an answer"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "    return value == null ? { ok: false, refusal: \"badResponse\" } : { ok: true, value };",
+  "new": "    return { ok: true, value: value as T };",
+  "note": "request: an odd answer accepted"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "    if (r.code === e.code && r.message === e.message) return",
+  "new": "    if (r.code === e.code) return",
+  "note": "refusal: by code only"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "    if (r.code === e.code && r.message === e.message) return",
+  "new": "    if (r.message === e.message) return",
+  "note": "refusal: by words only"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!isProviderId(c.provider) || !isCredentialStatus(c.status)) return null;",
+  "new": "  if (!isCredentialStatus(c.status)) return null;",
+  "note": "read: any provider"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!isProviderId(c.provider) || !isCredentialStatus(c.status)) return null;",
+  "new": "  if (!isProviderId(c.provider)) return null;",
+  "note": "read: any status"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!str(c.fingerprint) || !str(c.setBy) || !str(c.setAt) || !str(c.lastCheckedAt)) return null;",
+  "new": "  if (!str(c.setBy) || !str(c.setAt) || !str(c.lastCheckedAt)) return null;",
+  "note": "read: any fingerprint"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!str(c.fingerprint) || !str(c.setBy) || !str(c.setAt) || !str(c.lastCheckedAt)) return null;",
+  "new": "  if (!str(c.fingerprint) || !str(c.setAt) || !str(c.lastCheckedAt)) return null;",
+  "note": "read: any setBy"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!str(c.fingerprint) || !str(c.setBy) || !str(c.setAt) || !str(c.lastCheckedAt)) return null;",
+  "new": "  if (!str(c.fingerprint) || !str(c.setBy) || !str(c.lastCheckedAt)) return null;",
+  "note": "read: any setAt"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!str(c.fingerprint) || !str(c.setBy) || !str(c.setAt) || !str(c.lastCheckedAt)) return null;",
+  "new": "  if (!str(c.fingerprint) || !str(c.setBy) || !str(c.setAt)) return null;",
+  "note": "read: any lastCheckedAt"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!Number.isSafeInteger(c.runningMachines) || (c.runningMachines as number) < 0) return null;",
+  "new": "  if (typeof c.runningMachines !== \"number\" || (c.runningMachines as number) < 0) return null;",
+  "note": "read: fractional machines"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!Number.isSafeInteger(c.runningMachines) || (c.runningMachines as number) < 0) return null;",
+  "new": "  if (!Number.isSafeInteger(c.runningMachines)) return null;",
+  "note": "read: negative machines"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  return {\n    provider: c.provider,",
+  "new": "  return { ...(c as object),\n    provider: c.provider,",
+  "note": "read: extra fields kept"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "    if (c == null || out.some((o) => o.provider === c.provider)) return null;",
+  "new": "    if (c == null) return null;",
+  "note": "list: a provider twice"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  return (x as { removed?: unknown } | null)?.removed === true ? true : null;",
+  "new": "  return (x as { removed?: unknown } | null)?.removed ? true : null;",
+  "note": "removed: truthy"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  return `/v1/orgs/${encodeURIComponent(orgId)}/credentials",
+  "new": "  return `/v1/orgs/${orgId}/credentials",
+  "note": "path: not encoded"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (!isRecentAuthForMs(forMs)) return this.closeWindow();\n    this.#deadline = sentAt + forMs;",
+  "new": "    if (typeof forMs !== \"number\") return this.closeWindow();\n    this.#deadline = sentAt + forMs;",
+  "note": "window: any number"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.#deadline = sentAt + forMs;",
+  "new": "    this.#deadline = this.#clocks.monotonic() + forMs;",
+  "note": "window: from receipt"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (!(left > 0)) return this.closeWindow();",
+  "new": "    if (!(left >= 0)) return this.closeWindow();",
+  "note": "window: open at zero"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "      this.#timer = null;\n      this.#checkWindow();",
+  "new": "      this.#timer = null;\n      this.closeWindow();",
+  "note": "window: closes at the first timer"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (this.#timer != null) this.#clocks.timers.clearTimeout(this.#timer);",
+  "new": "",
+  "note": "window: timers not cleared"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.#deadline = null;\n    this.windowOpen.value = false;",
+  "new": "    this.#deadline = null;",
+  "note": "window: never closes"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.#generation++;\n    for (const c",
+  "new": "    for (const c",
+  "note": "leave: no new generation"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    for (const c of this.#controllers) c.abort();",
+  "new": "",
+  "note": "leave: nothing aborted"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "      this.rows.value = null;\n      this.notices.value = {};",
+  "new": "      this.notices.value = {};",
+  "note": "leave: rows kept"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "      this.notices.value = {};\n      this.pending.value = new Set();",
+  "new": "      this.pending.value = new Set();",
+  "note": "leave: notices kept"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.leave();\n    this.closeWindow();",
+  "new": "    this.leave();",
+  "note": "endSession: window kept"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "  put(provider: ProviderId, body: string): Promise<boolean> {\n    if (!this.windowOpen.value) return Promise.resolve(false);",
+  "new": "  put(provider: ProviderId, body: string): Promise<boolean> {",
+  "note": "put: window closed"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "  remove(provider: ProviderId): Promise<boolean> {\n    if (!this.windowOpen.value) return Promise.resolve(false);",
+  "new": "  remove(provider: ProviderId): Promise<boolean> {",
+  "note": "remove: window closed"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (orgId == null || this.pending.value.has(slot)) return null;",
+  "new": "    if (orgId == null) return null;",
+  "note": "begin: two at once"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (t.generation !== this.#generation || t.orgId !== this.orgId.value) return false;",
+  "new": "    if (t.orgId !== this.orgId.value) return false;",
+  "note": "end: stale answers applied"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "        this.rows.value = (this.rows.value ?? []).map((r) => (r.provider === c.provider ? c : r));",
+  "new": "",
+  "note": "put: row not updated"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "      if (words === KEY_REMOVED_WORDS) void this.#load();",
+  "new": "",
+  "note": "remove: list not read again"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (o.refusal === \"network\") void this.#load();",
+  "new": "",
+  "note": "network: list not read again"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (refusal === \"reauthenticate\") this.closeWindow();",
+  "new": "",
+  "note": "reauthenticate: window kept"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (refusal === \"signedOut\") this.#signedOut();",
+  "new": "",
+  "note": "signedOut: session kept"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    else if (!stale) this.rows.value = o.value;",
+  "new": "    else if (!stale) this.rows.value = o.value.slice(1);",
+  "note": "load: rows dropped"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.notices.value = { ...this.notices.value, [provider]: KEY_REFUSAL_WORDS[refusal] };",
+  "new": "",
+  "note": "local refusal: no words"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    const body = JSON.stringify({ key: value });\n    input.value = \"\";",
+  "new": "    const body = JSON.stringify({ key: value });",
+  "note": "save: field kept while sending"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    if (!isCredentialKeyShape(value)) {",
+  "new": "    if (value === \"\") {",
+  "note": "save: any key sent"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    if (!isCredentialKeyShape(value)) {\n      input.value = \"\";",
+  "new": "    if (!isCredentialKeyShape(value)) {",
+  "note": "save: a bad key kept in the field"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    if (el == null && field.current) field.current.value = \"\";",
+  "new": "",
+  "note": "field: removed with its value"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    void keys.put(row.provider, body).then(() => {\n      if (field.current) field.current.value = \"\";\n    });",
+  "new": "    void keys.put(row.provider, body);",
+  "note": "save: field not emptied after"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "            type=\"password\"",
+  "new": "            type=\"text\"",
+  "note": "field: not a password"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "            autocomplete=\"off\"",
+  "new": "            autocomplete=\"on\"",
+  "note": "field: autocomplete"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "onClick=${() => setConfirming(true)}>Remove</button>",
+  "new": "onClick=${remove}>Remove</button>",
+  "note": "remove: no confirmation"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    return () => keys.leave();",
+  "new": "    return () => {};",
+  "note": "section: unmount doesn't leave"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "${row.runningMachines > 0\n            ? html`<p class=\"warn\">",
+  "new": "${row.runningMachines > 1\n            ? html`<p class=\"warn\">",
+  "note": "remove: one machine not warned"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    ${row.status === \"revoked\" || row.status === \"error\" || row.status === \"rejected\"",
+  "new": "    ${row.status === \"revoked\"",
+  "note": "status: error not warned"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "  return `${ROUTES.startSignIn.path}?reauth=1&return=",
+  "new": "  return `${ROUTES.startSignIn.path}?return=",
+  "note": "reauth: not asked"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "${set ? html` · fingerprint <code>${row.fingerprint}</code>` : null}",
+  "new": "",
+  "note": "row: no fingerprint"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.keys.setWindow(sentAt, me.recentAuthForMs);",
+  "new": "      this.keys.setWindow(this.#monotonic(), me.recentAuthForMs);",
+  "note": "loadMe: window from receipt"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    } catch (err) {\n      this.keys.closeWindow();",
+  "new": "    } catch (err) {",
+  "note": "loadMe: a failure keeps the window"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#generation++;\n    this.keys.endSession();",
+  "new": "    this.#generation++;",
+  "note": "endSession: keys kept"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "    ${owner && org.billingMode === \"byok\" ? html",
+  "new": "    ${org.billingMode === \"byok\" ? html",
+  "note": "page: viewers see keys"
+ },
+ {
+  "file": "src/app/org-page.ts",
+  "old": "    ${owner && org.billingMode === \"byok\" ? html",
+  "new": "    ${owner ? html",
+  "note": "page: resold shows keys"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    handle.unref?.();\n",
+  "new": "",
+  "note": "window timer: keeps Node alive (a run with a store on the default timers hangs)"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (body !== null) {",
+  "new": "  if (true) {",
+  "note": "request: GET and DELETE get a JSON content type"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "    init.body = body;",
+  "new": "    init.body = body.slice(1);",
+  "note": "request: not the body given"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "      return c != null && c.provider === provider ? c : null;",
+  "new": "      return c;",
+  "note": "put: an answer for another provider applied"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    if (field.current) field.current.value = \"\";\n    setConfirming(false);",
+  "new": "    setConfirming(false);",
+  "note": "remove: a typed key kept while removing"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    void keys.remove(row.provider).then(() => {\n      if (field.current) field.current.value = \"\";\n    });",
+  "new": "    void keys.remove(row.provider);",
+  "note": "remove: the field not emptied when it ends"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    else if (!stale) this.rows.value = o.value;",
+  "new": "    else this.rows.value = o.value;",
+  "note": "list: a snapshot older than a change applied"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (stale) void this.#load();\n",
+  "new": "",
+  "note": "list: no read again after a stale snapshot (a removal's re-read lost)"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.#writes++;\n",
+  "new": "",
+  "note": "list: changes don't make older snapshots stale"
  }
 ]
