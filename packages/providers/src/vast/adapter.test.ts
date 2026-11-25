@@ -289,13 +289,13 @@ test("offers: one search with every hard rule, each checked again on the reply",
   ]);
   assert.equal(calls.length, 1);
   const c = calls[0]!;
-  assert.equal(c.url, "https://console.vast.ai/api/v0/bundles");
+  assert.equal(c.url, "https://console.vast.ai/api/v0/bundles/");
   assert.equal(c.init.method, "POST");
   assert.equal(c.init.headers["Authorization"], `Bearer ${KEY}`);
   const body = JSON.parse(c.init.body!);
   assert.deepEqual(body, {
     limit: 1000,
-    type: "ondemand",
+    type: "on-demand",
     verified: { eq: true },
     rentable: { eq: true },
     rented: { eq: false },
@@ -364,9 +364,9 @@ test("launch: the machine's offer again, then the create, then the readback", as
   assert.equal(r.providerMachineId, "31337");
   assert.equal(r.status.state, "running");
   assert.deepEqual(calls.map((c) => `${c.init.method} ${c.url}`), [
-    "POST https://console.vast.ai/api/v0/bundles",
-    "PUT https://console.vast.ai/api/v0/asks/9100",
-    "GET https://console.vast.ai/api/v0/instances/31337",
+    "POST https://console.vast.ai/api/v0/bundles/",
+    "PUT https://console.vast.ai/api/v0/asks/9100/",
+    "GET https://console.vast.ai/api/v0/instances/31337/",
   ]);
   // the search: this machine, this GPU, this launch's disk
   const search = JSON.parse(calls[0]!.init.body!);
@@ -412,7 +412,7 @@ test("launch: a lost create reply is recovered by exact label, or stays unknown"
     const { a, calls } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), listed([inst()]), ok({ instances: inst() })]);
     assert.equal((await a.launch(SPEC)).providerMachineId, "31337");
     const u = new URL(calls[2]!.url);
-    assert.equal(u.pathname, "/api/v1/instances");
+    assert.equal(u.pathname, "/api/v1/instances/");
     assert.deepEqual(JSON.parse(u.searchParams.get("select_filters")!), { label: { eq: `sbg-${MID}` } });
   }
   // a 200 without new_contract may have created one: the same recovery
@@ -519,7 +519,7 @@ test("status: one instance; a 404 is gone; anything else that isn't this instanc
   {
     const { a, calls } = adapter([ok({ instances: inst() })]);
     assert.equal((await a.status("31337")).state, "running");
-    assert.equal(calls[0]!.url, "https://console.vast.ai/api/v0/instances/31337");
+    assert.equal(calls[0]!.url, "https://console.vast.ai/api/v0/instances/31337/");
   }
   {
     const { a } = adapter([{ status: 404 }]);
@@ -541,7 +541,7 @@ test("terminate: destroy, never stop; gone is done; an unconfirmed destroy is an
   {
     const { a, calls } = adapter([ok({ success: true, msg: "Instance destroyed successfully" })]);
     await a.terminate("31337");
-    assert.deepEqual([calls[0]!.init.method, calls[0]!.url], ["DELETE", "https://console.vast.ai/api/v0/instances/31337"]);
+    assert.deepEqual([calls[0]!.init.method, calls[0]!.url], ["DELETE", "https://console.vast.ai/api/v0/instances/31337/"]);
   }
   {
     const { a } = adapter([{ status: 404 }]);
@@ -744,4 +744,66 @@ test("a policy that allows 'vast' still can't launch there: no adapter is wired"
     (e: unknown) => e instanceof Error && "attempts" in e && JSON.stringify((e as { attempts: unknown }).attempts).includes("no_adapter"),
   );
   assert.equal(specs, 0, "no launch spec (so no boot token) is even made");
+});
+
+// ---------------------------------------------------------------- paths, as Vast's API answers them
+
+/**
+ * A Vast that answers as the live API did (step-0 measurement): a path without its trailing slash
+ * gets a 301 to the slashed path; the slashed paths answer. Redirects are never followed, so any
+ * call on an unslashed path fails.
+ */
+function slashedVast() {
+  const seen: string[] = [];
+  const fetch: Fetch = async (url, init) => {
+    const u = new URL(url);
+    seen.push(`${init.method} ${u.pathname}`);
+    let reply: Reply;
+    if (!u.pathname.endsWith("/")) {
+      reply = { status: 301, headers: { Location: `${u.origin}${u.pathname}/${u.search}` } };
+    } else if (init.method === "POST" && u.pathname === "/api/v0/bundles/") {
+      reply = ok({ offers: [offer({ id: 9100 })] });
+    } else if (init.method === "PUT" && u.pathname === "/api/v0/asks/9100/") {
+      reply = ok({ success: true, new_contract: 31337 });
+    } else if (init.method === "GET" && u.pathname === "/api/v0/instances/31337/") {
+      reply = ok({ instances: inst() });
+    } else if (init.method === "DELETE" && u.pathname === "/api/v0/instances/31337/") {
+      reply = ok({ success: true, msg: "Instance destroyed successfully" });
+    } else if (init.method === "GET" && u.pathname === "/api/v1/instances/") {
+      reply = ok({ success: true, instances: [inst()], next_token: null });
+    } else {
+      reply = { status: 404 };
+    }
+    return mockFetch([reply]).fetch(url, init);
+  };
+  return { a: new VastAdapter({ apiKey: KEY, fetch, now: () => NOW }), seen };
+}
+
+test("paths: every call uses the canonical slashed path, so a Vast that redirects the unslashed ones (as measured) answers them all", async () => {
+  const { a, seen } = slashedVast();
+  assert.equal((await a.listOffers({ gpuCount: 1 })).length, 1);
+  assert.equal((await a.launch(SPEC)).providerMachineId, "31337");
+  assert.equal((await a.status("31337")).state, "running");
+  assert.equal((await a.listMachines()).length, 1);
+  await a.terminate("31337");
+  assert.deepEqual(seen, [
+    "POST /api/v0/bundles/",
+    "POST /api/v0/bundles/",
+    "PUT /api/v0/asks/9100/",
+    "GET /api/v0/instances/31337/",
+    "GET /api/v0/instances/31337/",
+    "GET /api/v1/instances/",
+    "DELETE /api/v0/instances/31337/",
+  ]);
+  // and an unslashed path really is refused there: a 301 is never followed
+  const m = mockFetch([{ status: 301, headers: { Location: "https://console.vast.ai/api/v0/instances/31337/" } }]);
+  const b = new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW });
+  await assert.rejects(b.status("31337"), ProviderError);
+  assert.equal(m.calls.length, 1);
+});
+
+test("offers: the search uses Vast's canonical on-demand type", async () => {
+  const { a, calls } = adapter([ok({ offers: [] })]);
+  await a.listOffers({ gpuCount: 1 });
+  assert.equal(JSON.parse(calls[0]!.init.body!).type, "on-demand");
 });

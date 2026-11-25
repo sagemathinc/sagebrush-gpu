@@ -4297,7 +4297,7 @@
  },
  {
   "file": "src/vast/adapter.ts",
-  "old": "      type: \"ondemand\",\n",
+  "old": "      type: \"on-demand\",\n",
   "new": ""
  },
  {
@@ -4534,5 +4534,41 @@
   "file": "src/vast/adapter.ts",
   "old": "if (typeof e === \"string\" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];",
   "new": "if (typeof e === \"string\" && e.length >= MAX_ENV_ENTRY_CHARS) return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "this.#call(\"POST\", \"/api/v0/bundles/\", \"offers\"",
+  "new": "this.#call(\"POST\", \"/api/v0/bundles\", \"offers\"",
+  "note": "the search path without its slash (Vast redirects it)"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "`/api/v0/asks/${ask.askId}/`",
+  "new": "`/api/v0/asks/${ask.askId}`",
+  "note": "the create path without its slash"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "this.#call(\"GET\", `/api/v0/instances/${id}/`, \"instance\")",
+  "new": "this.#call(\"GET\", `/api/v0/instances/${id}`, \"instance\")",
+  "note": "the show path without its slash (measured: 301)"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "this.#call(\"DELETE\", `/api/v0/instances/${providerMachineId}/`, \"instance\")",
+  "new": "this.#call(\"DELETE\", `/api/v0/instances/${providerMachineId}`, \"instance\")",
+  "note": "the destroy path without its slash"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "`/api/v1/instances/?${qs}`",
+  "new": "`/api/v1/instances?${qs}`",
+  "note": "the list path without its slash (measured: 301)"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      type: \"on-demand\",",
+  "new": "      type: \"ondemand\",",
+  "note": "the search type not Vast's canonical spelling"
  }
 ]

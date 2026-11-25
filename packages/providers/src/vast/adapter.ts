@@ -357,7 +357,7 @@ export class VastAdapter implements ProviderAdapter {
   searchBody(gpuCount: number, diskGb: number, only?: { gpuName: string; machineId: number }): Record<string, unknown> {
     return {
       limit: only === undefined ? 1000 : 10,
-      type: "ondemand",
+      type: "on-demand",
       verified: { eq: true },
       rentable: { eq: true },
       rented: { eq: false },
@@ -372,7 +372,7 @@ export class VastAdapter implements ProviderAdapter {
   }
 
   async #search(body: Record<string, unknown>, gpuCount: number, shouldStop?: () => boolean) {
-    const json = await this.#call("POST", "/api/v0/bundles", "offers", body, shouldStop);
+    const json = await this.#call("POST", "/api/v0/bundles/", "offers", body, shouldStop);
     // The reference's example shows one object where its schema says an array: only an array is read.
     if (!isObject(json) || !Array.isArray(json["offers"])) throw new ProviderError("vast", "unknown", "Vast offer search reply is malformed");
     return json["offers"].map((o) => usableOffer(o, gpuCount)).filter((o) => o !== null);
@@ -448,7 +448,7 @@ export class VastAdapter implements ProviderAdapter {
 
     let id: string;
     try {
-      id = createdId(await this.#call("PUT", `/api/v0/asks/${ask.askId}`, "create", body, stop));
+      id = createdId(await this.#call("PUT", `/api/v0/asks/${ask.askId}/`, "create", body, stop));
     } catch (e) {
       if (!(e instanceof ProviderError) || (e.kind !== "outcome_unknown" && e.kind !== "transient")) throw e;
       // The instance may exist even though the call failed: look for it by name before anyone retries.
@@ -505,7 +505,7 @@ export class VastAdapter implements ProviderAdapter {
 
   /** One instance, as Vast reports it; another instance's answer, or none, fails. */
   async #read(id: string): Promise<ProviderMachineStatus> {
-    const json = await this.#call("GET", `/api/v0/instances/${id}`, "instance");
+    const json = await this.#call("GET", `/api/v0/instances/${id}/`, "instance");
     const inst = isObject(json) ? json["instances"] : undefined;
     // What Vast answers for a destroyed instance isn't documented beyond a 404: anything else that
     // isn't this instance is an error, never "gone".
@@ -530,7 +530,7 @@ export class VastAdapter implements ProviderAdapter {
     if (!/^[1-9][0-9]{0,15}$/.test(providerMachineId)) throw new ProviderError("vast", "invalid_request", "not a Vast instance id");
     let json: unknown;
     try {
-      json = await this.#call("DELETE", `/api/v0/instances/${providerMachineId}`, "instance");
+      json = await this.#call("DELETE", `/api/v0/instances/${providerMachineId}/`, "instance");
     } catch (e) {
       if (e instanceof ProviderError && e.kind === "not_found") return;
       throw e;
@@ -553,7 +553,7 @@ export class VastAdapter implements ProviderAdapter {
       const qs = new URLSearchParams({ limit: String(PAGE) });
       if (label !== undefined) qs.set("select_filters", JSON.stringify({ label: { eq: label } }));
       if (token !== null) qs.set("after_token", token);
-      const json = await this.#call("GET", `/api/v1/instances?${qs}`, "instance", undefined, shouldStop);
+      const json = await this.#call("GET", `/api/v1/instances/?${qs}`, "instance", undefined, shouldStop);
       const observedAt = this.#observedAt();
       // A malformed page proves nothing: not that a machine is absent, nor that the list is complete.
       if (!isObject(json) || !Array.isArray(json["instances"])) {
