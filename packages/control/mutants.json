@@ -1475,5 +1475,28 @@
   "file": "migrations/0006_projects.sql",
   "old": "'opening balance: project budgets before credit accounting'",
   "new": "'opening'"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'credit'",
+  "new": "SELECT 'cre_' || substr(org_id, 5), org_id, 'credit'",
+  "note": "derived ids: an org's and a project's meet"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'to_project'",
+  "new": "SELECT 'cre_' || substr(id, 5), org_id, 'to_project'"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'to_project'",
+  "new": "SELECT 'cre_' || hex(randomblob(10)), org_id, 'to_project'",
+  "note": "upper case: not an id"
+ },
+ {
+  "file": "migrations/0006_projects.sql",
+  "old": "SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'credit'",
+  "new": "SELECT 'cre_' || lower(hex(randomblob(9))), org_id, 'credit'",
+  "note": "18 digits: not an id"
  }
 ]

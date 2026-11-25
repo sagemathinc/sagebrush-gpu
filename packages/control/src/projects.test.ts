@@ -362,6 +362,41 @@ test("0006 opens balances for projects funded before it, with their history, and
   await audit(w.db);
 });
 
+test("0006: opening event ids are fresh, even for an org and a project whose ids share their suffix", async () => {
+  const suffix = "a".repeat(20);
+  const org = `org_${suffix}`;
+  const project = `prj_${suffix}`;
+  const org2 = `org_${"b".repeat(20)}`;
+  const w = await world({
+    upgrade: {
+      at: "0006",
+      seed(raw) {
+        oldOrg(raw, org);
+        oldOrg(raw, org2);
+        raw.prepare(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Old', ?, ?, 1000, ?)`).run(project, org, T0, T0 + DAY, T0);
+        // (and a project whose suffix is another org's)
+        raw.prepare(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Old', ?, ?, 300, ?)`).run(`prj_${"b".repeat(20)}`, org, T0, T0 + DAY, T0);
+        oldProject(raw, org2, 70);
+      },
+    },
+  });
+  const ids = (await w.db.all<{ id: string }>(`SELECT id FROM credit_events WHERE org_id IN (?, ?)`, [org, org2])).map((r) => r.id);
+  assert.equal(ids.length, 5); // 2 opening credits, 3 moves
+  assert.equal(new Set(ids).size, 5);
+  for (const id of ids) {
+    assert.ok(isId("creditEvent", id), id);
+    assert.ok(!id.endsWith(suffix) && !id.endsWith("b".repeat(20)), id);
+  }
+  assert.deepEqual(await orgRow(w, org), { u: 0, t: 1300 });
+  assert.deepEqual(await orgRow(w, org2), { u: 0, t: 70 });
+  await audit(w.db);
+  // the API carries on from there
+  const own = await orgOwner(w, "same@example.com", org);
+  assert.equal(code(await call(w, "POST", `/v1/projects/${project}/budget`, { cookie: own, body: { amount: -400 } })), "ok");
+  assert.deepEqual(await orgRow(w, org), { u: 400, t: 1300 });
+  await audit(w.db);
+});
+
 test("0006 refuses budgets that add up past the safe range, before changing anything", () => {
   for (const budgets of [
     [MAX, 1], // just past the safe range

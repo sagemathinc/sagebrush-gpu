@@ -7,11 +7,18 @@
 -- movement made this way. Balances can never go below zero.
 --
 -- Projects funded before this migration get opening balances (below): each organization's
--- total credit becomes the sum of its projects' budgets, none of it unassigned. If that sum
--- would pass the safe range for any organization, this first statement fails, before any
--- other statement here has run, so the database is left as it was (the migration doesn't
--- rely on being applied as one transaction). json() of text that isn't JSON is the error;
--- a SUM past 2^63 fails here too, with SQLite's own integer overflow.
+-- total credit becomes the sum of its projects' budgets, none of it unassigned.
+--
+-- All or nothing, without relying on the file being applied as one transaction (D1 takes
+-- no BEGIN): the only statement whose success depends on the data is this first one, the
+-- guard, and it fails before anything else here has run. If any organization's budgets add
+-- up past the safe range, json() of text that isn't JSON is the error (a SUM past 2^63
+-- fails here too, with SQLite's own integer overflow). Every later statement then holds
+-- for any database 0005 accepts:
+--   the opening amounts are SUMs of positive budgets the guard bounds, and single budgets
+--   that 0005's CHECK bounds; times are projects' created_ms, bounded by the same CHECK;
+--   org_id and (project_id, org_id) are the projects' own, which 0005's keys guarantee;
+--   ids are fresh and random (below), not derived from other ids.
 SELECT CASE
   WHEN (SELECT MAX(s) FROM (SELECT SUM(budget) AS s FROM projects GROUP BY org_id)) > 9007199254740991
   THEN json('refused: an organization''s project budgets add up past the safe range')
@@ -47,13 +54,15 @@ CREATE INDEX credit_events_by_org ON credit_events (org_id, created_ms);
 
 -- Opening balances, with their history: one opening credit per organization with funded
 -- projects (named as such), then one move to each funded project, so replaying the events
--- gives every balance. Ids are derived from the org's or project's own (same alphabet and
--- length), and times from the projects' creation: no clock or randomness needed.
+-- gives every balance. Times are the projects' creation. Ids are random, like newId's: 20
+-- hex digits (all within the id alphabet), 80 bits from randomblob, drawn per row. (An id
+-- derived from the org's or project's own can't work: any one-to-one map from a 20-digit
+-- suffix onto 20-digit ids covers them all, so an org's and a project's could meet.)
 INSERT INTO credit_events (id, org_id, kind, amount, project_id, reference, created_ms)
-  SELECT 'cre_' || substr(org_id, 5), org_id, 'credit', SUM(budget), NULL, 'opening balance: project budgets before credit accounting', MIN(created_ms)
+  SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'credit', SUM(budget), NULL, 'opening balance: project budgets before credit accounting', MIN(created_ms)
   FROM projects WHERE budget > 0 GROUP BY org_id;
 INSERT INTO credit_events (id, org_id, kind, amount, project_id, reference, created_ms)
-  SELECT 'cre_' || substr(id, 5), org_id, 'to_project', budget, id, NULL, created_ms
+  SELECT 'cre_' || lower(hex(randomblob(10))), org_id, 'to_project', budget, id, NULL, created_ms
   FROM projects WHERE budget > 0;
 UPDATE orgs SET total_credit = (SELECT COALESCE(SUM(budget), 0) FROM projects WHERE org_id = orgs.id);
 
