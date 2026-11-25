@@ -2316,11 +2316,6 @@
   "new": "WHEN 0 AND ("
  },
  {
-  "file": "migrations/0011_billing_mode.sql",
-  "old": ") IS NOT 'resold'\nBEGIN\n  SELECT RAISE(ABORT, 'only a resold organization''s machines accrue a margin');",
-  "new": ") IS 'byok'\nBEGIN\n  SELECT RAISE(ABORT, 'only a resold organization''s machines accrue a margin');"
- },
- {
   "file": "src/billing.ts",
   "old": "  if (!isProviderId(provider)) return { use: \"none\", reason: \"unknown-provider\" };\n",
   "new": ""
@@ -2329,11 +2324,6 @@
   "file": "src/billing.ts",
   "old": "  if (!isBillingMode(mode)) return { use: \"none\", reason: \"no-such-org\" };\n",
   "new": ""
- },
- {
-  "file": "src/billing.ts",
-  "old": "  if (mode === \"resold\") return { use: \"ours\", provider };",
-  "new": "  if (mode !== \"byok\") return { use: \"ours\", provider };"
  },
  {
   "file": "src/billing.ts",
