@@ -2701,5 +2701,329 @@
   "old": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0 AND",
   "new": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND",
   "note": "token hash may hold a NUL"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (!signer) {\n      deps.alert(\"vm-enroll: the agent signer isn't ready\");\n      throw REFUSED();\n    }",
+  "new": "    if (!signer) {\n      deps.alert(\"vm-enroll: the agent signer isn't ready\");\n    }",
+  "note": "signer not required"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (keys.join(\",\") !== base.join(\",\") && keys.join(\",\") !== withEradication.join(\",\")) return null;\n",
+  "new": "",
+  "note": "any keys"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (b.mode !== \"vm\" || !isBootTokenShape(b.bootToken)) return null;",
+  "new": "  if (!isBootTokenShape(b.bootToken)) return null;",
+  "note": "container mode accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (typeof b.agentVersion !== \"string\" || !PRINTABLE.test(b.agentVersion)) return null;",
+  "new": "  if (typeof b.agentVersion !== \"string\") return null;",
+  "note": "agent version's form"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (typeof b.hostname !== \"string\" || !HOSTNAME.test(b.hostname)) return null;",
+  "new": "  if (typeof b.hostname !== \"string\") return null;",
+  "note": "hostname's form"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (typeof g !== \"object\" || Array.isArray(g) || Object.keys(g).sort().join(\",\") !== \"count,memoryMiB,name\") return null;",
+  "new": "    if (typeof g !== \"object\") return null;",
+  "note": "gpu's keys"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "!isInt(g.count, 1, 64)",
+  "new": "!isInt(g.count, 0, 64)",
+  "note": "gpu count 0"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "e.ok !== true || !Array.isArray(e.checks) || e.checks.length !== 0) return null;",
+  "new": "!Array.isArray(e.checks)) return null;",
+  "note": "eradication not empty or failing"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  const gate = parseGateReport(b.gate);\n  if (!gate) return null;",
+  "new": "  const gate = (parseGateReport(b.gate) ?? { v: 1, pass: true, fail: [] }) as VmGateReport;\n  if (!gate) return null;",
+  "note": "gate not required canonical"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (!r) throw REFUSED();\n    // 2.",
+  "new": "    if (!r) return definitiveFailure(ctx, r as unknown as TokenRow, \"second-enroll\", null);\n    // 2.",
+  "note": "unknown token a termination oracle"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (r.used_ms !== null) return definitiveFailure(ctx, r, \"second-enroll\", null);",
+  "new": "    if (r.used_ms !== null) throw REFUSED();",
+  "note": "second use only refused"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "      r.issued_ms <= now && now < r.expires_ms && r.outcome",
+  "new": "      r.issued_ms <= now && now <= r.expires_ms && r.outcome",
+  "note": "expiry inclusive"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "now < r.expires_ms && r.outcome === \"issued\" && r.machine_state",
+  "new": "now < r.expires_ms && r.machine_state",
+  "note": "launch state unchecked"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "r.machine_state === \"starting\" && r.machine_incarnation",
+  "new": "r.machine_incarnation",
+  "note": "machine state unchecked"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "r.provider_machine_id !== null && r.ipv4 !== null && sameText(r.token_provider_machine_id, r.provider_machine_id);",
+  "new": "r.provider_machine_id !== null && r.ipv4 !== null;",
+  "note": "token's provider id unchecked"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (!sameText(req.providerMachineId, providerMachineId) || !sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();",
+  "new": "    if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();",
+  "note": "provider id claim unchecked"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (!sameText(req.providerMachineId, providerMachineId) || !sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();",
+  "new": "    if (!sameText(req.providerMachineId, providerMachineId)) throw REFUSED();",
+  "note": "agent pin unchecked"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (!req.gate.pass) return definitiveFailure(ctx, r, \"gate-failed\", req.gate);",
+  "new": "    if (!req.gate.pass) throw REFUSED();",
+  "note": "failing gate retryable"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (facts === \"unavailable\") throw REFUSED();",
+  "new": "    if (facts === \"unavailable\") return definitiveFailure(ctx, r, \"provider-facts\", null);",
+  "note": "unavailable made definitive"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) return",
+  "new": "    if (!facts.exclusive || facts.ipv4 !== r.ipv4) return",
+  "note": "not ACTIVE accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) return",
+  "new": "    if (facts.state !== \"active\" || facts.ipv4 !== r.ipv4) return",
+  "note": "not exclusive accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) return",
+  "new": "    if (facts.state !== \"active\" || !facts.exclusive) return",
+  "note": "another IPv4 accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) return definitiveFailure(ctx, r, \"provider-facts\", null);",
+  "new": "    if (facts.state !== \"active\" || !facts.exclusive || facts.ipv4 !== r.ipv4) throw REFUSED();",
+  "note": "disagreeing facts retryable"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    const at = deps.now();",
+  "new": "    const at = now;",
+  "note": "no fresh time at commit"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "${inWindow ? \" AND issued_ms <= ? AND ? < expires_ms\" : \"\"}",
+  "new": "${inWindow ? \" AND issued_ms <= ?\" : \"\"}",
+  "note": "window not rebound at commit"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    sql: `UPDATE boot_tokens SET used_ms = ? WHERE token_sha256 = ? AND machine_id = ? AND incarnation = ? AND used_ms IS NULL${",
+  "new": "    sql: `UPDATE boot_tokens SET used_ms = ? WHERE token_sha256 = ? AND machine_id = ? AND incarnation = ?${",
+  "note": "token reusable at commit"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "AND provider_machine_id = ? AND outcome = 'issued' AND watchdog_version = ?`,",
+  "new": "AND provider_machine_id = ? AND outcome = 'issued'`,",
+  "note": "launch version unbound"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "        { sql: `UPDATE machines SET state = 'running' WHERE id = ? AND incarnation = ? AND state = 'starting'`, params: [r.machine_id, r.incarnation] },",
+  "new": "        { sql: `UPDATE machines SET state = 'running' WHERE id = ? AND incarnation = ?`, params: [r.machine_id, r.incarnation] },",
+  "note": "machine state unbound"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "      if (again && again.used_ms !== null) return definitiveFailure(ctx, again, \"second-enroll\", null);\n",
+  "new": "",
+  "note": "loser not a second use"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    } catch {\n      const enrolled",
+  "new": "    } catch {\n      throw REFUSED();\n      const enrolled",
+  "note": "sign failure not definitive"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S,",
+  "new": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S + 1,",
+  "note": "token over its lifetime cap"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (reason !== \"second-enroll\") stmts.push(useToken(r, now, false));\n",
+  "new": "",
+  "note": "failure doesn't use the token"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "          WHERE machine_id = ? AND incarnation = ? AND outcome IN ('issued', 'enrolled')`,\n    params: [reason, now, r.machine_id, r.incarnation],",
+  "new": "          WHERE machine_id = ? AND incarnation = ? AND outcome IN ('issued')`,\n    params: [reason, now, r.machine_id, r.incarnation],",
+  "note": "enrolled launch not marked"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (reason === \"gate-failed\" && gate) {",
+  "new": "  if (false && gate) {",
+  "note": "gate words not recorded"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (c && c.outcome === \"terminate\") {\n",
+  "new": "  if (false) {\n",
+  "note": "no terminate after a failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    deps.alert(`vm-enroll: ${reason} (not recorded)`);\n",
+  "new": "",
+  "note": "unrecorded failure silent"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  deps.alert(`vm-enroll: ${reason}`);",
+  "new": "  deps.alert(\"vm-enroll: a failure\");",
+  "note": "failure silent"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "      maxSessionEndsAt: toIso(at + policy.maxSessionMinutes * 60_000),",
+  "new": "      maxSessionEndsAt: toIso(at + DEFAULT_POLICY.maxSessionMinutes * 60_000),",
+  "note": "max session not the project's"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "      idle: { minutes: policy.idleStopMinutes,",
+  "new": "      idle: { minutes: DEFAULT_POLICY.idleStopMinutes,",
+  "note": "idle not the project's"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "  const jwk = closedObject(parseJson(privateJwk), \"crv,d,kty,x\");",
+  "new": "  const jwk = parseJson(privateJwk) as Record<string, unknown> | null;",
+  "note": "jwk not closed"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "  if (!jwk || jwk.kty !== \"OKP\" || jwk.crv",
+  "new": "  if (!jwk || jwk.crv",
+  "note": "any kty"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "jwk.crv !== \"Ed25519\" || !ed25519Part(jwk.d)",
+  "new": "!ed25519Part(jwk.d)",
+  "note": "any crv"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "  if (kids.length === 0 || kids.length > MAX_PINNED_KEYS || !kids.every((k) => KID_PATTERN.test(k))) return null;",
+  "new": "  if (kids.length === 0 || !kids.every((k) => KID_PATTERN.test(k))) return null;",
+  "note": "pins unbounded"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "  if (kids.length === 0 || kids.length > MAX_PINNED_KEYS || !kids.every((k) => KID_PATTERN.test(k))) return null;",
+  "new": "  if (kids.length === 0 || kids.length > MAX_PINNED_KEYS) return null;",
+  "note": "malformed pinned kids"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "    const p = closedObject((pinned as Record<string, unknown>)[k], \"crv,kty,x\");",
+  "new": "    const p = (pinned as Record<string, unknown>)[k] as Record<string, unknown> | null;",
+  "note": "pinned key not closed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "      const took = { sql: `INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`, params: [] };",
+  "new": "      const took = { sql: `INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() < 0`, params: [] };",
+  "note": "the batch's guards never fire"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "        useToken(r, at, true),\n        took,\n",
+  "new": "        useToken(r, at, true),\n",
+  "note": "no guard after the token's use"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "          params: [r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],\n        },\n        took,\n",
+  "new": "          params: [r.machine_id, r.incarnation, r.provider, providerMachineId, r.watchdog_version],\n        },\n",
+  "note": "no guard after the launch's move"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "state = 'starting'`, params: [r.machine_id, r.incarnation] },\n        took,\n",
+  "new": "state = 'starting'`, params: [r.machine_id, r.incarnation] },\n",
+  "note": "no guard after the machine's move"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (typeof b.agentSha256 !== \"string\") return null;",
+  "new": "  if (b.agentSha256 === undefined) return null;",
+  "note": "agent hash not a string"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": " ON CONFLICT (machine_id, incarnation) DO NOTHING`,",
+  "new": "`,",
+  "note": "an existing report fails the mark"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "    if (!p || p.kty !== \"OKP\" || p.crv !== \"Ed25519\" || !ed25519Part(p.x)) return null;",
+  "new": "    if (!p) return null;",
+  "note": "pins' form unchecked"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "    if (!p || p.kty !== \"OKP\" || p.crv !== \"Ed25519\" || !ed25519Part(p.x)) return null;",
+  "new": "    if (!p || p.kty !== \"OKP\" || !ed25519Part(p.x)) return null;",
+  "note": "pins' curve unchecked"
+ },
+ {
+  "file": "src/signer.ts",
+  "old": "  return b !== null && b.length === 32;",
+  "new": "  return b !== null;",
+  "note": "any part length"
  }
 ]

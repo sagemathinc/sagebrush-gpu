@@ -6,6 +6,7 @@ import { startWorker, type StartedWorker } from "@sbgpu/testing/worker";
 import { SECURITY_HEADERS } from "./http.ts";
 import { backgroundFailureLine, createWorker, guardedWaitUntil } from "./worker.ts";
 import { PRUNE_BATCH } from "./jobs.ts";
+import { d1Db, type D1Like } from "./db.ts";
 
 // The deploy config, as deployed: the tests take its bindings, vars and asset handling
 // from it (only the assets directory is a fixture, as the UI's build isn't in the repo).
@@ -222,4 +223,39 @@ test("scheduled: every job runs even if one fails; then the run fails, naming it
   assert.deepEqual(logs, ["control: one: 2", "control: scheduled job two failed (Error)"]);
   // all well: no error
   await createWorker({ log: () => {}, jobs: [{ name: "ok", run: async () => 0 }] }).scheduled({ scheduledTime: 0, cron: "" }, env, { waitUntil() {} });
+});
+
+// ---- the enroll batch's guard on D1 itself (SEC): the all-or-nothing proof rests on D1
+// running a batch's statements in order, on one connection, in one transaction, so that
+// changes() in a guard sees the write just before it. The native SQLite suite can't show that.
+
+const WRITE_TOOK = "INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1";
+
+test("D1: a write followed by the enroll guard commits when it changed one row, and rolls the whole batch back when it changed none", async () => {
+  // (the guard the handler uses is exactly this statement)
+  assert.ok(readFileSync(new URL("./enroll.ts", import.meta.url), "utf8").includes("`" + WRITE_TOOK + "`"));
+  const db = d1Db((await w.mf.getD1Database("DB")) as unknown as D1Like);
+  const [a, b, c] = [newId("user"), newId("user"), newId("user")];
+  await db.batch([{ sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, 0)`, params: [a, `${a}@example.com`] }]);
+  const email = async (id: string) => (await db.all<{ email: string }>(`SELECT email FROM users WHERE id = ?`, [id]))[0]?.email ?? null;
+  // one row changed, then the guard: committed
+  await db.batch([
+    { sql: `UPDATE users SET email = ? WHERE id = ?`, params: [`a2-${a}@example.com`, a] },
+    { sql: WRITE_TOOK, params: [] },
+    { sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, 0)`, params: [b, `${b}@example.com`] },
+    { sql: WRITE_TOOK, params: [] },
+  ]);
+  assert.deepEqual([await email(a), await email(b)], [`a2-${a}@example.com`, `${b}@example.com`]);
+  // an earlier write, then a write that changed nothing, then the guard: all of it rolled back
+  await assert.rejects(
+    db.batch([
+      { sql: `UPDATE users SET email = ? WHERE id = ?`, params: [`a3-${a}@example.com`, a] },
+      { sql: WRITE_TOOK, params: [] },
+      { sql: `INSERT INTO users (id, email, created_ms) VALUES (?, ?, 0)`, params: [c, `${c}@example.com`] },
+      { sql: `UPDATE users SET email = 'x' WHERE id = ?`, params: [newId("user")] },
+      { sql: WRITE_TOOK, params: [] },
+    ]),
+  );
+  assert.deepEqual([await email(a), await email(c)], [`a2-${a}@example.com`, null]);
+  assert.deepEqual(await db.all(`SELECT * FROM enroll_guard`), []);
 });

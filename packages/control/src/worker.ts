@@ -14,6 +14,7 @@ import { configFromEnv, createApp, withSecurityHeaders, type AppConfig } from ".
 import { d1Db, type D1Like, type Db } from "./db.ts";
 import { json } from "./http.ts";
 import { SCHEDULED_JOBS, type ScheduledJob } from "./jobs.ts";
+import { loadAgentSigner } from "./signer.ts";
 import { errorBody, type ErrorCode } from "@sbgpu/api";
 
 export interface WorkerEnv extends RelayRouteEnv {
@@ -22,6 +23,10 @@ export interface WorkerEnv extends RelayRouteEnv {
   ASSETS: { fetch(req: Request): Promise<Response> };
   APP_ORIGIN?: unknown;
   MACHINE_DOMAIN?: unknown;
+  /** The agent-token signer: an Ed25519 private JWK (a secret), its kid, and the pinned public keys by kid. */
+  AGENT_SIGNING_JWK?: unknown;
+  AGENT_SIGNING_KID?: unknown;
+  AGENT_PUBLIC_KEYS?: unknown;
 }
 
 export interface WorkerContext {
@@ -66,6 +71,8 @@ export function createWorker(o: WorkerOptions = {}) {
         fetch: (input, init) => fetch(input, init),
         vm: null,
         waitUntil: guardedWaitUntil(ctx, log),
+        agentSigner: () => loadAgentSigner(env.AGENT_SIGNING_JWK, env.AGENT_SIGNING_KID, env.AGENT_PUBLIC_KEYS),
+        alert: (line) => log(`control: alert: ${line}`),
       });
       return app.fetch(req);
     }
