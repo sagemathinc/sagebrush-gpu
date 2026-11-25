@@ -254,6 +254,35 @@ class ClientTest(unittest.TestCase):
             await relay.stop()
 
     @aio
+    async def test_the_inbound_cap_is_checked_on_frame_headers_before_any_payload(self):
+        # (a header claiming cap+1 bytes, with no payload at all; then a fragmented message whose continuation header
+        # takes the total to cap+1, again with no payload behind it: both close 1009 at once, nothing read or decoded)
+        cap = R.RELAY_LIMITS["inbound"]
+        first = b"a" * 60_000
+        for frames in ([bytes([0x81, 127]) + struct.pack(">Q", cap + 1)],
+                       [bytes([0x01, 126]) + struct.pack(">H", len(first)) + first,
+                        bytes([0x80, 126]) + struct.pack(">H", cap + 1 - len(first))]):
+            relay = await FakeRelay().start()
+            c = client_for(relay)
+            stop = asyncio.Event()
+            run = asyncio.ensure_future(c.run(stop))
+            try:
+                await asyncio.wait_for(relay.connected.wait(), 5)
+                leg = relay.legs[0]
+                await leg.until(lambda: leg.msgs)
+                leg.send('{"relay":"ready","inc":1}')
+                await leg.until(lambda: c.incarnation == 1)
+                for f in frames:
+                    leg.writer.write(f)
+                self.assertTrue(await leg.until(lambda: leg.closed is not None, 3), len(frames))
+                self.assertEqual(leg.closed, 1009)
+                self.assertEqual(leg.reason, "message too big")
+            finally:
+                stop.set()
+                await asyncio.wait_for(run, 5)
+                await relay.stop()
+
+    @aio
     async def test_violations_close_the_leg_1008(self):
         # (each case: what the relay sends, and the reason the agent gives as it closes; a case that only some other
         # rule would also refuse is told apart by its reason)

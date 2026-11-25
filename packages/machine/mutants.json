@@ -1294,5 +1294,17 @@
   "old": "collections.deque(maxlen=16)",
   "new": "[]",
   "note": "agent relay: relay client: an unbounded delay history"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            if not control and self.parts_len + n > RELAY_LIMITS[\"inbound\"]:",
+  "new": "            if False:",
+  "note": "agent relay: relay client: no inbound cap on frame headers"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/relayclient.py",
+  "old": "            if not control and self.parts_len + n > RELAY_LIMITS[\"inbound\"]:",
+  "new": "            if not control and n > RELAY_LIMITS[\"inbound\"]:",
+  "note": "agent relay: relay client: the inbound cap per frame, not per message"
  }
 ]
