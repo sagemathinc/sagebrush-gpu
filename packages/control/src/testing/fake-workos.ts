@@ -83,6 +83,11 @@ export class FakeWorkos {
     this.codes.set(code, { ...rest, challenge: createHash("sha256").update(verifier).digest("base64url") });
   }
 
+  /** A code the fake will exchange, for the PKCE challenge an authorize URL carried. */
+  grantChallenge(code: string, challenge: string, g: Omit<CodeGrant, "challenge">): void {
+    this.codes.set(code, { ...g, challenge });
+  }
+
   now = () => Date.now();
 
   fetch: Fetch = async (input, init) => {

@@ -14,12 +14,12 @@ import {
   normalizeEmail,
   readCapped,
   sha256Hex,
-  startSession,
   withSecurityHeaders,
   type AppDeps,
   type Handlers,
 } from "./app.ts";
 import { sqliteDb, type TestDb } from "./testing/sqlite.ts";
+import { startSession } from "./testing/sessions.ts";
 import { stmt } from "./db.ts";
 
 const ORIGIN = "https://gpu.example.test";
@@ -62,7 +62,10 @@ async function world(handlers?: Handlers): Promise<World> {
     waitUntil: (p) => {
       pending.push(p);
     },
-    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test" },
+    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: null },
+    fetch: async () => {
+      throw new Error("no network in tests");
+    },
   };
   const orgId = newId("org");
   const projectId = newId("project");
@@ -316,16 +319,19 @@ test("an unexpected error is a generic internal error", async () => {
 
 // ---------------------------------------------------------------- sign-in
 
-test("email sign-in links are gone; the WorkOS routes are in the contract, not implemented yet", async () => {
+test("email sign-in links are gone; without WorkOS configured, sign-in answers unavailable", async () => {
   for (const name of ["requestSignInLink", "verifySignInLink"]) {
     assert.equal(name in HANDLERS, false, name);
     assert.equal(name in ROUTES, false, name);
   }
   const w = await world();
   for (const p of ["/v1/auth/email-link", "/v1/auth/verify"]) assert.equal(code(await call(w, "POST", p, { body: { email: "a@example.com" } })), "notFound", p);
+  // with sign-in not configured, both answer "unavailable", into the app
   for (const p of ["/v1/auth/start?return=/", "/v1/auth/callback?code=x&state=y"]) {
     const r = await call(w, "GET", p);
-    assert.deepEqual(r.json, { error: { code: "notFound", message: "not implemented yet" } }, p);
+    assert.equal(r.res.status, 302, p);
+    assert.equal(r.res.headers.get("location"), "/?signin=unavailable", p);
+    assert.equal(r.res.headers.get("referrer-policy"), "no-referrer", p);
   }
   assert.deepEqual(await w.db.all(`SELECT name FROM sqlite_master WHERE name = 'sign_in_links'`), []);
 });

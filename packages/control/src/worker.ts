@@ -63,6 +63,7 @@ export function createWorker(o: WorkerOptions = {}) {
         now,
         randomBytes: (n) => crypto.getRandomValues(new Uint8Array(n)),
         config,
+        fetch: (input, init) => fetch(input, init),
         waitUntil: guardedWaitUntil(ctx, log),
       });
       return app.fetch(req);

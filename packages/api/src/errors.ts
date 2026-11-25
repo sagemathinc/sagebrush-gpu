@@ -20,6 +20,8 @@ export const ERROR_STATUS = {
   tokenReused: 401,
   noCapacity: 503,
   providerError: 502,
+  /** A service we depend on (sign-in's) can't be reached for now; try again. */
+  unavailable: 503,
   internal: 500,
 } as const;
 

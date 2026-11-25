@@ -4,7 +4,10 @@
 
 import assert from "node:assert/strict";
 import { newId } from "@sbgpu/api";
-import { DEFAULT_CONFIG, HANDLERS, createApp, startSession, type AppDeps, type Handlers } from "../app.ts";
+import { DEFAULT_CONFIG, HANDLERS, createApp, type AppDeps, type Handlers } from "../app.ts";
+import { startSession } from "./sessions.ts";
+import type { AuthConfig } from "../auth.ts";
+import type { Fetch } from "../workos.ts";
 import { normalizeEmail } from "../validate.ts";
 import { stmt } from "../db.ts";
 import { sqliteDb, type TestDb } from "./sqlite.ts";
@@ -23,7 +26,9 @@ export interface World {
   projectId: string;
 }
 
-export async function world(o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void } } = {}): Promise<World> {
+export async function world(
+  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch } = {},
+): Promise<World> {
   const db = sqliteDb(o.upgrade ? { upgrade: o.upgrade } : {});
   const pending: Promise<unknown>[] = [];
   const clock = { t: T0 };
@@ -37,7 +42,12 @@ export async function world(o: { handlers?: Handlers; budget?: number; upgrade?:
       for (let i = 0; i < n; i++) b[i] = (counter * 31 + i * 7 + (counter >> 8)) & 255;
       return b;
     },
-    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test" },
+    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: o.auth ?? null },
+    fetch:
+      o.fetch ??
+      (async () => {
+        throw new Error("no network in tests");
+      }),
     waitUntil: (p) => {
       pending.push(p);
     },
