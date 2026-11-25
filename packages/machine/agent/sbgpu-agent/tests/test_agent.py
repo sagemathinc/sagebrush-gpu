@@ -206,11 +206,18 @@ class StartTest(unittest.TestCase):
         self.assertEqual(self.start(control), 3)
         self.assertEqual(len(control.calls), 1)
 
-    def test_enroll_without_incarnation_stops(self):
-        self.fs.boot()
-        bad = dict(ENROLLED)
-        del bad["incarnation"]
-        self.assertEqual(self.start(FakeControl({"/v1/agent/enroll": [(200, bad)]})), 3)
+    def test_enroll_without_incarnation_or_relay_url_stops(self):
+        # (stopped at the enroll itself: nothing else is called)
+        for key, value in (("incarnation", None), ("relayUrl", None), ("relayUrl", 7)):
+            self.fs.boot()
+            bad = dict(ENROLLED)
+            if value is None:
+                del bad[key]
+            else:
+                bad[key] = value
+            control = FakeControl({"/v1/agent/enroll": [(200, bad)]})
+            self.assertEqual(self.start(control), 3, (key, value))
+            self.assertEqual(len(control.calls), 1, (key, value))
 
     def test_bad_or_missing_boot_json(self):
         self.assertEqual(self.start(FakeControl({})), 3)
