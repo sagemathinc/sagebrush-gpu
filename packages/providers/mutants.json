@@ -2769,5 +2769,585 @@
   "old": "      if (k !== \"proxy\" && k !== \"direct\") {\n        out.push(`ssh:${k}`);\n        continue;\n      }\n",
   "new": "",
   "note": "closed ssh object"
+ },
+ {
+  "file": "src/hyperstack/catalog.ts",
+  "old": "Object.hasOwn(HYPERSTACK_GPUS, gpu)",
+  "new": "gpu in HYPERSTACK_GPUS"
+ },
+ {
+  "file": "src/hyperstack/catalog.ts",
+  "old": "\"A100-80G-SXM4\": \"A100-80GB-SXM\"",
+  "new": "\"A100-80G-SXM4\": \"A100-80GB-PCIE\""
+ },
+ {
+  "file": "src/hyperstack/catalog.ts",
+  "old": "\"NORWAY-1\": \"NO\"",
+  "new": "\"NORWAY-1\": \"CA\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "status === 400 || status === 405",
+  "new": "status === 405"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "status === 405 || status === 422",
+  "new": "status === 405"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "? \"auth\"",
+  "new": "? \"forbidden\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "? \"insufficient_funds\"",
+  "new": "? \"unknown\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "? \"unplaceable\"",
+  "new": "? \"transient\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "status >= 500 && status <= 599",
+  "new": "status >= 500"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "status === 429 ? retryAfterSeconds(retryAfter) : null",
+  "new": "retryAfterSeconds(retryAfter)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  REBOOTING: \"provisioning\",",
+  "new": "  REBOOTING: \"running\","
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  SHUTOFF: \"stopping\",",
+  "new": "  SHUTOFF: \"terminated\","
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  HIBERNATED: \"stopping\",",
+  "new": "  HIBERNATED: \"terminated\","
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  DELETING: \"stopping\",",
+  "new": "  DELETING: \"terminated\","
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "  ERROR: \"failed\",",
+  "new": "  ERROR: \"stopping\","
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "Object.hasOwn(STATES, rawStatus) ? STATES[rawStatus]! : \"unknown\"",
+  "new": "(STATES[rawStatus] ?? \"unknown\")"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "Number.isSafeInteger(x) && x >= 0 ? x",
+  "new": "Number.isSafeInteger(x) ? x"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (a === 0 || a === 10 || a === 127 || a >= 224) return false;",
+  "new": "if (a === 10 || a === 127 || a >= 224) return false;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "a === 0 || a === 10 || a === 127 ||",
+  "new": "a === 0 || a === 127 ||"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "a === 10 || a === 127 || a >= 224",
+  "new": "a === 10 || a >= 224"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "a >= 224) return false;",
+  "new": "a > 224) return false;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (a === 169 && b === 254) return false;",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "a === 172 && b >= 16 && b <= 31",
+  "new": "a === 172 && b > 16 && b <= 31"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "b >= 16 && b <= 31) return",
+  "new": "b >= 16 && b < 31) return"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (a === 192 && b === 168) return false;",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "a === 100 && b >= 64 && b <= 127",
+  "new": "a === 100 && b > 64 && b <= 127"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "b >= 64 && b <= 127) return",
+  "new": "b >= 64 && b < 127) return"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (a === 192 && b === 0) return false;",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "b === 18 || b === 19",
+  "new": "b === 18"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "(b === 18 || b === 19)",
+  "new": "(b === 19)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "|1[0-9]{2}|[1-9]?[0-9])(\\.",
+  "new": "|1[0-9]{2}|[0-9]?[0-9])(\\."
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "{3}$/;",
+  "new": "{3}/;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "/^(25[0-5]",
+  "new": "/(25[0-5]"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "else if (rules.length > 0) out.push(\"security_rules\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (vm[\"port_randomization\"] !== false) out.push(`port_randomization",
+  "new": "if (vm[\"port_randomization\"] === true) out.push(`port_randomization"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (enabled !== false) out.push(",
+  "new": "if (enabled === true) out.push("
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!isPublicIpv4(vm[\"floating_ip\"])) out.push(`floating_ip",
+  "new": "if (vm[\"floating_ip\"] === null) out.push(`floating_ip"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (r[\"direction\"] !== \"ingress\") continue;",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "Number.isNaN(lo) || Number.isNaN(hi) ?",
+  "new": "Number.isNaN(lo) ?"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (!isObject(r)) {\n      out.push(UNREADABLE);",
+  "new": "    if (!isObject(r)) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!Array.isArray(rules)) return [UNREADABLE];",
+  "new": "if (!Array.isArray(rules)) return [];"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "!Number.isSafeInteger(vm[\"id\"]) || (vm[\"id\"] as number) <= 0) {\n    throw",
+  "new": "!Number.isSafeInteger(vm[\"id\"])) {\n    throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "(vm[\"id\"] as number) <= 0) {\n    throw",
+  "new": "(vm[\"id\"] as number) < 0) {\n    throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "volumeGb: volumes === null || volumes === undefined || (Array.isArray(volumes) && volumes.length === 0) ? 0",
+  "new": "volumeGb: volumes === null || volumes === undefined || Array.isArray(volumes) ? 0"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": ": Array.isArray(volumes) ? Number.POSITIVE_INFINITY : Number.NaN",
+  "new": ": Number.POSITIVE_INFINITY"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "image: typeof image[\"name\"] === \"string\" ? image[\"name\"] : UNREADABLE",
+  "new": "image: typeof image[\"name\"] === \"string\" ? image[\"name\"] : \"\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (vm[\"status\"] !== \"ACTIVE\") out.push(\"status\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!isPublicIpv4(vm[\"floating_ip\"])) out.push(\"floating_ip\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (vm[\"floating_ip_status\"] !== \"ATTACHED\") out.push(\"floating_ip_status\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (vm[\"port_randomization\"] !== false) out.push(\"port_randomization\");",
+  "new": "if (vm[\"port_randomization\"] === true) out.push(\"port_randomization\");"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "!Array.isArray(vm[\"security_rules\"]) || vm[\"security_rules\"].length !== 0) out.push(\"security_rules\")",
+  "new": "Array.isArray(vm[\"security_rules\"]) && vm[\"security_rules\"].length !== 0) out.push(\"security_rules\")"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!isObject(em) || em[\"enabled\"] !== false) out.push(\"enhanced_metrics\");",
+  "new": "if (isObject(em) && em[\"enabled\"] === true) out.push(\"enhanced_metrics\");"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "(Array.isArray(volumes) && volumes.length === 0))) out.push(\"volumes\");",
+  "new": "Array.isArray(volumes))) out.push(\"volumes\");"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (vm[\"name\"] !== want.name) out.push(\"name\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (name(vm[\"environment\"]) !== want.environmentName) out.push(\"environment\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (name(vm[\"flavor\"]) !== want.flavorName) out.push(\"flavor\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (name(vm[\"image\"]) !== want.imageName) out.push(\"image\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (name(vm[\"keypair\"]) !== want.keypairName) out.push(\"keypair\");",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!isObject(vm)) return [\"unreadable\"];",
+  "new": "if (!isObject(vm)) return [];"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "{ name: \"Ed25519\" }, false, [\"sign\"]",
+  "new": "{ name: \"Ed25519\" }, true, [\"sign\"]"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "view.setUint32(0, type.length);",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "view.setUint32(4 + type.length, raw.length);",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "blob.set(raw, 8 + type.length);",
+  "new": "blob.set(raw, 4 + type.length);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "headers: { api_key: this.#apiKey, Accept",
+  "new": "headers: { \"x-api-key\": this.#apiKey, Accept"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (res.status >= 300) throw",
+  "new": "    if (res.status >= 400) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "const kind: ProviderErrorKind = \"unknown\";"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "signal: AbortSignal.timeout(this.#timeoutMs),",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (text === \"\") return null;",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!Number.isInteger(query.gpuCount) || query.gpuCount < 1) throw",
+  "new": "if (query.gpuCount < 1) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "query.gpuCount < 1) throw",
+  "new": "query.gpuCount < 0) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "perGpu.has(e[\"name\"]) ? Number.NaN : usdToMicros",
+  "new": "usdToMicros"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "!Number.isFinite(e[\"value\"]) || e[\"value\"] <= 0) continue;",
+  "new": "e[\"value\"] <= 0) continue;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "e[\"value\"] <= 0) continue;",
+  "new": "e[\"value\"] < 0) continue;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "f[\"gpu_count\"] !== query.gpuCount ||",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": " || typeof f[\"stock_available\"] !== \"boolean\") continue;",
+  "new": ") continue;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "providerCostPerHour: unit * query.gpuCount,",
+  "new": "providerCostPerHour: unit,"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "stock: f[\"stock_available\"] ? \"unknown\" : \"none\",",
+  "new": "stock: \"unknown\","
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "prev === undefined || offer.stock !== \"none\"",
+  "new": "prev === undefined"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "prev === undefined || offer.stock",
+  "new": "true || offer.stock"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "unit === undefined || Number.isNaN(unit)",
+  "new": "unit === undefined"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": ": isObject(book) && Array.isArray(book[\"data\"]) ? book[\"data\"] : null",
+  "new": ": null"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!isObject(flavors) || !Array.isArray(flavors[\"data\"])) {",
+  "new": "if (!isObject(flavors)) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (s.providerMachineId !== providerMachineId) {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (e instanceof ProviderError && e.kind === \"not_found\") return goneStatus",
+  "new": "if (e instanceof ProviderError) return goneStatus"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (!/^[1-9][0-9]{0,15}$/.test(providerMachineId)) throw new RangeError(\"a Hyperstack VM id is a positive integer\");\n    try {\n      const json",
+  "new": "    try {\n      const json"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (e instanceof ProviderError && e.kind === \"not_found\") return { state: \"absent\"",
+  "new": "if (e instanceof ProviderError && e.kind !== \"transient\") return { state: \"absent\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "vm[\"id\"] !== Number(providerMachineId) ||",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": " || typeof vm[\"status\"] !== \"string\") return \"unavailable\";",
+  "new": ") return \"unavailable\";"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (status === \"DELETED\") return",
+  "new": "if (status === \"DELETED\" || status === \"DELETING\") return"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "vm[\"floating_ip_status\"] === \"ATTACHED\" &&",
+  "new": ""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "vm[\"port_randomization\"] === false &&\n",
+  "new": "vm[\"port_randomization\"] !== true &&\n"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "vm[\"security_rules\"].length === 0;",
+  "new": "true;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "state: status === \"ACTIVE\" ? \"active\" : \"other\"",
+  "new": "state: status !== \"ERROR\" ? \"active\" : \"other\""
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const ipv4 = isPublicIpv4(ip) ? (ip as string) : null;",
+  "new": "const ipv4 = typeof ip === \"string\" ? ip : null;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (!/^[1-9][0-9]{0,15}$/.test(providerMachineId)) throw new RangeError(\"a Hyperstack VM id is a positive integer\");\n    let json;",
+  "new": "    let json;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      if (e.kind === \"not_found\") return;\n      if (e.kind !== \"unplaceable\") throw e;",
+  "new": "      if (e.kind === \"not_found\") return;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (s.state === \"terminated\" || s.rawStatus === \"DELETING\") return;",
+  "new": "if (s.state === \"terminated\" || s.state === \"stopping\") return;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (!/^[1-9][0-9]{0,15}$/.test(providerMachineId)) throw new RangeError(\"a Hyperstack VM id is a positive integer\");\n    try {\n      await",
+  "new": "    try {\n      await"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (total !== null && t !== total) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (rows.length !== Math.max(0, Math.min(PAGE, total - read))) {",
+  "new": "if (rows.length > PAGE) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (seen.has(s.providerMachineId)) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (typeof (vm as Record<string, unknown>)[\"name\"] !== \"string\") {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (s.machineId !== null) out.push(s);",
+  "new": "out.push(s);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (read >= total) return out;",
+  "new": "if (rows.length < PAGE) return out;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "(json[\"count\"] as number) < 0) {",
+  "new": "false) {"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "page <= MAX_PAGES; page++",
+  "new": "page < MAX_PAGES; page++"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const PAGE = 100;",
+  "new": "const PAGE = 50;"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "/^sbg-[A-Za-z0-9_-]{1,46}$/",
+  "new": "/^sbg-[A-Za-z0-9_-]{1,47}$/"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "/^ssh-ed25519 [A-Za-z0-9+/]{68}$/.test(publicKey)",
+  "new": "/^ssh-ed25519 [A-Za-z0-9+/]{68}/.test(publicKey)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "(id as number) <= 0 || !isObject(kp) || kp[\"name\"] !== name",
+  "new": "(id as number) <= 0 || !isObject(kp)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "!Number.isSafeInteger(id) || (id as number) <= 0 || !isObject(kp)",
+  "new": "(id as number) <= 0 || !isObject(kp)"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "name, environment_name: environmentName, public_key: publicKey",
+  "new": "name, environment: environmentName, public_key: publicKey"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "`/core/keypair/${id}`",
+  "new": "`/core/keypairs/${id}`"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (!Number.isSafeInteger(id) || id <= 0) throw new RangeError(\"a keypair id",
+  "new": "if (id <= 0) throw new RangeError(\"a keypair id"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (e instanceof ProviderError && e.kind === \"not_found\") return;\n      throw e;\n    }\n  }\n}",
+  "new": "throw e;\n    }\n  }\n}"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "throw new ProviderError(\"hyperstack\", \"invalid_request\", \"Hyperstack: VM launch is not enabled\");",
+  "new": "await this.#call(\"GET\", \"/core/flavors\");\n    throw new ProviderError(\"hyperstack\", \"invalid_request\", \"Hyperstack: VM launch is not enabled\");"
  }
 ]
