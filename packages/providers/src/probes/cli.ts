@@ -6,8 +6,9 @@
 //   --agent-url URL        https URL of the pinned probe agent tarball (required)
 //   --agent-sha256 HEX     its sha256, 64 lowercase hex (required)
 //   --control-url URL      https URL of the control plane (required; checked by the launcher)
-//                          The launcher argv is built from these by @sbgpu/machine's
-//                          renderBootCommand; no other launcher can be given.
+//                          The launcher argv is built from these and a fresh random salt: the
+//                          probe-only prologue (@sbgpu/machine renderProbePrologue) followed by the
+//                          unchanged production launcher script; no other launcher can be given.
 //   --gpu TYPE             our GPU type id (default RTX-A4000, the cheapest Secure Cloud GPU we map)
 //   --dc ID                RunPod data center (default EU-SE-1)
 //   --image IMAGE          provider stock image (default: the production image)
@@ -15,17 +16,38 @@
 //   --max-minutes N        pod lifetime cap (default 60)
 //   --execute              actually launch (costs money)
 //   --approval TEXT        who approved the spend and where; required with --execute
+//   --key-file PATH        the RunPod API key file; required with --execute, and only the
+//                          authorized path (AUTHORIZED_KEY_FILE) is accepted
 //
-// With --execute, the API key comes from the RUNPOD_API_KEY environment variable of the shell
-// running this (never a file path, never printed). The report goes to stdout as JSON.
+// The key is read from the file inside this process and goes only into the Authorization header
+// of RunPod requests: never into the environment, argv, the pod, output or errors. The salt is
+// never printed or reported. The report goes to stdout as JSON; after the pod is confirmed gone,
+// it adds the account's currentSpendPerHr, which must read 0 for the run to count as settled.
 
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isGpuType } from "../gpus.ts";
 import type { Fetch } from "../http.ts";
 import { RunPodAdapter, RUNPOD_API } from "../runpod/adapter.ts";
 import type { LaunchSpec } from "../types.ts";
-import { CALL_TIMEOUT_MS, checkPlan, launcherSha256, parseLogSse, probeLauncher, runEradicationProbe, type ProbePlan, type ProbeProviderApi } from "./eradication.ts";
+import {
+  CALL_TIMEOUT_MS,
+  checkPlan,
+  launcherSha256,
+  maskSalt,
+  parseLogSse,
+  probeLauncher,
+  runEradicationProbe,
+  type ProbePlan,
+  type ProbeProviderApi,
+  type ProbeReport,
+} from "./eradication.ts";
+
+/** The one key file this probe may read (William's approval, Nov 24 2026). */
+export const AUTHORIZED_KEY_FILE = "/run/secrets/cocalc/runpod";
+/** A key file larger than this is refused. */
+export const MAX_KEY_FILE_BYTES = 512;
 
 export const DEFAULT_IMAGE = "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404";
 
@@ -40,6 +62,7 @@ export interface CliOptions {
   maxMinutes: number;
   execute: boolean;
   approval: string;
+  keyFile: string;
 }
 
 /** Parse the arguments; unknown or malformed ones throw. */
@@ -55,6 +78,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     maxMinutes: 60,
     execute: false,
     approval: "",
+    keyFile: "",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -78,6 +102,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case "--max-minutes": o.maxMinutes = num(value()); break;
       case "--approval": o.approval = value(); break;
       case "--execute": o.execute = true; break;
+      case "--key-file": o.keyFile = value(); break;
       default: throw new RangeError(`unknown argument: ${a}`);
     }
   }
@@ -86,17 +111,19 @@ export function parseArgs(argv: readonly string[]): CliOptions {
   }
   if (!isGpuType(o.gpu)) throw new RangeError(`unknown GPU type: ${o.gpu}`);
   if (o.execute && o.approval.trim().length < 8) throw new RangeError("--execute needs --approval");
+  if (o.execute && o.keyFile !== AUTHORIZED_KEY_FILE) throw new RangeError(`--execute needs --key-file ${AUTHORIZED_KEY_FILE}`);
+  if (!o.execute && o.keyFile !== "") throw new RangeError("--key-file is only for --execute");
   return o;
 }
 
 /**
- * The plan for the options. The launcher is built from the probe agent's values by
- * renderBootCommand (which refuses a non-https or non-plain URL and a malformed hash). The boot
- * token is random: nothing exchanges it.
+ * The plan for the options. The launcher is built from the probe agent's values and the salt
+ * (renderBootScript refuses a non-https or non-plain URL and a malformed hash; the prologue
+ * refuses a malformed salt). The boot token is random: nothing exchanges it.
  */
-export function planFor(o: CliOptions, bootToken: string): ProbePlan {
+export function planFor(o: CliOptions, bootToken: string, saltHex: string): ProbePlan {
   const agent = { agentUrl: o.agentUrl, agentSha256: o.agentSha256, controlUrl: o.controlUrl };
-  const launcher = probeLauncher(agent);
+  const launcher = probeLauncher(agent, saltHex);
   const maxSpendMicros = Math.round(o.maxUsd * 1_000_000);
   const spec: LaunchSpec = {
     machineId: "mch_pr0bepr0bepr0bepr0be",
@@ -114,6 +141,7 @@ export function planFor(o: CliOptions, bootToken: string): ProbePlan {
   const plan: ProbePlan = {
     approval: o.approval === "" ? "dry-run (no approval)" : o.approval,
     agent,
+    saltHex,
     spec,
     maxSpendMicros,
     maxMinutes: o.maxMinutes,
@@ -122,6 +150,75 @@ export function planFor(o: CliOptions, bootToken: string): ProbePlan {
   };
   checkPlan(plan);
   return plan;
+}
+
+/**
+ * The API key from a key file: one line, no whitespace, at most MAX_KEY_FILE_BYTES. Errors never
+ * include the file's content.
+ */
+export function readKeyFile(path: string, read: (path: string) => Uint8Array = readFileSync): string {
+  if (path !== AUTHORIZED_KEY_FILE) throw new RangeError("only the authorized key file may be read");
+  const bytes = read(path);
+  if (bytes.length > MAX_KEY_FILE_BYTES) throw new RangeError("the key file is too large");
+  let text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  if (text.endsWith("\r\n")) text = text.slice(0, -2);
+  else if (text.endsWith("\n")) text = text.slice(0, -1);
+  if (text === "" || /\s/.test(text)) throw new RangeError("the key file is empty or malformed");
+  return text;
+}
+
+export const RUNPOD_GRAPHQL = "https://api.runpod.io/graphql";
+
+/**
+ * The account's current spend rate (USD per hour) from RunPod's GraphQL `myself`. Throws on any
+ * failure, never with the response body.
+ */
+export async function accountSpendPerHr(apiKey: string, doFetch: typeof fetch = fetch): Promise<number> {
+  const res = await doFetch(RUNPOD_GRAPHQL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "query { myself { currentSpendPerHr } }" }),
+    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+  });
+  const text = await res.text();
+  if (res.status !== 200) throw new Error(`spend read: HTTP ${res.status}`);
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new Error("spend read: not JSON");
+  }
+  // GraphQL reports failures beside partial data: any error makes the read fail (its text is never kept).
+  const errors = (body as { errors?: unknown } | null)?.errors;
+  if (errors !== undefined && (!Array.isArray(errors) || errors.length > 0)) throw new Error("spend read: GraphQL errors");
+  const v = (body as { data?: { myself?: { currentSpendPerHr?: unknown } } } | null)?.data?.myself?.currentSpendPerHr;
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new Error("spend read: no valid currentSpendPerHr");
+  return v;
+}
+
+/**
+ * Read the account's spend rate until it is 0 (billing lags a terminated pod by about a minute),
+ * at most `polls` times. Settled only on a successful read of exactly 0; failures count as not
+ * settled. Never launches or changes anything.
+ */
+export async function settleSpend(
+  read: () => Promise<number>,
+  sleep: (ms: number) => Promise<void>,
+  polls = 6,
+  intervalMs = 30_000,
+): Promise<{ settled: boolean; lastSpendPerHr: number | null }> {
+  let last: number | null = null;
+  for (let i = 0; i < polls; i++) {
+    if (i > 0) await sleep(intervalMs);
+    try {
+      last = await read();
+    } catch {
+      last = null;
+      continue;
+    }
+    if (last === 0) return { settled: true, lastSpendPerHr: 0 };
+  }
+  return { settled: false, lastSpendPerHr: last };
 }
 
 /**
@@ -175,19 +272,19 @@ export async function readLogs(apiKey: string, id: string, since: string, opts: 
 
 async function main(argv: readonly string[]): Promise<number> {
   const o = parseArgs(argv);
-  const plan = planFor(o, randomBytes(32).toString("base64url"));
+  const saltHex = randomBytes(32).toString("hex");
+  const plan = planFor(o, randomBytes(32).toString("base64url"), saltHex);
   const preview = new RunPodAdapter({ apiKey: "unused", fetch: (() => Promise.reject(new Error("dry run"))) as Fetch });
   const body = preview.createBody(plan.spec);
   (body["env"] as Record<string, string>)[preview.info.bootTokenEnv] = "<random, 43 chars>";
   if (!o.execute) {
     const launcherHash = await launcherSha256(plan.spec.launcher);
-    process.stdout.write(
-      JSON.stringify({ dryRun: true, launcherSha256: launcherHash, plan: { ...plan, spec: { ...plan.spec, bootToken: "<random>" } }, createBody: body }, null, 2) + "\n",
-    );
+    const { saltHex: _salt, ...shown } = plan;
+    const out = JSON.stringify({ dryRun: true, launcherSha256: launcherHash, plan: { ...shown, spec: { ...plan.spec, bootToken: "<random>" } }, createBody: body }, null, 2);
+    process.stdout.write(maskSalt(out, saltHex) + "\n");
     return 0;
   }
-  const apiKey = process.env["RUNPOD_API_KEY"];
-  if (apiKey === undefined || apiKey === "") throw new RangeError("RUNPOD_API_KEY is not set");
+  const apiKey = readKeyFile(o.keyFile);
   const adapter = new RunPodAdapter({ apiKey, fetch: globalThis.fetch as unknown as Fetch });
   const api: ProbeProviderApi = {
     async action(id, action) {
@@ -202,12 +299,40 @@ async function main(argv: readonly string[]): Promise<number> {
     },
     logs: (id, since) => readLogs(apiKey, id, since),
   };
-  const report = await runEradicationProbe(plan, adapter, api, {
-    now: () => Date.now(),
-    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  return finishRun({
+    run: () => runEradicationProbe(plan, adapter, api, { now: () => Date.now(), sleep }),
+    readSpend: () => accountSpendPerHr(apiKey),
+    sleep,
+    write: (text) => process.stdout.write(text),
+    apiKey,
+    saltHex,
   });
-  process.stdout.write(JSON.stringify(report, null, 2) + "\n");
-  return report.outcome === "pass" ? 0 : report.terminatedConfirmed ? 1 : 3;
+}
+
+export interface FinishRunDeps {
+  run: () => Promise<ProbeReport>;
+  readSpend: () => Promise<number>;
+  sleep: (ms: number) => Promise<void>;
+  write: (text: string) => void;
+  /** Only to refuse printing it; never written. */
+  apiKey: string;
+  saltHex: string;
+}
+
+/**
+ * The paid run after the plan: run the probe, then (only after the pod is confirmed gone) wait for
+ * the account's spend rate to come back to 0, print the report, and give the exit code: 3 if
+ * termination is unconfirmed, 0 only for a pass with the spend settled, else 1.
+ */
+export async function finishRun(d: FinishRunDeps): Promise<number> {
+  const report = await d.run();
+  const spend = report.terminatedConfirmed ? await settleSpend(d.readSpend, d.sleep) : { settled: false, lastSpendPerHr: null };
+  const out = maskSalt(JSON.stringify({ ...report, accountSpendPerHrAfter: spend.lastSpendPerHr, spendSettled: spend.settled }, null, 2), d.saltHex);
+  if (out.includes(d.apiKey)) throw new Error("refusing to print a report that contains the key");
+  d.write(out + "\n");
+  if (!report.terminatedConfirmed) return 3;
+  return report.outcome === "pass" && spend.settled ? 0 : 1;
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) {

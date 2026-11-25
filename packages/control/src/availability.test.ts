@@ -268,3 +268,26 @@ test("the mark survives reopening the store", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a prune interleaved with a report's reads never yields a complete report over pruned time", async () => {
+  // A prune forced just before the row read, or between the row read and the mark read: the
+  // mark is read after the rows, so either way the report over [1, 2) is incomplete.
+  for (const at of [1, 2]) {
+    const db = sqliteDb();
+    fillToCap(db.raw);
+    let reads = 0;
+    const interleaved: Db = {
+      async all<T>(sql: string, params?: SqlValue[]) {
+        reads++;
+        if (reads === at) await recordObservations(db, [obs(NOW)], NOW); // prunes observed_ms 1
+        return db.all<T>(sql, params);
+      },
+      run: (sql, params) => db.run(sql, params),
+      batch: (stmts) => db.batch(stmts),
+    };
+    const r = await storedAvailabilityReport(interleaved, 1, 2);
+    assert.equal(r.complete, false, `prune before read ${at}`);
+    assert.equal(r.prunedThroughMs, 1);
+    assert.equal(r.observations, at === 1 ? 0 : 1);
+  }
+});
