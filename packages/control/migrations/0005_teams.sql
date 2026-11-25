@@ -59,3 +59,19 @@ WHEN (SELECT COUNT(*) FROM teams WHERE project_id = NEW.project_id AND deleted_m
 BEGIN
   SELECT RAISE(ABORT, 'team-cap: a project has at most 200 teams');
 END;
+
+-- A deleted team is a tombstone: it can't be renamed (every team write begins by touching
+-- the name, so a team deleted mid-request turns the whole write into this refusal) ...
+CREATE TRIGGER teams_tombstone_fixed BEFORE UPDATE OF name ON teams
+WHEN OLD.deleted_ms IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'team: a deleted team doesn''t change');
+END;
+
+-- ... and its allocation stays at zero.
+CREATE TRIGGER teams_tombstone_allocation BEFORE UPDATE OF amount ON allocations
+WHEN NEW.holder_kind = 'team' AND NEW.amount <> 0
+  AND EXISTS (SELECT 1 FROM teams t WHERE t.id = NEW.holder_id AND t.deleted_ms IS NOT NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'team: a deleted team''s allocation stays at zero');
+END;

@@ -103,24 +103,60 @@ test("createTeam: managers and up; malformed requests refused whole", async () =
   assert.equal(((await create(w, mgr.cookie, { name: "full", memberIds: many.slice(1) })).json as unknown as Team).memberCount, MAX_TEAM_MEMBERS_PER_REQUEST);
 });
 
-test("a team deleted between the check and the write: a conflict, nothing half-done", async () => {
-  const w = await world();
-  const mgr = await person(w, "mgr@example.com", "manager");
-  const a = await addMember(w, "a@example.com");
-  const t = (await create(w, mgr.cookie, { name: "T" })).json as unknown as Team;
-  // delete the team just before the update's batch runs
-  const inner = w.deps.db;
-  w.deps.db = {
-    ...inner,
-    async batch(stmts) {
-      await inner.batch([stmt(`UPDATE teams SET deleted_ms = ? WHERE id = ?`, T0, t.id)]);
-      w.deps.db = inner;
-      return inner.batch(stmts);
-    },
-  };
-  const r = await call(w, "PATCH", `${TP(w)}/${t.id}`, { cookie: mgr.cookie, body: { memberIds: [a] } });
-  assert.deepEqual([code(r), r.json.error?.message], ["conflict", "the team was deleted"]);
-  assert.equal(await teamOf(w, a), null);
+test("a team deleted between the check and the write: every write is a clean conflict, nothing changes", async () => {
+  const cases: Array<[string, (w: World, t: Team, a: string) => [string, string, unknown?]]> = [
+    ["rename", (w, t) => ["PATCH", `${TP(w)}/${t.id}`, { name: "New" }]],
+    ["members", (w, t, a) => ["PATCH", `${TP(w)}/${t.id}`, { memberIds: [a] }]],
+    ["no members", (w, t) => ["PATCH", `${TP(w)}/${t.id}`, { memberIds: [] }]],
+    ["empty patch", (w, t) => ["PATCH", `${TP(w)}/${t.id}`, {}]],
+    ["allocation", (w, t) => ["PUT", `${TP(w)}/${t.id}/allocation`, { amount: 5 }]],
+    ["zero allocation", (w, t) => ["PUT", `${TP(w)}/${t.id}/allocation`, { amount: 0 }]],
+    ["delete", (w, t) => ["DELETE", `${TP(w)}/${t.id}`]],
+  ];
+  for (const [name, req] of cases) {
+    const w = await world();
+    const mgr = await person(w, "mgr@example.com", "manager");
+    const a = await addMember(w, "a@example.com");
+    const t = (await create(w, mgr.cookie, { name: "T" })).json as unknown as Team;
+    // the team is deleted (by another request) just before this request's write
+    const inner = w.deps.db;
+    w.deps.db = {
+      ...inner,
+      async batch(stmts) {
+        w.deps.db = inner;
+        await inner.batch([stmt(`UPDATE allocations SET amount = 0 WHERE id = ?`, t.allocationId), stmt(`UPDATE teams SET deleted_ms = ? WHERE id = ?`, T0, t.id)]);
+        return inner.batch(stmts);
+      },
+    };
+    const [method, path, body] = req(w, t, a);
+    const r = await call(w, method, path, { cookie: mgr.cookie, ...(body !== undefined ? { body } : {}) });
+    assert.deepEqual([code(r), r.json.error?.message], ["conflict", "the team was deleted"], name);
+    // the tombstone is untouched: its name, deletion time, empty membership and zero allocation
+    const row = await w.db.all<{ name: string; deleted_ms: number }>(`SELECT name, deleted_ms FROM teams WHERE id = ?`, [t.id]);
+    assert.deepEqual([row[0]!.name, row[0]!.deleted_ms], ["T", T0], name);
+    assert.equal(await teamOf(w, a), null, name);
+    assert.equal((await w.db.all<{ amount: number }>(`SELECT amount FROM allocations WHERE id = ?`, [t.allocationId]))[0]!.amount, 0, name);
+  }
+});
+
+test("schema: a deleted team is a tombstone: no rename, its allocation stays at zero", async () => {
+  const w = await world({ budget: 100 });
+  const tid = newId("team");
+  const alloc = newId("allocation");
+  await w.db.batch([
+    stmt(`INSERT INTO teams (id, project_id, name, created_ms) VALUES (?, ?, 'T', ?)`, tid, w.projectId, T0),
+    stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'team', ?, 50, ?)`, alloc, w.projectId, tid, T0),
+  ]);
+  // a live team: rename and allocation changes are fine
+  await w.db.batch([stmt(`UPDATE teams SET name = 'U' WHERE id = ?`, tid), stmt(`UPDATE allocations SET amount = 60 WHERE id = ?`, alloc)]);
+  await w.db.batch([stmt(`UPDATE allocations SET amount = 0 WHERE id = ?`, alloc), stmt(`UPDATE teams SET deleted_ms = ? WHERE id = ?`, T0, tid)]);
+  await assert.rejects(w.db.batch([stmt(`UPDATE teams SET name = 'V' WHERE id = ?`, tid)]), /deleted team doesn't change/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE teams SET name = name WHERE id = ?`, tid)]), /deleted team doesn't change/);
+  await assert.rejects(w.db.batch([stmt(`UPDATE allocations SET amount = 1 WHERE id = ?`, alloc)]), /stays at zero/);
+  await w.db.batch([stmt(`UPDATE allocations SET amount = 0, updated_ms = 1 WHERE id = ?`, alloc)]); // zero stays allowed
+  // a member's allocation is not affected by the team rule
+  const m = await addMember(w, "m@example.com", "member", { allocation: 10 });
+  await w.db.batch([stmt(`UPDATE allocations SET amount = 20 WHERE holder_id = ?`, m)]);
 });
 
 test("team names are unique among a project's live teams, case-insensitively", async () => {

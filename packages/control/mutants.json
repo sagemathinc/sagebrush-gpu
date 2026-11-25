@@ -1133,26 +1133,6 @@
  },
  {
   "file": "src/teams.ts",
-  "old": "      stmts.push({ sql: `UPDATE members SET team_id = NULL WHERE team_id = ?`, params: [team.id] });\n",
-  "new": ""
- },
- {
-  "file": "src/teams.ts",
-  "old": "      { sql: `UPDATE members SET team_id = NULL WHERE team_id = ?`, params: [team.id] },\n      { sql: `UPDATE allocations SET amount = 0",
-  "new": "      { sql: `UPDATE members SET team_id = NULL WHERE team_id = ? AND status <> 'removed'`, params: [team.id] },\n      { sql: `UPDATE allocations SET amount = 0"
- },
- {
-  "file": "src/teams.ts",
-  "old": "      { sql: `UPDATE allocations SET amount = 0, updated_ms = ? WHERE id = ?`, params: [now(), team.allocation_id] },\n",
-  "new": ""
- },
- {
-  "file": "src/teams.ts",
-  "old": "if (!isNonNegativeMicros(amount)) throw new HttpError(\"badRequest\", \"amount is a non-negative whole number of micro-dollars\");\n    await batch(db, [{ sql: `UPDATE allocations",
-  "new": "await batch(db, [{ sql: `UPDATE allocations"
- },
- {
-  "file": "src/teams.ts",
   "old": "    sql: `UPDATE members SET team_id = ? WHERE project_id = ? AND id IN (${placeholders(part.length)})`,",
   "new": "    sql: `UPDATE members SET team_id = ? WHERE project_id <> ? OR id IN (${placeholders(part.length)})`,"
  },
@@ -1215,5 +1195,40 @@
   "file": "migrations/0005_teams.sql",
   "old": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id AND t.deleted_ms IS NULL",
   "new": "CREATE TRIGGER members_team_live_insert BEFORE INSERT ON members\nWHEN NEW.team_id IS NOT NULL AND NOT EXISTS (\n  SELECT 1 FROM teams t WHERE t.id = NEW.team_id AND t.project_id = NEW.project_id"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "CREATE TRIGGER teams_tombstone_fixed BEFORE UPDATE OF name ON teams\nWHEN OLD.deleted_ms IS NOT NULL",
+  "new": "CREATE TRIGGER teams_tombstone_fixed BEFORE UPDATE OF name ON teams\nWHEN 0"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.holder_kind = 'team' AND NEW.amount <> 0\n  AND EXISTS",
+  "new": "WHEN 0\n  AND EXISTS"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "WHEN NEW.holder_kind = 'team' AND NEW.amount <> 0\n  AND EXISTS",
+  "new": "WHEN NEW.holder_kind = 'team'\n  AND EXISTS"
+ },
+ {
+  "file": "migrations/0005_teams.sql",
+  "old": "  AND EXISTS (SELECT 1 FROM teams t WHERE t.id = NEW.holder_id AND t.deleted_ms IS NOT NULL)",
+  "new": "  AND EXISTS (SELECT 1 FROM teams t WHERE t.id = NEW.holder_id)"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    const stmts: Stmt[] = [live(team)];",
+  "new": "    const stmts: Stmt[] = [];"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    await batch(db, [\n      live(team),\n      { sql: `UPDATE members SET team_id = NULL",
+  "new": "    await batch(db, [\n      { sql: `UPDATE members SET team_id = NULL"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "    await batch(db, [\n      live(team),\n      { sql: `UPDATE allocations SET amount = ?",
+  "new": "    await batch(db, [\n      { sql: `UPDATE allocations SET amount = ?"
  }
 ]

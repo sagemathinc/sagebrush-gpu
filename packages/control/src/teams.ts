@@ -10,6 +10,15 @@ import { HttpError, json } from "./http.ts";
 
 const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",");
 
+/**
+ * The first statement of every write to a team: a no-op that a deleted team refuses
+ * (teams_tombstone_fixed), so a team deleted between our check and our write makes the
+ * whole batch a conflict instead of a write to a tombstone.
+ */
+function live(team: TeamRow): Stmt {
+  return { sql: `UPDATE teams SET name = name WHERE id = ? AND project_id = ?`, params: [team.id, team.project_id] };
+}
+
 /** Statements that put the given members in `teamId`, each within D1's parameter cap. */
 function joinTeam(teamId: string, projectId: string, ids: string[]): Stmt[] {
   return chunks(ids, ID_CHUNK).map((part) => ({
@@ -156,18 +165,18 @@ export const TEAM_HANDLERS: Handlers = {
     const { db } = ctx.deps;
     const projectId = ctx.params.projectId as string;
     const team = await loadTeam(db, projectId, ctx.params.teamId as string);
-    const stmts: Stmt[] = [];
+    const stmts: Stmt[] = [live(team)];
     if (ctx.body.name !== undefined) {
-      stmts.push({ sql: `UPDATE teams SET name = ? WHERE id = ?`, params: [teamName(ctx.body.name), team.id] });
+      stmts.push({ sql: `UPDATE teams SET name = ? WHERE id = ? AND project_id = ?`, params: [teamName(ctx.body.name), team.id, projectId] });
     }
     if (ctx.body.memberIds !== undefined) {
       // the list replaces the team's membership
       // (in one batch: everyone leaves, then the listed members join)
       const ids = await memberIds(db, projectId, ctx.body.memberIds);
-      stmts.push({ sql: `UPDATE members SET team_id = NULL WHERE team_id = ?`, params: [team.id] });
+      stmts.push({ sql: `UPDATE members SET team_id = NULL WHERE team_id = ? AND project_id = ?`, params: [team.id, projectId] });
       stmts.push(...joinTeam(team.id, projectId, ids));
     }
-    if (stmts.length > 0) await batch(db, stmts);
+    await batch(db, stmts);
     const [out] = await toTeams(db, [await loadTeam(db, projectId, team.id)]);
     return json(200, out);
   },
@@ -176,10 +185,12 @@ export const TEAM_HANDLERS: Handlers = {
     const { db, now } = ctx.deps;
     const team = await loadTeam(db, ctx.params.projectId as string, ctx.params.teamId as string);
     // members leave the team, its allocation returns to the project, and it stays on record
+    // (live() refuses a team deleted meanwhile, so a second delete is a conflict)
     await batch(db, [
-      { sql: `UPDATE members SET team_id = NULL WHERE team_id = ?`, params: [team.id] },
-      { sql: `UPDATE allocations SET amount = 0, updated_ms = ? WHERE id = ?`, params: [now(), team.allocation_id] },
-      { sql: `UPDATE teams SET deleted_ms = ? WHERE id = ? AND deleted_ms IS NULL`, params: [now(), team.id] },
+      live(team),
+      { sql: `UPDATE members SET team_id = NULL WHERE team_id = ? AND project_id = ?`, params: [team.id, team.project_id] },
+      { sql: `UPDATE allocations SET amount = 0, updated_ms = ? WHERE id = ? AND project_id = ?`, params: [now(), team.allocation_id, team.project_id] },
+      { sql: `UPDATE teams SET deleted_ms = ? WHERE id = ? AND project_id = ?`, params: [now(), team.id, team.project_id] },
     ]);
     return json(200, { ok: true });
   },
@@ -189,7 +200,10 @@ export const TEAM_HANDLERS: Handlers = {
     const team = await loadTeam(db, ctx.params.projectId as string, ctx.params.teamId as string);
     const amount = ctx.body.amount;
     if (!isNonNegativeMicros(amount)) throw new HttpError("badRequest", "amount is a non-negative whole number of micro-dollars");
-    await batch(db, [{ sql: `UPDATE allocations SET amount = ?, updated_ms = ? WHERE id = ?`, params: [amount, now(), team.allocation_id] }]);
+    await batch(db, [
+      live(team),
+      { sql: `UPDATE allocations SET amount = ?, updated_ms = ? WHERE id = ? AND project_id = ?`, params: [amount, now(), team.allocation_id, team.project_id] },
+    ]);
     const a = await db.all<{ amount: number; updated_ms: number }>(`SELECT amount, updated_ms FROM allocations WHERE id = ?`, [team.allocation_id]);
     const out: Allocation = {
       id: team.allocation_id,
