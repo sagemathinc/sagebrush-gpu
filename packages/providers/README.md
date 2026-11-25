@@ -87,6 +87,12 @@ RunPod (v2 REST API): 400 is either capacity or a rule violation and has no mach
 code, so a 400 whose detail says capacity is `no_capacity`, any other 400 is `unplaceable`; 401
 `auth`, 402 `insufficient_funds`, 403 `forbidden`, 404 `not_found`, 409/413/422
 `invalid_request`, 429 `rate_limited`, 5xx `transient`. This follows RunPod's own retry table.
+Only a 400's body is read, and at most 4 KiB of it (`readPrefix`); no other error body is read.
+
+Every provider request, from each adapter and the probe CLI, sets `redirect: "manual"` (a required
+field of `HttpRequest`; Workers don't implement `"error"`), and every status outside 200–299, a
+3xx or a status 0 included, is refused before the body is read. So no API key header ever
+reaches a second origin (`src/redirects.test.ts` checks this natively, with two local origins).
 
 ## Placement (`placement.ts`)
 
@@ -319,7 +325,7 @@ Shadeform.
 - **List and terminate.**
   - The list is read by offset, 100 per page, at most 50 pages. It fails if the total changes, a page has the wrong length, any instance id appears twice (foreign rows included), or any row's name isn't a string: such a list may be missing one of ours.
   - Terminate is `POST .../delete`, idempotent on 404. A 409 counts as done only if a fresh status shows the instance deleting or gone.
-- **Errors** keep no provider text (bodies can echo request values), and name a fetch failure only by a fixed word (`failureName`). An unreadable reply to a POST is `outcome_unknown`.
+- **Errors** are classified by status before any body read, keep no provider text (bodies can echo request values), and name a fetch failure only by a fixed word (`failureName`). A 2xx body that can't be read, or an unreadable reply to a POST, is `outcome_unknown`.
 
 ## Hyperstack (`src/hyperstack/`, mock-only)
 

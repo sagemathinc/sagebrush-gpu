@@ -33,7 +33,7 @@ function world(reply: (method: string, url: string, n: number) => Reply, latency
     const r = reply(init.method, url, calls.length);
     if (r === "network-error") throw new TypeError("fetch failed");
     const text = r.raw ?? (r.body === undefined ? "" : JSON.stringify(r.body));
-    return { status: r.status, headers: { get: () => null }, text: async () => text };
+    return { status: r.status, headers: { get: () => null }, text: async () => text, body: new Response(text).body };
   };
   const adapter = new RunPodAdapter({ apiKey: "test-key", fetch, now: () => new Date(t) });
   const api: ProbeProviderApi = {

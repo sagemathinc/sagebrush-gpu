@@ -7,7 +7,7 @@
 // see and clean up anything that exists.
 
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
+import { failureName, isSuccess, retryAfterSeconds, type Fetch } from "../http.ts";
 import { parseMachineName } from "../machine-name.ts";
 import type {
   AdapterInfo,
@@ -215,18 +215,25 @@ export class ShadeformAdapter implements ProviderAdapter {
       method,
       headers: { "X-API-KEY": this.#apiKey, Accept: "application/json" },
       signal: AbortSignal.timeout(this.#timeoutMs),
+      // Never follow a redirect: the key header would go to wherever it points.
+      redirect: "manual",
     };
     let res;
-    let text;
     try {
       res = await this.#fetch(this.#base + path, init);
-      text = await res.text();
     } catch (e) {
       // Never include the request (it carries the key), nor the exception's text: a fixed name.
       const name = failureName(e);
       throw new ProviderError("shadeform", "outcome_unknown", `Shadeform ${method} ${path.split("?")[0]}: no response (${name})`);
     }
-    if (res.status >= 300) throw shadeformError(res.status, res.headers.get("Retry-After"));
+    // Classified before any body read: an error reply's body is never read.
+    if (!isSuccess(res.status)) throw shadeformError(res.status, res.headers.get("Retry-After"));
+    let text;
+    try {
+      text = await res.text();
+    } catch (e) {
+      throw new ProviderError("shadeform", "outcome_unknown", `Shadeform ${method} ${path.split("?")[0]}: reply cut off (${failureName(e)})`, res.status);
+    }
     if (text === "") return null;
     try {
       return JSON.parse(text);

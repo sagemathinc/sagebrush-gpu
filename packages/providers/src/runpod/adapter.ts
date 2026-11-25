@@ -6,7 +6,7 @@
 
 import { commandShape, driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { failureName, retryAfterSeconds, type Fetch } from "../http.ts";
+import { failureName, isSuccess, readPrefix, retryAfterSeconds, type Fetch } from "../http.ts";
 import { machineName, parseMachineName } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
 import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
@@ -39,6 +39,8 @@ export interface RunPodOptions {
 }
 
 /** A RunPod refusal that means capacity (RunPod has no machine-readable code for it). */
+/** How much of a 400 reply is read to classify it: enough for any capacity message. */
+export const ERROR_PREFIX_BYTES = 4096;
 const NO_CAPACITY = /no longer any instances available|no (gpu )?capacity|not enough (free )?gpus|no available (machines|gpus|instances)/i;
 
 /**
@@ -334,22 +336,33 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
       method,
       headers: { Authorization: `Bearer ${this.#apiKey}`, Accept: "application/json" },
       signal: AbortSignal.timeout(this.#timeoutMs),
+      // Never follow a redirect: the key header would go to wherever it points.
+      redirect: "manual",
     };
     if (body !== undefined) {
       init.headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(body);
     }
     let res;
-    let text;
     try {
       res = await this.#fetch(this.#base + path, init);
-      text = await res.text();
     } catch (e) {
       // Never include the request (it carries the key), nor the exception's text: a fixed name.
       const name = failureName(e);
       throw new ProviderError("runpod", "outcome_unknown", `RunPod ${method} ${path.split("?")[0]}: no response (${name})`);
     }
-    if (res.status >= 300) throw runpodError(res.status, text, res.headers.get("Retry-After"));
+    if (!isSuccess(res.status)) {
+      // Classified before any full body read. Only a 400's body is read, and at most
+      // ERROR_PREFIX_BYTES of it, to tell no capacity from another refusal.
+      const detail = res.status === 400 ? await readPrefix(res, ERROR_PREFIX_BYTES) : "";
+      throw runpodError(res.status, detail, res.headers.get("Retry-After"));
+    }
+    let text;
+    try {
+      text = await res.text();
+    } catch (e) {
+      throw new ProviderError("runpod", "outcome_unknown", `RunPod ${method} ${path.split("?")[0]}: reply cut off (${failureName(e)})`, res.status);
+    }
     if (text === "") return { status: res.status, json: null };
     try {
       return { status: res.status, json: JSON.parse(text) };

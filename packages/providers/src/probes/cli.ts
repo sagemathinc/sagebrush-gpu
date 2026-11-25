@@ -193,9 +193,11 @@ export async function accountSpendPerHr(apiKey: string, doFetch: typeof fetch = 
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ query: "query { myself { currentSpendPerHr } }" }),
     signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+    redirect: "manual",
   });
-  const text = await res.text();
+  // Status first: an error reply's body is never read.
   if (res.status !== 200) throw new Error(`spend read: HTTP ${res.status}`);
+  const text = await res.text();
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -262,7 +264,7 @@ export async function readLogs(apiKey: string, id: string, since: string, opts: 
   const hard = setTimeout(() => ctl.abort(), opts.maxMs ?? CALL_TIMEOUT_MS);
   let body = "";
   try {
-    const res = await doFetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: "text/event-stream" }, signal: ctl.signal });
+    const res = await doFetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: "text/event-stream" }, signal: ctl.signal, redirect: "manual" });
     if (res.status !== 200 || res.body === null) throw new Error(`logs HTTP ${res.status}`);
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -284,6 +286,19 @@ export async function readLogs(apiKey: string, id: string, since: string, opts: 
   return parseLogSse(body.slice(0, completeEventsLength(body)));
 }
 
+/** A pod action (stop, terminate) by RunPod's REST API. Throws on any non-2xx, before any body read. */
+export async function podAction(apiKey: string, id: string, action: string, doFetch: typeof fetch = fetch): Promise<void> {
+  const res = await doFetch(`${RUNPOD_API}/v2/pods/${encodeURIComponent(id)}/action`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+    signal: AbortSignal.timeout(30_000),
+    redirect: "manual",
+  });
+  if (!(res.status >= 200 && res.status < 300)) throw new Error(`action ${action} HTTP ${res.status}`);
+  await res.text();
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const o = parseArgs(argv);
   const saltHex = randomBytes(32).toString("hex");
@@ -301,16 +316,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const apiKey = readKeyFile(o.keyFile);
   const adapter = new RunPodAdapter({ apiKey, fetch: globalThis.fetch as unknown as Fetch });
   const api: ProbeProviderApi = {
-    async action(id, action) {
-      const res = await fetch(`${RUNPOD_API}/v2/pods/${encodeURIComponent(id)}/action`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      await res.text();
-      if (res.status >= 300) throw new Error(`action ${action} HTTP ${res.status}`);
-    },
+    action: (id, action) => podAction(apiKey, id, action),
     logs: (id, since) => readLogs(apiKey, id, since),
   };
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
