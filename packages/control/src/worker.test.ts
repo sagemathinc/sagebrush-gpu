@@ -74,6 +74,7 @@ test("static assets: the app's files and its paths, each with the security heade
     ["/?token=a-one-time-token", "fixture index"], // (the sign-in landing page)
     ["/p/prj_00000000000000000000/members", "fixture index"], // (an app path: the SPA fallback)
     ["/app.js", "fixture app"],
+    ["/v1beta", "fixture index"], // (only /v1 and /v1/... are the API)
   ] as const) {
     const res = await get(APP + path);
     assert.equal(res.status, 200, path);
