@@ -30,5 +30,14 @@ const FAILURE_NAMES = new Set(["AbortError", "TimeoutError", "TypeError"]);
  * text, since a custom fetch (or anything below it) could put request values in its name.
  */
 export function failureName(e: unknown): string {
-  return e instanceof Error && FAILURE_NAMES.has(e.name) ? e.name : "error";
+  try {
+    if (!(e instanceof Error)) return "error";
+    // Read the name once: a getter could answer differently on a second read.
+    const name: unknown = e.name;
+    // Return our own constant, never the value read.
+    for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;
+  } catch {
+    // A throwing getter (or a proxy that throws on instanceof) names nothing.
+  }
+  return "error";
 }

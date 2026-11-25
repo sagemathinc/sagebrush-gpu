@@ -1804,14 +1804,14 @@
  },
  {
   "file": "src/http.ts",
-  "old": "return e instanceof Error && FAILURE_NAMES.has(e.name) ? e.name : \"error\";",
-  "new": "return e instanceof Error ? e.name : \"error\";",
+  "old": "for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;",
+  "new": "if (typeof name === \"string\") return name;",
   "note": "failureName: allowlist"
  },
  {
   "file": "src/http.ts",
-  "old": "return e instanceof Error && FAILURE_NAMES.has(e.name) ? e.name : \"error\";",
-  "new": "return e instanceof Error && FAILURE_NAMES.has(e.name) ? e.name : String(e);",
+  "old": "if (!(e instanceof Error)) return \"error\";",
+  "new": "if (!(e instanceof Error)) return String(e);",
   "note": "failureName: non-error"
  },
  {
@@ -1837,5 +1837,23 @@
   "old": ": { kind: \"driver-error\", httpStatus: null };",
   "new": ": null;",
   "note": "launchError driver-error"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "    const name: unknown = e.name;\n    // Return our own constant, never the value read.\n    for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;",
+  "new": "    for (const fixed of FAILURE_NAMES) if (fixed === e.name) return e.name;",
+  "note": "failureName: read twice"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "for (const fixed of FAILURE_NAMES) if (fixed === name) return fixed;",
+  "new": "for (const fixed of FAILURE_NAMES) if (fixed == name) return fixed;",
+  "note": "failureName: loose equality"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  } catch {\n    // A throwing getter (or a proxy that throws on instanceof) names nothing.\n  }\n  return \"error\";",
+  "new": "  } finally {\n  }\n  return \"error\";",
+  "note": "failureName: throwing getter"
  }
 ]
