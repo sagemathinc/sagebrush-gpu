@@ -286,6 +286,10 @@ async function attachAnother(session: string): Promise<{ b: Client; replay: stri
 
 const letters = (s: string) => s.length - s.replace(/C/g, "").length;
 
+test("the ring holds at least the high-water mark, so a page taking over a paused session pauses too, and its acks resume the helper", () => {
+  assert.ok(MOCK_LIMITS.ring >= MOCK_LIMITS.creditHigh, `ring ${MOCK_LIMITS.ring} < creditHigh ${MOCK_LIMITS.creditHigh}`);
+});
+
 test("output credit: while the page is paused the PTY isn't read, so a page attaching meanwhile replays no more than was read", TIMEOUT, async () => {
   const n = 2_000_000;
   const { a, session } = await stalledPage(n);
