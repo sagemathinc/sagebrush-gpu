@@ -5,7 +5,22 @@ import { ProviderError } from "../errors.ts";
 import type { Fetch, HttpRequest } from "../http.ts";
 import { launchWithFallback } from "../placement.ts";
 import type { LaunchSpec, Offer } from "../types.ts";
-import { instanceStatus, MAX_PAGES, OFFER_DISK_GB, UNREADABLE, VastAdapter, vastError, vastState } from "./adapter.ts";
+import {
+  instanceStatus,
+  MAX_ARGS,
+  MAX_COMMAND_CHARS,
+  MAX_ENV,
+  MAX_IMAGE_CHARS,
+  MAX_LIST_CHARS,
+  MAX_PAGES,
+  MAX_PORTS,
+  OFFER_DISK_GB,
+  retainedChars,
+  UNREADABLE,
+  VastAdapter,
+  vastError,
+  vastState,
+} from "./adapter.ts";
 import { gpuFromVast, gpuToVast, VAST_GPUS, vastCountry, vastDataCenter, vastFilterName, vastMachineId } from "./catalog.ts";
 
 const KEY = "test-key-not-a-real-key";
@@ -75,6 +90,7 @@ function offer(over: Record<string, unknown> = {}): Record<string, unknown> {
     rented: false,
     is_bid: false,
     verification: "verified",
+    datacenter: true,
     ...over,
   };
 }
@@ -289,6 +305,40 @@ test("offers: one search with every hard rule, each checked again on the reply",
   });
   assert.equal(reads.n, 1);
   await assert.rejects(a.listOffers({ gpuCount: 0 }), RangeError);
+});
+
+test("offers: rented must be exactly false and datacenter exactly true in the reply, for listing and for launch", async () => {
+  // hosting evidence and rental state are read from each reply, never assumed from the request
+  const bad = [
+    { rented: undefined },
+    { rented: null },
+    { rented: "false" },
+    { rented: 0 },
+    { rented: true },
+    { datacenter: undefined },
+    { datacenter: null },
+    { datacenter: "true" },
+    { datacenter: 1 },
+    { datacenter: false },
+    { datacenter: false, hosting_type: 0 },
+  ];
+  for (const over of bad) {
+    const { a } = adapter([ok({ offers: [offer(over)] })]);
+    assert.deepEqual(await a.listOffers({ gpuCount: 1 }), [], JSON.stringify(over));
+    const l = adapter([ok({ offers: [offer(over)] })]);
+    await assert.rejects(l.a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "no_capacity", JSON.stringify(over));
+    assert.equal(l.calls.length, 1, "no create");
+  }
+  // the permanent positive: exact false and exact true
+  const { a } = adapter([ok({ offers: [offer({ rented: false, datacenter: true })] })]);
+  assert.equal((await a.listOffers({ gpuCount: 1 })).length, 1);
+});
+
+test("retainedChars counts every kept text field", () => {
+  const s = instanceStatus(inst({ image_uuid: "img", image_args: ["ab", "c"], extra_env: ["A=1", "BB=2"], ports: { "1/tcp": [] }, image_runtype: "ssh" }), T);
+  const want =
+    "31337".length + MID.length + "running/running".length + "RTX-4090".length + "machine-4242".length + "img".length + "A".length + "BB".length + "1/tcp".length + "runtype:ssh".length + "ab".length + "c".length + T.length;
+  assert.equal(retainedChars(s), want);
 });
 
 test("offers: a malformed reply fails; a bad key (Vast's 404 on a search) is auth, its body never read", async () => {
@@ -533,6 +583,75 @@ test("listMachines: every page by next_token; only our names; a malformed or end
     await assert.rejects(a.listMachines({ shouldStop: () => true }), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
     assert.equal(calls.length, 0);
   }
+});
+
+test("a status keeps bounded fields: at each bound copied, one over unreadable", () => {
+  const s = (over: Record<string, unknown>) => instanceStatus(inst(over), T);
+  assert.equal(s({ image_uuid: "a".repeat(MAX_IMAGE_CHARS) }).image.length, MAX_IMAGE_CHARS);
+  assert.equal(s({ image_uuid: "a".repeat(MAX_IMAGE_CHARS + 1) }).image, UNREADABLE);
+  assert.equal(s({ image_args: Array(MAX_ARGS).fill("x") }).command.length, MAX_ARGS);
+  assert.deepEqual(s({ image_args: Array(MAX_ARGS + 1).fill("x") }).command, [UNREADABLE]);
+  assert.equal(s({ image_args: ["a".repeat(MAX_COMMAND_CHARS - 1), "b"] }).command.length, 2);
+  assert.deepEqual(s({ image_args: ["a".repeat(MAX_COMMAND_CHARS), "b"] }).command, [UNREADABLE]);
+  assert.equal(s({ extra_env: Array.from({ length: MAX_ENV }, (_, i) => `E${i}=1`) }).envNames.length, MAX_ENV);
+  assert.deepEqual(s({ extra_env: Array.from({ length: MAX_ENV + 1 }, (_, i) => `E${i}=1`) }).envNames, [UNREADABLE]);
+  assert.deepEqual(s({ extra_env: [`A=${"v".repeat(9000)}`] }).envNames, [UNREADABLE]);
+  const ports = (n: number, len = 6) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`${String(i).padStart(len - 4, "0")}/tcp`, []]));
+  assert.equal(s({ ports: ports(MAX_PORTS) }).exposedPorts.length, MAX_PORTS);
+  assert.deepEqual(s({ ports: ports(MAX_PORTS + 1) }).exposedPorts, [UNREADABLE]);
+  assert.equal(s({ ports: ports(1, 32) }).exposedPorts[0]!.length, 32);
+  assert.deepEqual(s({ ports: ports(1, 33) }).exposedPorts, [UNREADABLE]);
+});
+
+test("listMachines: a page longer than asked is refused, not kept", async () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => inst({ id: i + 1 }));
+  {
+    const { a } = adapter([ok({ success: true, instances: rows(25), next_token: null })]);
+    assert.equal((await a.listMachines()).length, 25);
+  }
+  {
+    const { a } = adapter([ok({ success: true, instances: rows(26), next_token: null })]);
+    await assert.rejects(a.listMachines(), /more than 25 rows/);
+  }
+});
+
+test("listMachines: the whole list's retained text is bounded: exactly at the bound kept, one over refused", async () => {
+  // rows whose only free text is one command arg: each row's own base (its id's length varies),
+  // plus its arg's length
+  const baseOf = (i: number) => retainedChars(instanceStatus(inst({ id: i + 1, image_args: [""] }), T));
+  const n = Math.ceil(MAX_LIST_CHARS / (baseOf(0) + MAX_COMMAND_CHARS)) + 1;
+  const extra = MAX_LIST_CHARS - Array.from({ length: n }, (_, i) => baseOf(i)).reduce((a, b) => a + b, 0);
+  const lens = Array.from({ length: n }, (_, i) => Math.floor(extra / n) + (i < extra % n ? 1 : 0));
+  assert.ok(lens.every((l) => l >= 0 && l <= MAX_COMMAND_CHARS));
+  const pagesOf = (ls: number[]) => {
+    const all = ls.map((l, i) => inst({ id: i + 1, image_args: ["x".repeat(l)] }));
+    const out: Reply[] = [];
+    for (let i = 0; i < all.length; i += 25) out.push(ok({ success: true, instances: all.slice(i, i + 25), next_token: i + 25 < all.length ? `t${i}` : null }));
+    return out;
+  };
+  {
+    const { a } = adapter(pagesOf(lens));
+    const got = await a.listMachines();
+    assert.equal(got.reduce((t, x) => t + retainedChars(x), 0), MAX_LIST_CHARS);
+  }
+  {
+    const over = [...lens];
+    over[n - 1]! += 1;
+    assert.ok(over[n - 1]! <= MAX_COMMAND_CHARS);
+    const { a } = adapter(pagesOf(over));
+    await assert.rejects(a.listMachines(), /too large to keep/);
+  }
+});
+
+test("listMachines: 100 full pages of 64 KiB commands keep only bounded text", async () => {
+  const pages: Reply[] = Array.from({ length: MAX_PAGES }, (_, p) =>
+    ok({ success: true, instances: Array.from({ length: 25 }, (_, i) => inst({ id: p * 25 + i + 1, image_args: ["c".repeat(65536)] })), next_token: p + 1 < MAX_PAGES ? `t${p}` : null }),
+  );
+  const { a } = adapter(pages);
+  const got = await a.listMachines();
+  assert.equal(got.length, MAX_PAGES * 25);
+  assert.ok(got.every((x) => x.command.length === 1 && x.command[0] === UNREADABLE));
+  assert.ok(got.reduce((t, x) => t + retainedChars(x), 0) <= MAX_LIST_CHARS);
 });
 
 test("the key never reaches a message, whatever fails", async () => {

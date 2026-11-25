@@ -107,14 +107,48 @@ function count(x: unknown): number {
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
 /**
+ * Bounds on what one status keeps of Vast's strings: a field past them is unreadable (so it
+ * drifts), never copied whole. With the page size enforced and MAX_LIST_CHARS over the whole list,
+ * a machine list retains a bounded amount whatever Vast sends.
+ */
+export const MAX_IMAGE_CHARS = 512;
+export const MAX_ARGS = 64;
+export const MAX_COMMAND_CHARS = 8192;
+export const MAX_ENV = 32;
+const MAX_ENV_ENTRY_CHARS = 8192;
+export const MAX_PORTS = 32;
+const MAX_PORT_CHARS = 32;
+/** The most status text one machine list may retain; a longer list is refused, never returned in part. */
+export const MAX_LIST_CHARS = 1_000_000;
+
+/** The characters of text a status keeps: what MAX_LIST_CHARS counts. */
+export function retainedChars(s: ProviderMachineStatus): number {
+  const sum = (xs: readonly string[]) => xs.reduce((n, x) => n + x.length, 0);
+  return (
+    s.providerMachineId.length +
+    (s.machineId?.length ?? 0) +
+    s.rawStatus.length +
+    (s.gpuType?.length ?? 0) +
+    (s.dataCenter?.length ?? 0) +
+    s.image.length +
+    sum(s.envNames) +
+    sum(s.exposedPorts) +
+    sum(s.unexpectedSettings) +
+    sum(s.command) +
+    s.observedAt.length
+  );
+}
+
+/**
  * Environment variable names from an instance's `extra_env`: entries "NAME=value" or
  * ["NAME", "value"]. Null or absent is none; anything else is unreadable (fails closed).
  */
 function envNamesOf(extraEnv: unknown): string[] {
   if (extraEnv === null || extraEnv === undefined) return [];
-  if (!Array.isArray(extraEnv)) return [UNREADABLE];
+  if (!Array.isArray(extraEnv) || extraEnv.length > MAX_ENV) return [UNREADABLE];
   const out: string[] = [];
   for (const e of extraEnv) {
+    if (typeof e === "string" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];
     const name = typeof e === "string" ? e.split("=")[0] : Array.isArray(e) && e.length === 2 && typeof e[1] === "string" ? e[0] : undefined;
     if (typeof name !== "string" || !ENV_NAME.test(name) || (typeof e === "string" && !e.includes("="))) return [UNREADABLE];
     out.push(name);
@@ -164,6 +198,8 @@ export function instanceStatus(inst: unknown, observedAt: string): ProviderMachi
   const actual = inst["actual_status"];
   const intended = inst["intended_status"];
   const ports = inst["ports"];
+  const portNames = isObject(ports) ? Object.keys(ports) : null;
+  const image = inst["image_uuid"];
   const args = inst["image_args"];
   const cost = inst["dph_total"];
   const vol = inst["volume_info"];
@@ -176,18 +212,35 @@ export function instanceStatus(inst: unknown, observedAt: string): ProviderMachi
     gpuType: typeof inst["gpu_name"] === "string" ? gpuFromVast(inst["gpu_name"], inst["gpu_ram"]) : null,
     gpuCount: count(inst["num_gpus"]),
     dataCenter: vastDataCenter(inst["machine_id"]),
-    image: typeof inst["image_uuid"] === "string" ? inst["image_uuid"] : UNREADABLE,
+    image: typeof image === "string" && image.length <= MAX_IMAGE_CHARS ? image : UNREADABLE,
     diskGb: count(inst["disk_space"]),
     // Any attached volume is never ours (we attach none): never "no volume".
     volumeGb: vol === null || vol === undefined ? 0 : Number.POSITIVE_INFINITY,
     envNames: envNamesOf(inst["extra_env"]),
-    exposedPorts: ports === null || ports === undefined ? [] : isObject(ports) ? Object.keys(ports).sort() : [UNREADABLE],
+    exposedPorts:
+      ports === null || ports === undefined
+        ? []
+        : portNames !== null && portNames.length <= MAX_PORTS && portNames.every((k) => k.length <= MAX_PORT_CHARS)
+          ? portNames.sort()
+          : [UNREADABLE],
     unexpectedSettings: unexpectedSettings(inst),
     // The launcher goes in `args` to an image without an ENTRYPOINT: the args are the command.
-    command: Array.isArray(args) && args.every((a) => typeof a === "string") ? [...args] : [UNREADABLE],
+    command: commandOf(args),
     providerCostPerHour: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? usdToMicros(cost) : null,
     observedAt,
   };
+}
+
+/** The image args, copied only within MAX_ARGS and MAX_COMMAND_CHARS; anything else is unreadable. */
+function commandOf(args: unknown): string[] {
+  if (!Array.isArray(args) || args.length > MAX_ARGS) return [UNREADABLE];
+  let chars = 0;
+  for (const a of args) {
+    if (typeof a !== "string") return [UNREADABLE];
+    chars += a.length;
+    if (chars > MAX_COMMAND_CHARS) return [UNREADABLE];
+  }
+  return [...args];
 }
 
 /** One usable offer from a search reply, or null: every rule the search filters on, checked again. */
@@ -200,7 +253,11 @@ function usableOffer(o: unknown, gpuCount: number): { askId: number; gpuType: st
   const usd = o["dph_total"];
   const reliability = o["reliability"];
   if (askId === null || gpuType === null || dataCenter === null || country === null) return null;
-  if (o["num_gpus"] !== gpuCount || o["rentable"] !== true || o["rented"] === true || o["is_bid"] !== false || o["verification"] !== "verified") return null;
+  if (o["num_gpus"] !== gpuCount || o["rentable"] !== true || o["rented"] !== false || o["is_bid"] !== false || o["verification"] !== "verified") return null;
+  // Datacenter hosting must be in the reply itself, not only asked for in the search: an offer
+  // without an exact `datacenter: true` is never usable (Vast documents the field as a search
+  // filter; whether replies carry it is a probe item, and until then no offer is usable).
+  if (o["datacenter"] !== true) return null;
   if (typeof reliability !== "number" || !(reliability >= MIN_RELIABILITY)) return null;
   if (typeof usd !== "number" || !Number.isFinite(usd) || !(usd > 0)) return null;
   return { askId, gpuType, dataCenter, country, usdPerHour: usd };
@@ -471,6 +528,7 @@ export class VastAdapter implements ProviderAdapter {
   /** Every instance of ours (by name), page by page; with `label`, only instances with that exact label. */
   async #list(shouldStop?: () => boolean, label?: string): Promise<ProviderMachineStatus[]> {
     const out: ProviderMachineStatus[] = [];
+    let retained = 0;
     let token: string | null = null;
     for (let page = 0; page < MAX_PAGES; page++) {
       const qs = new URLSearchParams({ limit: String(PAGE) });
@@ -482,11 +540,15 @@ export class VastAdapter implements ProviderAdapter {
       if (!isObject(json) || !Array.isArray(json["instances"])) {
         throw new ProviderError("vast", "unknown", "Vast instance list is malformed");
       }
+      // The page size is enforced, not just asked for: a longer page proves the list isn't what we asked.
+      if (json["instances"].length > PAGE) throw new ProviderError("vast", "unknown", `Vast instance list page has more than ${PAGE} rows`);
       for (const inst of json["instances"]) {
         const s = instanceStatus(inst, observedAt);
         if (s.machineId === null) continue;
         // A filter Vast ignored must not widen a by-label answer.
         if (label !== undefined && machineName(s.machineId) !== label) continue;
+        retained += retainedChars(s);
+        if (retained > MAX_LIST_CHARS) throw new ProviderError("vast", "unknown", "Vast instance list is too large to keep");
         out.push(s);
       }
       // null is the last page; absent or anything else isn't a page boundary we can trust

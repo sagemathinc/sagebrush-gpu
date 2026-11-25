@@ -4232,8 +4232,8 @@
  },
  {
   "file": "src/vast/adapter.ts",
-  "old": "exposedPorts: ports === null || ports === undefined ? [] : isObject(ports) ? Object.keys(ports).sort() : [UNREADABLE],",
-  "new": "exposedPorts: [],"
+  "old": "          ? portNames.sort()\n",
+  "new": "          ? []\n"
  },
  {
   "file": "src/vast/adapter.ts",
@@ -4242,13 +4242,13 @@
  },
  {
   "file": "src/vast/adapter.ts",
-  "old": "if (!Array.isArray(extraEnv)) return [UNREADABLE];",
-  "new": "if (!Array.isArray(extraEnv)) return [];"
+  "old": "if (!Array.isArray(extraEnv) || extraEnv.length > MAX_ENV) return [UNREADABLE];",
+  "new": "if (!Array.isArray(extraEnv) || extraEnv.length > MAX_ENV) return [];"
  },
  {
   "file": "src/vast/adapter.ts",
-  "old": "command: Array.isArray(args) && args.every((a) => typeof a === \"string\") ? [...args] : [UNREADABLE],",
-  "new": "command: Array.isArray(args) ? [...args] : [UNREADABLE],"
+  "old": "    if (typeof a !== \"string\") return [UNREADABLE];\n",
+  "new": ""
  },
  {
   "file": "src/vast/adapter.ts",
@@ -4262,7 +4262,7 @@
  },
  {
   "file": "src/vast/adapter.ts",
-  "old": "|| o[\"rented\"] === true ",
+  "old": "|| o[\"rented\"] !== false ",
   "new": ""
  },
  {
@@ -4424,5 +4424,80 @@
   "file": "src/vast/adapter.ts",
   "old": "if (spec.launcher.length === 0) throw",
   "new": "if (false) throw"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (json[\"instances\"].length > PAGE) throw",
+  "new": "if (json[\"instances\"].length > PAGE + 1) throw"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (retained > MAX_LIST_CHARS) throw",
+  "new": "if (retained > MAX_LIST_CHARS + 1) throw"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "retained += retainedChars(s);",
+  "new": "retained += 0;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "image: typeof image === \"string\" && image.length <= MAX_IMAGE_CHARS ? image : UNREADABLE,",
+  "new": "image: typeof image === \"string\" ? image : UNREADABLE,"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (!Array.isArray(args) || args.length > MAX_ARGS) return [UNREADABLE];",
+  "new": "if (!Array.isArray(args)) return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (chars > MAX_COMMAND_CHARS) return [UNREADABLE];",
+  "new": "if (chars > MAX_COMMAND_CHARS + 1) return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (!Array.isArray(extraEnv) || extraEnv.length > MAX_ENV) return [UNREADABLE];",
+  "new": "if (!Array.isArray(extraEnv)) return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (typeof e === \"string\" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "portNames.length <= MAX_PORTS && ",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": " && portNames.every((k) => k.length <= MAX_PORT_CHARS)",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    sum(s.command) +\n",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    s.image.length +\n",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (o[\"datacenter\"] !== true) return null;",
+  "new": ""
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (o[\"datacenter\"] !== true) return null;",
+  "new": "if (o[\"datacenter\"] === false) return null;"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "|| o[\"rented\"] !== false ",
+  "new": "|| o[\"rented\"] === true "
  }
 ]
