@@ -31,6 +31,7 @@ import {
   isIsoTime,
   isNonNegativeMicros,
   matchRoute,
+  mergePolicy,
   meterRemaining,
   minuteCharge,
   minuteStart,
@@ -38,6 +39,8 @@ import {
   priceSplit,
   projectRoleAtLeast,
   requiredToStart,
+  validateLabels,
+  validatePolicyPatch,
   reserveCharge,
   reserveSeconds,
   shouldHardStop,
@@ -270,6 +273,7 @@ export class MockBackend {
     const org: Organization = {
       id: this.newId("org"),
       name,
+      billingMode: "resold",
       marginBps,
       unassignedCredit: credit,
       totalCredit: credit,
@@ -945,17 +949,32 @@ export class MockBackend {
     getProject: ({ params }) => this.#projectView(this.#project(params.projectId)),
 
     updateProject: ({ params, body }) => {
+      // As the control plane checks it: every present field valid, ends after starts.
       const project = this.#project(params.projectId);
+      let name = project.name;
+      if (body.name !== undefined) {
+        if (typeof body.name !== "string") throw new ApiFail("badRequest", "a project name is a string");
+        name = body.name.trim();
+        if (name.length < 1 || name.length > 200) throw new ApiFail("badRequest", "a project name has 1 to 200 characters");
+      }
       if (body.startsAt !== undefined && !isIsoTime(body.startsAt)) throw new ApiFail("badRequest", "startsAt must be an ISO time");
       if (body.endsAt !== undefined && !isIsoTime(body.endsAt)) throw new ApiFail("badRequest", "endsAt must be an ISO time");
-      if (body.policy?.maxPricePerHour !== undefined && !isNonNegativeMicros(body.policy.maxPricePerHour)) {
-        throw new ApiFail("badRequest", "maxPricePerHour must be non-negative micros");
+      const startsAt = body.startsAt ?? project.startsAt;
+      const endsAt = body.endsAt ?? project.endsAt;
+      if (!(Date.parse(endsAt) > Date.parse(startsAt))) throw new ApiFail("badRequest", "endsAt must be after startsAt");
+      let policy = project.policy;
+      if (body.policy !== undefined) {
+        const patch = validatePolicyPatch(body.policy);
+        if (!patch.ok) throw new ApiFail("badRequest", patch.reason);
+        policy = mergePolicy(project.policy, patch.value);
       }
-      if (body.name !== undefined) project.name = body.name;
-      if (body.startsAt !== undefined) project.startsAt = body.startsAt;
-      if (body.endsAt !== undefined) project.endsAt = body.endsAt;
-      if (body.labels !== undefined) project.labels = body.labels;
-      if (body.policy !== undefined) project.policy = { ...project.policy, ...body.policy };
+      let labels = project.labels;
+      if (body.labels !== undefined) {
+        const checked = validateLabels(body.labels);
+        if (!checked.ok) throw new ApiFail("badRequest", checked.reason);
+        labels = checked.value;
+      }
+      Object.assign(project, { name, startsAt, endsAt, policy, labels });
       return this.#projectView(project);
     },
 

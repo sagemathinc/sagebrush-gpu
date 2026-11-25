@@ -71,7 +71,7 @@ async function world(handlers?: Handlers): Promise<World> {
   const orgId = newId("org");
   const projectId = newId("project");
   await db.batch([
-    stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'Org', 3000, ?)`, orgId, T0),
+    stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES (?, 'Org', 'resold', 3000, ?)`, orgId, T0),
     stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj', ?, ?, 0, ?)`, projectId, orgId, T0, T0 + 86_400_000, T0),
   ]);
   return { db, pending, deps, clock, app: createApp(deps, handlers ? { ...HANDLERS, ...handlers } : HANDLERS), orgId, projectId };
@@ -500,7 +500,7 @@ test("role checks are scoped to the project: another real project, its machines,
   const allocB = newId("allocation");
   const mchB = newId("machine");
   await w.db.batch([
-    stmt(`INSERT INTO orgs (id, name, margin_bps, created_ms) VALUES (?, 'Org B', 0, ?)`, orgB, T0),
+    stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES (?, 'Org B', 'resold', 0, ?)`, orgB, T0),
     stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj B', ?, ?, 0, ?)`, prjB, orgB, T0, T0 + 1, T0),
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, allocB, prjB, T0),
     stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mchB, prjB, allocB, T0),
