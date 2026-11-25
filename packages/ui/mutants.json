@@ -1696,8 +1696,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    this.currentUserId = user.id;\n    return true;",
-  "new": "    return true;"
+  "old": "    this.currentUserId = user.id;\n    this.authenticatedAt = this.#now;",
+  "new": "    this.authenticatedAt = this.#now;"
  },
  {
   "file": "src/app/store.ts",
@@ -2954,5 +2954,167 @@
   "file": "src/app/store.ts",
   "old": "    return published !== null;",
   "new": "    return published === true;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (user == null) refuse(\"signedOut\");",
+  "new": "    if (user == null) throw new ApiFail(\"unauthenticated\", \"sign in first\");",
+  "note": "credentials: generic words without a session"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#orgRole(orgId, user.id) !== \"owner\") refuse(\"notOwner\");",
+  "new": "    if (this.#orgRole(orgId, user.id) == null) refuse(\"notOwner\");",
+  "note": "credentials: a viewer passes"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#org(orgId).billingMode !== \"byok\") refuse(\"notByok\");",
+  "new": "",
+  "note": "credentials: resold organizations too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "&& !(this.#keyProviders as readonly string[]).includes(params.provider)) refuse(\"unknownProvider\");",
+  "new": "&& params.provider === \"nebius\") refuse(\"unknownProvider\");",
+  "note": "credentials: any listed provider id"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return this.runpodKeys ? [...MOCK_KEY_PROVIDERS, \"runpod\"] : MOCK_KEY_PROVIDERS;",
+  "new": "    return [...MOCK_KEY_PROVIDERS, \"runpod\"];",
+  "note": "credentials: RunPod without the flag"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (CREDENTIAL_ROUTES.has(match.name)) this.#checkCredentialAccess(match.params, user);\n      else this.#checkAccess",
+  "new": "      this.#checkAccess",
+  "note": "credentials: generic access"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#recentAuthForMs() == null) refuse(\"reauthenticate\");",
+  "new": "",
+  "note": "credentials: no reauth needed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return left > 0 ? left : null;",
+  "new": "    return left >= 0 ? left : null;",
+  "note": "reauth: open at its end"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return left > 0 ? left : null;",
+  "new": "    return left > 1000 ? left : null;",
+  "note": "reauth: closes a second early"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const left = this.authenticatedAt + RECENT_AUTH_WINDOW_MS - this.#now;",
+  "new": "    const left = this.authenticatedAt + 2 * RECENT_AUTH_WINDOW_MS - this.#now;",
+  "note": "reauth: ten minutes"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    this.authenticatedAt = this.#now; // (a WorkOS sign-in",
+  "new": "    this.authenticatedAt ??= this.#now; // (a WorkOS sign-in",
+  "note": "reauth: a new sign-in doesn't reopen"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.currentUserId = null;\n      this.authenticatedAt = null;",
+  "new": "      this.currentUserId = null;",
+  "note": "reauth: sign-out keeps it"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    return { user, orgs, projects, recentAuthForMs: this.#recentAuthForMs() };",
+  "new": "    return { user, orgs, projects };",
+  "note": "me: no window"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      this.#requireRecentAuth();",
+  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");",
+  "note": "put: reauth before the shape"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");",
+  "new": "      if (typeof key !== \"string\") refuse(\"badShape\");",
+  "note": "put: any string"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (check === \"rejected\") refuse(\"rejected\");",
+  "new": "",
+  "note": "put: a rejected key kept"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (check !== \"ok\") refuse(\"checkUnavailable\");",
+  "new": "      if (check === \"unavailable\" && false) refuse(\"checkUnavailable\");",
+  "note": "put: an unchecked key kept"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        fingerprint: mockFingerprint(key),",
+  "new": "        fingerprint: key,",
+  "note": "put: the key kept as its fingerprint"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        setBy: (user as User).email,",
+  "new": "        setBy: (user as User).id,",
+  "note": "put: setBy is the id"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    deleteCredential: ({ params }) => {\n      this.#requireRecentAuth();",
+  "new": "    deleteCredential: ({ params }) => {",
+  "note": "delete: no reauth"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!this.credentials.delete(`${params.orgId}|${params.provider}`)) refuse(\"noKey\");",
+  "new": "      this.credentials.delete(`${params.orgId}|${params.provider}`);",
+  "note": "delete: none is fine"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (m.provider === provider && PROVIDER_LIVE_STATES.has(m.state) && this.projects",
+  "new": "if (m.provider === provider && this.projects",
+  "note": "running: stopped ones counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "&& this.projects.get(m.projectId)?.orgId === orgId) runningMachines++;",
+  "new": ") runningMachines++;",
+  "note": "running: other orgs counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (m.provider === provider && PROVIDER_LIVE_STATES",
+  "new": "if (PROVIDER_LIVE_STATES",
+  "note": "running: other providers counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const PROVIDER_LIVE_STATES: ReadonlySet<MachineState> = new Set<MachineState>([\"starting\", \"running\", \"saving\", \"stopping\"]);",
+  "new": "const PROVIDER_LIVE_STATES: ReadonlySet<MachineState> = new Set<MachineState>([\"starting\", \"saving\", \"stopping\"]);",
+  "note": "running: running ones not counted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    h = Math.imul(h, 0x01000193) >>> 0;",
+  "new": "    h = (h + 1) >>> 0;",
+  "note": "fingerprint: not of the key"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "  return h.toString(16).padStart(8, \"0\");",
+  "new": "  return h.toString(16);",
+  "note": "fingerprint: not padded"
  }
 ]

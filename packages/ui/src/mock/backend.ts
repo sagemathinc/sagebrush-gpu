@@ -13,7 +13,9 @@
 
 import {
   ACCRUING_STATES,
+  CREDENTIAL_REFUSALS,
   DEFAULT_POLICY,
+  RECENT_AUTH_WINDOW_MS,
   ERROR_STATUS,
   ID_ALPHABET,
   ID_PREFIXES,
@@ -27,6 +29,7 @@ import {
   canUpdateMember,
   entrySplit,
   errorBody,
+  isCredentialKeyShape,
   isGpuTypeId,
   isIsoTime,
   isNonNegativeMicros,
@@ -48,6 +51,8 @@ import {
   type Allocation,
   type BasisPoints,
   type BillingMode,
+  type CredentialRefusal,
+  type CredentialStatus,
   type EndpointName,
   type Endpoints,
   type ErrorCode,
@@ -69,6 +74,8 @@ import {
   type Project,
   type ProjectPolicy,
   type ProjectRole,
+  type ProviderCredential,
+  type ProviderId,
   type Quote,
   type QuoteRefusal,
   type SpendCsvGrouping,
@@ -100,6 +107,35 @@ export const MEMBERS_PAGE = 200;
 export const MAX_TEAMS_PER_PROJECT = 200;
 export const MAX_TEAM_NAME_LENGTH = 100;
 export const PAGE_SIZE = MEMBERS_PAGE;
+
+/** The providers the mock takes keys for (RunPod only with MockBackendOptions.runpodKeys). */
+export const MOCK_KEY_PROVIDERS: readonly ProviderId[] = Object.freeze(["shadeform", "hyperstack", "vast"]);
+/** Machines in these states still run at the provider (the removal warning counts them). */
+const PROVIDER_LIVE_STATES: ReadonlySet<MachineState> = new Set<MachineState>(["starting", "running", "saving", "stopping"]);
+
+/** What the mock's stand-in for a provider's key check says about a key. */
+export type MockKeyCheck = "ok" | "rejected" | "unavailable";
+
+/**
+ * A stand-in for the control plane's fingerprint (an HMAC under its own secret, truncated):
+ * FNV-1a, 32 bits, as hex. Only the fingerprint is kept, never the key.
+ */
+export function mockFingerprint(key: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/** A refusal on the credential routes: always one of CREDENTIAL_REFUSALS, with its fixed words. */
+function refuse(refusal: CredentialRefusal): never {
+  const { code, message } = CREDENTIAL_REFUSALS[refusal];
+  throw new ApiFail(code, message);
+}
+
+const CREDENTIAL_ROUTES: ReadonlySet<EndpointName> = new Set<EndpointName>(["listCredentials", "putCredential", "deleteCredential"]);
 
 /** Mock-only country sets for the locality presets; the real table is @sbgpu/providers' localityFor. */
 const EU = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"];
@@ -164,6 +200,15 @@ interface MachineRec {
   marginBps: BasisPoints;
 }
 
+/** An organization's key for one provider: what's kept is facts about it, never the key. */
+interface CredentialRec {
+  fingerprint: string;
+  setBy: string;
+  setAt: number;
+  lastCheckedAt: number;
+  status: CredentialStatus;
+}
+
 interface OrgRoleRec {
   orgId: string;
   userId: string;
@@ -203,6 +248,14 @@ export class MockBackend {
   offers: Offer[] = [];
   /** The signed-in user; the mock's stand-in for the session cookie. */
   currentUserId: string | null = null;
+  /** When the signed-in user last authenticated (signInAs), ms: the reauth window runs from here. */
+  authenticatedAt: number | null = null;
+  /** Organizations' keys by "orgId|provider": facts only, never a key. */
+  readonly credentials = new Map<string, CredentialRec>();
+  /** The provider's key check, as the mock plays it; tests replace it. It must not keep the key. */
+  keyCheck: (key: string, provider: ProviderId) => MockKeyCheck = () => "ok";
+  /** Take keys for RunPod too: a test flag only, until RunPod's own launch gate (the injected-key probe) is decided. */
+  runpodKeys = false;
 
   constructor(options: MockBackendOptions = {}) {
     const start = options.startMs ?? Date.parse("2027-02-01T09:00:00.000Z");
@@ -212,6 +265,11 @@ export class MockBackend {
       throw new RangeError(`startMs must be a whole second in ms since the epoch, got ${start}`);
     }
     this.#now = start;
+  }
+
+  /** The providers this mock takes keys for. */
+  get #keyProviders(): readonly ProviderId[] {
+    return this.runpodKeys ? [...MOCK_KEY_PROVIDERS, "runpod"] : MOCK_KEY_PROVIDERS;
   }
 
   // ---------------------------------------------------------------- clock
@@ -271,6 +329,7 @@ export class MockBackend {
       m.status = "active";
     }
     this.currentUserId = user.id;
+    this.authenticatedAt = this.#now; // (a WorkOS sign-in, reauth=1 or not, is a fresh authentication)
     return true;
   }
 
@@ -396,7 +455,8 @@ export class MockBackend {
     if (match == null) return this.#error("notFound", `no route for ${method} ${path}`);
     try {
       const user = this.currentUserId ? (this.users.get(this.currentUserId) ?? null) : null;
-      this.#checkAccess(match.name, match.params, user);
+      if (CREDENTIAL_ROUTES.has(match.name)) this.#checkCredentialAccess(match.params, user);
+      else this.#checkAccess(match.name, match.params, user);
       const handler = this.#handlers[match.name] as Handler<EndpointName> | undefined;
       if (handler == null) throw new ApiFail("internal", `${match.name} is not in the mock`);
       const result = handler({ params: match.params as never, query: query as never, body: (body ?? {}) as never, user });
@@ -442,6 +502,49 @@ export class MockBackend {
       const rec = this.#machine(params.machineId ?? "");
       if (rec.m.memberId !== this.#callerMember(projectId, user.id)?.id) throw new ApiFail("notFound", "no such machine");
     }
+  }
+
+  /**
+   * The credential routes' access, with only their fixed refusals: no session is signedOut;
+   * anyone but an owner of the organization (or a stranger to it) gets notOwner; a resold
+   * organization notByok; a provider not taken notFound's unknownProvider.
+   */
+  #checkCredentialAccess(params: Record<string, string>, user: User | null): void {
+    if (user == null) refuse("signedOut");
+    const orgId = params.orgId ?? "";
+    if (this.#orgRole(orgId, user.id) !== "owner") refuse("notOwner");
+    if (this.#org(orgId).billingMode !== "byok") refuse("notByok");
+    if (params.provider !== undefined && !(this.#keyProviders as readonly string[]).includes(params.provider)) refuse("unknownProvider");
+  }
+
+  /** A credential change needs an authentication within RECENT_AUTH_WINDOW_MS. */
+  #requireRecentAuth(): void {
+    if (this.#recentAuthForMs() == null) refuse("reauthenticate");
+  }
+
+  /** What's left of the reauth window, ms (an integer), or null when it has closed. */
+  #recentAuthForMs(): number | null {
+    if (this.authenticatedAt == null) return null;
+    const left = this.authenticatedAt + RECENT_AUTH_WINDOW_MS - this.#now;
+    return left > 0 ? left : null;
+  }
+
+  #credentialView(orgId: string, provider: ProviderId): ProviderCredential {
+    const rec = this.credentials.get(`${orgId}|${provider}`);
+    let runningMachines = 0;
+    for (const { m } of this.machines.values()) {
+      if (m.provider === provider && PROVIDER_LIVE_STATES.has(m.state) && this.projects.get(m.projectId)?.orgId === orgId) runningMachines++;
+    }
+    if (rec == null) return { provider, status: "none", fingerprint: null, setBy: null, setAt: null, lastCheckedAt: null, runningMachines };
+    return {
+      provider,
+      status: rec.status,
+      fingerprint: rec.fingerprint,
+      setBy: rec.setBy,
+      setAt: toIso(rec.setAt),
+      lastCheckedAt: toIso(rec.lastCheckedAt),
+      runningMachines,
+    };
   }
 
   #orgRole(orgId: string, userId: string): OrgRole | null {
@@ -946,7 +1049,7 @@ export class MockBackend {
       const p = this.#project(m.projectId);
       projects.push({ projectId: p.id, orgId: p.orgId, name: p.name, role: this.#projectRole(p.id, user.id) ?? m.role, memberId: m.id });
     }
-    return { user, orgs, projects };
+    return { user, orgs, projects, recentAuthForMs: this.#recentAuthForMs() };
   }
 
   // ---------------------------------------------------------------- handlers
@@ -954,7 +1057,37 @@ export class MockBackend {
   readonly #handlers: { [N in EndpointName]?: Handler<N> } = {
     signOut: () => {
       this.currentUserId = null;
+      this.authenticatedAt = null;
       return { ok: true };
+    },
+
+    // (access, the organization's mode and the provider are checked first, by #checkCredentialAccess)
+    listCredentials: ({ params }) => ({ items: this.#keyProviders.map((p) => this.#credentialView(params.orgId, p)) }),
+
+    putCredential: ({ params, body, user }) => {
+      // As the control plane takes it: the key's shape before anything else, then a recent
+      // sign-in, then the provider's check; only a key that passes is kept, as a fingerprint.
+      // A refused replace leaves the previous key as it was.
+      const key: unknown = (body as { key?: unknown }).key;
+      if (!isCredentialKeyShape(key)) refuse("badShape");
+      this.#requireRecentAuth();
+      const check = this.keyCheck(key, params.provider);
+      if (check === "rejected") refuse("rejected");
+      if (check !== "ok") refuse("checkUnavailable");
+      this.credentials.set(`${params.orgId}|${params.provider}`, {
+        fingerprint: mockFingerprint(key),
+        setBy: (user as User).email,
+        setAt: this.#now,
+        lastCheckedAt: this.#now,
+        status: "ok",
+      });
+      return this.#credentialView(params.orgId, params.provider);
+    },
+
+    deleteCredential: ({ params }) => {
+      this.#requireRecentAuth();
+      if (!this.credentials.delete(`${params.orgId}|${params.provider}`)) refuse("noKey");
+      return { removed: true };
     },
 
     getMe: ({ user }) => this.#me(user as User),
