@@ -414,15 +414,12 @@ export function reportableCommandShape(shape: unknown): CommandShape | null {
     const s = shape as Record<string, unknown>;
     const ep = s["entrypoint"];
     const c = s["cmd"];
-    const a = s["args"];
     const items = s["entrypointItems"];
-    const whole = s["entrypointCmdMatches"];
-    const joined = s["joinedMatches"];
+    const whole = s["entrypointMatches"];
     const entrypoint = fieldShapeOf(ep);
     const cmd = fieldShapeOf(c);
-    const args = fieldShapeOf(a);
-    if (entrypoint === null || cmd === null || args === null) return null;
-    if (typeof whole !== "boolean" || typeof joined !== "boolean" || !Array.isArray(items)) return null;
+    if (entrypoint === null || cmd === null) return null;
+    if (typeof whole !== "boolean" || !Array.isArray(items)) return null;
     const n: unknown = items.length;
     if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0 || n > 8) return null;
     const entrypointItems: CommandShape["entrypointItems"] = [];
@@ -436,7 +433,7 @@ export function reportableCommandShape(shape: unknown): CommandShape | null {
       if (typeof matches !== "boolean" || prefix === null) return null;
       entrypointItems.push({ length: count(length), matches, commonPrefix: prefix });
     }
-    return { entrypoint, cmd, args, entrypointItems, entrypointCmdMatches: whole, joinedMatches: joined };
+    return { entrypoint, cmd, entrypointItems, entrypointMatches: whole };
   } catch {
     return null;
   }

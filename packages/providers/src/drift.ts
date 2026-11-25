@@ -145,19 +145,17 @@ export interface FieldShape {
 }
 
 /**
- * How a provider reported a machine's command, for a command drift: the forms of the fields that
- * can carry it and how they compare with the launcher argv, never their text.
+ * How a provider reported a machine's command, for a command drift: the forms of the two fields
+ * that carry it (entrypoint and cmd) and how the entrypoint compares with the launcher argv, never
+ * their text. Nothing else a provider reports (RunPod's `args`) is read.
  */
 export interface CommandShape {
   entrypoint: FieldShape;
   cmd: FieldShape;
-  args: FieldShape;
   /** For an array entrypoint, its first 8 items: length, equal to the launcher's item, and how many leading characters agree. */
   entrypointItems: Array<{ length: number | null; matches: boolean; commonPrefix: number }>;
-  /** The entrypoint followed by cmd equals the launcher argv exactly. */
-  entrypointCmdMatches: boolean;
-  /** A string entrypoint or args equals the launcher's items joined by single spaces. */
-  joinedMatches: boolean;
+  /** The entrypoint alone equals the launcher argv exactly (the command also needs cmd empty). */
+  entrypointMatches: boolean;
 }
 
 const COMMAND_SHAPE_ITEMS = 8;
@@ -183,16 +181,11 @@ function commonPrefix(a: string, b: string): number {
 export function commandShape(record: Record<string, unknown>, launcher: readonly string[]): CommandShape {
   const entrypoint = record["entrypoint"];
   const cmd = record["cmd"];
-  const args = record["args"];
-  const strings = (x: unknown): string[] | null => (Array.isArray(x) && x.every((s) => typeof s === "string") ? x : null);
-  const ep = strings(entrypoint);
-  const c = strings(cmd);
-  const joined = launcher.join(" ");
-  const together = ep !== null && c !== null ? [...ep, ...c] : null;
+  // (A non-string item never equals a launcher item, so it can't match.)
+  const ep: unknown[] | null = Array.isArray(entrypoint) ? entrypoint : null;
   return {
     entrypoint: fieldShape(entrypoint),
     cmd: fieldShape(cmd),
-    args: fieldShape(args),
     entrypointItems: Array.isArray(entrypoint)
       ? entrypoint.slice(0, COMMAND_SHAPE_ITEMS).map((item: unknown, i) =>
           typeof item === "string"
@@ -200,7 +193,6 @@ export function commandShape(record: Record<string, unknown>, launcher: readonly
             : { length: null, matches: false, commonPrefix: 0 },
         )
       : [],
-    entrypointCmdMatches: together !== null && together.length === launcher.length && together.every((s, i) => s === launcher[i]),
-    joinedMatches: entrypoint === joined || args === joined,
+    entrypointMatches: ep !== null && ep.length === launcher.length && ep.every((s, i) => s === launcher[i]),
   };
 }
