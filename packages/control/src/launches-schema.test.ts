@@ -91,6 +91,16 @@ test("launches: each mode carries its own columns, and never the other mode's", 
   await vmLaunch(v);
 });
 
+test("launches: terminated exactly with its time, in both modes", async () => {
+  for (const [p, insert] of [["runpod", container], ["shadeform", vmLaunch]] as const) {
+    const m = await machine(p);
+    await assert.rejects(insert(m, { outcome: "terminated", terminate_reason: "abort", next_ms: null }), /CHECK/, `${p}: terminated without its time`);
+    await assert.rejects(insert(m, { outcome: "terminate", terminate_reason: "abort", terminated_ms: T0 }), /CHECK/, `${p}: a time before terminated`);
+    await insert(m, { outcome: "terminate", terminate_reason: "abort" });
+    await upd(m, `outcome = 'terminated', terminated_ms = ?, next_ms = NULL`, T0);
+  }
+});
+
 test("launches: the container states (never launched; first running from issued on; a lifetime when enrolled)", async () => {
   const m = await machine();
   await assert.rejects(container(m, { outcome: "launched", provider_machine_id: "p", next_ms: T0 }), /CHECK/);

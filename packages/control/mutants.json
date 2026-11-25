@@ -3231,12 +3231,6 @@
  },
  {
   "file": "migrations/0014_launches.sql",
-  "old": "  mode TEXT NOT NULL CHECK (mode IN ('vm', 'container')),\n  -- a VM's",
-  "new": "  mode TEXT NOT NULL,\n  -- a VM's",
-  "note": "launch mode open"
- },
- {
-  "file": "migrations/0014_launches.sql",
   "old": "CHECK ((mode = 'vm' AND provider IN ('hyperstack', 'shadeform', 'nebius')) OR (mode = 'container' AND provider IN ('runpod')))",
   "new": "CHECK (provider IN ('hyperstack', 'shadeform', 'nebius', 'runpod'))",
   "note": "provider not by mode"
@@ -3282,12 +3276,6 @@
   "old": "CHECK (boot_script_sha256 IS NULL OR (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND instr(boot_script_sha256, char(0)) = 0 AND",
   "new": "CHECK (boot_script_sha256 IS NULL OR (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND",
   "note": "script hash NUL"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "CHECK (boot_script_sha256 IS NULL OR (length(CAST(boot_script_sha256 AS BLOB)) = 64 AND",
-  "new": "CHECK (boot_script_sha256 IS NULL OR (length(boot_script_sha256) = 64 AND",
-  "note": "script hash in chars"
  },
  {
   "file": "migrations/0014_launches.sql",
@@ -3489,12 +3477,6 @@
  },
  {
   "file": "migrations/0014_launches.sql",
-  "old": "WHEN NEW.credential_kind IS NOT OLD.credential_kind\n",
-  "new": "WHEN NEW.credential_kind <> OLD.credential_kind\n",
-  "note": "credential kind clearable"
- },
- {
-  "file": "migrations/0014_launches.sql",
   "old": "WHEN OLD.first_running_ms IS NOT NULL AND (NEW.first_running_ms IS NULL OR NEW.first_running_ms > OLD.first_running_ms)",
   "new": "WHEN 0",
   "note": "first running movable later"
@@ -3546,12 +3528,6 @@
   "old": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0 AND token_sha256 NOT GLOB '*[^0-9a-f]*'),",
   "new": "  token_sha256 TEXT PRIMARY KEY CHECK (length(CAST(token_sha256 AS BLOB)) = 64 AND instr(token_sha256, char(0)) = 0),",
   "note": "token hash not hex"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "  mode TEXT NOT NULL CHECK (mode IN ('vm', 'container')),\n  provider_machine_id",
-  "new": "  mode TEXT NOT NULL,\n  provider_machine_id",
-  "note": "token mode open"
  },
  {
   "file": "migrations/0014_launches.sql",
@@ -3678,12 +3654,6 @@
   "old": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'vm'",
   "new": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
   "note": "VM watchdog across modes"
- },
- {
-  "file": "src/enroll.ts",
-  "old": "     WHERE b.token_sha256 = ? AND v.mode = 'vm'`;",
-  "new": "     WHERE b.token_sha256 = ?`;",
-  "note": "enroll takes a container token"
  },
  {
   "file": "src/vm.ts",
