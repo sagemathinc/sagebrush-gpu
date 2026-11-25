@@ -87,8 +87,15 @@ test("the provider id: idempotent for the same id, refused for another, or past 
   assert.equal(await recordProviderId(w.db, l.machineId, 1, "vm-7"), "recorded");
   assert.equal(await recordProviderId(w.db, l.machineId, 1, "vm-8"), "refused");
   assert.equal((await row(l.machineId)).provider_machine_id, "vm-7");
-  for (const bad of ["", "x".repeat(65), "has space"]) assert.equal(await recordProviderId(w.db, l.machineId, 1, bad), "refused", JSON.stringify(bad));
   assert.equal(await recordProviderId(w.db, l.machineId, 1, "x".repeat(64)), "refused"); // (a different id, though well formed)
+  // malformed ids, on a launch with no id yet (so only the format refuses them)
+  const f = await intent();
+  for (const bad of ["", "x".repeat(65), "has space", "tab\there", "line\n"]) {
+    assert.equal(await recordProviderId(w.db, f.machineId, 1, bad), "refused", JSON.stringify(bad));
+    assert.equal(await recordActive(w.db, f.machineId, 1, { providerMachineId: bad, ipv4: IP, firstActiveMs: T0 }), "refused", JSON.stringify(bad));
+  }
+  assert.equal((await row(f.machineId)).provider_machine_id, null);
+  assert.equal(await recordProviderId(w.db, f.machineId, 1, "x".repeat(64)), "recorded");
   assert.equal(await recordProviderId(w.db, newId("machine"), 1, "vm-7"), "refused"); // (no such launch)
   assert.equal(await recordActive(w.db, l.machineId, 1, { providerMachineId: "vm-7", ipv4: IP, firstActiveMs: T0 }), "launched");
   assert.equal(await recordProviderId(w.db, l.machineId, 1, "vm-7"), "refused"); // (past creating)
