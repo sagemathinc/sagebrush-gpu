@@ -124,6 +124,8 @@ async function launch(opts: {
   edit?: (script: string) => string;
   /** PROBE ONLY: run the probe prologue with this salt first, its capture under the prefix. */
   prologueSalt?: string;
+  /** PROBE ONLY: rows for the prologue's fake tcp table (default: nothing listens on 22). */
+  netRows?: string[];
 }): Promise<Run> {
   const prefix = join(root, `p${++runs}`);
   mkdirSync(prefix);
@@ -135,7 +137,13 @@ async function launch(opts: {
     mode: "container",
   }, { prefix, body: SH });
   if (opts.edit) script = opts.edit(script);
-  if (opts.prologueSalt) script = renderProbePrologue(opts.prologueSalt, { dir: join(prefix, "opt/sbgpu") }) + script;
+  if (opts.prologueSalt) {
+    const net = join(prefix, "net");
+    mkdirSync(net);
+    writeFileSync(join(net, "tcp"), NET_HEAD + (opts.netRows ?? []).join(""));
+    writeFileSync(join(net, "tcp6"), NET_HEAD);
+    script = renderProbePrologue(opts.prologueSalt, { dir: join(prefix, "opt/sbgpu"), netDir: net }) + script;
+  }
   const env: Record<string, string> = {
     PATH: opts.binPath ?? (defaultBin ??= binWithout()),
     CURL_CA_BUNDLE: ca,
@@ -333,11 +341,14 @@ test("bootstrap.sh passes shellcheck", { skip: !existsSync("/usr/bin/shellcheck"
   execFileSync("shellcheck", ["-s", "sh", new URL("bootstrap.sh", import.meta.url).pathname]);
 });
 
+const NET_HEAD = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
+
 test("probe prologue: validated values, the launcher's bytes as the unchanged suffix, generated from its .sh", () => {
   const salt = "ab".repeat(32);
   const v = { agentUrl: "https://cdn.example.com/a.tgz", agentSha256: "a".repeat(64), controlUrl: "https://api.example.com", mode: "container" as const };
   const p = renderProbePrologue(salt);
-  assert.equal(p, `SBGPU_PROBE_SALT='${salt}'\nSBGPU_PROBE_DIR='/opt/sbgpu'\n` + PROBE_PROLOGUE_SH);
+  assert.equal(p, `SBGPU_PROBE_SALT='${salt}'\nSBGPU_PROBE_DIR='/opt/sbgpu'\nSBGPU_PROBE_NET='/proc/net'\n` + PROBE_PROLOGUE_SH);
+  assert.ok(renderProbePrologue(salt, { netDir: "/t/net" }).includes("\nSBGPU_PROBE_NET='/t/net'\n"));
   assert.equal(PROBE_PROLOGUE_SH, readFileSync(new URL("probe-prologue.sh", import.meta.url), "utf8"));
   const full = p + renderBootScript(v);
   assert.equal(full.slice(p.length), renderBootScript(v));
@@ -347,6 +358,7 @@ test("probe prologue: validated values, the launcher's bytes as the unchanged su
   assert.throws(() => renderProbePrologue(salt, { dir: "relative" }));
   assert.throws(() => renderProbePrologue(salt, { dir: "/a/../b" }));
   assert.throws(() => renderProbePrologue(salt, { dir: "/a'b" }));
+  for (const bad of ["relative", "/a/../b", "/a'b"]) assert.throws(() => renderProbePrologue(salt, { netDir: bad }), /netDir/, bad);
 });
 
 test("probe prologue then the real launcher: the capture made, the key out of the agent's environment and output", async () => {
@@ -361,6 +373,13 @@ test("probe prologue then the real launcher: the capture made, the key out of th
   assert.deepEqual(cap, { bytes: KEY.length, classes: "dlsu", prefix: "rpa", salt, sha256: want, v: 1 });
   for (const f of filesUnder(r.prefix)) assert.ok(!readFileSync(f).includes(KEY), f);
   assert.ok(!r.stderr.includes(KEY));
+  // (something listening on port 22: the prologue stops before it touches the key, nothing fetched or run)
+  const l22 = await launch({ path: "/good.tgz", prologueSalt: salt, env: { RUNPOD_API_KEY: KEY }, netRows: ["   0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1 1 0 100 0 0 10 0\n"] });
+  assert.equal(l22.code, 3);
+  assert.match(l22.stderr, /a listener on port 22/);
+  assert.equal(l22.out, null);
+  assert.equal(existsSync(join(l22.prefix, "opt/sbgpu/probe-capture")), false);
+  assert.ok(!l22.stderr.includes(KEY));
   // (no injected key: the prologue stops before the launcher, nothing fetched or run)
   const none = await launch({ path: "/good.tgz", prologueSalt: salt });
   assert.equal(none.code, 2);

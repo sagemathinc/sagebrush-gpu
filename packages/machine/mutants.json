@@ -1312,5 +1312,95 @@
   "old": "        finally:\n            if container:\n                try:\n                    left = stop_everything()",
   "new": "        except BaseException:\n            raise\n        if True:\n            if container:\n                try:\n                    left = stop_everything()",
   "note": "agent relay: serve: a cleanup error or cancellation skips stop_everything"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "            if m.group(2) == b\"0016\" and m.group(3) == b\"0A\":",
+  "new": "            if m.group(2) == b\"0017\" and m.group(3) == b\"0A\":",
+  "note": "listen22: another port"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "            if m.group(2) == b\"0016\" and m.group(3) == b\"0A\":",
+  "new": "            if m.group(2) == b\"0016\" and m.group(3) == b\"01\":",
+  "note": "listen22: another state"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "    for name in (\"tcp\", \"tcp6\"):\n        try:\n            with open(os.path.join(net, name), \"rb\") as f:",
+  "new": "    for name in (\"tcp\",):\n        try:\n            with open(os.path.join(net, name), \"rb\") as f:",
+  "note": "listen22: IPv6 not read"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "        except OSError:\n            return False, [], \"unreadable\"\n        rows = data.split(b\"\\n\")",
+  "new": "        except OSError:\n            continue\n        rows = data.split(b\"\\n\")",
+  "note": "listen22: a missing table passes"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "            if not m:\n                return False, [], \"unreadable\"",
+  "new": "            if not m:\n                continue",
+  "note": "listen22: a malformed row skipped"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "        if len(data) > NET_MAX or not rows[0].split()[:1] == [b\"sl\"]:",
+  "new": "        if not rows[0].split()[:1] == [b\"sl\"]:",
+  "note": "listen22: no size bound"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/checks.py",
+  "old": "        if len(data) > NET_MAX or not rows[0].split()[:1] == [b\"sl\"]:",
+  "new": "        if len(data) > NET_MAX:",
+  "note": "listen22: no header check"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/main.py",
+  "old": "        (\"listen22-start\", lambda: checks.check_listen22(net)),\n",
+  "new": "",
+  "note": "listen22: no start check"
+ },
+ {
+  "file": "probe/sbgpu-agent/sbgpu_probe/main.py",
+  "old": "        (\"listen22-end\", lambda: checks.check_listen22(net)),\n",
+  "new": "",
+  "note": "listen22: no end check"
+ },
+ {
+  "file": "src/boot/probe-prologue.sh",
+  "old": "for name in (\"tcp\", \"tcp6\"):",
+  "new": "for name in (\"tcp\",):",
+  "note": "listen22 prologue: IPv6 not read"
+ },
+ {
+  "file": "src/boot/probe-prologue.sh",
+  "old": "' \"$SBGPU_PROBE_NET\" || { echo \"sbgpu-probe: a listener on port 22, or /proc/net unreadable\" >&2; exit 3; }",
+  "new": "' \"$SBGPU_PROBE_NET\" || true",
+  "note": "listen22 prologue: its answer ignored"
+ },
+ {
+  "file": "src/boot/probe-prologue.sh",
+  "old": "        if not m or (m.group(2) == b\"0016\" and m.group(3) == b\"0A\"):",
+  "new": "        if m and (m.group(2) == b\"0016\" and m.group(3) == b\"0A\"):",
+  "note": "listen22 prologue: a malformed row skipped"
+ },
+ {
+  "file": "src/boot/probe-prologue.sh",
+  "old": "        if not m or (m.group(2) == b\"0016\" and m.group(3) == b\"0A\"):",
+  "new": "        if not m or (m.group(2) == b\"0016\" and m.group(3) == b\"01\"):",
+  "note": "listen22 prologue: another state"
+ },
+ {
+  "file": "src/boot/probe-prologue.sh",
+  "old": "    except OSError:\n        sys.exit(3)",
+  "new": "    except OSError:\n        continue",
+  "note": "listen22 prologue: a missing table passes"
+ },
+ {
+  "file": "src/boot/probe-prologue.sh",
+  "old": "    if len(data) > 4 * 1024 * 1024 or rows[0].split()[:1] != [b\"sl\"]:",
+  "new": "    if rows[0].split()[:1] != [b\"sl\"]:",
+  "note": "listen22 prologue: no size bound"
  }
 ]

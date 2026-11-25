@@ -7,19 +7,41 @@
 # directory, not a link, owned by us and writable by nobody else).  The key itself goes only into
 # a quoted shell variable and, through printf (a shell builtin: no argv), into python3's stdin; never into argv,
 # command text, files, output or errors.  After a restart, the capture is computed again and must equal the stored one.
+# Before the key is touched at all, nothing may listen on TCP port 22 (IPv4 or IPv6, from the kernel's tables): a
+# listener, or tables that can't be read or parsed, stop here (exit 3).
 # Any failure, or no injected key at all, stops here (exit 2 or 3) before the launcher: fail closed.
 # renderProbePrologue() puts these values in front of it:
 #   SBGPU_PROBE_SALT   32 random bytes, 64 lowercase hex, per run
 #   SBGPU_PROBE_DIR    where the capture goes: /opt/sbgpu (a test directory in tests)
+#   SBGPU_PROBE_NET    the kernel's socket tables: /proc/net (a test directory in tests)
 
 set +x
 umask 077
+sbgpu_probe_py=$(command -v python3) || exit 2
+"$sbgpu_probe_py" -I -S -c '
+import os, re, sys
+ROW = re.compile(rb"\s*\d+:\s+([0-9A-F]{8}|[0-9A-F]{32}):([0-9A-F]{4})\s+[0-9A-F]{8,32}:[0-9A-F]{4}\s+([0-9A-F]{2})\s")
+for name in ("tcp", "tcp6"):
+    try:
+        with open(os.path.join(sys.argv[1], name), "rb") as f:
+            data = f.read(4 * 1024 * 1024 + 1)
+    except OSError:
+        sys.exit(3)
+    rows = data.split(b"\n")
+    if len(data) > 4 * 1024 * 1024 or rows[0].split()[:1] != [b"sl"]:
+        sys.exit(3)
+    for row in rows[1:]:
+        if not row.strip():
+            continue
+        m = ROW.match(row)
+        if not m or (m.group(2) == b"0016" and m.group(3) == b"0A"):
+            sys.exit(3)
+' "$SBGPU_PROBE_NET" || { echo "sbgpu-probe: a listener on port 22, or /proc/net unreadable" >&2; exit 3; }
 if [ -z "${RUNPOD_API_KEY-}" ]; then
   echo "sbgpu-probe: no injected key in the environment" >&2
   exit 2
 fi
 mkdir -p "$SBGPU_PROBE_DIR" || exit 2
-sbgpu_probe_py=$(command -v python3) || exit 2
 printf '%s\n%s' "$SBGPU_PROBE_SALT" "$RUNPOD_API_KEY" | "$sbgpu_probe_py" -I -S -c '
 import hashlib, json, os, re, stat, sys
 LABEL = b"sbgpu-probe-capture-v1"
@@ -79,4 +101,4 @@ except SystemExit:
 except BaseException:
     fail(3, "error")
 ' "$SBGPU_PROBE_DIR" || exit 3
-unset SBGPU_PROBE_SALT SBGPU_PROBE_DIR sbgpu_probe_py
+unset SBGPU_PROBE_SALT SBGPU_PROBE_DIR SBGPU_PROBE_NET sbgpu_probe_py

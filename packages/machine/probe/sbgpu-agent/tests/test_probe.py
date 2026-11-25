@@ -16,9 +16,34 @@ from sbgpu_probe import checks, main
 # (joined at run time, never folded into a constant, so this file and its bytecode can't match a scan of the tree)
 NAME = "_".join(("RUNPOD", "API", "KEY"))
 SHAPE = "_".join(("rpa", "A1b2C3d4E5f6G7h8I9j0"))
-LINE = re.compile(r'^SBGPU-PROBE \{"v":1,"boot":[1-9][0-9]*,"check":"(pid1|environ|files|metadata|history|done)",'
+LINE = re.compile(r'^SBGPU-PROBE \{"v":1,"boot":[1-9][0-9]*,"check":"(listen22-start|pid1|environ|files|metadata|history|'
+                  r'listen22-end|done)",'
                   r'"pass":(true|false),"paths":\[.*\],"detail":"[a-z0-9-]{0,32}"\}$')
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# (the kernel's socket tables, as /proc/net/tcp and tcp6 print them)
+NET_HEAD = ("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n")
+NET6_HEAD = ("  sl  local_address                         remote_address                        st tx_queue rx_queue tr "
+             "tm->when retrnsmt   uid  timeout inode\n")
+
+
+def row4(n, local, port, state, rport="0000"):
+    return "%4d: %s:%s 00000000:%s %s 00000000:00000000 00:00000000 00000000     0        0 %d 1 0000000000000000 100 0 0 10 0\n" % (
+        n, local, port, rport, state, 1000 + n)
+
+
+def row6(n, local, port, state, rport="0000"):
+    return "%4d: %s:%s %s:%s %s 00000000:00000000 00:00000000 00000000     0        0 %d 1 0000000000000000 100 0 0 10 0\n" % (
+        n, local, port, "0" * 32, rport, state, 2000 + n)
+
+
+def write_net(proc, rows4=(), rows6=()):
+    """A /proc/net with these tcp and tcp6 rows (none: nothing listens on 22)."""
+    os.makedirs(proc + "/net", exist_ok=True)
+    with open(proc + "/net/tcp", "w") as f:
+        f.write(NET_HEAD + "".join(rows4))
+    with open(proc + "/net/tcp6", "w") as f:
+        f.write(NET6_HEAD + "".join(rows6))
 
 
 class Tree:
@@ -29,6 +54,7 @@ class Tree:
         self.proc = self.dir + "/proc"
         os.makedirs(self.proc)
         self.write("/proc/mounts", mounts)
+        write_net(self.proc, [row4(0, "0100007F", "1F90", "0A")], [row6(0, "0" * 32, "1F90", "0A")])
 
     def write(self, path, data, mode=None):
         p = self.dir + path
@@ -150,6 +176,60 @@ class FoundTest(Base):
             self.assertNotIn(SHAPE[4:], out)
         self.assertEqual(len(checks.show("/" + "a" * 1000)), checks.PATH_BYTES)
         self.assertEqual(checks.show(b"/\xff"), "/\\xff")
+
+
+class Listen22Test(Base):
+    """Nothing may listen on TCP port 22: any LISTEN row on local port 0016, IPv4 or IPv6, fails; so do tables that are
+    missing, too big or that don't parse.  Nothing about the sockets is reported."""
+
+    def check(self, rows4=(), rows6=()):
+        t = self.tree()
+        write_net(t.proc, rows4, rows6)
+        return checks.check_listen22(t.proc + "/net")
+
+    def test_listeners_on_22_fail_others_dont(self):
+        other = [row4(0, "0100007F", "1F90", "0A"), row4(1, "0A000002", "0016", "01", rport="D431"),  # (22, established)
+                 row4(2, "00000000", "0017", "0A"), row4(3, "00000000", "1F90", "0A", rport="0016")]  # (23; 22 remote)
+        self.assertEqual(self.check(other, [row6(0, "0" * 32, "0050", "0A")]), (True, [], "no-listener"))
+        self.assertEqual(self.check(), (True, [], "no-listener"))
+        for rows4, rows6 in (([row4(0, "00000000", "0016", "0A")], []),                    # (0.0.0.0:22)
+                             ([row4(0, "0100007F", "0016", "0A")], []),                    # (127.0.0.1:22 too)
+                             ([], [row6(0, "0" * 32, "0016", "0A")]),                      # (IPv6 [::]:22)
+                             (other + [row4(9, "00000000", "0016", "0A")], [])):           # (after other rows)
+            self.assertEqual(self.check(rows4, rows6), (False, [], "listener"), (rows4, rows6))
+
+    def test_unreadable_or_malformed_tables_fail_closed(self):
+        t = self.tree()
+        os.unlink(t.proc + "/net/tcp6")
+        self.assertEqual(checks.check_listen22(t.proc + "/net"), (False, [], "unreadable"))
+        t = self.tree()
+        os.unlink(t.proc + "/net/tcp")
+        self.assertEqual(checks.check_listen22(t.proc + "/net"), (False, [], "unreadable"))
+        for tcp in ("", "nonsense\n", NET_HEAD + "   0: 00000000:16 00000000:0000 0A x\n",
+                    NET_HEAD + "   0: 0000000:0016 00000000:0000 0A x\n", NET_HEAD + "garbage\n",
+                    NET_HEAD + row4(0, "00000000", "0016", "0a").replace(" 0a ", " 0a\t")):
+            t = self.tree()
+            t.write("/proc/net/tcp", tcp)
+            self.assertEqual(checks.check_listen22(t.proc + "/net"), (False, [], "unreadable"), tcp)
+        # (over the bound, cut exactly after a whole row: only the size check, not a torn row, can refuse it)
+        t = self.tree()
+        row = row4(0, "00000000", "1F90", "0A")
+        t.write("/proc/net/tcp", NET_HEAD + row * 3)
+        t.write("/proc/net/tcp6", NET_HEAD)  # (within the bound: tcp alone is over it)
+        saved = checks.NET_MAX
+        checks.NET_MAX = len(NET_HEAD) + len(row)
+        try:
+            self.assertEqual(checks.check_listen22(t.proc + "/net"), (False, [], "unreadable"))
+        finally:
+            checks.NET_MAX = saved
+
+    def test_the_real_tables_parse(self):
+        # (this host's own tables: whatever listens here, they are read and parsed, never "unreadable")
+        if not (os.path.exists("/proc/net/tcp") and os.path.exists("/proc/net/tcp6")):
+            self.skipTest("no /proc/net here")
+        ok, paths, detail = checks.check_listen22("/proc/net")
+        self.assertIn(detail, ("listener", "no-listener"))
+        self.assertEqual((ok, paths), (detail == "no-listener", []))
 
 
 class Pid1Test(Base):
@@ -429,6 +509,19 @@ class RunTest(Base):
         boot2, lines2 = self.run_once(t, boots)
         self.assertEqual(boot2, 2)
         self.assertTrue(all('"boot":2,' in x for x in lines2))
+
+    def test_a_listener_fails_both_listen22_lines_and_every_check_still_runs(self):
+        t = self.tree()
+        t.process(1)
+        write_net(t.proc, [], [row6(0, "0" * 32, "0016", "0A")])
+        boot, lines = self.run_once(t, t.dir + "/opt/sbgpu/probe-boots")
+        got = [json.loads(x[len("SBGPU-PROBE "):]) for x in lines]
+        self.assertEqual([o["check"] for o in got], list(main.CHECK_ORDER))
+        for o in got:
+            if o["check"].startswith("listen22"):
+                self.assertEqual((o["pass"], o["paths"], o["detail"]), (False, [], "listener"))
+            else:
+                self.assertTrue(o["pass"], o)
 
     def test_a_finding_and_an_error(self):
         t = self.tree()
