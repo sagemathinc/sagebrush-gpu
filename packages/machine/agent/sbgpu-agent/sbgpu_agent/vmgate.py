@@ -42,10 +42,13 @@ import ipaddress
 import json
 import os
 import re
+import select
+import signal
 import socket
 import stat
 import subprocess
 import sys
+import time
 
 WORDS = (
     "ssh-unit", "ssh-running", "authorized-keys",
@@ -81,6 +84,7 @@ PF_KTHREAD = 0x00200000
 IMDS_TIMEOUT_S = 2.0
 CONFIG_DRIVE_LABELS = ("config-2", "cidata")  # (matched in any case: config-2, CONFIG-2, Config-2, CiData...)
 NO_HOMES_UNDER = ("/proc", "/sys", "/dev", "/run")
+NOLOGIN_SHELLS = ("/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false")
 MOUNTINFO_MAX = 1024 * 1024
 SHADOW_MAX = 1024 * 1024
 GROUP_MAX = 1024 * 1024
@@ -90,6 +94,10 @@ STATUS_MAX = 8192                # (bytes of a process's status)
 NET_IF_MAX = 64                  # (network interfaces probed)
 NFT_MAX = 64 * 1024              # (bytes of nft's JSON listing of our table)
 NFT_TIMEOUT_S = 5.0
+LIST_MAX = 1024 * 1024           # (bytes of systemd's list of loaded units)
+LIST_TIMEOUT_S = 10.0
+LINGER_DIR = "var/lib/systemd/linger"
+LINGER_MAX = 4096                # (entries there: any at all fails)
 SUDO_GROUPS = ("sudo", "admin", "wheel")
 USER_UID_MIN = 1000              # (a process at or above this uid is a user session: the provider's, left over)
 CONSOLE_UNITS = ("getty@.service", "serial-getty@.service", "autovt@.service", "console-getty.service",
@@ -188,10 +196,13 @@ def unit_state(root, name, depth=0):
     return "absent"
 
 
-def _homes(root):
-    """Every home in a bounded, regular /etc/passwd, plus /root: absolute, normalized and not under a virtual tree."""
+def _homes(root, sentinels=()):
+    """Every home in a bounded, regular /etc/passwd, plus /root: absolute, normalized and not under a virtual tree.
+    A sentinel home (the image allowlist's `sentinelHomes`, e.g. /nonexistent) is left out only when it is absent and
+    every account naming it is locked with a non-login shell; otherwise it is a home like any other."""
     data = _read_bounded(os.path.join(root, "etc/passwd"), PASSWD_MAX)
     homes = {"/root"}
+    users = {}
     for line in data.split(b"\n"):
         if not line:
             continue
@@ -199,12 +210,19 @@ def _homes(root):
         if len(parts) != 7:
             raise Unreadable("passwd row")  # (a malformed row is refused, never skipped)
         try:
-            home = parts[5].decode("utf-8", "strict")
+            name, home, shell = (parts[i].decode("utf-8", "strict") for i in (0, 5, 6))
         except UnicodeDecodeError:
             raise Unreadable("passwd home")
         if not home.startswith("/") or os.path.normpath(home) != home or "\x00" in home:
             raise Unreadable("passwd home")
         homes.add(home)
+        users.setdefault(home, []).append((name, shell))
+    if sentinels:
+        locked = {r[0] for r in _rows(os.path.join(root, "etc/shadow"), SHADOW_MAX, 9) if _locked(r[1])}
+        for h in set(sentinels) & homes:
+            if not os.path.lexists(os.path.join(root, h[1:])) and all(
+                    n in locked and sh in NOLOGIN_SHELLS for n, sh in users.get(h, [("root", "")])):
+                homes.discard(h)
     return sorted(h for h in homes if not any(h == v or h.startswith(v + "/") for v in NO_HOMES_UNDER))
 
 
@@ -234,7 +252,7 @@ def _keys_state(root, home, mounts, pinned, seen=None):
     following any link, and the walk refuses to cross into another mount (a mount point at a component or at a key
     file, or a device change from the directory before) unless the image allowlist pins that exact path.  `seen` maps
     each home directory already scanned, by (st_dev, st_ino), to its path: the same directory is scanned once, and a
-    second path reaching it (a bind alias) is "mount" unless that path is pinned."""
+    second path reaching it (a bind alias) is "mount" unless one of the two paths is pinned (whichever came first)."""
     seen = {} if seen is None else seen
     fds = []
     try:
@@ -263,7 +281,7 @@ def _keys_state(root, home, mounts, pinned, seen=None):
             if path == home:
                 key = (st.st_dev, st.st_ino)
                 if key in seen:
-                    return "ok" if seen[key] == home or home in pinned else "mount"
+                    return "ok" if seen[key] == home or home in pinned or seen[key] in pinned else "mount"
                 seen[key] = home
         for name in ("authorized_keys", "authorized_keys2"):
             try:
@@ -280,7 +298,7 @@ def _keys_state(root, home, mounts, pinned, seen=None):
             os.close(f)
 
 
-def check_ssh(root, procs, proc="/proc", pinned=()):
+def check_ssh(root, procs, proc="/proc", pinned=(), sentinels=()):
     out = set()
     for unit in SSH_UNITS:
         if unit_state(root, unit) == "present":
@@ -290,7 +308,7 @@ def check_ssh(root, procs, proc="/proc", pinned=()):
             out.add("ssh-running")
     mounts = mount_points(proc)
     seen = {}
-    for home in _homes(root):
+    for home in _homes(root, sentinels):
         state = _keys_state(root, home, mounts, set(pinned), seen)
         if state == "keys":
             out.add("authorized-keys")
@@ -506,6 +524,103 @@ def check_listeners(found, procs, allow):
     return out
 
 
+# ---- commands: output admitted only up to a cap, within a deadline, the whole process group ended on either
+class CommandFailed(Exception):
+    """A command that overflowed its output cap or its deadline: its process group was killed and reaped."""
+
+    def __init__(self, kind):
+        super().__init__(kind)
+        self.kind = kind
+
+
+_read = os.read  # (the runner's reads of the child's output, and only those)
+
+
+def run_bounded(argv, limit, timeout, data=None):
+    """(returncode, stdout) of argv: stdout read as it comes and refused one byte past `limit`, stderr discarded,
+    `data` (small) on stdin.  Past the limit or the deadline the child's whole process group is killed and reaped,
+    and CommandFailed says which."""
+    deadline = time.monotonic() + timeout
+    p = subprocess.Popen(argv, stdin=subprocess.PIPE if data is not None else subprocess.DEVNULL,
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+
+    def end(kind):
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.wait()
+        p.stdout.close()
+        raise CommandFailed(kind)
+    try:
+        if data is not None:
+            try:
+                p.stdin.write(data)
+            except BrokenPipeError:
+                pass
+            p.stdin.close()
+        fd, chunks, got = p.stdout.fileno(), [], 0
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                end("timeout")
+            if not select.select([fd], [], [], left)[0]:
+                continue  # (nothing yet: the deadline above decides)
+            chunk = _read(fd, min(65536, limit + 1 - got))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            got += len(chunk)
+            if got > limit:
+                end("overflow")
+        try:
+            rc = p.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            end("timeout")
+        p.stdout.close()
+        return rc, b"".join(chunks)
+    except BaseException:
+        if p.poll() is None:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            p.wait()
+        raise
+
+
+_UNIT = re.compile(r"[A-Za-z0-9@._:\\-]+")
+
+
+def loaded_units(out):
+    """systemd's list of loaded units (`list-units --all --plain --no-legend --full`) as [(unit, load, active)]."""
+    units = []
+    for ln in out.decode("utf-8", "strict").splitlines():
+        f = ln.split()
+        if not f:
+            continue
+        if len(f) < 4 or not _UNIT.fullmatch(f[0]):
+            raise Unreadable("list-units")
+        units.append((f[0], f[1], f[2]))
+    return units
+
+
+def agent_patterns(allow):
+    return [a["unit"] + s for a in allow["neutralisedAgents"] for s in (".service", ".socket", ".timer", ".path", "@*")]
+
+
+def _list_units(patterns):
+    """The gate's own runtime census of the units matching `patterns`."""
+    try:
+        rc, out = run_bounded(["systemctl", "list-units", "--all", "--plain", "--no-legend", "--full"] + list(patterns),
+                              LIST_MAX, LIST_TIMEOUT_S)
+    except CommandFailed:
+        raise Unreadable("list-units")
+    if rc != 0:
+        raise Unreadable("list-units")
+    return out
+
+
 # ---- provider agents
 def unit_names(root):
     """Every unit file name in the unit search path (each directory enumerated with a cap)."""
@@ -540,10 +655,18 @@ def check_provider(root, procs, names=None):
     return out
 
 
-def check_neutralised(root, procs, allow, names):
+def check_neutralised(root, procs, allow, names, loaded=()):
     """Each agent the boot script neutralised: every one of its units (service, socket, timer, path, @ instances and
-    templates) masked, its .service masked or absent, and no process by its name.  Its inert files may stay."""
+    templates) masked, its .service masked or absent, and no process by its name.  Its inert files may stay.  And
+    every unit of it systemd still has loaded (`loaded`, from systemd's own list: a unit whose file is gone can stay
+    loaded) is down and can't start: inactive or failed, and masked or not found."""
     out = set()
+    for unit, load, active in loaded:
+        if not any(unit == a["unit"] + s or unit.startswith(a["unit"] + "@") for a in allow["neutralisedAgents"]
+                   for s in (".service", ".socket", ".timer", ".path")):
+            continue  # (not one of a neutralised agent's units: not this check's to judge)
+        if active not in ("inactive", "failed") or load not in ("masked", "not-found"):
+            out.add("agent-active")
     for a in allow["neutralisedAgents"]:
         unit = a["unit"]
         own = {n for n in names if n in (unit + ".service", unit + ".socket", unit + ".timer", unit + ".path")
@@ -634,8 +757,15 @@ def check_consoles(root, procs, names):
     return out
 
 
-def check_sessions(procs):
-    return {"user-session"} if any(max(p["uids"]) >= USER_UID_MIN for p in procs.values()) else set()
+def check_sessions(procs, root="/"):
+    """No process at a user's uid, and no user left lingering (systemd would start their session manager again)."""
+    out = {"user-session"} if any(max(p["uids"]) >= USER_UID_MIN for p in procs.values()) else set()
+    try:
+        if _entries(os.path.join(root, LINGER_DIR), LINGER_MAX):
+            out.add("user-session")
+    except FileNotFoundError:
+        pass
+    return out
 
 
 def check_containers(root):
@@ -643,12 +773,17 @@ def check_containers(root):
 
 
 # ---- metadata service and config drive
+NFT_LIST_ARGV = ["nft", "-j", "list", "table", "inet", META_TABLE]
+
+
 def _nft_listing():
-    r = subprocess.run(["nft", "-j", "list", "table", "inet", META_TABLE], stdin=subprocess.DEVNULL,
-                       capture_output=True, timeout=NFT_TIMEOUT_S, check=False)
-    if r.returncode != 0 or len(r.stdout) > NFT_MAX:
+    try:
+        rc, out = run_bounded(NFT_LIST_ARGV, NFT_MAX, NFT_TIMEOUT_S)
+    except CommandFailed:
         raise Unreadable("nft")
-    return r.stdout
+    if rc != 0:
+        raise Unreadable("nft")
+    return out
 
 
 def _meta_rule(expr):
@@ -812,6 +947,8 @@ def load_allowlist(path):
           and all(isinstance(x, str) and x.startswith("/") for x in allow["processes"])
           and isinstance(allow.get("mounts"), list)
           and all(isinstance(m, str) and m.startswith("/") and m != "/" and os.path.normpath(m) == m for m in allow["mounts"])
+          and isinstance(allow.get("sentinelHomes"), list)
+          and all(isinstance(m, str) and m.startswith("/") and m != "/" and os.path.normpath(m) == m for m in allow["sentinelHomes"])
           and isinstance(allow.get("loopback"), list)
           and all(isinstance(a, dict) and set(a) == {"process", "proto", "address", "port"} and a["proto"] in ("tcp", "udp")
                   and _loopback(str(a["address"])) and type(a["port"]) is int and 0 < a["port"] < 65536 and a["port"] != 22
@@ -846,7 +983,7 @@ def load_known(data):
 
 
 # ---- the gate
-def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None, nft=None):
+def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None, nft=None, units=None):
     """(pass, sorted failure words)."""
     fails = set()
     try:
@@ -864,15 +1001,20 @@ def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None, nf
               lambda: check_passwords(root), lambda: check_sudo(root, allow), lambda: check_containers(root)]
     if procs is not None:
         names = {}
+        units_listing = units
 
         def units():
             if "n" not in names:
                 names["n"] = unit_names(root)
             return names["n"]
-        checks = [lambda: check_ssh(root, procs, proc, allow["mounts"]), lambda: check_processes(procs, allow),
+        checks = [lambda: check_ssh(root, procs, proc, allow["mounts"], allow["sentinelHomes"]),
+                  lambda: check_processes(procs, allow),
                   lambda: check_secrets(procs, known), lambda: check_listeners(sockets(proc), procs, allow),
-                  lambda: check_provider(root, procs, units()), lambda: check_neutralised(root, procs, allow, units()),
-                  lambda: check_consoles(root, procs, units()), lambda: check_sessions(procs)] + checks
+                  lambda: check_provider(root, procs, units()),
+                  lambda: check_neutralised(root, procs, allow, units(),
+                                            loaded_units((units_listing or _list_units)(agent_patterns(allow)))
+                                            if allow["neutralisedAgents"] else ()),  # (no agents: no census at all)
+                  lambda: check_consoles(root, procs, units()), lambda: check_sessions(procs, root)] + checks
     else:
         fails.add("process")  # (without a complete process scan nothing below it can pass)
     for check in checks:

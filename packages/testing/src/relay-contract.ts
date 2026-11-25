@@ -128,6 +128,8 @@ export async function assertRelayLifecycleContract(make: (revoke: RevokeFn) => P
     rev.answer = "true"; // (a retry, if the lifecycle needs one, is acked at once)
     await within(p, "stop()");
     assert.equal(rev.calls.length, 1, "a stop attempt made more than one revoke call (the one in flight)");
+    // (whatever that first stop answered, the revoke was asked for: no page token now, nor before any retry)
+    assert.equal(await within(lc.mintPageToken(), "mintPageToken()"), null, "a page token minted after the revoke in flight answered");
     // (the retry: a lifecycle that already learned of the held ack may answer "stopped" with no new call, one that
     // didn't makes one new call; never more)
     const before = rev.calls.length;
@@ -135,6 +137,7 @@ export async function assertRelayLifecycleContract(make: (revoke: RevokeFn) => P
     const made = rev.calls.length - before;
     assert.ok(made <= 1, `a stop attempt made ${made} revoke calls, more than one (the retry after the one in flight)`);
     assert.equal(after, "stopped", "a stop not completed after its revoke was acknowledged");
+    assert.equal(await within(lc.mintPageToken(), "mintPageToken()"), null, "a page token minted for a machine stopped after a revoke in flight");
     callsAreForThisIncarnation(rev, lc);
   }
 }
