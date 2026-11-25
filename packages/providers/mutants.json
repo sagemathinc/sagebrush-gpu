@@ -1888,8 +1888,8 @@
  },
  {
   "file": "src/drift.ts",
-  "old": "out.push([\"unexpectedSettings\", ...words].join(\":\"));",
-  "new": "out.push(words.join(\":\"));",
+  "old": "out.push([\"unexpectedSettings\", ...(words.length <= 3 ? words : [\"other\"])].join(\":\"));",
+  "new": "out.push((words.length <= 3 ? words : [\"other\"]).join(\":\"));",
   "note": "markers: prefix"
  },
  {
@@ -1912,26 +1912,8 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
-  "new": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,4}$/;",
-  "note": "marker depth"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
-  "new": "const MARKER = /^[A-Za-z_]{1,33}(?::[A-Za-z_]{1,32}){0,3}$/;",
-  "note": "marker length"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
-  "new": "const MARKER = /^[A-Za-z_ ]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;",
-  "note": "marker chars"
- },
- {
-  "file": "src/probes/eradication.ts",
-  "old": "MARKER.test(m)).slice(0, 32);",
-  "new": "MARKER.test(m)).slice(0, 33);",
+  "old": "return drift.slice(0, 32).filter(",
+  "new": "return drift.slice(0, 33).filter(",
   "note": "marker cap"
  },
  {
@@ -1939,5 +1921,65 @@
   "old": "  if (!Array.isArray(drift)) return null;\n",
   "new": "",
   "note": "drift null"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (words.length === 0) return field === \"other\" || DRIFT_FIELDS.has(field!);",
+  "new": "  if (words.length === 0) return true;",
+  "note": "isDriftMarker: field names"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (words.length === 0) return field === \"other\" || DRIFT_FIELDS.has(field!);",
+  "new": "  if (words.length === 0) return DRIFT_FIELDS.has(field!);",
+  "note": "isDriftMarker: other"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    field === \"unexpectedSettings\" &&\n",
+  "new": "",
+  "note": "isDriftMarker: only settings have words"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "    words.length <= 3 &&\n",
+  "new": "",
+  "note": "isDriftMarker: depth"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "words.every((w) => w === \"other\" || w === \"unreadable\" || SETTING_WORDS.has(w))",
+  "new": "words.every((w) => w !== \"\")",
+  "note": "isDriftMarker: vocabulary"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "w === \"other\" || w === \"unreadable\" || SETTING_WORDS.has(w)",
+  "new": "w === \"unreadable\" || SETTING_WORDS.has(w)",
+  "note": "isDriftMarker: other word"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  if (typeof m !== \"string\") return false;\n",
+  "new": "",
+  "note": "isDriftMarker: non-string"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "...(words.length <= 3 ? words : [\"other\"])",
+  "new": "...words",
+  "note": "markers: depth cap"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": ".filter((m): m is string => isDriftMarker(m));",
+  "new": ".filter((m): m is string => typeof m === \"string\");",
+  "note": "report: vocabulary check"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));",
+  "new": "return drift.filter((m): m is string => isDriftMarker(m)).slice(0, 32);",
+  "note": "cap before filtering"
  }
 ]

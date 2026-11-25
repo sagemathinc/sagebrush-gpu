@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { driftMarkers, expectedSpec, specDrift } from "./drift.ts";
+import { driftMarkers, expectedSpec, isDriftMarker, specDrift } from "./drift.ts";
 import type { AdapterInfo, LaunchSpec, ProviderMachineStatus } from "./types.ts";
 
 const info: AdapterInfo = { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootTokenEnv: "SBGPU_BOOT_TOKEN" };
@@ -144,4 +144,20 @@ test("driftMarkers: field names, and settings in a fixed vocabulary only", () =>
   assert.deepEqual(driftMarkers([d("unexpectedSettings")], withSettings([])), ["unexpectedSettings"]);
   assert.deepEqual(driftMarkers([d("unexpectedSettings")], withSettings(["constructor:toString"])), ["unexpectedSettings:other:other"]);
   assert.deepEqual(driftMarkers([d("toString")], clean), ["other"]);
+});
+
+test("isDriftMarker accepts exactly what driftMarkers can produce", () => {
+  // Everything driftMarkers produces passes.
+  const d = (field: string) => ({ field, expected: "e", observed: "o" });
+  const all = driftMarkers(
+    ["provider", "image", "command", "MARKER", "unexpectedSettings"].map(d),
+    { ...clean, unexpectedSettings: ["cloud:COMMUNITY", "ssh:direct:<unreadable>", "MARKER:x:y", "shade_cloud:false", "a:b:c:d:e"] },
+  );
+  for (const m of all) assert.equal(isDriftMarker(m), true, m);
+  for (const m of ["SYNTHETICSECRET", "unexpectedSettings:SYNTHETICSECRET", "image:other", "other:other", "", "unexpectedSettings:",
+    "unexpectedSettings:ssh:proxy:other:other", "toString", "unexpectedSettings:constructor", "__proto__", "Image", 7, null, undefined]) {
+    assert.equal(isDriftMarker(m), false, String(m));
+  }
+  assert.equal(isDriftMarker("unexpectedSettings:ssh:proxy:other"), true);
+  assert.deepEqual(driftMarkers([d("unexpectedSettings")], { ...clean, unexpectedSettings: ["a:b:c:d", "a:b:c"] }), ["unexpectedSettings:other", "unexpectedSettings:other:other:other"]);
 });

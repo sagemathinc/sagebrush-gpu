@@ -593,22 +593,36 @@ test("a launch that leaves a pod behind is cleaned up; one that doesn't isn't", 
 
 test("a rejected pod's drift markers reach the report; only fixed-word markers, at most 32", async () => {
   const markers = ["command", "unexpectedSettings:ssh:direct:unreadable"];
-  // The driver filters again: a marker that isn't fixed words never reaches the report.
-  const w: World = { log: [], stages: [], launchError: new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX", [...markers, "rpa_MARKER-1"]) };
+  // The driver filters again: a marker that isn't one driftMarkers can produce never reaches the report.
+  const w: World = {
+    log: [],
+    stages: [],
+    launchError: new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX", [...markers, "rpa_MARKER-1", "SYNTHETIC_MARKER", "unexpectedSettings:SYNTHETIC_MARKER"]),
+  };
   const h = harness(w);
   const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
   assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: markers });
   assert.deepEqual(w.log, ["launch", "terminate"]);
   assert.equal(r.terminatedConfirmed, true);
   // Anything that isn't a fixed-word marker is dropped.
+  // Only markers driftMarkers can produce: fixed field names and the fixed setting vocabulary.
   assert.deepEqual(
-    reportableDrift(["image", "a b", "x:y:z:w:v", "rpa_KEY-1", "", "a".repeat(33), 7, null, "ok_word:other", "\u0000"]),
-    ["image", "ok_word:other"],
+    reportableDrift([
+      "image", "a b", "rpa_KEY-1", "", 7, null, "\u0000", "SYNTHETICSECRET", "unexpectedSettings:SYNTHETICSECRET",
+      "ok_word:other", "a:b:c:d", "image:other", "other:other", "unexpectedSettings:ssh:proxy:other:other",
+      "other", "unexpectedSettings", "unexpectedSettings:ssh:direct:unreadable", "unexpectedSettings:cloud:other", "toString",
+      "unexpectedSettings:constructor", "unexpectedSettings:",
+    ]),
+    ["image", "other", "unexpectedSettings", "unexpectedSettings:ssh:direct:unreadable", "unexpectedSettings:cloud:other"],
   );
   assert.deepEqual(reportableDrift(Array.from({ length: 40 }, () => "image")), Array.from({ length: 32 }, () => "image"));
+  // The cap applies to what is inspected: entries past the 32nd are never read, good or not.
+  assert.deepEqual(reportableDrift([...Array.from({ length: 32 }, () => "SYNTHETIC_MARKER"), "image"]), []);
+  assert.deepEqual(reportableDrift([...Array.from({ length: 31 }, () => "SYNTHETIC_MARKER"), "image", "command"]), ["image"]);
+  // Canaries in the first and in a later segment.
+  assert.deepEqual(reportableDrift(["SYNTHETIC_MARKER", "SYNTHETIC_MARKER:ssh", "unexpectedSettings:SYNTHETIC_MARKER", "unexpectedSettings:ssh:SYNTHETIC_MARKER", "unexpectedSettings:ssh:proxy:SYNTHETIC_MARKER"]), []);
   assert.equal(reportableDrift(null), null);
   assert.deepEqual(reportableDrift([]), []);
-  assert.deepEqual(reportableDrift(["a:b:c:d"]), ["a:b:c:d"]);
 });
 
 test("a refused launch reports its kind and HTTP status, never the error's text", async () => {

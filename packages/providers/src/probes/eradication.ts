@@ -19,7 +19,7 @@
 // CLI (cli.ts) is a dry run unless given --execute and that reference.
 
 import { BOOT_TOKEN_ENV, renderBootScript, renderProbePrologue } from "@sbgpu/machine";
-import { specDrift, expectedSpec } from "../drift.ts";
+import { isDriftMarker, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { machineName } from "../machine-name.ts";
 import { terminateAndConfirm } from "../placement.ts";
@@ -352,11 +352,13 @@ export interface ProbeReport {
   launchError: { kind: ProviderErrorKind | "driver-error"; httpStatus: number | null; drift: string[] | null } | null;
 }
 
-/** Drift markers fit for the report: fixed-word strings only, at most 32; anything else is dropped. */
-const MARKER = /^[A-Za-z_]{1,32}(?::[A-Za-z_]{1,32}){0,3}$/;
+/**
+ * Drift markers fit for the report: of the first 32 entries (the cap comes before any check), only
+ * markers driftMarkers can produce; everything else is dropped.
+ */
 export function reportableDrift(drift: readonly unknown[] | null): string[] | null {
   if (!Array.isArray(drift)) return null;
-  return drift.filter((m): m is string => typeof m === "string" && MARKER.test(m)).slice(0, 32);
+  return drift.slice(0, 32).filter((m): m is string => isDriftMarker(m));
 }
 
 /**

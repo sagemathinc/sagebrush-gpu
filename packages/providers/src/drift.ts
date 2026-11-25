@@ -114,8 +114,25 @@ export function driftMarkers(drift: readonly Drift[], observed: ProviderMachineS
     if (settings.length === 0) out.push("unexpectedSettings");
     for (const s of settings) {
       const words = String(s).split(":").map((w) => (w === UNREADABLE_TOKEN ? "unreadable" : SETTING_WORDS.has(w) ? w : "other"));
-      out.push(["unexpectedSettings", ...words].join(":"));
+      // No adapter writes more than three words; a longer setting is just "other".
+      out.push(["unexpectedSettings", ...(words.length <= 3 ? words : ["other"])].join(":"));
     }
   }
   return out;
+}
+
+/**
+ * Whether a string is a marker driftMarkers can produce: a drift field's name (or "other"), and
+ * for unexpectedSettings, words from the fixed vocabulary, "other" or "unreadable". The report
+ * checks every marker with this, so nothing outside these fixed words can reach it.
+ */
+export function isDriftMarker(m: unknown): boolean {
+  if (typeof m !== "string") return false;
+  const [field, ...words] = m.split(":");
+  if (words.length === 0) return field === "other" || DRIFT_FIELDS.has(field!);
+  return (
+    field === "unexpectedSettings" &&
+    words.length <= 3 &&
+    words.every((w) => w === "other" || w === "unreadable" || SETTING_WORDS.has(w))
+  );
 }

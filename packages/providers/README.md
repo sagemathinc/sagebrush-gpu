@@ -229,7 +229,9 @@ seconds and confirmed gone, with the spend rate back at 0. `launchError.drift` n
     `driver-error` for anything else. For a pod rejected at launch (`spec_mismatch`,
     `price_above_cap`) it also carries `drift`: drift.ts's `driftMarkers`, the drifted fields' names
     and, for unexpected settings, words from a fixed vocabulary (anything else reads `other`), so it
-    says where a pod differed and never what RunPod reported.
+    says where a pod differed and never what RunPod reported. The report checks that again on its
+    own: of the first 32 entries it keeps only markers `driftMarkers` can produce (`isDriftMarker`:
+    exact field names, the exact setting vocabulary, at most three words after `unexpectedSettings`).
   - **Snapshot:** the plan is copied before it is checked, and only the copy is used, so changing
     the caller's plan while the driver runs (e.g. during the launcher digest) changes nothing.
   - **Cleanup:** always terminate and confirm. Outcome `pass` only if all three stages pass, nothing
