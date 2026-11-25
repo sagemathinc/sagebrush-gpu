@@ -12,26 +12,38 @@ const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
 const NOW = new Date("2026-11-24T12:00:00.000Z");
 const IID = "d290f1ee-6c54-4b01-90e6-d701748f0851";
 
-type Reply = { status: number; body?: unknown; headers?: Record<string, string> } | Error;
+/** One reply; `textThrows` makes reading its body fail, as a cut-off stream does. */
+type Reply = { status: number; body?: unknown; headers?: Record<string, string>; textThrows?: boolean } | Error;
 
-/** A fetch that answers from a list of replies, in order, and records every request. */
+/** A fetch that answers from a list of replies, in order, and records every request and body read. */
 function mockFetch(replies: Reply[]) {
   const calls: Array<{ url: string; init: HttpRequest }> = [];
+  const reads = { n: 0 };
   const fetch: Fetch = async (url, init) => {
     calls.push({ url, init });
+    // Every request, in every test: a redirect is never followed.
+    if (init.redirect !== "manual") throw new Error(`request without redirect: "manual": ${init.method} ${url}`);
     const r = replies.shift();
     if (r === undefined) throw new Error(`unexpected request ${init.method} ${url}`);
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? "" : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
     const headers = new Map(Object.entries(r.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
-    return { status: r.status, headers: { get: (n: string) => headers.get(n.toLowerCase()) ?? null }, text: async () => text };
+    return {
+      status: r.status,
+      headers: { get: (n: string) => headers.get(n.toLowerCase()) ?? null },
+      text: async () => {
+        reads.n++;
+        if (r.textThrows === true) throw new Error(`stream cut ${KEY}`);
+        return text;
+      },
+    };
   };
-  return { fetch, calls };
+  return { fetch, calls, reads };
 }
 
 function adapter(replies: Reply[]) {
   const m = mockFetch(replies);
-  return { a: new ShadeformAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls };
+  return { a: new ShadeformAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls, reads: m.reads };
 }
 
 /** An instance as Shadeform's API reference describes it, named as one of ours. */
@@ -496,4 +508,44 @@ test("listMachines reads exactly 50 full pages when that is the whole list", asy
   const pages = Array.from({ length: 50 }, (_, p) => page(Array.from({ length: 100 }, (_, i) => ours(p * 100 + i)), 5000));
   const { a } = adapter(pages);
   assert.equal((await a.listMachines()).length, 5000);
+});
+
+// ---------------------------------------------------------------- status first
+
+test("#call: every request is redirect: manual", async () => {
+  const { a, calls } = adapter([{ status: 404 }]);
+  await a.status(IID);
+  assert.equal(calls[0]!.init.redirect, "manual");
+});
+
+test("#call: a non-2xx is classified with no body read; status and Retry-After kept", async () => {
+  const cases: Array<[number, string, number | null]> = [
+    [0, "unknown", null], [199, "unknown", null], [302, "unknown", null], [401, "auth", null],
+    [404, "not_found", null], [429, "rate_limited", 7], [500, "transient", null],
+  ];
+  for (const [status, kind, retry] of cases) {
+    const g = adapter([{ status, textThrows: true, headers: { "Retry-After": "7" } }]);
+    await assert.rejects(g.a.listOffers({ gpuCount: 1 }), (e: unknown) => {
+      assert.ok(e instanceof ProviderError);
+      assert.equal(e.kind, kind, String(status));
+      assert.equal(e.httpStatus, status);
+      assert.equal(e.retryAfterSeconds, retry);
+      return true;
+    });
+    assert.equal(g.reads.n, 0, String(status));
+  }
+  // A 404 is still gone, unread.
+  const s = adapter([{ status: 404, textThrows: true }]);
+  assert.equal((await s.a.status(IID)).state, "terminated");
+  assert.equal(s.reads.n, 0);
+});
+
+test("#call: a 2xx body that can't be read is outcome_unknown, naming no key", async () => {
+  const g = adapter([{ status: 200, textThrows: true }]);
+  await assert.rejects(g.a.listOffers({ gpuCount: 1 }), (e: unknown) => {
+    assert.ok(e instanceof ProviderError && e.kind === "outcome_unknown" && e.httpStatus === 200);
+    assert.ok(!e.message.includes(KEY) && !e.message.includes("stream cut"));
+    return true;
+  });
+  assert.equal(g.reads.n, 1);
 });

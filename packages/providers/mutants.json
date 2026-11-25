@@ -2163,13 +2163,13 @@
  },
  {
   "file": "src/shadeform/adapter.ts",
-  "old": "      signal: AbortSignal.timeout(this.#timeoutMs),\n    };\n    let res;",
-  "new": "    };\n    let res;",
+  "old": "      signal: AbortSignal.timeout(this.#timeoutMs),\n      // Never follow",
+  "new": "      // Never follow",
   "note": "timeout"
  },
  {
   "file": "src/shadeform/adapter.ts",
-  "old": "if (res.status >= 300) throw shadeformError",
+  "old": "if (!isSuccess(res.status)) throw shadeformError",
   "new": "if (res.status >= 400) throw shadeformError",
   "note": "3xx"
  },
@@ -3434,5 +3434,155 @@
   "file": "src/hyperstack/adapter.ts",
   "old": "throw new ProviderError(\"hyperstack\", \"invalid_request\", \"Hyperstack: VM launch is not enabled\");",
   "new": "await this.#call(\"GET\", \"/core/flavors\");\n    throw new ProviderError(\"hyperstack\", \"invalid_request\", \"Hyperstack: VM launch is not enabled\");"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "return status >= 200 && status < 300;",
+  "new": "return status < 300;"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "return status >= 200 && status < 300;",
+  "new": "return status >= 200 && status < 400;"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "return status >= 200 && status < 300;",
+  "new": "return status >= 200 && status <= 300;"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "return status >= 200 && status < 300;",
+  "new": "return status > 200 && status < 300;"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "while (size < maxBytes) {",
+  "new": "while (true) {"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "while (size < maxBytes) {",
+  "new": "while (size <= maxBytes) {"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "decode(all.subarray(0, maxBytes))",
+  "new": "decode(all)"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "    reader.cancel().catch(() => {});\n",
+  "new": ""
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  } catch {\n    return \"\";\n  } finally",
+  "new": "  } finally"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "if (stream === undefined || stream === null) return \"\";",
+  "new": "if (stream === undefined) return \"\";"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "all.set(p, at);",
+  "new": "all.set(p, 0);"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "      redirect: \"manual\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "    // Classified before any body read: an error reply's body is never read.\n    if (!isSuccess(res.status)) throw shadeformError(res.status, res.headers.get(\"Retry-After\"));\n    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"shadeform\", \"outcome_unknown\", `Shadeform ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n",
+  "new": "    let text;\n    try {\n      text = await res.text();\n    } catch (e) {\n      throw new ProviderError(\"shadeform\", \"outcome_unknown\", `Shadeform ${method} ${path.split(\"?\")[0]}: reply cut off (${failureName(e)})`, res.status);\n    }\n    if (!isSuccess(res.status)) throw shadeformError(res.status, res.headers.get(\"Retry-After\"));\n"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "\"outcome_unknown\", `Shadeform ${method} ${path.split(\"?\")[0]}: reply cut off",
+  "new": "\"unknown\", `Shadeform ${method} ${path.split(\"?\")[0]}: reply cut off"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "reply cut off (${failureName(e)})",
+  "new": "reply cut off (${String(e)})"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      redirect: \"manual\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const detail = res.status === 400 ? await readPrefix(res, ERROR_PREFIX_BYTES) : \"\";",
+  "new": "const detail = await readPrefix(res, ERROR_PREFIX_BYTES);"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const detail = res.status === 400 ? await readPrefix(res, ERROR_PREFIX_BYTES) : \"\";",
+  "new": "const detail = res.status === 400 ? await res.text() : \"\";"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const detail = res.status === 400 ? await readPrefix(res, ERROR_PREFIX_BYTES) : \"\";",
+  "new": "const detail = \"\";"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "export const ERROR_PREFIX_BYTES = 4096;",
+  "new": "export const ERROR_PREFIX_BYTES = 8192;"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (!isSuccess(res.status)) {\n",
+  "new": "    if (res.status >= 300) {\n"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "\"outcome_unknown\", `RunPod ${method} ${path.split(\"?\")[0]}: reply cut off",
+  "new": "\"unknown\", `RunPod ${method} ${path.split(\"?\")[0]}: reply cut off"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "reply cut off (${failureName(e)})",
+  "new": "reply cut off (${String(e)})"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),\n    redirect: \"manual\",\n",
+  "new": "    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),\n"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "signal: ctl.signal, redirect: \"manual\" }",
+  "new": "signal: ctl.signal }"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "    signal: AbortSignal.timeout(30_000),\n    redirect: \"manual\",\n",
+  "new": "    signal: AbortSignal.timeout(30_000),\n"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  if (res.status !== 200) throw new Error(`spend read: HTTP ${res.status}`);\n  const text = await res.text();",
+  "new": "  const text = await res.text();\n  if (res.status !== 200) throw new Error(`spend read: HTTP ${res.status}`);"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "  if (!(res.status >= 200 && res.status < 300)) throw new Error(`action ${action} HTTP ${res.status}`);\n  await res.text();",
+  "new": "  await res.text();\n  if (!(res.status >= 200 && res.status < 300)) throw new Error(`action ${action} HTTP ${res.status}`);"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "if (!(res.status >= 200 && res.status < 300)) throw new Error(`action",
+  "new": "if (res.status >= 300) throw new Error(`action"
+ },
+ {
+  "file": "src/probes/cli.ts",
+  "old": "if (!(res.status >= 200 && res.status < 300)) throw new Error(`action",
+  "new": "if (!(res.status >= 200 && res.status < 400)) throw new Error(`action"
  }
 ]

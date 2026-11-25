@@ -7,17 +7,55 @@ export interface HttpRequest {
   body?: string;
   signal?: AbortSignal;
   /**
-   * "manual": a redirect is never followed, so no header (an API key) reaches a second origin.
-   * Workers don't implement "error" (it throws), so "manual" is the one mode for every runtime;
-   * the adapter refuses the 3xx (or a browser's status-0 opaque redirect) as a non-2xx status.
+   * Always "manual": a redirect is never followed, so no header (an API key) reaches a second
+   * origin. Workers don't implement "error" (it throws), so "manual" is the one mode for every
+   * runtime, and callers refuse the 3xx (or a browser's status-0 opaque redirect) as a non-2xx.
    */
-  redirect?: "manual";
+  redirect: "manual";
 }
 
 export interface HttpResponse {
   status: number;
   headers: { get(name: string): string | null };
   text(): Promise<string>;
+  /** The body as a stream, for a bounded read (readPrefix). */
+  body?: ReadableStream<Uint8Array> | null;
+}
+
+/** A 2xx status. Anything else, a redirect or a status 0 included, is a failure. */
+export function isSuccess(status: number): boolean {
+  return status >= 200 && status < 300;
+}
+
+/**
+ * At most `maxBytes` of a response body, as text, for classifying an error reply; the rest is
+ * never read (the stream is cancelled). Without a stream, or if reading fails, it is "".
+ */
+export async function readPrefix(res: HttpResponse, maxBytes: number): Promise<string> {
+  const stream = res.body;
+  if (stream === undefined || stream === null) return "";
+  const reader = stream.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < maxBytes) {
+      const next = await reader.read();
+      if (next.done) break;
+      parts.push(next.value);
+      size += next.value.length;
+    }
+  } catch {
+    return "";
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) {
+    all.set(p, at);
+    at += p.length;
+  }
+  return new TextDecoder().decode(all.subarray(0, maxBytes));
 }
 
 export type Fetch = (url: string, init: HttpRequest) => Promise<HttpResponse>;

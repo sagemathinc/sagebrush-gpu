@@ -5,7 +5,7 @@ import { ProviderError } from "../errors.ts";
 import { failureName, type Fetch, type HttpRequest } from "../http.ts";
 import type { LaunchSpec } from "../types.ts";
 import { expectedSpec, specDrift } from "../drift.ts";
-import { podStatus, runpodError, RunPodAdapter, UNREADABLE } from "./adapter.ts";
+import { ERROR_PREFIX_BYTES, podStatus, runpodError, RunPodAdapter, UNREADABLE } from "./adapter.ts";
 import { gpuFromRunPod, gpuToRunPod, RUNPOD_GPUS, runpodCountry } from "./catalog.ts";
 
 const fixture = (name: string): string => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -15,26 +15,57 @@ const KEY = "test-key-not-a-real-key";
 const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
 const NOW = new Date("2026-11-24T12:00:00.000Z");
 
-type Reply = { status: number; body?: unknown; headers?: Record<string, string> } | Error;
+/**
+ * One reply. `textThrows` makes text() fail, as a cut-off stream does; `streamBytes` replaces the
+ * body stream with one of that many bytes ("x"), produced only as it is pulled.
+ */
+type Reply = { status: number; body?: unknown; headers?: Record<string, string>; textThrows?: boolean; streamBytes?: number } | Error;
 
-/** A fetch that answers from a list of replies, in order, and records every request. */
+/** A body stream of `bytes`, in 1 KiB chunks, that counts how many bytes were pulled from it. */
+function countingStream(bytes: Uint8Array, pulled: { n: number }): ReadableStream<Uint8Array> {
+  let at = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(ctl) {
+      if (at >= bytes.length) return ctl.close();
+      const chunk = bytes.subarray(at, at + 1024);
+      at += chunk.length;
+      pulled.n += chunk.length;
+      ctl.enqueue(chunk);
+    },
+  }, { highWaterMark: 0 });
+}
+
+/** A fetch that answers from a list of replies, in order, and records every request and body read. */
 function mockFetch(replies: Reply[]) {
   const calls: Array<{ url: string; init: HttpRequest }> = [];
+  const reads = { text: 0, pulled: { n: 0 } };
   const fetch: Fetch = async (url, init) => {
     calls.push({ url, init });
+    // Every request, in every test: a redirect is never followed.
+    if (init.redirect !== "manual") throw new Error(`request without redirect: "manual": ${init.method} ${url}`);
     const r = replies.shift();
     if (r === undefined) throw new Error(`unexpected request ${init.method} ${url}`);
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? "" : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
+    const bytes = r.streamBytes === undefined ? new TextEncoder().encode(text) : new Uint8Array(r.streamBytes).fill(0x78);
     const headers = new Map(Object.entries(r.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
-    return { status: r.status, headers: { get: (n: string) => headers.get(n.toLowerCase()) ?? null }, text: async () => text };
+    return {
+      status: r.status,
+      headers: { get: (n: string) => headers.get(n.toLowerCase()) ?? null },
+      text: async () => {
+        reads.text++;
+        if (r.textThrows === true) throw new Error(`stream cut ${KEY}`);
+        return text;
+      },
+      body: countingStream(bytes, reads.pulled),
+    };
   };
-  return { fetch, calls };
+  return { fetch, calls, reads };
 }
 
 function adapter(replies: Reply[]) {
   const m = mockFetch(replies);
-  return { a: new RunPodAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls };
+  return { a: new RunPodAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls, reads: m.reads };
 }
 
 const spec: LaunchSpec = {
@@ -680,4 +711,79 @@ test("RunPod's reply as run5 saw it (entrypoint echoed, cmd omitted, args a disp
     const b = adapter([{ status: 201, body: { ...reply, ...change } }]);
     await assert.rejects(b.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "spec_mismatch" && e.providerMachineId === POD["id"], what);
   }
+});
+
+// ---------------------------------------------------------------- status first, bounded 400 read
+
+test("#call: every request is redirect: manual", async () => {
+  const { a, calls } = adapter([{ status: 404 }]);
+  await a.status("pod1");
+  assert.equal(calls[0]!.init.redirect, "manual");
+});
+
+test("#call: a non-400 error is classified with no body read at all", async () => {
+  const cases: Array<[number, string, number | null]> = [
+    [0, "unknown", null], [199, "unknown", null], [302, "unknown", null], [401, "auth", null], [404, "not_found", null],
+    [409, "invalid_request", null], [429, "rate_limited", 7], [500, "transient", null],
+  ];
+  for (const [status, kind, retry] of cases) {
+    const g = adapter([{ status, textThrows: true, body: "no capacity", headers: { "Retry-After": "7" } }]);
+    await assert.rejects(g.a.listOffers({ gpuCount: 1 }), (e: unknown) => {
+      assert.ok(e instanceof ProviderError);
+      assert.equal(e.kind, kind, String(status));
+      assert.equal(e.httpStatus, status);
+      assert.equal(e.retryAfterSeconds, retry);
+      return true;
+    });
+    assert.equal(g.reads.text, 0, String(status));
+    assert.equal(g.reads.pulled.n, 0, String(status));
+  }
+  const s = adapter([{ status: 404, textThrows: true }]);
+  assert.equal((await s.a.status("pod1")).state, "terminated");
+  assert.equal(s.reads.text + s.reads.pulled.n, 0);
+});
+
+test("#call: a 400 reads at most ERROR_PREFIX_BYTES of its body, never text()", async () => {
+  assert.equal(ERROR_PREFIX_BYTES, 4096);
+  // A 1 MiB body: only the prefix is pulled.
+  const big = adapter([{ status: 400, textThrows: true, streamBytes: 1 << 20 }]);
+  await assert.rejects(big.a.listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "unplaceable" && e.httpStatus === 400);
+  assert.equal(big.reads.text, 0);
+  assert.equal(big.reads.pulled.n, ERROR_PREFIX_BYTES);
+  // A problem+json body that fits in the prefix is parsed: no_capacity. Padded to one byte past
+  // it, the cut-off JSON can't be parsed (and its detail isn't in the raw first 1000 characters).
+  const body = (size: number) => {
+    const shell = JSON.stringify({ title: "Bad Request", status: 400, pad: "", detail: "There are no longer any instances available" });
+    return shell.replace('"pad":""', `"pad":"${" ".repeat(size - shell.length)}"`);
+  };
+  assert.equal(body(ERROR_PREFIX_BYTES).length, ERROR_PREFIX_BYTES);
+  const inside = adapter([{ status: 400, textThrows: true, body: body(ERROR_PREFIX_BYTES) }]);
+  await assert.rejects(inside.a.listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "no_capacity");
+  const past = adapter([{ status: 400, textThrows: true, body: body(ERROR_PREFIX_BYTES + 1) }]);
+  await assert.rejects(past.a.listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "unplaceable");
+  assert.equal(inside.reads.text + past.reads.text, 0);
+});
+
+test("#call: a 400 whose stream fails or is missing is unplaceable", async () => {
+  const failing: Fetch = async (_url, init) => {
+    assert.equal(init.redirect, "manual");
+    return {
+      status: 400,
+      headers: { get: () => null },
+      text: async () => { throw new Error("no"); },
+      body: new ReadableStream<Uint8Array>({ pull(ctl) { ctl.error(new Error(`cut ${KEY}`)); } }),
+    };
+  };
+  await assert.rejects(new RunPodAdapter({ apiKey: KEY, fetch: failing }).listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "unplaceable" && !e.message.includes(KEY));
+  const none: Fetch = async () => ({ status: 400, headers: { get: () => null }, text: async () => "no capacity" });
+  await assert.rejects(new RunPodAdapter({ apiKey: KEY, fetch: none }).listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "unplaceable");
+});
+
+test("#call: a 2xx body that can't be read is outcome_unknown, naming no key", async () => {
+  const g = adapter([{ status: 200, textThrows: true }]);
+  await assert.rejects(g.a.listOffers({ gpuCount: 1 }), (e: unknown) => {
+    assert.ok(e instanceof ProviderError && e.kind === "outcome_unknown" && e.httpStatus === 200);
+    assert.ok(!e.message.includes(KEY) && !e.message.includes("stream cut"));
+    return true;
+  });
 });
