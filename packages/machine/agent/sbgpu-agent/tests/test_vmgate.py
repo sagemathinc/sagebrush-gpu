@@ -425,6 +425,67 @@ class BudgetTest(Base):
         self.limits(MAX_HASH_BYTES=need - 1)
         self.assertEqual(v.run(known=known), (False, ["gate-budget", "process"]))
 
+    def test_unit_and_label_directories_exact_and_over(self):
+        v = self.vm()
+        for i in range(20):
+            v.write("etc/systemd/system/benign-%d.service" % i, "[Unit]\n")
+        n = max(len(os.listdir(v.path(d))) for d in G.UNIT_PATH if os.path.isdir(v.path(d)))
+        self.limits(UNIT_DIR_MAX=n)
+        self.assertEqual(v.run(), (True, []))
+        self.limits(UNIT_DIR_MAX=n - 1)
+        self.assertEqual(v.run(), (False, ["gate-budget"]))
+        v = self.vm()
+        for label in ("cloudimg-rootfs", "UEFI", "BOOT"):
+            v.link("dev/disk/by-label/" + label, "../../vda1")
+        self.limits(UNIT_DIR_MAX=4096, LABELS_MAX=3)
+        self.assertEqual(v.run(), (True, []))
+        self.limits(LABELS_MAX=2)
+        self.assertEqual(v.run(), (False, ["gate-budget"]))
+
+    def test_huge_directories_are_streamed_and_refused_at_the_cap(self):
+        # (each unit directory and the labels directory yield names without end: the gate stops one past each cap)
+        v = self.vm()
+        real, real_listdir, taken = os.scandir, os.listdir, {}
+
+        class Endless:
+            def __init__(self, path):
+                self.path = path
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def __iter__(self):
+                i = 0
+                while True:
+                    taken[self.path] = i = i + 1
+                    yield type("E", (), {"name": "benign-%d" % i})()
+
+        watched = [os.path.join(v.root, d) for d in G.UNIT_PATH] + [v.path("dev/disk/by-label")]
+        G.os.scandir = lambda p: Endless(p) if p in watched else real(p)
+        G.os.listdir = None  # (no whole listing anywhere)
+        try:
+            self.assertEqual(v.run(), (False, ["gate-budget"]))
+        finally:
+            G.os.scandir, G.os.listdir = real, real_listdir
+        self.assertEqual(max(taken.values()), max(G.UNIT_DIR_MAX, G.LABELS_MAX) + 1)
+        self.assertEqual(taken[v.path("dev/disk/by-label")], G.LABELS_MAX + 1)
+
+    def test_running_out_in_any_check_is_the_one_fixed_word(self):
+        def over(*a, **k):
+            raise G.OverBudget("forced")
+        for name in ("check_ssh", "check_processes", "check_secrets", "check_listeners", "check_provider",
+                     "check_imds", "check_config_drive", "sockets"):
+            real = getattr(G, name)
+            setattr(G, name, over)
+            try:
+                self.assertEqual(self.vm().run(), (False, ["gate-budget"]), name)
+            finally:
+                setattr(G, name, real)
+        self.assertEqual(self.vm().run(), (True, []))  # (the control)
+
     def test_only_words_are_kept_never_the_bytes(self):
         v = self.vm()
         v.process(901, "python3", PY, env=b"K=-----BEGIN RSA PRIVATE KEY-----\0")
@@ -488,6 +549,17 @@ class RepairTest(Base):
             v.mountinfo("/", point)
             self.assertEqual(v.run(), (False, ["mount-crossing"]), point)
             self.assertEqual(v.run(dict(ALLOW, mounts=[point])), (True, []), point)  # (pinned by the image)
+        for name in ("authorized_keys", "authorized_keys2"):  # (a key file itself bind-mounted, empty and regular)
+            key = "/home/ubuntu/.ssh/" + name
+            v = self.vm()
+            v.write(key[1:], "")
+            self.assertEqual(v.run(), (True, []), name)  # (the control: not a mount point)
+            v.mountinfo("/", key)
+            self.assertEqual(v.run(), (False, ["mount-crossing"]), name)
+            self.assertEqual(v.run(dict(ALLOW, mounts=["/home/ubuntu/.ssh"])), (False, ["mount-crossing"]), name)
+            self.assertEqual(v.run(dict(ALLOW, mounts=[key])), (True, []), name)  # (pinned: that exact path only)
+            v.write(key[1:], "ssh-ed25519 AAAA\n")
+            self.assertEqual(v.run(dict(ALLOW, mounts=[key])), (False, ["authorized-keys"]), name)
         v = self.vm()
         v.mountinfo("/", "/home/my\\040dir")  # (an escaped mount point elsewhere: read, and not crossed)
         self.assertIn("/home/my dir", G.mount_points(v.proc))

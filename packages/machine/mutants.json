@@ -1732,5 +1732,65 @@
   "old": "    except OverBudget:\n        procs = None\n        fails.add(\"gate-budget\")",
   "new": "    except OverBudget:\n        procs = {}",
   "note": "vm gate: budget: exhaustion passes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            names = _entries(os.path.join(root, d), UNIT_DIR_MAX)",
+  "new": "            names = os.listdir(os.path.join(root, d))",
+  "note": "vm gate: unit directories listed whole"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            names = _entries(os.path.join(root, d), UNIT_DIR_MAX)",
+  "new": "            names = _entries(os.path.join(root, d), LABELS_MAX)",
+  "note": "vm gate: unit directories under the wrong cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        names = _entries(os.path.join(root, \"dev/disk/by-label\"), LABELS_MAX)",
+  "new": "        names = os.listdir(os.path.join(root, \"dev/disk/by-label\"))",
+  "note": "vm gate: labels listed whole"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        names = _entries(os.path.join(root, \"dev/disk/by-label\"), LABELS_MAX)",
+  "new": "        names = _entries(os.path.join(root, \"dev/disk/by-label\"), UNIT_DIR_MAX)",
+  "note": "vm gate: labels under the wrong cap"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        except OverBudget:\n            fails.add(\"gate-budget\")\n        except (Unreadable, OSError, ValueError):",
+  "new": "        except (Unreadable, OSError, ValueError):",
+  "note": "vm gate: a check running out escapes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "        except OverBudget:\n            fails.add(\"gate-budget\")\n        except (Unreadable, OSError, ValueError):",
+  "new": "        except OverBudget:\n            fails.add(\"unreadable\")\n        except (Unreadable, OSError, ValueError):",
+  "note": "vm gate: a check running out is the wrong word"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if path + \"/\" + name not in pinned and (path + \"/\" + name in mounts or st.st_dev != dev):",
+  "new": "            if False:",
+  "note": "vm gate: key file mounts not checked"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if path + \"/\" + name not in pinned and (path + \"/\" + name in mounts or st.st_dev != dev):",
+  "new": "            if path + \"/\" + name not in pinned and st.st_dev != dev:",
+  "note": "vm gate: key file mount points not read"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if path + \"/\" + name not in pinned and (path + \"/\" + name in mounts or st.st_dev != dev):",
+  "new": "            if (path + \"/\" + name in mounts or st.st_dev != dev):",
+  "note": "vm gate: key file pins ignored"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "            if path + \"/\" + name not in pinned and (path + \"/\" + name in mounts or st.st_dev != dev):",
+  "new": "            if path not in pinned and (path + \"/\" + name in mounts or st.st_dev != dev):",
+  "note": "vm gate: key file pinned by its directory"
  }
 ]

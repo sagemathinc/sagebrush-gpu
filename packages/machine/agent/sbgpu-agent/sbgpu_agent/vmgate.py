@@ -197,8 +197,8 @@ def mount_points(proc="/proc"):
 
 def _keys_state(root, home, mounts, pinned):
     """"ok" (absent or empty regular files), "keys", or "mount": each component of home/.ssh is opened without
-    following any link, and the walk refuses to cross into another mount (a mount point at or below a component, or
-    a device change from the component before) unless the image allowlist pins that path."""
+    following any link, and the walk refuses to cross into another mount (a mount point at a component or at a key
+    file, or a device change from the directory before) unless the image allowlist pins that exact path."""
     fds = []
     try:
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
@@ -227,6 +227,8 @@ def _keys_state(root, home, mounts, pinned):
                 st = os.stat(name, dir_fd=fd, follow_symlinks=False)
             except FileNotFoundError:
                 continue
+            if path + "/" + name not in pinned and (path + "/" + name in mounts or st.st_dev != dev):
+                return "mount"  # (a key file mounted over, a bind mount on the same device included)
             if not stat.S_ISREG(st.st_mode) or st.st_size != 0:
                 return "keys"
         return "ok"
@@ -258,6 +260,8 @@ MAX_PROCS = 8192                 # (entries a /proc listing may hold, and proces
 MAX_FDS = 4096                   # (fd entries per process)
 MAX_FDS_TOTAL = 262144           # (fd entries across all processes)
 MAX_HASH_BYTES = 256 * 1024 * 1024  # (bytes hashed in all, looking for known values)
+UNIT_DIR_MAX = 4096              # (entries in each unit directory)
+LABELS_MAX = 256                 # (entries in /dev/disk/by-label)
 
 
 class OverBudget(Exception):
@@ -457,16 +461,17 @@ def check_provider(root, procs):
     out = set()
     data = _read_bounded(os.path.join(root, "etc/passwd"), PASSWD_MAX)
     users = {line.split(b":")[0] for line in data.splitlines()}
-    for agent in PROVIDER_AGENTS:
-        for d in UNIT_PATH:
-            try:
-                names = os.listdir(os.path.join(root, d))
-            except FileNotFoundError:
-                continue
-            except OSError:
-                raise Unreadable(d)
+    for d in UNIT_PATH:
+        try:
+            names = _entries(os.path.join(root, d), UNIT_DIR_MAX)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            raise Unreadable(d)
+        for agent in PROVIDER_AGENTS:
             if any(n == agent or n.startswith(agent + ".") or n.startswith(agent + "@") for n in names):
                 out.add("provider-agent")
+    for agent in PROVIDER_AGENTS:
         if agent.encode() in users:
             out.add("provider-agent")
         for p in procs.values():
@@ -493,7 +498,7 @@ def check_imds(connect=None):
 
 def check_config_drive(root):
     try:
-        names = os.listdir(os.path.join(root, "dev/disk/by-label"))
+        names = _entries(os.path.join(root, "dev/disk/by-label"), LABELS_MAX)
     except FileNotFoundError:
         return set()
     except OSError:
@@ -555,6 +560,8 @@ def run(allow, known=(), root="/", proc="/proc", connect=None, self_pid=None):
     for check in checks:
         try:
             fails |= check()
+        except OverBudget:
+            fails.add("gate-budget")
         except (Unreadable, OSError, ValueError):
             fails.add("unreadable")
     words = sorted(w for w in fails if w in WORDS)

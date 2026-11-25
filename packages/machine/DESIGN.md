@@ -120,14 +120,14 @@ Every token carries a `kind` claim and is refused anywhere else. Signed tokens u
   - **The VM gate** (`sbgpu_agent/vmgate.py`) runs before the announce, with the nonce's digest, and again before enroll, with the boot token's digest too. It only checks:
     - ssh, sshd and the ssh socket resolve, through systemd's unit search path and aliases, to a mask or to nothing (any other linked unit file counts as present);
     - no sshd, sshd-session or sshd-auth runs;
-    - every `authorized_keys`/`authorized_keys2` is absent or an empty regular file, reached without following links and without crossing into a mount the image allowlist doesn't pin; `/etc/passwd` rows are strict;
+    - every `authorized_keys`/`authorized_keys2` is absent or an empty regular file, reached without following links and without crossing into a mount the image allowlist doesn't pin (each directory on the way and each key file itself: a mount point there, or a device change, fails unless that exact path is pinned); `/etc/passwd` rows are strict;
     - no socket of any kind on local port 22, and nothing listens or is bound off loopback (TCP or UDP, IPv4 or IPv6);
     - loopback listeners only from the image allowlist's exact `{process, protocol, address, port}`;
     - every process runs an allowlisted executable;
     - no environment or command line holds a credential shape (a closed list) or a known value (matched by digest);
     - no provider agent: no hyperstack-agent unit, user, process or install directory;
     - nothing answers on 169.254.169.254, and no config drive (both fail closed until the provider's contents are reviewed).
-  - **How the gate reads and reports:** every read is bounded and read to EOF, and the whole scan has a work budget (processes, directory entries, fds, bytes hashed; running out fails the gate). Unreadable, malformed or vanishing data fails the gate unless the process exited, and the listing repeats until stable. It prints `SBGPU-GATE {"v":1,"pass":…,"fail":[fixed words]}`. The image allowlist is data, reviewed per image.
+  - **How the gate reads and reports:** every read is bounded and read to EOF, and the whole scan has a work budget (processes, directory entries, fds, bytes hashed; running out fails the gate). Every directory is enumerated one entry at a time against a cap (`/proc`, each process's fds, each unit directory, `/dev/disk/by-label`), never listed whole first. Unreadable, malformed or vanishing data fails the gate unless the process exited, and the listing repeats until stable. It prints `SBGPU-GATE {"v":1,"pass":…,"fail":[fixed words]}`. The image allowlist is data, reviewed per image.
   - **Still to come before VM mode is reachable:**
     - the files, logs, cloud-init, systemd-credential and keyring checks;
     - the launcher's lockdown, announce and tmpfs boot file;
