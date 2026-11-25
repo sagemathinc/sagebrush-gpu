@@ -90,7 +90,7 @@ while got < n:
 os.write(1, ("SHA:%s:%d\\n" % (h.hexdigest(), got)).encode())
 """)
 PASTE_N = 1024 * 1024
-PASTE = shell("paste.sh", "stty raw -echo\n%s -I -S %s %d\nwhile :; do sleep 0.05; done\n" % (PY, CATSHA, PASTE_N))
+PASTE = shell("paste.sh", "stty raw -echo\necho paste-raw-$((6*7))\n%s -I -S %s %d\nwhile :; do sleep 0.05; done\n" % (PY, CATSHA, PASTE_N))
 FLOODPID = os.path.join(TMP, "flood.pid")
 YES = script("yes.py", """import os, sys
 with open(sys.argv[1], "w") as f:
@@ -202,8 +202,9 @@ async def test_paste_exact_with_input_credit():
         p = await tpaired(t, leg, 1)
         await p.open()
         st = Stream(p)
-        assert await st.pump(lambda x: "live" in x.events, 10)
-        await asyncio.sleep(0.3)  # (the program is reading stdin by now)
+        # (the terminal is raw once the script says so: bytes sent before that would meet the line discipline's
+        # cooked mode, its control characters interpreted, however long a fixed sleep waited under load)
+        assert await st.pump(lambda x: b"paste-raw-42" in x.data, 20), bytes(st.data[-120:])
         data = os.urandom(PASTE_N)
         assert set(data) == set(range(256))
         sent = 0

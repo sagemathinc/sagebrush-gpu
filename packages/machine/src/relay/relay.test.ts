@@ -89,7 +89,8 @@ class Leg {
   send(x: string | object) {
     this.ws.send(typeof x === "string" ? x : JSON.stringify(x));
   }
-  async until(f: () => boolean, ms = 5000): Promise<boolean> {
+  // (generous defaults: only a wait that would fail runs to them; under heavy load Miniflare's first answers are slow)
+  async until(f: () => boolean, ms = 20_000): Promise<boolean> {
     const end = Date.now() + ms;
     while (!f()) {
       if (Date.now() > end) return false;
@@ -97,7 +98,7 @@ class Leg {
     }
     return true;
   }
-  async closedWith(ms = 5000): Promise<number | null> {
+  async closedWith(ms = 20_000): Promise<number | null> {
     await this.until(() => this.closed !== null, ms);
     return this.closed?.code ?? null;
   }
