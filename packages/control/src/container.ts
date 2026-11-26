@@ -26,7 +26,7 @@ import { ProviderError, machineName, sameMachineName } from "@sbgpu/providers";
 import type { Db, Stmt } from "./db.ts";
 import { base64url, sha256Hex } from "./http.ts";
 import { closeAccrual } from "./ledger.ts";
-import { BOOT_TOKEN_TTL_MS, CREATE_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, withDeadline } from "./vm.ts";
+import { BOOT_TOKEN_TTL_MS, CREATE_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, withDeadline, type JobEnv } from "./vm.ts";
 
 /** The calls container mode needs from a provider adapter (the RunPod adapter has them). */
 export interface ContainerProvider {
@@ -615,4 +615,43 @@ export async function runContainerWatchdog(env: ContainerEnv): Promise<number> {
     if (await terminateContainerAttempt(env, r, reason)) attempted++;
   }
   return attempted;
+}
+
+/**
+ * The lifetime job's search (exported for its query-plan test): enrolled container launches at or
+ * past their hard lifetime, a range scan of the lifetime index in its own order, stopping at the batch.
+ */
+export const CONTAINER_LIFETIME_SELECT = `SELECT machine_id, incarnation, watchdog_version FROM launches
+     WHERE outcome = 'enrolled' AND mode = 'container' AND max_end_ms <= ?
+     ORDER BY max_end_ms, machine_id, incarnation
+     LIMIT ?`;
+
+/**
+ * The hard lifetime (scheduled): each enrolled container launch at or past max_end_ms is marked
+ * to terminate (max-session), in one batch with its revocation (the machine leaves running), for
+ * the container watchdog to end through the provider. There is no save first: the agent has no
+ * save protocol yet, so work not saved by then is lost. Each mark rechecks what was read (enrolled,
+ * at its version, still past its lifetime) and fails whole unless it changed exactly that row.
+ * At most WATCHDOG_BATCH a run. Returns how many it marked.
+ */
+export async function runContainerLifetime(env: JobEnv): Promise<number> {
+  const rows = await env.db.all<{ machine_id: string; incarnation: number; watchdog_version: number }>(CONTAINER_LIFETIME_SELECT, [env.now, WATCHDOG_BATCH]);
+  let marked = 0;
+  for (const r of rows) {
+    try {
+      await env.db.batch([
+        {
+          sql: `UPDATE launches SET outcome = 'terminate', terminate_reason = 'max-session', next_ms = ?, watchdog_version = watchdog_version + 1
+                WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'enrolled' AND watchdog_version = ? AND max_end_ms <= ?`,
+          params: [env.now, r.machine_id, r.incarnation, r.watchdog_version, env.now],
+        },
+        TOOK,
+        stopMachineStmt(r.machine_id, r.incarnation),
+      ]);
+      marked++;
+    } catch {
+      // (it changed meanwhile: another mark came first; nothing written)
+    }
+  }
+  return marked;
 }

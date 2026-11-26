@@ -4,6 +4,7 @@
 
 import { runVmWatchdog, type JobEnv } from "./vm.ts";
 import { runHeartbeatWatchdog } from "./heartbeat.ts";
+import { runContainerLifetime } from "./container.ts";
 
 export type { JobEnv };
 
@@ -46,4 +47,7 @@ export const vmWatchdog: ScheduledJob = { name: "vm watchdog", run: runVmWatchdo
 /** Enrolled VMs whose heartbeats stopped (heartbeat.ts): marked heartbeat-lost, for the VM watchdog to end. */
 export const heartbeatWatchdog: ScheduledJob = { name: "heartbeat watchdog", run: runHeartbeatWatchdog };
 
-export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);
+/** Enrolled containers past their hard lifetime (container.ts): marked max-session, for the container watchdog to end. */
+export const containerLifetime: ScheduledJob = { name: "container lifetime", run: runContainerLifetime };
+
+export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);

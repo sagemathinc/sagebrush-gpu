@@ -5,11 +5,11 @@ import { newId, signToken, type AgentClaims, type Key } from "@sbgpu/api";
 import type { ProviderMachineStatus, LaunchSpec } from "@sbgpu/providers";
 import { machineName, nameFields } from "@sbgpu/providers";
 import { stmt } from "./db.ts";
-import { CONNECT_WINDOW_MS, launchContainer, recordContainerId, recordContainerIntent, recordFirstRunning, runContainerWatchdog, type ContainerEnv, type ContainerProvider } from "./container.ts";
+import { CONNECT_WINDOW_MS, CONTAINER_LIFETIME_SELECT, launchContainer, runContainerLifetime, recordContainerId, recordContainerIntent, recordFirstRunning, runContainerWatchdog, type ContainerEnv, type ContainerProvider } from "./container.ts";
 import { ERADICATION_CHECKS } from "./enroll.ts";
 import { HEARTBEAT_LOST_MS, HEARTBEAT_WATCHDOG_BATCH, HEARTBEAT_WATCHDOG_SELECT, runHeartbeatWatchdog } from "./heartbeat.ts";
 import { loadAgentPublicKeys, loadAgentSigner } from "./signer.ts";
-import type { JobEnv } from "./vm.ts";
+import { WATCHDOG_BATCH, type JobEnv } from "./vm.ts";
 import { ORIGIN, T0, addMember, world, type World } from "./testing/world.ts";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -87,11 +87,11 @@ const jenv = (): JobEnv => ({ db: w.db, now: w.clock.t, vm: null, elapsedMs: () 
 
 /**
  * A container launch taken as far as `upTo`: its intent, id and accrual (#73's batches), first
- * running at T0 + 1000, and, for "enrolled", the writes container enroll makes at T0 + 2000 (the
+ * running at T0 + 1000, and, for "enrolled", the writes container enroll makes at `enrollAt` (T0 + 2000 unless given; the
  * token used, the launch enrolled with its first heartbeat due and its lifetime, the machine
  * running). "revoked": the token used by a termination claim instead, never enrolled.
  */
-async function container(upTo: "issued" | "enrolled" | "revoked" = "enrolled") {
+async function container(upTo: "issued" | "enrolled" | "revoked" = "enrolled", enrollAt = T0 + 2000) {
   const machineId = newId("machine");
   await w.db.batch([
     stmt(
@@ -106,7 +106,7 @@ async function container(upTo: "issued" | "enrolled" | "revoked" = "enrolled") {
   assert.equal(await recordContainerId(w.db, machineId, 1, pid), "recorded");
   assert.equal(await recordFirstRunning(w.db, machineId, 1, pid, T0 + 1000), "recorded");
   if (upTo === "enrolled") {
-    const at = T0 + 2000;
+    const at = enrollAt;
     await w.db.batch([
       stmt(`UPDATE boot_tokens SET used_ms = ? WHERE machine_id = ?`, at, machineId),
       stmt(
@@ -297,4 +297,73 @@ test("end to end: launched, enrolled through the endpoint, then heartbeating wit
   assert.equal(hb.status, 200);
   assert.deepEqual(await hbRows(machineId), [T0 + 35_000]);
   assert.equal((await launch(machineId)).heartbeat_due_ms, T0 + 35_000 + HEARTBEAT_LOST_MS);
+});
+
+// ---------------------------------------------------------------- the hard lifetime
+
+test("lifetime: an enrolled container at its max_end_ms (not a millisecond before) is marked max-session with its machine stopping, then revoked and ended", async () => {
+  const c = await container();
+  const end = T0 + 2000 + LIFE_MS;
+  assert.equal((await w.db.all<{ max_end_ms: number }>(`SELECT max_end_ms FROM launches WHERE machine_id = ?`, [c.machineId]))[0]!.max_end_ms, end);
+  w.clock.t = end - 1;
+  assert.equal(await runContainerLifetime(jenv()), 0);
+  assert.deepEqual([(await launch(c.machineId)).outcome, await machineState(c.machineId)], ["enrolled", "running"]);
+  w.clock.t = end;
+  assert.equal(await runContainerLifetime(jenv()), 1);
+  const l = await launch(c.machineId);
+  assert.deepEqual([l.outcome, l.terminate_reason, l.next_ms, await machineState(c.machineId)], ["terminate", "max-session", end, "stopping"]);
+  // its agent is refused at once
+  assert.equal(await beat(c.machineId), 401);
+  const seen = watchRevocation(c.machineId);
+  assert.equal(await runContainerWatchdog(cenv()), 1);
+  assert.deepEqual([rp.terminated, seen], [[c.pid], [[true, "stopping"]]]);
+  assert.deepEqual([(await launch(c.machineId)).outcome, await machineState(c.machineId)], ["terminated", "stopped"]);
+  const acc = (await w.db.all<{ end_ms: number | null }>(`SELECT end_ms FROM machine_accruals WHERE machine_id = ?`, [c.machineId]))[0]!;
+  assert.equal(acc.end_ms, end, "the accrual closed when the pod was confirmed gone");
+  assert.equal(await runContainerLifetime(jenv()), 0, "nothing left to mark");
+});
+
+test("lifetime: a launch another mark ended first, or one changed after the read, is left as it is; a launch not yet enrolled has no lifetime", async () => {
+  const end = T0 + 2000 + LIFE_MS;
+  // heartbeat-lost came first
+  const a = await container();
+  w.clock.t = T0 + 2000 + HEARTBEAT_LOST_MS + 1;
+  assert.equal(await runHeartbeatWatchdog(jenv()), 1);
+  // changed between the lifetime job's read and its mark (a heartbeat-lost mark lands then)
+  w.clock.t = T0;
+  const b = await container();
+  const batch = w.db.batch.bind(w.db);
+  let raced = false;
+  w.db.batch = async (ss) => {
+    if (!raced && ss.some((s) => /terminate_reason = 'max-session'/.test(s.sql))) {
+      raced = true;
+      await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'heartbeat-lost', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [end, b.machineId]);
+    }
+    return batch(ss);
+  };
+  // never enrolled: issued, past the lifetime it would have had
+  const i = await container("issued");
+  w.clock.t = end + 5000;
+  try {
+    assert.equal(await runContainerLifetime(jenv()), 0);
+  } finally {
+    w.db.batch = batch;
+  }
+  assert.ok(raced);
+  assert.equal((await launch(a.machineId)).terminate_reason, "heartbeat-lost");
+  assert.deepEqual([(await launch(b.machineId)).terminate_reason, await machineState(b.machineId)], ["heartbeat-lost", "running"], "the failed mark moved nothing");
+  assert.deepEqual([(await launch(i.machineId)).outcome, await machineState(i.machineId)], ["issued", "starting"]);
+});
+
+test("lifetime: at most a batch a run, earliest lifetime first; the search is a range scan of the lifetime index, nothing sorted", async () => {
+  const ids: string[] = [];
+  for (let k = 0; k <= WATCHDOG_BATCH; k++) ids.push((await container("enrolled", T0 + 2000 + (WATCHDOG_BATCH - k) * 1000)).machineId); // (later fixtures end earlier)
+  w.clock.t = T0 + WATCHDOG_BATCH * 1000 + 2000 + LIFE_MS;
+  assert.equal(await runContainerLifetime(jenv()), WATCHDOG_BATCH);
+  assert.equal((await launch(ids[0]!)).outcome, "enrolled", "the latest lifetime waits for the next run");
+  for (const m of ids.slice(1)) assert.equal((await launch(m)).terminate_reason, "max-session");
+  assert.equal(await runContainerLifetime(jenv()), 1);
+  const plan = (w.db.raw.prepare(`EXPLAIN QUERY PLAN ${CONTAINER_LIFETIME_SELECT}`).all(w.clock.t, WATCHDOG_BATCH) as Array<{ detail: string }>).map((p) => p.detail);
+  assert.ok(plan.some((d) => /^SEARCH launches USING (COVERING )?INDEX launches_container_lifetime \(max_end_ms<\?\)$/.test(d)), JSON.stringify(plan));
+  assert.ok(plan.every((d) => !/\bSCAN\b|TEMP B-TREE/.test(d)), JSON.stringify(plan));
 });
