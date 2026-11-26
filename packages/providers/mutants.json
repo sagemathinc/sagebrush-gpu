@@ -16,18 +16,8 @@
  },
  {
   "file": "src/machine-name.ts",
-  "old": "if (!name.startsWith(PREFIX)) return null;",
-  "new": ""
- },
- {
-  "file": "src/machine-name.ts",
   "old": "if (!isId(\"machine\", machineId)) throw",
   "new": "if (false) throw"
- },
- {
-  "file": "src/machine-name.ts",
-  "old": "return isId(\"machine\", id) ? id : null;",
-  "new": "return id;"
  },
  {
   "file": "src/locality.ts",
@@ -363,11 +353,6 @@
   "file": "src/runpod/adapter.ts",
   "old": "if (found.length > 1) {",
   "new": "if (found.length > 2) {"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "s.machineId === machineId && s.state !== \"terminated\"",
-  "new": "s.machineId === machineId"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -1242,12 +1227,6 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "        report.exposure = { providerMachineId: id, machineName: machineName(plan.spec.machineId), ratePerHour: rate };\n",
-  "new": "",
-  "note": "LIMITS H2: exposure"
- },
- {
-  "file": "src/probes/eradication.ts",
   "old": "    report.withinCap = report.estimatedSpendMicros <= plan.maxSpendMicros;",
   "new": "    report.withinCap = true;"
  },
@@ -1295,11 +1274,6 @@
   "file": "src/runpod/adapter.ts",
   "old": "    if (stop?.() === true) throw new ProviderError(\"runpod\", \"unknown\", \"stopped at the caller's deadline before launching\");",
   "new": ""
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "      const found = await this.#findByMachineId(spec.machineId, stop).catch(() => {",
-  "new": "      const found = await this.#findByMachineId(spec.machineId).catch(() => {"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -2136,12 +2110,6 @@
   "old": "command: [...VM_COMMAND],",
   "new": "command: [],",
   "note": "vm command"
- },
- {
-  "file": "src/shadeform/adapter.ts",
-  "old": "machineId: typeof inst[\"name\"] === \"string\" ? parseMachineName(inst[\"name\"]) : null,",
-  "new": "machineId: parseMachineName(String(inst[\"name\"])),",
-  "note": "name type"
  },
  {
   "file": "src/shadeform/adapter.ts",
@@ -4027,11 +3995,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "s.machineId !== null && machineName(s.machineId) === name",
-  "new": "s.machineId !== null"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "list.length === 1 ? list[0]",
   "new": "list.length >= 1 ? list[0]"
  },
@@ -4344,11 +4307,6 @@
   "file": "src/vast/adapter.ts",
   "old": "if (found.length > 1) {",
   "new": "if (found.length > 99) {"
- },
- {
-  "file": "src/vast/adapter.ts",
-  "old": "if (label !== undefined && machineName(s.machineId) !== label) continue;",
-  "new": ""
  },
  {
   "file": "src/vast/adapter.ts",
@@ -4816,5 +4774,185 @@
   "old": "      json = await this.#call(\"GET\", \"/api/v0/ssh/\", \"keys\", undefined, stop);\n    } catch (e) {\n",
   "new": "      json = await this.#call(\"GET\", \"/api/v0/ssh/\", \"keys\", undefined, undefined);\n    } catch (e) {\n",
   "note": "the key read ignores the deadline"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": " || !name.startsWith(PREFIX)) return null;",
+  "new": ") return null;"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "  if (!isId(\"machine\", machineId)) return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "sameMachineName(s.parsedName, name) && s.state !== \"terminated\"",
+  "new": "sameMachineName(s.parsedName, name)"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "        report.exposure = { providerMachineId: id, machineName: plan.spec.name, ratePerHour: rate };\n",
+  "new": "",
+  "note": "LIMITS H2: exposure"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      const found = await this.#findByName(spec.name, stop).catch(() => {",
+  "new": "      const found = await this.#findByName(spec.name).catch(() => {"
+ },
+ {
+  "file": "src/shadeform/adapter.ts",
+  "old": "    ...nameFields(inst[\"name\"]),",
+  "new": "    ...nameFields(String(inst[\"name\"])),",
+  "note": "name type"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": ".filter((s) => sameMachineName(s.parsedName, name));",
+  "new": ".filter((s) => s.machineId !== null);"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "        if (label !== undefined && !sameMachineName(s.parsedName, label)) continue;\n",
+  "new": ""
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "const INSTALLATION = /^[a-z0-9]{4,8}$/;",
+  "new": "const INSTALLATION = /^[a-z0-9]{3,8}$/;",
+  "note": "a 3-character installation"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "const INSTALLATION = /^[a-z0-9]{4,8}$/;",
+  "new": "const INSTALLATION = /^[a-z0-9]{4,9}$/;",
+  "note": "a 9-character installation"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "const INCARNATION = /^(?:0|[1-9][0-9]{0,11})$/;",
+  "new": "const INCARNATION = /^[0-9]{1,12}$/;",
+  "note": "leading zeros in the incarnation"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "const INCARNATION = /^(?:0|[1-9][0-9]{0,11})$/;",
+  "new": "const INCARNATION = /^(?:0|[1-9][0-9]{0,12})$/;",
+  "note": "a 13-digit incarnation"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "  if (fields.length !== 3) return null;",
+  "new": "  if (fields.length < 3) return null;",
+  "note": "extra fields allowed"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "  if (!isInstallation(installation)) throw new RangeError(\"not an installation slug\");\n",
+  "new": "",
+  "note": "any installation built"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "  if (!isId(\"machine\", machineId)) throw new RangeError(\"not a machine id\");\n",
+  "new": "",
+  "note": "any id built"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "if (!Number.isSafeInteger(incarnation) || incarnation < 0 ||",
+  "new": "if (incarnation < 0 ||",
+  "note": "a fractional incarnation built"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "|| incarnation < 0 || incarnation > MAX_NAME_INCARNATION)",
+  "new": "|| incarnation > MAX_NAME_INCARNATION)",
+  "note": "a negative incarnation built"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "export const MAX_NAME_INCARNATION = 999_999_999_999;",
+  "new": "export const MAX_NAME_INCARNATION = 1_000_000_000_000;",
+  "note": "a 13-digit incarnation built"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "-${machineId.slice(\"mch_\".length)}-",
+  "new": "-${machineId}-",
+  "note": "the mch_ prefix kept in the name"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "return p !== null && p.machineId === spec.machineId && p.incarnation === spec.incarnation;",
+  "new": "return p !== null && p.incarnation === spec.incarnation;",
+  "note": "a spec named for another machine accepted"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "return p !== null && p.machineId === spec.machineId && p.incarnation === spec.incarnation;",
+  "new": "return p !== null && p.machineId === spec.machineId;",
+  "note": "a spec named for another incarnation accepted"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "parsed.installation === p.installation && parsed.machineId === p.machineId",
+  "new": "parsed.machineId === p.machineId",
+  "note": "another installation's name taken"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "&& parsed.machineId === p.machineId && parsed.incarnation === p.incarnation;",
+  "new": "&& parsed.incarnation === p.incarnation;",
+  "note": "another machine's name taken"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "&& parsed.machineId === p.machineId && parsed.incarnation === p.incarnation;",
+  "new": "&& parsed.machineId === p.machineId;",
+  "note": "another incarnation's name taken"
+ },
+ {
+  "file": "src/machine-name.ts",
+  "old": "  return { machineId: parsedName?.machineId ?? null, parsedName };",
+  "new": "  return { machineId: null, parsedName };",
+  "note": "a status's machine never read"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "    if (!specNameMatches(spec)) throw new ProviderError(\"runpod\", \"invalid_request\", \"RunPod: the spec's name isn't its machine's\");\n",
+  "new": "",
+  "note": "RunPod: any spec name"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    if (!specNameMatches(spec)) throw new ProviderError(\"vast\", \"invalid_request\", \"Vast: the spec's name isn't its machine's\");\n",
+  "new": "",
+  "note": "Vast: any spec name"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (!specNameMatches(spec)) throw new ProviderError(\"hyperstack\", \"invalid_request\", \"Hyperstack: the spec's name isn't its machine's\");\n",
+  "new": "",
+  "note": "Hyperstack: any spec name"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": ".filter((s) => sameMachineName(s.parsedName, name) && s.state !== \"terminated\");",
+  "new": ".filter((s) => s.machineId !== null && s.machineId === nameFields(name).machineId && s.state !== \"terminated\");",
+  "note": "RunPod recovery by machine id only"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": ".filter((s) => sameMachineName(s.parsedName, name));",
+  "new": ".filter((s) => s.machineId !== null && s.machineId === nameFields(name).machineId);",
+  "note": "Hyperstack recovery by machine id only"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "        if (label !== undefined && !sameMachineName(s.parsedName, label)) continue;",
+  "new": "        if (label !== undefined && s.machineId !== nameFields(label).machineId) continue;",
+  "note": "Vast's label filter by machine id only"
  }
 ]

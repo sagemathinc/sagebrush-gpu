@@ -7,7 +7,7 @@
 import { commandShape, driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, isSuccess, readPrefix, retryAfterSeconds, type Fetch } from "../http.ts";
-import { machineName, parseMachineName } from "../machine-name.ts";
+import { nameFields, sameMachineName, specNameMatches } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
 import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
 import type {
@@ -210,7 +210,7 @@ export function podStatus(pod: unknown, observedAt: string): ProviderMachineStat
   return {
     provider: "runpod",
     providerMachineId: pod["id"],
-    machineId: typeof pod["name"] === "string" ? parseMachineName(pod["name"]) : null,
+    ...nameFields(pod["name"]),
     state: STATES[rawStatus] ?? "unknown",
     rawStatus,
     gpuType: typeof gpu["id"] === "string" ? gpuFromRunPod(gpu["id"]) : null,
@@ -420,8 +420,9 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     if (gpuId === null) throw new ProviderError("runpod", "invalid_request", `RunPod has no GPU type ${spec.gpuType}`);
     if (spec.launcher.length === 0) throw new ProviderError("runpod", "invalid_request", "empty launcher");
     if (spec.bootToken === "") throw new ProviderError("runpod", "invalid_request", "empty boot token");
+    if (!specNameMatches(spec)) throw new ProviderError("runpod", "invalid_request", "RunPod: the spec's name isn't its machine's");
     return {
-      name: machineName(spec.machineId),
+      name: spec.name,
       cloud: "SECURE",
       gpu: { id: gpuId, count: spec.gpuCount },
       dataCenterIds: [spec.dataCenter],
@@ -448,7 +449,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
       if (!(e instanceof ProviderError) || (e.kind !== "outcome_unknown" && e.kind !== "transient")) throw e;
       // The pod may exist even though the call failed: look for it by name before anyone retries.
       // The search stops at the caller's deadline; a search that didn't finish proves nothing.
-      const found = await this.#findByMachineId(spec.machineId, stop).catch(() => {
+      const found = await this.#findByName(spec.name, stop).catch(() => {
         throw new ProviderError("runpod", "outcome_unknown", `${e.message}; the pod list could not be read`);
       });
       if (found.length === 0) throw e;
@@ -568,10 +569,11 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     throw new ProviderError("runpod", "unknown", `RunPod pod list has more than ${MAX_PAGES} pages`);
   }
 
-  async #findByMachineId(machineId: string, shouldStop?: () => boolean): Promise<ProviderMachineStatus[]> {
+  /** Live pods carrying exactly this name (installation, machine and incarnation). */
+  async #findByName(name: string, shouldStop?: () => boolean): Promise<ProviderMachineStatus[]> {
     const opts: LaunchOptions = {};
     if (shouldStop !== undefined) opts.shouldStop = shouldStop;
-    return (await this.listMachines(opts)).filter((s) => s.machineId === machineId && s.state !== "terminated");
+    return (await this.listMachines(opts)).filter((s) => sameMachineName(s.parsedName, name) && s.state !== "terminated");
   }
 }
 
@@ -580,6 +582,7 @@ function goneStatus(providerMachineId: string, observedAt: string): ProviderMach
     provider: "runpod",
     providerMachineId,
     machineId: null,
+    parsedName: null,
     state: "terminated",
     rawStatus: "NOT_FOUND",
     gpuType: null,

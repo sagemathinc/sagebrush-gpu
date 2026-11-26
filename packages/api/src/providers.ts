@@ -51,12 +51,24 @@ export const PROVIDER_MACHINE_STATES = [
 ] as const;
 export type ProviderMachineState = (typeof PROVIDER_MACHINE_STATES)[number];
 
+/**
+ * A machine's provider-side name, parsed (`sbg-<installation>-<machine>-<incarnation>`, the
+ * orphan/credential-pause contract's section 1a): whose deployment, which machine, which launch.
+ */
+export interface ParsedMachineName {
+  installation: string;
+  machineId: MachineId;
+  incarnation: number;
+}
+
 /** What a provider says about one of its machines: the watchdog's input. */
 export interface ProviderMachineStatus {
   provider: ProviderId;
   providerMachineId: string;
   /** Parsed from our name tag; null when the machine isn't ours or the tag is unparseable. */
   machineId: MachineId | null;
+  /** The whole parsed name (machineId is its machine); null exactly when machineId is. */
+  parsedName: ParsedMachineName | null;
   state: ProviderMachineState;
   /** The provider's own status string, for logs. */
   rawStatus: string;

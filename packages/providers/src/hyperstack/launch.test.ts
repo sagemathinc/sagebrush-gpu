@@ -1,6 +1,7 @@
 // Hyperstack launch, mock-only: the create path's every boundary. No test reaches Hyperstack.
 
 import assert from "node:assert/strict";
+import { machineName } from "../machine-name.ts";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { BOOT_SCRIPT_VECTOR, renderBootCommand, renderBootScript } from "@sbgpu/machine";
@@ -13,13 +14,13 @@ import { createBody, HyperstackAdapter, MAX_REPLY_BYTES, MAX_SCRIPT_BYTES, vmLau
 const KEY = "test-key-not-a-real-key";
 const NOW = new Date("2026-11-25T12:00:00.000Z");
 const MID = BOOT_SCRIPT_VECTOR.values.machineId;
-const NAME = `sbg-${MID}`;
+const NAME = machineName("test", MID, 1);
 const KEY_NAME = `sbg-k-${MID}`;
 const SCRIPT = renderBootScript(BOOT_SCRIPT_VECTOR.values);
 const ENVS: HyperstackLaunchConfig = { environments: { "CANADA-1": "sbg-canada" } };
 
 const spec: LaunchSpec = {
-  machineId: MID,
+  machineId: MID, incarnation: 1, name: NAME,
   gpuType: "RTX-A6000",
   gpuCount: 1,
   dataCenter: "CANADA-1",
@@ -436,8 +437,24 @@ test("launch: a recovered VM must pass the same full readback", async () => {
   }
 });
 
+test("launch: a spec whose name isn't exactly its own machine and incarnation is refused before any request", async () => {
+  for (const over of [{ incarnation: 2 }, { name: `sbg-${MID}` }, { name: machineName("test", "mch_7f3k9q2m4x8z1c5v6b0n", 1) }]) {
+    const { a, calls } = launcher(routes());
+    await assert.rejects(a.launch({ ...spec, ...over }), fails("invalid_request"), JSON.stringify(over));
+    assert.equal(calls.length, 0);
+  }
+});
+
+test("launch: a lost create's recovery never takes a VM of this machine named for another installation or incarnation", async () => {
+  for (const name of [machineName("othr", MID, 1), machineName("test", MID, 2)]) {
+    const { a, calls } = launcher(routes({ create: new Error("reset"), list: { status: 200, body: { count: 1, instances: [vm({ id: 4300, name })] } } }));
+    await assert.rejects(a.launch(spec), fails("outcome_unknown", { id: null, message: /no VM named/ }), name);
+    assert.ok(!trail(calls).includes("GET /core/virtual-machines/4300"), name);
+  }
+});
+
 test("launch: a lost create's recovery takes only the VM with our name, not another machine of ours", async () => {
-  const other = vm({ id: 4300, name: "sbg-mch_7f3k9q2m4x8z1c5v6b0n" });
+  const other = vm({ id: 4300, name: machineName("test", "mch_7f3k9q2m4x8z1c5v6b0n", 1) });
   const listed = { status: 200, body: { count: 2, instances: [other, vm()] } };
   const { a, calls } = launcher(routes({ create: new Error("reset"), list: listed }));
   assert.equal((await a.launch(spec)).providerMachineId, "4242");

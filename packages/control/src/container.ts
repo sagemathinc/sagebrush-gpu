@@ -21,7 +21,7 @@
 //   gone marks the launch terminated and closes the accrual.
 
 import type { LaunchSpec, ProviderMachineStatus } from "@sbgpu/providers";
-import { ProviderError } from "@sbgpu/providers";
+import { ProviderError, machineName, sameMachineName } from "@sbgpu/providers";
 import type { Db, Stmt } from "./db.ts";
 import { base64url, sha256Hex } from "./http.ts";
 import { closeAccrual } from "./ledger.ts";
@@ -54,6 +54,8 @@ export interface ContainerDeps {
 }
 
 export interface ContainerEnv {
+  /** This deployment's installation slug, in every pod's name; null when unset (no launch, no name search). */
+  installation: string | null;
   db: Db;
   /** Control's time, read when it's needed (first running is timed after its provider read). */
   clock(): number;
@@ -225,13 +227,22 @@ export async function containerRow(db: Db, machineId: string, incarnation: numbe
   return r[0] ?? null;
 }
 
-/** The provider's live pods carrying this machine's name. "unavailable" if the whole list can't be read. */
-async function podsNamed(env: ContainerEnv, machineId: string): Promise<string[] | "unavailable"> {
+/**
+ * The provider's live pods carrying exactly this launch's name (this installation, this machine,
+ * this incarnation). "unavailable" if the whole list can't be read, or the name can't be built.
+ */
+async function podsNamed(env: ContainerEnv, machineId: string, incarnation: number): Promise<string[] | "unavailable"> {
   const p = env.provider;
-  if (!p) return "unavailable";
+  if (!p || env.installation === null) return "unavailable";
+  let name: string;
+  try {
+    name = machineName(env.installation, machineId, incarnation);
+  } catch {
+    return "unavailable";
+  }
   const list = await withDeadline<ProviderMachineStatus[] | "unavailable">(() => p.listMachines(), "unavailable");
   if (list === "unavailable") return "unavailable";
-  return list.filter((s) => s.machineId === machineId && s.state !== "terminated").map((s) => s.providerMachineId);
+  return list.filter((s) => sameMachineName(s.parsedName, name) && s.state !== "terminated").map((s) => s.providerMachineId);
 }
 
 /**
@@ -328,7 +339,7 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
   const byName = r.provider_machine_id === null;
   // (with no id recorded, every pod with the name; a list that wasn't read proves nothing, but the
   // cleanup ids are still ended, once the accrual is open)
-  const named = byName ? await podsNamed(env, r.machine_id) : [];
+  const named = byName ? await podsNamed(env, r.machine_id, r.incarnation) : [];
   if (named !== "unavailable") ids = [...new Set([...ids, ...named])];
   if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {
     // pods exist that no id batch recorded: they bill, and none is ended before its accrual is
@@ -350,7 +361,7 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
     const s = await withDeadline<ProviderMachineStatus | "unavailable">(() => p.status(r.provider_machine_id!), "unavailable");
     gone = s !== "unavailable" && s.providerMachineId === r.provider_machine_id && s.state === "terminated";
   } else {
-    const left = await podsNamed(env, r.machine_id);
+    const left = await podsNamed(env, r.machine_id, r.incarnation);
     gone = left !== "unavailable" && left.length === 0;
   }
   if (gone && cleaned) {
@@ -436,8 +447,8 @@ export interface ContainerLaunch {
   agentSha256: string;
   credentialKind: "ours" | "org";
   rate: { providerCostPerHour: number; marginBps: number };
-  /** Everything the create needs but the boot token, which is made here. */
-  spec: Omit<LaunchSpec, "bootToken">;
+  /** Everything the create needs but the boot token, the name and the incarnation, which are made here. */
+  spec: Omit<LaunchSpec, "bootToken" | "name" | "incarnation">;
 }
 
 /**
@@ -450,6 +461,15 @@ export interface ContainerLaunch {
  * a pod it holds could be neither recorded nor confirmed gone.
  */
 export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Promise<"not-started" | "created" | "unknown" | "abandoned"> {
+  // the pod's name first: one that can't be built (no installation, or an incarnation past the
+  // name's bound) is a launch not started, with nothing written
+  let name: string;
+  try {
+    if (env.installation === null) return "not-started";
+    name = machineName(env.installation, l.machineId, l.incarnation);
+  } catch {
+    return "not-started";
+  }
   const token = base64url(env.randomBytes(32));
   try {
     await recordContainerIntent(env.db, {
@@ -471,7 +491,7 @@ export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Pr
   }
   type Created = { id: string } | { error: unknown } | "late";
   const created = await withDeadline<Created>(
-    () => p.launch({ ...l.spec, bootToken: token }).then((x) => ({ id: x.providerMachineId }), (e: unknown) => ({ error: e })),
+    () => p.launch({ ...l.spec, incarnation: l.incarnation, name, bootToken: token }).then((x) => ({ id: x.providerMachineId }), (e: unknown) => ({ error: e })),
     "late",
     LAUNCH_CALL_DEADLINE_MS,
   );
@@ -566,7 +586,7 @@ export async function runContainerWatchdog(env: ContainerEnv): Promise<number> {
     let r: ContainerRow = row;
     let reason = row.reason;
     if (r.outcome === "creating" && r.provider_machine_id === null) {
-      const named = await podsNamed(env, r.machine_id);
+      const named = await podsNamed(env, r.machine_id, r.incarnation);
       if (named !== "unavailable" && named.length === 1) {
         await recordContainerId(env.db, r.machine_id, r.incarnation, named[0]!);
         r = (await containerRow(env.db, r.machine_id, r.incarnation)) ?? r;

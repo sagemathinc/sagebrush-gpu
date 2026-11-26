@@ -20,6 +20,14 @@ export type {
 /** Everything the control plane asks a provider to launch. There is no free-form environment. */
 export interface LaunchSpec {
   machineId: string;
+  /** The launch's incarnation: the name carries it. */
+  incarnation: number;
+  /**
+   * The machine's provider-side name, built by control at the launch intent (machineName, with
+   * this deployment's installation). An adapter uses it as given, once it parses as exactly this
+   * machine and incarnation (specNameMatches), and refuses the spec otherwise.
+   */
+  name: string;
   gpuType: GpuTypeId;
   gpuCount: number;
   /** One data center, chosen by placement. */

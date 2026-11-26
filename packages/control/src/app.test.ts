@@ -62,7 +62,7 @@ async function world(handlers?: Handlers): Promise<World> {
     waitUntil: (p) => {
       pending.push(p);
     },
-    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: null },
+    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: null, installation: "test" },
     fetch: async () => {
       throw new Error("no network in tests");
     },
@@ -559,6 +559,11 @@ test("configFromEnv takes the deploy config's MACHINE_DOMAIN and APP_ORIGIN, str
   const c = configFromEnv({ APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" });
   assert.equal(c.machineDomain, "m.example.com");
   assert.equal(c.appOrigin, "https://gpu.example.com");
+  // the installation slug: unset is null (no launch then); set, exactly [a-z0-9]{4,8}
+  assert.equal(c.installation, null);
+  const base = { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" };
+  for (const slug of ["prod", "a1b2c3d4", "0000"]) assert.equal(configFromEnv({ ...base, SBGPU_INSTALLATION: slug }).installation, slug);
+  for (const slug of ["abc", "abcdefghi", "Prod", "pr-d", "pr_d", "", " prod", 1234]) assert.throws(() => configFromEnv({ ...base, SBGPU_INSTALLATION: slug }), /SBGPU_INSTALLATION/, String(slug));
   for (const env of [
     {},
     { APP_ORIGIN: "https://gpu.example.com" },

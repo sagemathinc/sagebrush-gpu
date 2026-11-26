@@ -13,8 +13,9 @@ import { probeLauncher, RESERVE_MS, runEradicationProbe, type ProbePlan, type Pr
 
 const agent = { agentUrl: "https://cdn.example.test/probe-agent.tar.gz", agentSha256: "a".repeat(64), controlUrl: "https://control.example.test" };
 const MID = "mch_pr0bepr0bepr0bepr0be";
+const NAME = machineName("test", MID, 1);
 const spec: LaunchSpec = {
-  machineId: MID, gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1", image: "img", diskGb: 40,
+  machineId: MID, incarnation: 1, name: NAME, gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1", image: "img", diskGb: 40,
   bootToken: "A".repeat(43), launcher: probeLauncher(agent, "5".repeat(64)), maxProviderCostPerHour: 3_600_000,
 };
 // At 3.6M micro-USD per hour one millisecond costs one micro. Budget: elapsed + 387 s reserve
@@ -45,7 +46,7 @@ function world(reply: (method: string, url: string, n: number) => Reply, latency
 }
 
 const page = (pods: unknown[], next: string | null) => ({ pods, pagination: { nextCursor: next, hasNextPage: next !== null } });
-const pod = (id: string) => ({ id, name: machineName(MID), status: "RUNNING" });
+const pod = (id: string) => ({ id, name: NAME, status: "RUNNING" });
 const unavailable = { status: 503, body: { title: "Unavailable", status: 503, detail: "try later" } };
 
 /** The report for a launch whose outcome is unknown: exposure by name, nothing confirmed. */
@@ -53,7 +54,7 @@ function assertUnknownExposure(r: Awaited<ReturnType<typeof runEradicationProbe>
   assert.deepEqual(r.aborts, ["launch-failed"]);
   assert.equal(r.providerMachineId, null);
   assert.equal(r.terminatedConfirmed, false);
-  assert.deepEqual(r.exposure, { providerMachineId: null, machineName: machineName(MID), ratePerHour: 3_600_000 });
+  assert.deepEqual(r.exposure, { providerMachineId: null, machineName: NAME, ratePerHour: 3_600_000 });
   assert.equal(r.outcome, "aborted");
 }
 
@@ -161,7 +162,7 @@ test("a unique recovery whose termination can't be confirmed is exposure with it
   }, 1000);
   const r = await runEradicationProbe(plan, w.adapter, w.api, w.clock);
   assert.equal(r.terminatedConfirmed, false);
-  assert.deepEqual(r.exposure, { providerMachineId: "p1", machineName: machineName(MID), ratePerHour: 3_600_000 });
+  assert.deepEqual(r.exposure, { providerMachineId: "p1", machineName: NAME, ratePerHour: 3_600_000 });
 });
 
 test("a successful create with an unreadable reply is reconciled, then reported as exposure", async () => {

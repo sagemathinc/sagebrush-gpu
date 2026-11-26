@@ -6,6 +6,7 @@
 // (the sign-in landing page has a one-time token in its URL). Errors are always the
 // contract's { error: { code, message } }.
 
+import { isInstallation } from "@sbgpu/providers";
 import {
   ERROR_STATUS,
   errorBody,
@@ -50,9 +51,15 @@ export interface AppConfig {
   sessionTtlMs: number;
   /** Sign-in through WorkOS; null when it isn't configured (sign-in then answers "unavailable"). */
   auth: AuthConfig | null;
+  /**
+   * This deployment's installation slug (SBGPU_INSTALLATION, `[a-z0-9]{4,8}`): it is in every
+   * provider-side machine name. Null when unset: every launch is then "not-started", nothing
+   * written. Changing it later orphans every live launch by design (none parses as ours).
+   */
+  installation: string | null;
 }
 
-export const DEFAULT_CONFIG: Omit<AppConfig, "appOrigin" | "machineDomain" | "auth"> = {
+export const DEFAULT_CONFIG: Omit<AppConfig, "appOrigin" | "machineDomain" | "auth" | "installation"> = {
   sessionTtlMs: 30 * 24 * 60 * 60_000,
 };
 
@@ -69,7 +76,9 @@ export function configFromEnv(env: Record<string, unknown>): AppConfig {
   const u = new URL(appOrigin);
   if (u.protocol !== "https:" || u.origin !== appOrigin || u.username || u.password) throw new Error("APP_ORIGIN must be an https origin");
   if (typeof machineDomain !== "string" || !HOSTNAME.test(machineDomain)) throw new Error("MACHINE_DOMAIN must be a lowercase hostname");
-  return { ...DEFAULT_CONFIG, appOrigin, machineDomain, auth: authConfigFromEnv(env) };
+  const installation = env.SBGPU_INSTALLATION;
+  if (installation !== undefined && !isInstallation(installation)) throw new Error("SBGPU_INSTALLATION must be 4 to 8 of [a-z0-9]");
+  return { ...DEFAULT_CONFIG, appOrigin, machineDomain, auth: authConfigFromEnv(env), installation: installation ?? null };
 }
 
 // ---------------------------------------------------------------- deps
