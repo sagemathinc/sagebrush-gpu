@@ -530,6 +530,30 @@ test("H1: any decision input changed between the read and the write: busy, nothi
   assert.equal((await machines()).length, 0);
 });
 
+test("H1: a running machine's final-save estimate raised between the read and the write (a heartbeat): busy, nothing written; lowered, still admitted", async () => {
+  for (const [why, estimate, first] of [["raised", 6000, "busy"], ["lowered", 0, "ok"]] as const) {
+    w = await world();
+    // (one running machine on the allocation, its accrual open, its estimate 600 s; just enough money for one more start)
+    const running = { providerCostPerHour: COST, marginBps: MARGIN };
+    const amount = requiredToStart({ unspent: 0, newMachine: running, running: [running], unbilledSeconds: 0, minStartMinutes: DEFAULT_POLICY.minStartMinutes, ...HARD_STOP_PERIODS, reserveSeconds: reserveSeconds(10, 600) });
+    const m = await member(amount);
+    const id = await legacyMachine(m.memberId, "running");
+    await w.db.batch([...openAccrual(id, { incarnation: 1, provider: "runpod", providerCostPerHour: COST, marginBps: MARGIN, startMs: w.clock.t }), stmt(`UPDATE machines SET save_estimate_seconds = 600 WHERE id = ?`, id)]);
+    const alloc = await allocOf(m.memberId);
+    const a = await admitStart(midway(() => w.db.batch([stmt(`UPDATE machines SET save_estimate_seconds = ? WHERE id = ?`, estimate, id)])), w.clock.t, req(m.userId));
+    if (first === "busy") {
+      refused(a, "busy", why);
+      assert.equal((await machines()).filter((x) => x.state === "starting").length, 0, `${why}: nothing written`);
+      assert.equal(await version(alloc), 0, `${why}: the version unchanged`);
+      const again = await admitStart(w.db, w.clock.t, req(m.userId));
+      assert.equal(again.ok, false, `${why}: the retry, at the larger reserve, refuses`);
+    } else {
+      assert.equal(a.ok, true, `${why}: ${JSON.stringify(a)}`);
+      assert.equal(await version(alloc), 1);
+    }
+  }
+});
+
 test("H1 control: the ledger's own billing between the read and the write doesn't refuse (it only moves money already counted)", async () => {
   const m = await member(TWO());
   const a = await admitStart(w.db, w.clock.t, req(m.userId));

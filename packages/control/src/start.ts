@@ -334,12 +334,17 @@ export async function admitStart(db: Db, nowMs: number, req: StartRequest): Prom
   try {
     await db.batch([
       // (the CAS binds every input of the money decision that can change under it: the version
-      // (another admission), the amount (an allocation change) and the non-compute ledger total (an
-      // adjustment). Accrual's compute entries only move money the read already counted.)
+      // (another admission), the amount (an allocation change), the non-compute ledger total (an
+      // adjustment), and the accruing machines' final-save estimates (a heartbeat's), which may only
+      // have fallen since the read. Accrual's own writes only move money the read already counted:
+      // compute entries for minutes it charged as unbilled, billed-through moving forward, an
+      // interval closing into its exact charge.)
       stmt(
         `UPDATE allocations SET start_version = start_version + 1 WHERE id = ? AND start_version = ? AND amount = ?
-           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,
-        mn.allocationId, mn.startVersion, mn.amount, mn.adjusted,
+           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?
+           AND (SELECT COALESCE(MAX(m.save_estimate_seconds), 0) FROM machines m
+                WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) <= ?`,
+        mn.allocationId, mn.startVersion, mn.amount, mn.adjusted, mn.saveEstimateSeconds,
       ),
       guard,
       stmt(

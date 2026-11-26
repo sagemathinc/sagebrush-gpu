@@ -6506,14 +6506,14 @@
  },
  {
   "file": "src/start.ts",
-  "old": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,",
-  "new": "WHERE id = ? AND start_version = ? AND ? IS NOT NULL\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,",
+  "old": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?\n",
+  "new": "WHERE id = ? AND start_version = ? AND ? IS NOT NULL\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?\n",
   "note": "the CAS doesn't bind the amount (start_version only)"
  },
  {
   "file": "src/start.ts",
-  "old": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,",
-  "new": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND ? IS NOT NULL`,",
+  "old": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?\n",
+  "new": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND ? IS NOT NULL\n",
   "note": "the CAS doesn't bind adjustments"
  },
  {
@@ -6581,5 +6581,17 @@
   "old": "export const STALE_START_BATCH = 100;",
   "new": "export const STALE_START_BATCH = 101;",
   "note": "the stale batch one more"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) <= ?`,",
+  "new": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) <= ? + 1000000`,",
+  "note": "a raised save estimate accepted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) <= ?`,",
+  "new": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) >= 0 AND ? IS NOT NULL`,",
+  "note": "the save estimate unbound"
  }
 ]
