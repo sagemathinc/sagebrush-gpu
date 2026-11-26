@@ -108,6 +108,9 @@ test("access rules", () => {
   assert.equal(min("createProject"), "owner");
   assert.equal(min("getSpendCsv"), "assistant");
   assert.equal(min("startMachine"), "member");
+  // /me's reauth window is one organization's, chosen by orgId
+  assert.match(ROUTES.getMe.note ?? "", /orgId .*chooses the organization recentAuthForMs is for/);
+  assert.match(ROUTES.getMe.note ?? "", /without it, or for an organization the caller doesn't own, recentAuthForMs is null/);
 });
 
 test("the snapshot routes: a member's own areas, on the project", () => {

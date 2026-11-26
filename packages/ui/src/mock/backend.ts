@@ -1357,7 +1357,14 @@ export class MockBackend {
       return { recentAuthForMs: this.#recentAuthForMs() as number };
     },
 
-    getMe: ({ user }) => this.#me(user as User),
+    getMe: ({ query, user }) => {
+      // An assurance is for one organization: the window only for the one named, and only for its owners.
+      const orgId: unknown = query.orgId;
+      if (orgId !== undefined && !isId("org", orgId)) throw new ApiFail("badRequest", "orgId is an organization id");
+      const me = this.#me(user as User);
+      const owner = orgId !== undefined && this.#orgRole(orgId, (user as User).id) === "owner";
+      return { ...me, recentAuthForMs: owner ? (me.recentAuthForMs ?? null) : null };
+    },
 
     getOrg: ({ params }) => this.#org(params.orgId),
 

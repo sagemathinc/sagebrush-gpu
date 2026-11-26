@@ -129,9 +129,9 @@ test("the request path is the keys' own: the shared client never sees a credenti
 
 test("the window counts from just before /me was sent: a slow answer doesn't stretch it", async () => {
   const k = await keysPage();
-  const release = k.t.gate(/GET \/v1\/me$/);
+  const release = k.t.gate(/GET \/v1\/me\?orgId=/);
   const sentAt = k.t.mono();
-  const loading = k.t.store.loadMe();
+  const loading = k.t.store.keys.refreshWindow();
   k.t.advanceMono(2_000); // the answer takes two seconds to arrive
   release();
   await loading;
@@ -158,22 +158,61 @@ test("the window counts from just before /me was sent: a slow answer doesn't str
   assert.deepEqual(k.t.keyTimers.delays(), []);
 });
 
+test("the window is the shown organization's: read with its orgId, closed on leaving, and a late answer for one left changes nothing", async () => {
+  const k = await keysPage();
+  await settle();
+  assert.ok(k.t.log.includes(`GET /v1/me?orgId=${k.orgA.id}`), "read for the organization shown");
+  assert.equal(k.t.log.includes("GET /v1/me?orgId=" + k.orgB.id), false);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  k.t.store.keys.leave();
+  assert.equal(k.t.store.keys.windowOpen.value, false, "leaving closes it");
+  // A read for A still in flight when the page moves to an organization they don't own: its answer is dropped.
+  const notOwned = k.b.addOrg("Viewer only", 0, 1_000_000, "byok");
+  k.b.setOrgRole(notOwned.id, [...k.b.users.values()].find((u) => u.email === EMAILS.owner)!.id, "viewer");
+  await k.t.store.keys.open(k.orgA.id);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  const release = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const late = k.t.store.keys.refreshWindow();
+  await k.t.store.keys.open(notOwned.id);
+  assert.equal(k.t.store.keys.windowOpen.value, false, "the viewer's organization has no window");
+  release();
+  await late;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "A's late answer doesn't open it for another organization");
+  // An older read for the same organization, answered after a newer one, changes nothing either.
+  await k.t.store.keys.open(k.orgA.id);
+  const stale = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const older = k.t.store.keys.refreshWindow(); // (its answer, computed now, says the window is open)
+  k.b.advance(RECENT_AUTH_WINDOW_MS); // the server's window then ends
+  await k.t.store.keys.open(k.orgA.id); // left and opened again: this read says closed
+  assert.equal(k.t.store.keys.windowOpen.value, false);
+  stale();
+  await older;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "the older answer doesn't reopen it");
+  k.b.signInAs(EMAILS.owner); // (a fresh sign-in opens the server's window again)
+  // A failed read closes it.
+  await k.t.store.keys.open(k.orgA.id);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  k.t.respondOnce(/GET \/v1\/me\?orgId=/, () => Response.json({ error: { code: "internal", message: "x" } }, { status: 500 }));
+  await k.t.store.keys.refreshWindow();
+  assert.equal(k.t.store.keys.windowOpen.value, false);
+});
+
 test("a recentAuthForMs that isn't an integer from 0 to five minutes means the window is closed", async () => {
   const k = await keysPage();
-  const me = JSON.stringify(k.b.request("GET", "/v1/me", {}, undefined).body);
+  const me = JSON.stringify(k.b.request("GET", "/v1/me", { orgId: k.orgA.id }, undefined).body);
   assert.equal(k.t.store.keys.windowOpen.value, true);
   for (const raw of ["null", "-1", "1.5", "300001", '"300000"', "1e999", "-1e999", "[]", "{}"]) {
     // Open it again (a good answer), then the bad one.
     await k.t.store.loadMe();
     assert.equal(k.t.store.keys.windowOpen.value, true, raw);
-    k.t.respondOnce(/GET \/v1\/me$/, () => new Response(me.replace(/"recentAuthForMs":\d+/, `"recentAuthForMs":${raw}`), { headers: { "content-type": "application/json" } }));
+    k.t.respondOnce(/GET \/v1\/me\?orgId=/, () => new Response(me.replace(/"recentAuthForMs":\d+/, `"recentAuthForMs":${raw}`), { headers: { "content-type": "application/json" } }));
     await k.t.store.loadMe();
     await settle();
     assert.equal(k.t.store.keys.windowOpen.value, false, raw);
     assert.equal(k.input("shadeform"), null, raw);
   }
   await k.t.store.loadMe();
-  k.t.respondOnce(/GET \/v1\/me$/, () => Response.json({ ...JSON.parse(me), recentAuthForMs: undefined }));
+  k.t.respondOnce(/GET \/v1\/me\?orgId=/, () => Response.json({ ...JSON.parse(me), recentAuthForMs: undefined }));
   await k.t.store.loadMe();
   assert.equal(k.t.store.keys.windowOpen.value, false, "missing");
   // A /me that fails closes it too.

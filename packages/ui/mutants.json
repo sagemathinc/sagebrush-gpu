@@ -3287,8 +3287,8 @@
  },
  {
   "file": "src/app/provider-keys.ts",
-  "old": "    this.#generation++;\n    for (const c",
-  "new": "    for (const c",
+  "old": "    this.#generation++;\n    this.closeWindow();\n    for (const c",
+  "new": "    this.closeWindow();\n    for (const c",
   "note": "leave: no new generation"
  },
  {
@@ -3460,10 +3460,10 @@
   "note": "row: no fingerprint"
  },
  {
-  "file": "src/app/store.ts",
-  "old": "      this.keys.setWindow(sentAt, me.recentAuthForMs);",
-  "new": "      this.keys.setWindow(this.#monotonic(), me.recentAuthForMs);",
-  "note": "loadMe: window from receipt"
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.setWindow(sentAt, forMs);",
+  "new": "    this.setWindow(this.#clocks.monotonic(), forMs);",
+  "note": "refreshWindow (was loadMe): window from receipt"
  },
  {
   "file": "src/app/store.ts",
@@ -4066,5 +4066,55 @@
   "file": "src/mock/backend.ts",
   "old": "Math.max(0, unnamed.length - policy.snapshotKeepLast)",
   "new": "unnamed.length - policy.snapshotKeepLast"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (orgId !== undefined && !isId(\"org\", orgId)) throw new ApiFail(\"badRequest\", \"orgId is an organization id\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const owner = orgId !== undefined && this.#orgRole(orgId, (user as User).id) === \"owner\";",
+  "new": "const owner = orgId !== undefined;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "recentAuthForMs: owner ? (me.recentAuthForMs ?? null) : null",
+  "new": "recentAuthForMs: me.recentAuthForMs ?? null"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.#generation++;\n    this.closeWindow();\n",
+  "new": "    this.#generation++;\n"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (generation !== this.#generation || this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);",
+  "new": "    this.setWindow(sentAt, forMs);"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (generation !== this.#generation || this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);",
+  "new": "    if (this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    } catch {\n      forMs = null;\n    }",
+  "new": "    } catch {\n      return;\n    }"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "return Promise.all([this.#load(), this.refreshWindow()]).then(() => undefined);",
+  "new": "return this.#load();"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "(await this.client.call(\"getMe\", { query: { orgId } })).recentAuthForMs",
+  "new": "(await this.client.call(\"getMe\")).recentAuthForMs"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.keys.refreshWindow();\n",
+  "new": ""
  }
 ]
