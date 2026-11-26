@@ -13,7 +13,9 @@
 --   launches are unchanged here: the VM orchestrator brings its own rules);
 -- - an accrual of a launch that has a rate, or of a container launch, is exactly that rate:
 --   the launch's provider, the rate's cost and margin; for a container, the launch's intent
---   time as its start. A missing launch or rate aborts it; nothing passes for want of a row.
+--   time as its start. A missing launch or rate aborts it; nothing passes for want of a row;
+-- - the pods a container launch must end besides its own id (launch_cleanup, below) are kept
+--   until each is read terminated, and the launch isn't terminated before.
 
 CREATE TABLE launch_rates (
   machine_id TEXT NOT NULL,
@@ -65,4 +67,39 @@ WHEN (
   )
 BEGIN
   SELECT RAISE(ABORT, 'a launch accrues exactly at its rate (a container from its intent)');
+END;
+
+-- The pods a container launch must end besides its own recorded id (SEC ruling on held ids):
+-- the ids its caller holds (a pod the adapter refused, or one whose id batch was refused),
+-- written in the batch that claims the launch, before any provider call. A row goes only when
+-- the provider's status of that exact id reads terminated, and the launch can't be terminated
+-- while one remains, so a pod no list finds by its name is still retried by its id, by every
+-- later attempt, across restarts.
+CREATE TABLE launch_cleanup (
+  machine_id TEXT NOT NULL,
+  incarnation INTEGER NOT NULL,
+  provider_machine_id TEXT NOT NULL CHECK (length(CAST(provider_machine_id AS BLOB)) BETWEEN 1 AND 64 AND length(provider_machine_id) = length(CAST(provider_machine_id AS BLOB)) AND provider_machine_id NOT GLOB '*[^!-~]*'),
+  PRIMARY KEY (machine_id, incarnation, provider_machine_id),
+  FOREIGN KEY (machine_id, incarnation) REFERENCES launches (machine_id, incarnation)
+) STRICT;
+
+CREATE TRIGGER launch_cleanup_open_launch BEFORE INSERT ON launch_cleanup
+WHEN NOT EXISTS (
+  SELECT 1 FROM launches l
+  WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation AND l.mode = 'container' AND l.outcome <> 'terminated'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'cleanup belongs to a container launch not yet terminated');
+END;
+
+CREATE TRIGGER launch_cleanup_fixed BEFORE UPDATE ON launch_cleanup
+BEGIN
+  SELECT RAISE(ABORT, 'a cleanup id is fixed');
+END;
+
+CREATE TRIGGER launches_cleanup_first BEFORE UPDATE OF outcome ON launches
+WHEN NEW.outcome = 'terminated' AND OLD.outcome <> 'terminated'
+  AND EXISTS (SELECT 1 FROM launch_cleanup c WHERE c.machine_id = NEW.machine_id AND c.incarnation = NEW.incarnation)
+BEGIN
+  SELECT RAISE(ABORT, 'a launch with pods left to end is not terminated');
 END;

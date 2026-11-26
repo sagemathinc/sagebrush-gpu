@@ -16,8 +16,9 @@
 //   token's 120 s window together with the launch's connect deadline.
 // - Every termination revokes the boot token in the batch that claims the launch, before any
 //   provider call. A pod found with no id recorded is ended only once its accrual is open (or
-//   past ACCRUAL_WAIT_MS). Only the provider confirming the pod gone marks it terminated and
-//   closes the accrual.
+//   past ACCRUAL_WAIT_MS). The ids a caller holds are written (launch_cleanup) in the claim
+//   batch and retried by id until each reads terminated. Only the provider confirming the pods
+//   gone marks the launch terminated and closes the accrual.
 
 import type { LaunchSpec, ProviderMachineStatus } from "@sbgpu/providers";
 import { ProviderError } from "@sbgpu/providers";
@@ -240,16 +241,41 @@ async function accrualOpen(db: Db, r: ContainerRow): Promise<boolean> {
 }
 
 /**
+ * Ends the launch's cleanup ids and confirms each by its own status: an id read terminated (that
+ * exact id) is forgotten. A terminate that throws, times out or returns early proves nothing;
+ * its row stays for the next attempt. Whether every one was confirmed and forgotten.
+ */
+async function endCleanup(env: ContainerEnv, p: ContainerProvider, r: ContainerRow, ids: readonly string[]): Promise<boolean> {
+  for (const id of ids) await withDeadline(() => p.terminate(id), undefined);
+  let all = true;
+  for (const id of ids) {
+    const s = await withDeadline<ProviderMachineStatus | "unavailable">(() => p.status(id), "unavailable");
+    if (s === "unavailable" || s.providerMachineId !== id || s.state !== "terminated") {
+      all = false;
+      continue;
+    }
+    try {
+      await env.db.run(`DELETE FROM launch_cleanup WHERE machine_id = ? AND incarnation = ? AND provider_machine_id = ?`, [r.machine_id, r.incarnation, id]);
+    } catch {
+      all = false;
+    }
+  }
+  return all;
+}
+
+/**
  * One termination attempt, if this caller wins the row's claim: in one batch, the claim (a
- * conditional update from the version it read; the launch moves to terminate) and the boot
- * token's revocation. Only after that commits does it call the provider: terminate every pod of
- * the launch (its id, or every pod with its name when it has none, or others besides), then
+ * conditional update from the version it read; the launch moves to terminate), the boot token's
+ * revocation, and the ids the caller holds (other than the recorded one) as cleanup ids. Only
+ * after that commits does it call the provider: terminate every pod of the launch (its id, its
+ * cleanup ids from this and earlier attempts, or every pod with its name when it has none), then
  * confirm. With no id recorded, pods are ended only once the accrual is open (or past
- * ACCRUAL_WAIT_MS). Confirmed gone marks it terminated and closes the accrual. Returns whether
- * the claim was won.
+ * ACCRUAL_WAIT_MS), except cleanup ids a list read without them. Confirmed gone (each cleanup id
+ * by its own status) marks it terminated and closes the accrual. Returns whether the claim was won.
  */
 export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerRow, reason: ContainerReason | string, heldIds: readonly string[] = []): Promise<boolean> {
   const now = env.clock();
+  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];
   try {
     await env.db.batch([
       {
@@ -264,42 +290,57 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
         sql: `UPDATE boot_tokens SET used_ms = COALESCE(used_ms, ?) WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,
         params: [now, r.machine_id, r.incarnation],
       },
+      ...held.map((id) => ({
+        sql: `INSERT INTO launch_cleanup (machine_id, incarnation, provider_machine_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+        params: [r.machine_id, r.incarnation, id],
+      })),
     ]);
   } catch {
     return false;
   }
   const p = env.provider;
   if (!p) return true; // (no adapter: the row stays due)
-  // which pods: the recorded id and any the caller holds; with none recorded, every pod with the name
-  const held = heldIds.filter((x) => PROVIDER_ID.test(x));
-  let ids = [...new Set([...(r.provider_machine_id !== null ? [r.provider_machine_id] : []), ...held])];
+  // the cleanup ids: those held now and any an earlier attempt kept (unread: the row stays due)
+  let cleanup: string[];
+  try {
+    cleanup = (await env.db.all<{ provider_machine_id: string }>(
+      `SELECT provider_machine_id FROM launch_cleanup WHERE machine_id = ? AND incarnation = ? ORDER BY provider_machine_id`,
+      [r.machine_id, r.incarnation],
+    )).map((c) => c.provider_machine_id);
+  } catch {
+    return true;
+  }
+  // which pods: the recorded id and the cleanup ids; with none recorded, every pod with the name
+  let ids = [...new Set([...(r.provider_machine_id !== null ? [r.provider_machine_id] : []), ...cleanup])];
   const byName = r.provider_machine_id === null;
   // (with no id recorded, every pod with the name; a list that wasn't read proves nothing, but the
-  // pods the caller holds are still ended, once the accrual is open)
+  // cleanup ids are still ended, once the accrual is open)
   const named = byName ? await podsNamed(env, r.machine_id) : [];
   if (named !== "unavailable") ids = [...new Set([...ids, ...named])];
   if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {
     // pods exist that no id batch recorded: they bill, and none is ended before its accrual is
     // durably open (until ACCRUAL_WAIT_MS). The row stays due (next_ms is the claim's now) and
-    // the pods stay up, so the next attempt finds them by name and opens it then. Only a held
-    // pod that a list read without it is ended now: nothing could find it again (the provider
-    // renamed it).
-    const lost = named === "unavailable" ? [] : held.filter((x) => !named.includes(x));
-    for (const id of lost) await withDeadline(() => p.terminate(id), undefined);
+    // the pods stay up, so the next attempt finds them by name and opens it then. Only a cleanup
+    // id that a list read without it is ended now (and confirmed by its id): no list could find
+    // it (the provider renamed it), and its row keeps it for the next attempt until it reads
+    // terminated.
+    if (named !== "unavailable") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));
     return true;
   }
-  for (const id of ids) await withDeadline(() => p.terminate(id), undefined);
+  for (const id of ids) if (!cleanup.includes(id)) await withDeadline(() => p.terminate(id), undefined);
+  const cleaned = await endCleanup(env, p, r, cleanup);
   if (named === "unavailable") return true; // (the row stays due: absence can't be confirmed)
-  // confirmed gone: by the recorded id's own status, or by a fresh list showing no pod with the name
+  // confirmed gone: every cleanup id by its own status, and the recorded id by its own status,
+  // or, with none recorded, a fresh list showing no pod with the name
   let gone: boolean;
-  if (!byName && held.every((x) => x === r.provider_machine_id)) {
+  if (!byName) {
     const s = await withDeadline<ProviderMachineStatus | "unavailable">(() => p.status(r.provider_machine_id!), "unavailable");
     gone = s !== "unavailable" && s.providerMachineId === r.provider_machine_id && s.state === "terminated";
   } else {
     const left = await podsNamed(env, r.machine_id);
     gone = left !== "unavailable" && left.length === 0;
   }
-  if (gone) {
+  if (gone && cleaned) {
     const at = env.clock();
     await env.db.batch([
       {

@@ -4114,24 +4114,6 @@
  },
  {
   "file": "src/container.ts",
-  "old": "    const lost = named === \"unavailable\" ? [] : held.filter((x) => !named.includes(x));",
-  "new": "    const lost = held;",
-  "note": "held pods ended unbilled when the list wasn't read"
- },
- {
-  "file": "src/container.ts",
-  "old": "    const lost = named === \"unavailable\" ? [] : held.filter((x) => !named.includes(x));",
-  "new": "    const lost: string[] = [];",
-  "note": "a renamed held pod left up, unfindable"
- },
- {
-  "file": "src/container.ts",
-  "old": "    for (const id of lost) await withDeadline(() => p.terminate(id), undefined);\n    return true;\n",
-  "new": "    for (const id of lost) await withDeadline(() => p.terminate(id), undefined);\n",
-  "note": "no wait: the pods ended before the accrual is open"
- },
- {
-  "file": "src/container.ts",
   "old": "outcome, created_ms FROM launches WHERE",
   "new": "outcome FROM launches WHERE",
   "note": "the row read without its intent time"
@@ -4141,5 +4123,107 @@
   "old": "v.watchdog_version, v.outcome, v.created_ms,",
   "new": "v.watchdog_version, v.outcome,",
   "note": "the watchdog's rows without their intent time"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup);",
+  "note": "cleanup ids a list shows by the name ended before the accrual is open"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "    await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "note": "cleanup ids ended when the list wasn't read"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "",
+  "note": "a renamed held pod left up while the accrual waits"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held: string[] = [];",
+  "note": "held ids never written as cleanup ids"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x)))];",
+  "note": "the recorded id written as a cleanup id too"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held = [...new Set(heldIds.filter((x) => x !== r.provider_machine_id))];",
+  "note": "an invalid held id fails the claim"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") {",
+  "new": "    if (s === \"unavailable\" || s.providerMachineId !== id) {",
+  "note": "a cleanup id forgotten when its status isn't terminated"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") {",
+  "new": "    if (s === \"unavailable\" || s.state !== \"terminated\") {",
+  "note": "a cleanup id forgotten on another id's status"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      all = false;\n      continue;",
+  "new": "      continue;",
+  "note": "an unconfirmed cleanup id doesn't hold the launch back"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  for (const id of ids) if (!cleanup.includes(id)) await withDeadline(() => p.terminate(id), undefined);",
+  "new": "  for (const id of ids) await withDeadline(() => p.terminate(id), undefined);",
+  "note": "cleanup ids terminated twice an attempt"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const cleaned = await endCleanup(env, p, r, cleanup);",
+  "new": "  const cleaned = true;",
+  "note": "cleanup ids never ended or confirmed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (gone && cleaned) {",
+  "new": "  if (gone) {",
+  "note": "terminated with cleanup ids left"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "ORDER BY provider_machine_id`,\n      [r.machine_id, r.incarnation],\n    )).map((c) => c.provider_machine_id);",
+  "new": "ORDER BY provider_machine_id`,\n      [r.machine_id, r.incarnation],\n    )).map((c) => c.provider_machine_id).filter((x) => heldIds.includes(x));",
+  "note": "earlier attempts' cleanup ids not retried"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "WHEN NEW.outcome = 'terminated' AND OLD.outcome <> 'terminated'\n  AND EXISTS (SELECT 1 FROM launch_cleanup",
+  "new": "WHEN NEW.outcome = 'terminatedX' AND OLD.outcome <> 'terminated'\n  AND EXISTS (SELECT 1 FROM launch_cleanup",
+  "note": "a launch terminated with cleanup left"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_cleanup_fixed BEFORE UPDATE ON launch_cleanup\nBEGIN",
+  "new": "CREATE TRIGGER launch_cleanup_fixed BEFORE UPDATE ON launch_cleanup WHEN 0\nBEGIN",
+  "note": "cleanup ids rewritable"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "l.mode = 'container' AND l.outcome <> 'terminated'\n)",
+  "new": "l.mode = 'container'\n)",
+  "note": "cleanup for a terminated launch"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "AND provider_machine_id NOT GLOB '*[^!-~]*'),",
+  "new": "),",
+  "note": "cleanup ids outside printable ASCII"
  }
 ]

@@ -40,6 +40,8 @@ class FakeRunPod implements ContainerProvider {
   /** Called at each terminate, before it takes effect (to see what the database held then). */
   onTerminate: ((id: string) => void) | null = null;
   failTerminates = 0;
+  /** What the next terminates do instead: throw, never answer, or answer without ending the pod. */
+  terminateFaults: Array<"throw" | "hang" | "early"> = [];
   listFails = false;
   statusFails = false;
   /** A hook run during a status read (to move the clock while the read is in flight). */
@@ -104,6 +106,10 @@ class FakeRunPod implements ContainerProvider {
   async terminate(id: string): Promise<void> {
     this.onTerminate?.(id);
     this.terminated.push(id);
+    const fault = this.terminateFaults.shift();
+    if (fault === "throw") throw new Error("provider down");
+    if (fault === "hang") return new Promise<void>(() => {});
+    if (fault === "early") return;
     if (this.failTerminates > 0) {
       this.failTerminates--;
       throw new Error("provider down");
@@ -491,6 +497,76 @@ test("an accrual write failing once with the list unreadable: the held pod stays
   assert.deepEqual(rp.terminated, ["pod2"]);
   assert.equal((await launch(m2)).outcome, "terminate");
   assert.equal((await accruals(m2)).length, 0);
+});
+
+const cleanupIds = async (m: string) => (await w.db.all<{ provider_machine_id: string }>(`SELECT provider_machine_id FROM launch_cleanup WHERE machine_id = ?`, [m])).map((c) => c.provider_machine_id);
+
+test("a renamed held pod whose terminate throws, never answers, or answers before the pod is gone: its id is kept, and a restarted watchdog retries that id until it reads terminated", async () => {
+  for (const fault of ["throw", "hang", "early"] as const) {
+    const m = await machine();
+    rp.mode = "renamed";
+    rp.terminated = [];
+    rp.terminateFaults = [fault];
+    assert.equal(await launchContainer({ ...env(), db: flakyAccruals(1) }, req(m)), "abandoned");
+    const id = [...rp.pods.keys()].at(-1)!;
+    assert.deepEqual(rp.terminated, [id], fault);
+    assert.ok(rp.pods.has(id), `${fault}: the pod is still up`);
+    assert.deepEqual(await cleanupIds(m), [id], `${fault}: the held id is durable before it is confirmed gone`);
+    assert.equal((await launch(m)).outcome, "terminate");
+    // a fresh watchdog (a restart: nothing held in memory), a list that never shows the pod by the name
+    w.clock.t += 60_000;
+    assert.equal(await runContainerWatchdog(env()), 1);
+    assert.deepEqual(rp.terminated, [id, id], `${fault}: retried by its id`);
+    assert.ok(!rp.pods.has(id));
+    assert.deepEqual(await cleanupIds(m), [], `${fault}: forgotten once read terminated`);
+    assert.equal((await launch(m)).outcome, "terminated");
+    assert.deepEqual((await accruals(m)).map((a) => a.end_ms === null), [false], `${fault}: billed from the intent, closed`);
+  }
+});
+
+test("a held id other than the recorded one: kept until its own status reads terminated; the launch isn't terminated before", async () => {
+  const m = await machine();
+  assert.equal(await launchContainer(env(), req(m)), "created");
+  const stray = rp.pod("renamed");
+  const l = await launch(m);
+  // (the recorded pod's terminate works; the stray's answers before the pod is gone, `early` times)
+  let early = 1;
+  rp.onTerminate = (id) => {
+    if (id === stray && early-- > 0) rp.terminateFaults.unshift("early");
+  };
+  // written with the claim, before any provider call (no adapter: nothing else happens)
+  assert.equal(await terminateContainerAttempt(env(null), { ...l, machine_id: m, incarnation: 1, created_ms: T0 }, "abort", [stray, "pod1", "bad id"]), true);
+  assert.deepEqual(await cleanupIds(m), [stray], "the recorded id and an invalid one are no cleanup ids");
+  // a held id a second time: kept once, the claim still won
+  const l2 = await launch(m);
+  assert.equal(await terminateContainerAttempt(env(), { ...l2, machine_id: m, incarnation: 1, created_ms: T0 }, "abort", [stray]), true);
+  assert.deepEqual(await cleanupIds(m), [stray]);
+  assert.ok(rp.pods.has(stray) && !rp.pods.has("pod1"));
+  assert.equal((await launch(m)).outcome, "terminate", "the recorded pod is gone, the stray isn't");
+  // a status answering terminated for another id proves nothing about this one
+  early = 1;
+  rp.override = { providerMachineId: "pod9", state: "terminated" };
+  w.clock.t += 1;
+  assert.equal(await runContainerWatchdog(env()), 1);
+  assert.deepEqual(await cleanupIds(m), [stray]);
+  assert.equal((await launch(m)).outcome, "terminate");
+  rp.override = {};
+  w.clock.t += 1;
+  assert.equal(await runContainerWatchdog(env()), 1);
+  assert.deepEqual(await cleanupIds(m), []);
+  assert.equal((await launch(m)).outcome, "terminated");
+  // the schema: no terminated launch with cleanup left, no cleanup for a terminated launch, ids fixed
+  const m2 = await machine();
+  await recordContainerIntent(w.db, { machineId: m2, incarnation: 1, agentSha256: AGENT, credentialKind: "ours", rate: RATE, createdMs: T0, tokenSha256: sha(m2) });
+  await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'abort' WHERE machine_id = ?`, [m2]);
+  await w.db.run(`INSERT INTO launch_cleanup (machine_id, incarnation, provider_machine_id) VALUES (?, 1, 'podZ')`, [m2]);
+  await assert.rejects(w.db.run(`UPDATE launch_cleanup SET provider_machine_id = 'podY' WHERE machine_id = ?`, [m2]), /cleanup id is fixed/);
+  await assert.rejects(w.db.run(`INSERT INTO launch_cleanup (machine_id, incarnation, provider_machine_id) VALUES (?, 1, 'pod Y')`, [m2]), /CHECK/);
+  await assert.rejects(w.db.run(`UPDATE launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE machine_id = ?`, [T0, m2]), /pods left to end/);
+  await w.db.run(`DELETE FROM launch_cleanup WHERE machine_id = ?`, [m2]);
+  await w.db.run(`UPDATE launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE machine_id = ?`, [T0, m2]);
+  await assert.rejects(w.db.run(`INSERT INTO launch_cleanup (machine_id, incarnation, provider_machine_id) VALUES (?, 1, 'podZ')`, [m2]), /not yet terminated/);
+  await assert.rejects(w.db.run(`INSERT INTO launch_cleanup (machine_id, incarnation, provider_machine_id) VALUES (?, 1, 'podZ')`, [newId("machine")]), /not yet terminated/);
 });
 
 test("two pods with the name: both ended (token revoked first), one accrual from the pinned rate, terminated once none is listed", async () => {
