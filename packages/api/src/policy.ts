@@ -16,6 +16,8 @@ export const POLICY_BOUNDS = {
   finalSaveReserveMinutes: [0, 24 * 60],
   storageQuotaBytesPerMember: [0, 1024 ** 4], // up to 1 TiB
   storageQuotaBytesPerTeam: [0, 1024 ** 4],
+  snapshotKeepLast: [1, 50],
+  snapshotNamedMax: [0, 20],
 } as const satisfies Partial<Record<keyof ProjectPolicy, readonly [number, number]>>;
 
 export const MAX_POLICY_LIST = 64;
@@ -37,6 +39,8 @@ const POLICY_KEYS = new Set<keyof ProjectPolicy>([
   "setupScript",
   "storageQuotaBytesPerMember",
   "storageQuotaBytesPerTeam",
+  "snapshotKeepLast",
+  "snapshotNamedMax",
 ]);
 
 export type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };

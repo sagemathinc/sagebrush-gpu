@@ -1218,5 +1218,296 @@
   "old": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },",
   "new": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },",
   "note": "assurance: below owner"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "if (typeof x !== \"string\" || x.trim() !== x) return false;",
+  "new": "if (typeof x !== \"string\") return false;"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "return n >= 1 && n <= SNAPSHOT_NAME_MAX",
+  "new": "return n >= 0 && n <= SNAPSHOT_NAME_MAX"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "return n >= 1 && n <= SNAPSHOT_NAME_MAX",
+  "new": "return n >= 1 && n < SNAPSHOT_NAME_MAX"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "const n = [...x].length;",
+  "new": "const n = x.length;"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "[\\p{Cc}\\p{Cs}\\p{Zl}\\p{Zp}]",
+  "new": "[\\p{Cs}\\p{Zl}\\p{Zp}]"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "[\\p{Cc}\\p{Cs}\\p{Zl}\\p{Zp}]",
+  "new": "[\\p{Cc}\\p{Zl}\\p{Zp}]"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "[\\p{Cc}\\p{Cs}\\p{Zl}\\p{Zp}]",
+  "new": "[\\p{Cc}\\p{Cs}\\p{Zp}]"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "[\\p{Cc}\\p{Cs}\\p{Zl}\\p{Zp}]",
+  "new": "[\\p{Cc}\\p{Cs}\\p{Zl}]"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "Object.keys(o).every((k) => allowed.includes(k))",
+  "new": "true"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "(x.name !== null && !isSnapshotName(x.name))",
+  "new": "(!isSnapshotName(x.name))"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "if (!isSnapshotArea(x.area) || (x.name",
+  "new": "if ((x.name"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "Object.getPrototypeOf(x) === Object.prototype",
+  "new": "true"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "!onlyKeys(x, [\"area\"]) || ",
+  "new": ""
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "if (!Object.hasOwn(x, \"name\")) return {};",
+  "new": ""
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "onlyKeys(x, [\"name\"])",
+  "new": "onlyKeys(x, [\"name\", \"area\"])"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "return x === \"member\" || x === \"team\";",
+  "new": "return x === \"member\";"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "return typeof x === \"string\" && (SNAPSHOT_KINDS as readonly string[]).includes(x);",
+  "new": "return typeof x === \"string\";"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "if (!isId(\"project\", projectId) || !isId(\"member\", memberId))",
+  "new": "if (!isId(\"project\", projectId))"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "if (!isId(\"project\", projectId) || !isId(\"team\", teamId))",
+  "new": "if (!isId(\"team\", teamId))"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "if (rest.length > 0 || !isId(\"project\", prj)) return false;",
+  "new": "if (!isId(\"project\", prj)) return false;"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "(kind === \"m\" && isId(\"member\", holder))",
+  "new": "(kind === \"m\")"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "(kind === \"t\" && isId(\"team\", holder))",
+  "new": "(kind === \"t\")"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "claimedMs + RESTORE_LEASE_MS - RESTORE_CLOCK_SKEW_MS",
+  "new": "claimedMs + RESTORE_LEASE_MS"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "return exp > nowMs ? exp : null;",
+  "new": "return exp >= nowMs ? exp : null;"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "const exp = Math.min(",
+  "new": "const exp = Math.max("
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "if (!Number.isSafeInteger(nowMs) || !Number.isSafeInteger(claimedMs)) return null;",
+  "new": "if (!Number.isSafeInteger(claimedMs)) return null;"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "export const RESTORE_LEASE_MS = 120_000;",
+  "new": "export const RESTORE_LEASE_MS = 150_000;"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "    code: \"invalidState\",\n    message: \"Stop the machine",
+  "new": "    code: \"conflict\",\n    message: \"Stop the machine"
+ },
+ {
+  "file": "src/snapshots.ts",
+  "old": "return { error: { code, message } };",
+  "new": "return { error: { code: \"conflict\", message } };"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "snapshotKeepLast: [1, 50],",
+  "new": "snapshotKeepLast: [0, 50],"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "snapshotNamedMax: [0, 20],",
+  "new": "snapshotNamedMax: [0, 21],"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "  \"snapshotNamedMax\",\n]);",
+  "new": "\n]);"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  snapshotKeepLast: 10,\n",
+  "new": "  snapshotKeepLast: 11,\n"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "access: member, note: `${SNAPSHOTS_NOTE}; current is",
+  "new": "access: assistant, note: `${SNAPSHOTS_NOTE}; current is"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "path: \"/v1/projects/:projectId/snapshots/:snapshotId/restore\",\n    access: member,",
+  "new": "path: \"/v1/projects/:projectId/snapshots/:snapshotId/restore\",\n    access: manager,"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isDeployEnv(o.env)) return \"env\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "return typeof x === \"string\" && (DEPLOY_ENVS as readonly string[]).includes(x);",
+  "new": "return typeof x === \"string\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const DEPLOY_ENVS = [\"production\", \"staging\", \"local\"] as const;",
+  "new": "export const DEPLOY_ENVS = [\"production\", \"staging\"] as const;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"project\", o.prj)) return \"prj\";\n  const area",
+  "new": "  const area"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isPlainObject(area)) return \"area\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"mbr\"]) || !isId(\"member\", area.mbr)) return \"area\";",
+  "new": "if (!isId(\"member\", area.mbr)) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"mbr\"]) || !isId(\"member\", area.mbr)) return \"area\";",
+  "new": "if (!hasExactKeys(area, [\"kind\", \"mbr\"])) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"team\"]) || !isId(\"team\", area.team)) return \"area\";",
+  "new": "if (!isId(\"team\", area.team)) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"team\"]) || !isId(\"team\", area.team)) return \"area\";",
+  "new": "if (!hasExactKeys(area, [\"kind\", \"team\"])) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  } else {\n    return \"area\";\n  }\n  if (typeof o.op",
+  "new": "  }\n  if (typeof o.op"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;",
+  "new": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22,23}$/;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;",
+  "new": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_+=-]{22}$/;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"member\", o.actor)) return \"actor\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (area.kind === \"member\" && o.actor !== area.mbr) return \"another member's area\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"snapshot\", o.snap)) return \"snap\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"snapshot\", o.expectedHead)) return \"expectedHead\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  restore: 60,\n",
+  "new": "  restore: 61,\n"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  restore: [...COMMON_KEYS, \"env\", \"prj\", \"area\", \"op\", \"actor\", \"snap\", \"expectedHead\"],",
+  "new": "  restore: [...BASE_KEYS, \"env\", \"prj\", \"area\", \"op\", \"actor\", \"snap\", \"expectedHead\"],"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (kind === \"restore\") {\n    const e = restoreError(x);",
+  "new": "  if (kind === \"restore\" && false) {\n    const e = restoreError(x);"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "return e ? fail(e) : { ok: true, claims: x as unknown as ClaimsOf<K> };",
+  "new": "return { ok: true, claims: x as unknown as ClaimsOf<K> };"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "`prj/${c.prj}/m/${c.area.mbr}`",
+  "new": "`prj/${c.prj}/t/${c.area.mbr}`"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "`prj/${c.prj}/t/${c.area.team}`",
+  "new": "`prj/${c.prj}/${c.area.team}`"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;",
+  "new": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9]{22}$/;",
+  "note": "T1 (TESTS on #89): the op's alphabet narrowed"
  }
 ]

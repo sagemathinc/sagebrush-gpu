@@ -89,6 +89,8 @@ const SETTING_WORDS: ReadonlySet<string> = new Set([
   "cloud", "ssh", "proxy", "direct", "template", "globalNetworking", "enabled",
   // Shadeform
   "key", "shade_cloud", "false", "rental", "template_id", "cluster_id", "commitment_id", "set",
+  // Vast
+  "host", "port",
 ]);
 
 /** The token adapters use for a field they couldn't read (their UNREADABLE). */

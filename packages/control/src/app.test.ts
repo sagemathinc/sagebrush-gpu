@@ -67,6 +67,7 @@ async function world(handlers?: Handlers): Promise<World> {
       throw new Error("no network in tests");
     },
     vm: null,
+    container: null,
     agentSigner: async () => null,
     agentPublicKeys: async () => null,
     alert: () => {},
@@ -480,7 +481,7 @@ test("role checks: no role is notFound, too low is forbidden, org owners own the
   const mch = newId("machine");
   await w.db.batch([
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, alloc, w.projectId, T0),
-    stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mch, w.projectId, alloc, T0),
+    stmt(`INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mch, w.projectId, alloc, T0),
   ]);
   assert.deepEqual([await s(people.assistant!, "GET", `/v1/machines/${mch}`), await s(outsider, "GET", `/v1/machines/${mch}`)], ["ok", "notFound"]);
   assert.equal(await s(people.assistant!, "GET", `/v1/machines/${newId("machine")}`), "notFound");
@@ -506,7 +507,7 @@ test("role checks are scoped to the project: another real project, its machines,
     stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES (?, 'Org B', 'resold', 0, ?)`, orgB, T0),
     stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj B', ?, ?, 0, ?)`, prjB, orgB, T0, T0 + 1, T0),
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, allocB, prjB, T0),
-    stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mchB, prjB, allocB, T0),
+    stmt(`INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mchB, prjB, allocB, T0),
   ]);
   // an owner of the first project only
   await invite(w, "o@example.com", "owner");

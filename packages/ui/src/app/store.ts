@@ -131,6 +131,7 @@ export class Store {
       options.credentialFetch ?? ((input, init) => fetch(input, init)),
       { monotonic: this.#monotonic, timers: options.timers ?? WINDOW_TIMERS },
       () => this.#endSession(),
+      async (orgId) => (await this.client.call("getMe", { query: { orgId } })).recentAuthForMs,
     );
   }
 
@@ -204,12 +205,11 @@ export class Store {
   // ---------------------------------------------------------------- session
 
   async loadMe(): Promise<void> {
-    // (the reauth window counts from just before the request is sent, never from its answer)
-    const sentAt = this.#monotonic();
     try {
       const me = await this.client.call("getMe");
       this.me.value = me;
-      this.keys.setWindow(sentAt, me.recentAuthForMs);
+      // (the window is per organization: the keys' own read, for the one they show)
+      await this.keys.refreshWindow();
     } catch (err) {
       this.keys.closeWindow();
       if (!(err instanceof ApiError && err.code === "unauthenticated")) {

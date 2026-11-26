@@ -57,8 +57,8 @@ async function launch(o: { firstActiveMs?: number; ipv4?: string; bootScriptSha2
   const nonce = randomBytes(16).toString("base64url");
   await w.db.batch([
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, provider_machine_id, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, 'hyperstack', ?, 'L4', 1, 'CANADA-1', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, provider_machine_id, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'hyperstack', ?, 'L4', 1, 'CANADA-1', 'starting', 1, ?)`,
       machineId, w.projectId, allocationId, memberId, providerMachineId, T0,
     ),
     stmt(
@@ -361,8 +361,8 @@ test("watchdog: its search is a range on the partial index in its own order: no 
     const machineId = newId("machine");
     const kind = i < 2000 ? "terminated" : i < 2400 ? "enrolled" : i < 3995 ? "fresh" : "due";
     stmts.push(stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, provider_machine_id, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, 'hyperstack', ?, 'L4', 1, 'CANADA-1', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, provider_machine_id, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'hyperstack', ?, 'L4', 1, 'CANADA-1', 'starting', 1, ?)`,
       machineId, w.projectId, allocationId, memberId, String(100000 + i), T0,
     ));
     const firstActive = kind === "due" ? T0 - ANNOUNCE_DEADLINE_MS : T0;

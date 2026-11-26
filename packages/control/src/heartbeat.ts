@@ -4,10 +4,11 @@
 // the capped lifetime, signed by the proved-ready signer; none, plus an alert, when it isn't
 // ready). Requests may cross: a report replaces the stored one (and sets the save estimate)
 // only when it's newer, and the launch's heartbeat due time only moves later, so an older
-// request committing last never undoes a newer one. The heartbeat watchdog ends an enrolled VM
-// whose heartbeats stopped: past its due time (silent for more than 120 s), it marks the launch
-// to terminate (heartbeat-lost), in one guarded batch that rechecks everything it read, so a
-// heartbeat that lands first leaves the launch alone.
+// request committing last never undoes a newer one. The heartbeat watchdog ends an enrolled
+// machine, VM or container, whose heartbeats stopped: past its due time (silent for more than
+// 120 s), it marks the launch to terminate (heartbeat-lost), in one guarded batch that rechecks
+// everything it read, so a heartbeat that lands first leaves the launch alone. The mode's own
+// watchdog then ends it through the provider (a container's revokes its boot token first).
 
 import { finalSaveReserveSeconds, isId, signToken, toIso, type AgentClaims, type AgentHeartbeatResponse } from "@sbgpu/api";
 import type { Ctx, Handlers } from "./app.ts";
@@ -98,13 +99,31 @@ function parseReport(b: Record<string, unknown>, inc: number, floorMs: number, n
   };
 }
 
+/**
+ * When a machine incarnation enrolled, or nothing if it never did. A VM's enroll wrote its gate
+ * report; a container's used its boot token and set the launch's hard lifetime (max_end_ms is
+ * set only by enroll), so the token's use is the enroll time.
+ */
+async function enrolledAt(ctx: Ctx, mch: string, inc: number): Promise<{ at_ms: number } | undefined> {
+  const db = ctx.deps.db;
+  const vm = (await db.all<{ at_ms: number }>(`SELECT at_ms FROM gate_reports WHERE machine_id = ? AND incarnation = ?`, [mch, inc]))[0];
+  if (vm) return vm;
+  return (
+    await db.all<{ at_ms: number }>(
+      `SELECT b.used_ms AS at_ms FROM launches v JOIN boot_tokens b ON b.machine_id = v.machine_id AND b.incarnation = v.incarnation AND b.mode = 'container'
+         WHERE v.machine_id = ? AND v.incarnation = ? AND v.mode = 'container' AND v.max_end_ms IS NOT NULL AND b.used_ms IS NOT NULL`,
+      [mch, inc],
+    )
+  )[0];
+}
+
 export const HEARTBEAT_HANDLERS: Handlers = {
   async agentHeartbeat(ctx: Ctx) {
     const { deps } = ctx;
     const c = ctx.agent as AgentClaims;
     const now = deps.now();
     // (the enroll time bounds the report's times from below)
-    const enrolled = (await deps.db.all<{ at_ms: number }>(`SELECT at_ms FROM gate_reports WHERE machine_id = ? AND incarnation = ?`, [c.mch, c.inc]))[0];
+    const enrolled = await enrolledAt(ctx, c.mch, c.inc);
     if (!enrolled) throw new HttpError("unauthenticated", "refused");
     const r = parseReport(ctx.body, c.inc, enrolled.at_ms, now);
     // (in order: the report, only over an older one; the save estimate, only when that report
@@ -170,15 +189,15 @@ interface Candidate {
 export const HEARTBEAT_WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.watchdog_version, v.heartbeat_due_ms AS due_ms,
        EXISTS (SELECT 1 FROM machines m WHERE m.id = v.machine_id AND m.incarnation = v.incarnation AND m.state = 'running') AS running
      FROM launches v
-     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?
+     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?
      ORDER BY v.heartbeat_due_ms, v.machine_id, v.incarnation
      LIMIT ?`;
 
 const TOOK = { sql: `INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`, params: [] };
 
 /**
- * The heartbeat watchdog job: marks each lost VM's launch to terminate (heartbeat-lost), the
- * VM watchdog then ends it through the provider. Each mark is one batch whose update rechecks
+ * The heartbeat watchdog job: marks each lost machine's launch to terminate (heartbeat-lost);
+ * its mode's watchdog then ends it through the provider. Each mark is one batch whose update rechecks
  * what was read (the launch enrolled at its version and due time, the machine running at its
  * incarnation) and fails whole unless it changed exactly that row. A launch whose machine
  * isn't running (saving, stopping, or another incarnation) isn't marked: its due time moves

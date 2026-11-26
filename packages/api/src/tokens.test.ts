@@ -2,16 +2,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   BOOT_TOKEN_TTL_SECONDS,
+  DEPLOY_ENVS,
+  RESTORE_OP_PATTERN,
   TOKEN_CLOCK_SKEW_SECONDS,
   TOKEN_KINDS,
   TOKEN_TTL_SECONDS,
   bootExchange,
   isBootTokenShape,
+  isDeployEnv,
   isTokenKind,
   machineTokenStateOk,
+  restoreAreaPrefix,
   validateClaims,
   type BootTokenRecord,
-  type TokenClaims,
+  type MachineTokenClaims,
+  type RestoreClaims,
   type TokenKind,
 } from "./tokens.ts";
 import { newId } from "./ids.ts";
@@ -49,6 +54,24 @@ const finalSave = (o: Record<string, unknown> = {}) =>
     ...o,
   });
 
+const snp2 = newId("snapshot");
+const op = "BBBBBBBBBBBBBBBBBBBBBB";
+const restore = (o: Record<string, unknown> = {}) => ({
+  v: 1,
+  kind: "restore",
+  jti,
+  iat: NOW - 10,
+  exp: NOW - 10 + TOKEN_TTL_SECONDS.restore,
+  env: "production",
+  prj,
+  area: { kind: "member", mbr },
+  op,
+  actor: mbr,
+  snap: snp,
+  expectedHead: snp2,
+  ...o,
+});
+
 const ok = (x: unknown, kind: TokenKind, now = NOW) => validateClaims(x, kind, now).ok;
 const reason = (x: unknown, kind: TokenKind, now = NOW) => {
   const r = validateClaims(x, kind, now);
@@ -62,10 +85,12 @@ test("valid claims of each kind pass", () => {
   assert.equal(reason(ws(), "workspace"), "ok");
   assert.equal(reason(finalSave(), "workspace"), "ok");
   assert.equal(reason(ws({ team: null, grants: [{ area: "member", mode: "rw", quotaBytes: 1 }] }), "workspace"), "ok");
+  assert.equal(reason(restore(), "restore"), "ok");
+  assert.equal(reason(restore({ area: { kind: "team", team } }), "restore"), "ok");
 });
 
 test("one kind can never pass as another", () => {
-  const all: Record<TokenKind, unknown> = { agent: agent(), workspace: ws(), page: page(), "jupyter-link": jl() };
+  const all: Record<TokenKind, unknown> = { agent: agent(), workspace: ws(), page: page(), "jupyter-link": jl(), restore: restore() };
   for (const a of TOKEN_KINDS) for (const b of TOKEN_KINDS) assert.equal(ok(all[a], b), a === b, `${a} as ${b}`);
   // even with the kind field rewritten, the key set differs (page vs jupyter-link share keys
   // but not kind)
@@ -93,7 +118,7 @@ test("the claims language is closed", () => {
 
 test("times: safe integers, iat < exp, per-kind caps, skew and expiry", () => {
   for (const k of TOKEN_KINDS) {
-    const c = { ...(k === "workspace" ? ws() : k === "agent" ? agent() : { ...base(k), mbr }), iat: NOW, exp: NOW + TOKEN_TTL_SECONDS[k] };
+    const c = { ...(k === "workspace" ? ws() : k === "agent" ? agent() : k === "restore" ? restore() : { ...base(k), mbr }), iat: NOW, exp: NOW + TOKEN_TTL_SECONDS[k] };
     assert.equal(reason(c, k), "ok", k);
     assert.equal(reason({ ...c, exp: c.exp + 1 }, k), "lifetime over the cap", k);
   }
@@ -108,6 +133,11 @@ test("times: safe integers, iat < exp, per-kind caps, skew and expiry", () => {
   assert.equal(reason(e, "agent", e.exp - 1), "ok");
   assert.equal(reason(e, "agent", e.exp), "expired");
   assert.ok(TOKEN_TTL_SECONDS.page <= 60 && TOKEN_TTL_SECONDS["jupyter-link"] <= 60);
+  assert.equal(TOKEN_TTL_SECONDS.restore, 60); // (snapshots r3.1: at most 60 s, and within the lease less the skew)
+  const r = restore();
+  assert.equal(reason(r, "restore", r.exp - 1), "ok");
+  assert.equal(reason(r, "restore", r.exp), "expired");
+  assert.equal(reason({ ...r, iat: NOW + TOKEN_CLOCK_SKEW_SECONDS + 1, exp: NOW + TOKEN_CLOCK_SKEW_SECONDS + 2 }, "restore"), "issued in the future");
 });
 
 test("workspace grants: project data is read-only, quotas per writable grant", () => {
@@ -144,15 +174,57 @@ test("final-save authority is one save, one area, a byte cap, and no writable gr
   assert.equal(reason(ws({ mode: null }), "workspace"), "mode");
 });
 
+test("restore claims: one deployment, project, area, operation, actor, snapshot and expected head; nothing machine-scoped", () => {
+  assert.deepEqual([...DEPLOY_ENVS], ["production", "staging", "local"]);
+  for (const e of DEPLOY_ENVS) {
+    assert.equal(isDeployEnv(e), true, e);
+    assert.equal(reason(restore({ env: e }), "restore"), "ok", e);
+  }
+  for (const bad of ["prod", "Production", "", null, 1]) {
+    assert.equal(isDeployEnv(bad), false, String(bad));
+    assert.equal(reason(restore({ env: bad }), "restore"), "env", String(bad));
+  }
+  assert.equal(reason(restore({ prj: newId("org") }), "restore"), "prj");
+  for (const area of [null, [], "member", { kind: "member" }, { kind: "member", mbr: newId("team") }, { kind: "member", mbr, extra: 1 }, { kind: "team", team: mbr }, { kind: "team", team, mbr }, { kind: "project-data" }, { mbr }]) {
+    assert.equal(reason(restore({ area }), "restore"), "area", JSON.stringify(area));
+  }
+  for (const bad of ["short", "B".repeat(23), "B".repeat(21) + "=", "B".repeat(21) + "+", 22, null]) assert.equal(reason(restore({ op: bad }), "restore"), "op", String(bad));
+  assert.match(op, RESTORE_OP_PATTERN);
+  // base64url's whole alphabet, including "-" and "_" (16 random bytes encode to any of them)
+  for (const good of ["-_-_-_-_-_-_-_-_-_-_-_", "aZ09-_aZ09-_aZ09-_aZ09", "_".repeat(22), "-".repeat(22), "z".repeat(21) + "9"]) {
+    assert.match(good, RESTORE_OP_PATTERN, good);
+    assert.equal(reason(restore({ op: good }), "restore"), "ok", good);
+  }
+  assert.equal(reason(restore({ actor: newId("user") }), "restore"), "actor");
+  // a member area is restored only by its own member; a team area by any member (control checks the team)
+  assert.equal(reason(restore({ actor: newId("member") }), "restore"), "another member's area");
+  assert.equal(reason(restore({ area: { kind: "team", team }, actor: newId("member") }), "restore"), "ok");
+  assert.equal(reason(restore({ snap: "snp_x" }), "restore"), "snap");
+  assert.equal(reason(restore({ snap: newId("machine") }), "restore"), "snap");
+  assert.equal(reason(restore({ expectedHead: null }), "restore"), "expectedHead");
+  assert.equal(reason(restore({ expectedHead: newId("member") }), "restore"), "expectedHead");
+  // closed: no machine claims, nothing missing, nothing extra
+  assert.equal(reason(restore({ mch, inc: 3 }), "restore"), "keys");
+  const { expectedHead: _h, ...noHead } = restore();
+  assert.equal(reason(noHead, "restore"), "keys");
+  assert.equal(reason(restore({ name: "x" }), "restore"), "keys");
+  assert.equal(reason({ ...restore(), kind: "workspace" }, "restore"), "kind");
+});
+
+test("a restore token's area prefix comes from its claims only", () => {
+  assert.equal(restoreAreaPrefix(restore() as RestoreClaims), `prj/${prj}/m/${mbr}`);
+  assert.equal(restoreAreaPrefix(restore({ area: { kind: "team", team } }) as RestoreClaims), `prj/${prj}/t/${team}`);
+});
+
 test("machineTokenStateOk: incarnation and state", () => {
   const m = (state: (typeof MACHINE_STATES)[number], incarnation = 3, id = mch) => ({ id, state, incarnation });
-  const allow = (c: TokenClaims) => MACHINE_STATES.filter((s) => machineTokenStateOk(c, m(s)));
-  assert.deepEqual(allow(agent() as TokenClaims), ["starting", "running", "saving"]);
-  assert.deepEqual(allow(ws() as TokenClaims), ["running"]);
-  assert.deepEqual(allow(finalSave() as TokenClaims), ["saving"]);
-  assert.deepEqual(allow(page() as TokenClaims), ["running"]);
-  assert.deepEqual(allow(jl() as TokenClaims), ["running"]);
-  for (const c of [agent(), ws(), finalSave(), page(), jl()] as TokenClaims[]) {
+  const allow = (c: MachineTokenClaims) => MACHINE_STATES.filter((s) => machineTokenStateOk(c, m(s)));
+  assert.deepEqual(allow(agent() as MachineTokenClaims), ["starting", "running", "saving"]);
+  assert.deepEqual(allow(ws() as MachineTokenClaims), ["running"]);
+  assert.deepEqual(allow(finalSave() as MachineTokenClaims), ["saving"]);
+  assert.deepEqual(allow(page() as MachineTokenClaims), ["running"]);
+  assert.deepEqual(allow(jl() as MachineTokenClaims), ["running"]);
+  for (const c of [agent(), ws(), finalSave(), page(), jl()] as MachineTokenClaims[]) {
     assert.equal(machineTokenStateOk(c, m("running", 4)), false, "newer incarnation");
     assert.equal(machineTokenStateOk(c, m("running", 2)), false, "older incarnation");
     assert.equal(machineTokenStateOk(c, m("running", 3, newId("machine"))), false, "other machine");

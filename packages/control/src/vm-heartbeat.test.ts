@@ -66,8 +66,8 @@ async function enrolled() {
   const nonce = randomBytes(16).toString("base64url");
   await w.db.batch([
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
       machineId, w.projectId, allocationId, memberId, T0,
     ),
   ]);
@@ -349,7 +349,7 @@ test("watchdog: both classes merged by age under one bound, so neither starves t
   assert.ok(plan.every((d) => !/\bSCAN\b|TEMP B-TREE/.test(d)), JSON.stringify(plan));
   // (and the index holds enrolled launches only: ended ones, which keep their due times, are never examined)
   const idx = w.db.raw.prepare(`SELECT sql FROM sqlite_master WHERE name = 'launches_heartbeat_due'`).get() as { sql: string };
-  assert.match(idx.sql, / WHERE outcome = 'enrolled' AND mode = 'vm'$/);
+  assert.match(idx.sql, / WHERE outcome = 'enrolled'$/);
 });
 
 test("heartbeat: crossed requests never regress the report, the save estimate or the due time; no loss until 120 s after the newest", async () => {
