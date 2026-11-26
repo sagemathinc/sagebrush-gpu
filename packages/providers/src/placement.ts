@@ -159,9 +159,10 @@ export interface OfferQuote {
 /** An intent-first quote across every allowed GPU type: the best few offers, and the cheapest one just outside. */
 export function quoteOffers(offers: readonly Offer[], policy: PlacementPolicy, gpuCount: number, n = 3): OfferQuote {
   if (!Number.isSafeInteger(n) || n < 1 || n > 20) throw new RangeError(`n must be an integer in [1, 20], got ${n}`);
-  // (only offers a member could take but for the policy: never a sold-out one, nor another GPU count)
+  // (only offers a member could take but for the policy: never a sold-out one, another GPU count,
+  // or one whose price isn't a valid amount)
   const outside = offers
-    .filter((offer) => offer.stock !== "none" && offer.gpuCount === gpuCount)
+    .filter((offer) => offer.stock !== "none" && offer.gpuCount === gpuCount && isAmount(offer.providerCostPerHour))
     .map((offer) => ({ offer, reason: policyMiss(offer, policy, gpuCount) }))
     .filter((x): x is { offer: Offer; reason: OfferMiss } => x.reason !== null)
     .sort((a, b) => byRank(a.offer, b.offer));

@@ -530,6 +530,13 @@ test("quoteOffers: the best few inside, and the cheapest a member could otherwis
   assert.equal(quoteOffers(offers.slice(0, 4), policy, 1).outside, null);
   const crunch = quoteOffers(offers.slice(4), policy, 1);
   assert.deepEqual([crunch.best, crunch.outside?.offer.dataCenter], [[], "small"]);
+  // an offer whose price isn't a valid amount is never the one shown: the real over-cap offer is
+  const dear = offer({ dataCenter: "dear", providerCostPerHour: 2_000_000 });
+  for (const bad of [-1, NaN, -Infinity, Infinity, 0.5, 2 ** 53, "5" as unknown as number, null as unknown as number, undefined as unknown as number]) {
+    const q = quoteOffers([offer({ dataCenter: "bad", providerCostPerHour: bad }), dear], policy, 1);
+    assert.deepEqual([q.best, q.outside?.offer.dataCenter, q.outside?.reason], [[], "dear", "overPrice"], String(bad));
+    assert.equal(quoteOffers([offer({ dataCenter: "bad", providerCostPerHour: bad })], policy, 1).outside, null, String(bad));
+  }
   // an out-of-policy offer that is also sold out is never the one shown
   assert.equal(quoteOffers([offer({ providerCostPerHour: 2_000_000, stock: "none" })], policy, 1).outside, null);
   // ties go by the same order as rankAllowed

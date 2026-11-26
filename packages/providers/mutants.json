@@ -5022,14 +5022,14 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "    .filter((offer) => offer.stock !== \"none\" && offer.gpuCount === gpuCount)\n",
-  "new": "    .filter((offer) => offer.gpuCount === gpuCount)\n",
+  "old": "    .filter((offer) => offer.stock !== \"none\" && offer.gpuCount === gpuCount && isAmount(offer.providerCostPerHour))\n",
+  "new": "    .filter((offer) => offer.gpuCount === gpuCount && isAmount(offer.providerCostPerHour))\n",
   "note": "a sold-out offer shown outside"
  },
  {
   "file": "src/placement.ts",
-  "old": "    .filter((offer) => offer.stock !== \"none\" && offer.gpuCount === gpuCount)\n",
-  "new": "    .filter((offer) => offer.stock !== \"none\")\n",
+  "old": "    .filter((offer) => offer.stock !== \"none\" && offer.gpuCount === gpuCount && isAmount(offer.providerCostPerHour))\n",
+  "new": "    .filter((offer) => offer.stock !== \"none\" && isAmount(offer.providerCostPerHour))\n",
   "note": "another GPU count shown outside"
  },
  {
@@ -5115,5 +5115,11 @@
   "old": "    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
   "new": "    compare(a.gpuType, b.gpuType) ||\n    compare(a.dataCenter, b.dataCenter)\n",
   "note": "the type before data center"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": " && isAmount(offer.providerCostPerHour))\n    .map(",
+  "new": ")\n    .map(",
+  "note": "an invalid price shown outside"
  }
 ]
