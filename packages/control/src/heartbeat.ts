@@ -7,11 +7,13 @@
 // request committing last never undoes a newer one. The heartbeat watchdog ends an enrolled
 // machine, VM or container, whose heartbeats stopped: past its due time (silent for more than
 // 120 s), it marks the launch to terminate (heartbeat-lost), in one guarded batch that rechecks
-// everything it read, so a heartbeat that lands first leaves the launch alone. The mode's own
-// watchdog then ends it through the provider (a container's revokes its boot token first).
+// everything it read, so a heartbeat that lands first leaves the launch alone; a container's
+// machine leaves running (for stopping) in the same batch. The mode's own watchdog then ends it
+// through the provider (a container's revokes its boot token first).
 
 import { finalSaveReserveSeconds, isId, signToken, toIso, type AgentClaims, type AgentHeartbeatResponse } from "@sbgpu/api";
 import type { Ctx, Handlers } from "./app.ts";
+import { stopMachineStmt } from "./container.ts";
 import type { Stmt } from "./db.ts";
 import { HttpError, base64url, json } from "./http.ts";
 import type { JobEnv } from "./vm.ts";
@@ -227,6 +229,7 @@ export async function runHeartbeatWatchdog(env: JobEnv): Promise<number> {
           params: [env.now, r.machine_id, r.incarnation, r.due_ms, r.watchdog_version, r.machine_id, r.incarnation],
         },
         TOOK,
+        stopMachineStmt(r.machine_id, r.incarnation), // (a container's machine leaves running; a VM's is left)
       ]);
       marked++;
     } catch {

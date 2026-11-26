@@ -19,7 +19,7 @@ import type { Stmt } from "./db.ts";
 import { HEARTBEAT_LOST_MS } from "./heartbeat.ts";
 import { HttpError, base64url, json, sha256Hex } from "./http.ts";
 import { terminateAttempt, withDeadline, type InstanceFacts, type JobEnv } from "./vm.ts";
-import { containerRow, observeContainer, terminateContainerAttempt, type ContainerEnv } from "./container.ts";
+import { containerRow, observeContainer, stopMachineStmt, terminateContainerAttempt, type ContainerEnv } from "./container.ts";
 
 export const ENROLL_MAX_BODY_BYTES = 4096;
 export const HEARTBEAT_SECONDS = 30;
@@ -351,6 +351,7 @@ async function containerFailure(ctx: Ctx, env: ContainerEnv, r: ContainerTokenRo
           WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome IN ('creating', 'issued', 'enrolled')`,
     params: [reason, now, r.machine_id, r.incarnation],
   });
+  stmts.push(stopMachineStmt(r.machine_id, r.incarnation));
   try {
     await deps.db.batch(stmts);
   } catch {

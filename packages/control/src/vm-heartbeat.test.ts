@@ -257,6 +257,7 @@ test("watchdog: silent for more than 120 s (exactly 120 s is alive), by the last
   w.clock.t = a.enrollMs + HEARTBEAT_LOST_MS + 1;
   assert.equal(await runHeartbeatWatchdog(env()), 1);
   assert.deepEqual([(await launch(a.machineId)).outcome, (await launch(a.machineId)).terminate_reason], ["terminate", "heartbeat-lost"]);
+  assert.equal((await w.db.all<{ state: string }>(`SELECT state FROM machines WHERE id = ?`, [a.machineId]))[0]!.state, "running", "a VM's machine is left as it is");
   assert.equal((await launch(b.machineId)).outcome, "enrolled");
   w.clock.t = hb + HEARTBEAT_LOST_MS;
   assert.equal(await runHeartbeatWatchdog(env()), 0);
