@@ -3118,12 +3118,6 @@
  },
  {
   "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms <= ?",
-  "note": "due inclusive"
- },
- {
-  "file": "src/heartbeat.ts",
   "old": "     ORDER BY v.heartbeat_due_ms, v.machine_id, v.incarnation",
   "new": "     ORDER BY v.machine_id, v.incarnation",
   "note": "not oldest first"
@@ -3418,18 +3412,6 @@
  },
  {
   "file": "migrations/0014_launches.sql",
-  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
-  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
-  "note": "due index across modes"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
-  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation);",
-  "note": "due index not partial"
- },
- {
-  "file": "migrations/0014_launches.sql",
   "old": "CREATE UNIQUE INDEX launches_provider_id ON launches (provider, provider_machine_id) WHERE provider_machine_id IS NOT NULL;",
   "new": "",
   "note": "provider id bound twice"
@@ -3619,12 +3601,6 @@
   "old": "  PRIMARY KEY (machine_id, incarnation),\n  FOREIGN KEY (machine_id, incarnation) REFERENCES launches (machine_id, incarnation)\n",
   "new": "  PRIMARY KEY (machine_id, incarnation)\n",
   "note": "gate report without a launch"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
-  "note": "heartbeat watchdog across modes"
  },
  {
   "file": "src/vm.ts",
@@ -4658,5 +4634,41 @@
   "old": "  if (seen !== \"running\") throw REFUSED();\n",
   "new": "",
   "note": "enroll from an earlier read's facts"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms <= ?",
+  "note": "due inclusive"
+ },
+ {
+  "file": "migrations/0018_heartbeat_all_modes.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation);",
+  "note": "due index not partial"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "  if (vm) return vm;\n",
+  "new": "",
+  "note": "VM heartbeats looked up as containers only"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "`SELECT b.used_ms AS at_ms FROM launches v",
+  "new": "`SELECT v.created_ms AS at_ms FROM launches v",
+  "note": "the floor at the intent, not the enroll"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
+  "note": "the watchdog VM-only again"
+ },
+ {
+  "file": "migrations/0018_heartbeat_all_modes.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
+  "note": "the due index VM-only again"
  }
 ]
