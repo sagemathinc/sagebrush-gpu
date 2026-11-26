@@ -378,6 +378,19 @@ export const STOP_REASONS = [
 ] as const;
 export type StopReason = (typeof STOP_REASONS)[number];
 
+/**
+ * Why a machine never started (it is then failed, with stoppedAt when charging ended):
+ * createDeadline, the provider didn't have it running in time; podExited, its container exited
+ * before it was ready. Control maps them from its launch record (terminate_reason
+ * create-deadline and pod-exited).
+ */
+export const START_FAILURES = ["createDeadline", "podExited"] as const;
+export type StartFailure = (typeof START_FAILURES)[number];
+
+export function isStartFailure(x: unknown): x is StartFailure {
+  return typeof x === "string" && (START_FAILURES as readonly string[]).includes(x);
+}
+
 export interface SaveStatus {
   state: "idle" | "saving" | "failed";
   lastSavedAt: IsoTime | null;
@@ -405,6 +418,8 @@ export interface Machine {
   stopReason: StopReason | null;
   /** True when it stopped before the final save was confirmed. */
   finalSaveIncomplete: boolean;
+  /** Set when it never started (state failed); null otherwise. */
+  startFailure: StartFailure | null;
   save: SaveStatus;
   /** Charged so far by this machine. */
   spent: PriceSplit;
