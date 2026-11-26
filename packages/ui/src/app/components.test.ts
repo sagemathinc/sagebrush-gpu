@@ -98,8 +98,8 @@ test("project page: meters, prices with their split, and why a type can't start"
   assert.match(t, /Fine-tuning lab Course · you are a student/);
   assert.match(t, /Your allocation Remaining \$25\.00 Used \$0\.00 of \$25\.00/);
   assert.match(t, /Your team's allocation Remaining \$50\.00/);
-  assert.match(t, /1× L4 24 GB \$0\.62\/h provider \$0\.48 \+ service \$0\.14 Start/);
-  assert.match(t, /1× A6000 48 GB \$1\.03\/h provider \$0\.79 \+ service \$0\.24 Few left Start/);
+  assert.match(t, /1× L4 24 GB \$0\.62\/h provider \$0\.48 \+ service \$0\.14 Your allocation buys about 40 h at this price\. Start/);
+  assert.match(t, /1× A6000 48 GB \$1\.03\/h provider \$0\.79 \+ service \$0\.24 Your allocation buys about 24 h at this price\. · Few left Start/);
   assert.match(t, /Over the course's price limit\./);
   assert.match(t, /No capacity right now\./);
   assert.match(t, /None yet\. Start one above\./);
@@ -182,10 +182,10 @@ test("meter card: an empty allocation", () => {
 
 test("an error banner shows the last failure", async () => {
   const { store } = await memberStore();
-  await store.start("A10");
+  await store.save("mch_00000000000000000099"); // (no such machine: an action's failure with no words of its own)
   const out = renderToString(html`<${App} store=${store} nav=${nav("/")} />`);
   assert.match(out, /role="alert"/);
-  assert.match(text(out), /cannot start: noCapacity Dismiss/);
+  assert.match(text(out), /no such machine Dismiss/);
 });
 
 test("a stop without a save and a provider failure are both shown", async () => {

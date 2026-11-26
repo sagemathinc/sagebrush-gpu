@@ -9,7 +9,7 @@ import type { BillingMode, Machine, PriceListItem, ProjectLabels, Quote, SignInO
 import { capitalize, GENERIC_LABELS, withArticle } from "../labels.ts";
 import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
-import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, startFailureText, stopReasonText, storageWarning } from "../view.ts";
+import { ago, hoursOnAllocation, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, startFailureText, stopReasonText, storageWarning } from "../view.ts";
 import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
@@ -169,12 +169,20 @@ export function GpuRow({ store, item, quote, labels }: { store: Store; item: Pri
   const price = quote?.offers[0]?.pricePerHour ?? item.pricePerHour;
   const key = `start:${item.gpuType}`;
   const canStart = quote?.canStart === true;
+  const refused = store.startRefusal.value?.gpuType === item.gpuType ? store.startRefusal.value.text : null;
+  const hours = quote && price ? hoursOnAllocation(quote.remaining, price.total, store.billingMode.value) : null;
   return html`<tr>
     <th scope="row">${item.gpuCount}× ${item.gpuType} <span class="muted">${item.gpuMemoryGb} GB</span></th>
     <td>${price
       ? html`<strong>${priceText(price.providerCost, price.margin, store.billingMode.value).total}</strong><br /><span class="small muted">${priceText(price.providerCost, price.margin, store.billingMode.value).parts}</span>`
       : html`<span class="muted">not available</span>`}</td>
-    <td class="small">${quote && !quote.canStart && quote.reason ? refusalText(quote.reason, labels, quote.reasonProvider) : item.stock === "low" ? "Few left" : ""}</td>
+    <td class="small">${
+      refused
+        ? html`<span class="warn" role="status">${refused}</span>`
+        : quote && !quote.canStart && quote.reason
+          ? refusalText(quote.reason, labels, quote.reasonProvider)
+          : [hours, item.stock === "low" ? "Few left" : null].filter((x) => x != null).join(" · ")
+    }</td>
     <td><button disabled=${!canStart || store.isBusy(key)} onClick=${() => store.start(item.gpuType)}>
       ${store.isBusy(key) ? "Starting…" : "Start"}
     </button></td>

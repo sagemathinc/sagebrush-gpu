@@ -736,8 +736,8 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "? refusalText(quote.reason, labels, quote.reasonProvider) : item.stock === \"low\" ? \"Few left\" : \"\"",
-  "new": "? refusalText(quote.reason, labels, quote.reasonProvider) : \"\""
+  "old": "[hours, item.stock === \"low\" ? \"Few left\" : null]",
+  "new": "[hours]"
  },
  {
   "file": "src/app/components.ts",
@@ -1656,13 +1656,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
-  "new": "    this.#generation++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
-  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -1701,8 +1701,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;\n",
-  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n"
+  "old": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;\n",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n"
  },
  {
   "file": "src/app/store.ts",
@@ -3473,8 +3473,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
-  "new": "    this.#generation++;",
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
+  "new": "    this.#generation++;\n    this.startRefusal.value = null;",
   "note": "endSession: keys kept"
  },
  {
@@ -3611,8 +3611,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.quotes.value = {};\n        this.paused.value = [];\n        this.members.value = [];",
-  "new": "        this.quotes.value = {};\n        this.members.value = [];",
+  "old": "        this.startRefusal.value = null;\n        this.paused.value = [];\n        this.members.value = [];",
+  "new": "        this.startRefusal.value = null;\n        this.members.value = [];",
   "note": "store: a project switch keeps the old project's pauses"
  },
  {
@@ -4359,5 +4359,126 @@
   "file": "src/app/components.ts",
   "old": "${startFailureText(m, store.billingMode.value)}",
   "new": "${startFailureText(m, \"resold\")}"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return `Your allocation is used up. Ask ${withArticle(labels.manager)} for more.`;",
+  "new": "      return \"Used up.\";"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return `The price is now higher than the one you saw, or above the ${labels.project}'s limit. Check the price and try again.`;",
+  "new": "      return refusalText(\"priceCap\", labels);"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return \"It can't start right now, perhaps while a restore of your workspace finishes. Try again in a moment.\";",
+  "new": "      return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return \"Several starts happened at once. Try again.\";",
+  "new": "      return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    case \"noCapacity\":\n    case \"policy\":\n    case \"concurrencyCap\":\n      return refusalText(code, labels);",
+  "new": "    case \"policy\":\n    case \"concurrencyCap\":\n      return refusalText(code, labels);"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    default:\n      return null;\n  }\n}\n\n/**\n * About how long",
+  "new": "    default:\n      return \"Something went wrong.\";\n  }\n}\n\n/**\n * About how long"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  const amount = hours < 1 ?",
+  "new": "  const amount = hours < 0.5 ?"
+ },
+ {
+  "file": "src/view.ts",
+  "old": ": hours < 10 ? `about ${",
+  "new": ": hours < 100 ? `about ${"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "(Math.floor(hours * 10) / 10).toFixed(1)",
+  "new": "(Math.round(hours * 10) / 10).toFixed(1)"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "`about ${Math.floor(hours)} h`",
+  "new": "`about ${Math.round(hours)} h`"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(pricePerHour > 0) || !(remaining > 0)) return null;",
+  "new": "  if (!(remaining > 0)) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(pricePerHour > 0) || !(remaining > 0)) return null;",
+  "new": "  if (!(pricePerHour > 0)) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "return mode === \"byok\" ? `Your allocation covers ${amount} of metered use at this price.`",
+  "new": "return mode !== \"byok\" ? `Your allocation covers ${amount} of metered use at this price.`"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "err.code === \"conflict\" && attempt < START_CONFLICT_RETRIES) continue;",
+  "new": "err.code === \"conflict\" && attempt < 0) continue;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "export const START_CONFLICT_RETRIES = 1;",
+  "new": "export const START_CONFLICT_RETRIES = 2;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.startRefusal.value = null;\n    // (a project switch",
+  "new": "    // (a project switch"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.startRefusal.value = null;\n        this.paused.value = [];",
+  "new": "        this.paused.value = [];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          this.startRefusal.value = { gpuType, text };\n          await this.refresh();",
+  "new": "          this.startRefusal.value = { gpuType, text };"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (text == null) throw err;",
+  "new": "          if (text == null) return null;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const refused = store.startRefusal.value?.gpuType === item.gpuType ? store.startRefusal.value.text : null;",
+  "new": "  const refused = store.startRefusal.value?.text ?? null;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": ".filter((x) => x != null).join(\" · \")",
+  "new": ".filter((x) => x != null).join(\" \")"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (generation !== this.#generation) return null;\n          // Two starts at once",
+  "new": "          // Two starts at once",
+  "note": "a late start answer after the page moved on (TESTS on the start panel PR)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n",
+  "new": "    this.#staleSaves(); // (nor the previous person's to the new one)\n"
  }
 ]
