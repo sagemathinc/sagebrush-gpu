@@ -43,6 +43,23 @@ export interface WorkerEnv extends RelayRouteEnv {
  * key and is built per request or run; the pods must show the release's image and the launcher
  * rendered for this origin.
  */
+/**
+ * The container watchdog's dependencies for cleanup, whatever the flag says: launches made while
+ * container launch was on must still end, and their accruals close, after it is switched off.
+ * It needs this deployment's installation slug (name recovery) and our key; the pods' expected
+ * release is the configured one when there is one (the watchdog itself never checks it).
+ */
+export function cleanupDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { unusable: string } {
+  if (config.installation === null) return { unusable: "SBGPU_INSTALLATION is unset" };
+  if (typeof apiKey !== "string" || apiKey === "") return { unusable: "RUNPOD_API_KEY is unset" };
+  const on = containerDeps(config, apiKey, f);
+  if ("deps" in on) return on;
+  return { deps: { provider: new RunPodAdapter({ apiKey, fetch: (input, init) => f(input, init) }), expect: { image: "", launcher: [], bootEnv: BOOT_TOKEN_ENV } } };
+}
+
+/** A container launch the container watchdog still has to act on: due, so not final (the due index). */
+export const CONTAINER_PENDING_SELECT = `SELECT 1 AS one FROM launches WHERE next_ms IS NOT NULL AND mode = 'container' LIMIT 1`;
+
 export function containerDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { off: true } | { unusable: string } {
   const c = config.containerLaunch;
   if (c === null) return { off: true };
@@ -154,8 +171,10 @@ export function createWorker(o: WorkerOptions = {}) {
           log(`control: scheduled job ${job.name} failed (${e instanceof Error ? e.name : typeof e})`);
         }
       }
-      // Container mode's watchdog, when container launches are on and usable. On but unusable: one
-      // alert line a run (why nothing launches), and no watchdog.
+      // Container mode's watchdog: whenever container launches are on and usable, and also while
+      // any container launch is still due after they're switched off (off stops new launches, not
+      // cleanup). On but unusable: one alert line a run (why nothing launches); due launches that
+      // the watchdog can't reach (no installation or key): one alert line a run (why they can't end).
       let config: AppConfig | null = null;
       try {
         config = configFromEnv(env as unknown as Record<string, unknown>);
@@ -165,16 +184,30 @@ export function createWorker(o: WorkerOptions = {}) {
       }
       if (config !== null) {
         const d = containerDeps(config, env.RUNPOD_API_KEY, fetch);
-        if ("unusable" in d) {
-          log(`control: alert: container launch is on but ${d.unusable}: launches not started`);
-        } else if ("deps" in d) {
+        if ("unusable" in d) log(`control: alert: container launch is on but ${d.unusable}: launches not started`);
+        let deps: ContainerDeps | null = "deps" in d ? d.deps : null;
+        if (deps === null) {
+          let pending = true;
+          try {
+            pending = (await db.all(CONTAINER_PENDING_SELECT)).length > 0;
+          } catch {
+            // (unread: as if there were some, so the watchdog runs or the alert says why it can't)
+          }
+          if (pending) {
+            const c = cleanupDeps(config, env.RUNPOD_API_KEY, fetch);
+            if ("deps" in c) deps = c.deps;
+            else log(`control: alert: container launches are due but ${c.unusable}: they can't be ended`);
+          }
+        }
+        if (deps !== null) {
+          const live = deps;
           try {
             const n = await runContainerWatchdog({
               db,
               installation: config.installation,
               clock: now,
-              provider: d.deps.provider,
-              expect: d.deps.expect,
+              provider: live.provider,
+              expect: live.expect,
               randomBytes: (k) => crypto.getRandomValues(new Uint8Array(k)),
               elapsedMs: () => Date.now() - began,
             });

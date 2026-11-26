@@ -4760,5 +4760,47 @@
   "old": "            failed.push(\"container watchdog\");\n",
   "new": "",
   "note": "a failed container watchdog doesn't fail the run"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            pending = (await db.all(CONTAINER_PENDING_SELECT)).length > 0;",
+  "new": "            pending = (await db.all(CONTAINER_PENDING_SELECT)).length > 1;",
+  "note": "due container launches never seen when off"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "          let pending = true;",
+  "new": "          let pending = false;",
+  "note": "an unread due check taken as nothing due"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "export function cleanupDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { unusable: string } {\n  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n",
+  "new": "export function cleanupDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { unusable: string } {\n",
+  "note": "cleanup without an installation"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  if (typeof apiKey !== \"string\" || apiKey === \"\") return { unusable: \"RUNPOD_API_KEY is unset\" };\n  const on = containerDeps(config, apiKey, f);",
+  "new": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  const on = containerDeps(config, apiKey, f);",
+  "note": "cleanup without a key"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            else log(`control: alert: container launches are due but ${c.unusable}: they can't be ended`);\n",
+  "new": "",
+  "note": "no alert when due launches can't be ended"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "        container: (() => {\n          const d = containerDeps(config, env.RUNPOD_API_KEY, fetch);\n          return \"deps\" in d ? d.deps : null;\n        })(),",
+  "new": "        container: null,",
+  "note": "requests never get the container dependencies"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "              installation: config.installation,",
+  "new": "              installation: null,",
+  "note": "the scheduled watchdog without the installation"
  }
 ]
