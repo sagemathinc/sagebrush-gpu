@@ -4750,5 +4750,71 @@
   "old": "      type: \"on-demand\",",
   "new": "      type: \"ondemand\",",
   "note": "the search type not Vast's canonical spelling"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  { method: \"GET\", path: /^\\/api\\/v0\\/ssh\\/$/, query: \"none\", body: false },\n",
+  "new": "",
+  "note": "the key read not allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  { method: \"GET\", path: /^\\/api\\/v0\\/ssh\\/$/, query: \"none\", body: false },\n",
+  "new": "  { method: \"GET\", path: /^\\/api\\/v0\\/ssh\\/?$/, query: \"none\", body: false },\n",
+  "note": "the unslashed key path allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  { method: \"GET\", path: /^\\/api\\/v0\\/ssh\\/$/, query: \"none\", body: false },\n",
+  "new": "  { method: \"POST\", path: /^\\/api\\/v0\\/ssh\\/$/, query: \"none\", body: false },\n",
+  "note": "the key route under POST"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    await this.#accountKeysNone(stop);\n",
+  "new": "",
+  "note": "no account-key preflight"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    if (keys.length !== 0) throw",
+  "new": "    if (keys.length > 1) throw",
+  "note": "one account key allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    if (keys === null) throw new ProviderError(\"vast\", \"unknown\", \"Vast account SSH keys: the list can't be read\");\n",
+  "new": "",
+  "note": "an unreadable key list not refused"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "const keys = Array.isArray(json) ? json : isObject(json)",
+  "new": "const keys = isObject(json)",
+  "note": "a plain key list unread"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "isObject(json) && Array.isArray(json[\"ssh_keys\"]) ? json[\"ssh_keys\"] : null;",
+  "new": "null;",
+  "note": "the ssh_keys form unread"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      json = await this.#call(\"GET\", \"/api/v0/ssh/\", \"keys\", undefined, stop);\n    } catch (e) {\n      if (e instanceof ProviderError && e.kind === \"outcome_unknown\") throw new ProviderError(\"vast\", \"unknown\", e.message, e.httpStatus);\n",
+  "new": "      json = await this.#call(\"GET\", \"/api/v0/ssh/\", \"keys\", undefined, stop);\n    } catch (e) {\n",
+  "note": "a lost key read taken for a possible create"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "throw new ProviderError(\"vast\", \"auth\", \"Vast account has SSH keys",
+  "new": "throw new ProviderError(\"vast\", \"forbidden\", \"Vast account has SSH keys",
+  "note": "account keys only skip the offer"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      json = await this.#call(\"GET\", \"/api/v0/ssh/\", \"keys\", undefined, stop);\n    } catch (e) {\n",
+  "new": "      json = await this.#call(\"GET\", \"/api/v0/ssh/\", \"keys\", undefined, undefined);\n    } catch (e) {\n",
+  "note": "the key read ignores the deadline"
  }
 ]
