@@ -2425,21 +2425,6 @@
   "new": ""
  },
  {
-  "file": "src/billing.ts",
-  "old": "  return { use: \"none\", reason: \"byok-unavailable\" };",
-  "new": "  return { use: \"ours\", provider: provider as ProviderId };"
- },
- {
-  "file": "src/billing.ts",
-  "old": "FROM orgs WHERE id = ?`, [orgId]",
-  "new": "FROM orgs LIMIT 1`, []"
- },
- {
-  "file": "src/billing.ts",
-  "old": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ?`",
-  "new": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ? OR 1 ORDER BY o.billing_mode DESC`"
- },
- {
   "file": "src/projects.ts",
   "old": "    name: r.name,\n    billingMode: r.billing_mode,\n",
   "new": "    name: r.name,\n    billingMode: \"resold\",\n"
@@ -3016,8 +3001,8 @@
  },
  {
   "file": "src/heartbeat.ts",
-  "old": "        TOOK,\n      ]);",
-  "new": "      ]);",
+  "old": "        TOOK,\n        stopMachineStmt(r.machine_id, r.incarnation), // (a container's machine leaves running; a VM's is left)\n      ]);",
+  "new": "        stopMachineStmt(r.machine_id, r.incarnation), // (a container's machine leaves running; a VM's is left)\n      ]);",
   "note": "no guard"
  },
  {
@@ -4808,6 +4793,516 @@
   "old": "              installation: config.installation,",
   "new": "              installation: null,",
   "note": "the scheduled watchdog without the installation"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"none\", reason: \"no-credential\" };",
+  "new": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"ours\", provider };",
+  "note": "byok without a key uses ours"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "WHERE o.id = ?`,\n    [provider, orgId],",
+  "new": "WHERE o.id IS NOT NULL ORDER BY o.billing_mode DESC LIMIT 1`,\n    [provider],",
+  "note": "org resolver reads any org"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "WHERE l.machine_id = ? AND l.incarnation = ?`",
+  "new": "WHERE l.machine_id = ? OR l.incarnation = ?`",
+  "note": "launch resolver any incarnation"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY,",
+  "note": "credential id unchecked"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "note": "credential id char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "note": "credential id prefix dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_'),",
+  "note": "credential id body open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  org_id TEXT NOT NULL REFERENCES orgs (id),\n  provider TEXT NOT NULL CHECK (provider IN ('runpod', 'shadeform', 'hyperstack', 'nebius')),\n  -- 1 at",
+  "new": "  org_id TEXT NOT NULL REFERENCES orgs (id),\n  provider TEXT NOT NULL,\n  -- 1 at",
+  "note": "credential provider open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  version INTEGER NOT NULL CHECK (version BETWEEN 1 AND 9007199254740991),",
+  "new": "  version INTEGER NOT NULL CHECK (version BETWEEN 0 AND 9007199254740991),",
+  "note": "credential version from 0"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 23 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "sealed min 23"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5485 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "sealed max 5485"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "sealed char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB))),",
+  "note": "sealed alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND length(nonce) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/]*'),",
+  "new": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/]*'),",
+  "note": "nonce char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND length(nonce) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/]*'),",
+  "new": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND length(nonce) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "nonce allows ="
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 17 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "note": "kek version max 17"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 0 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "note": "kek version empty"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "note": "kek version char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB))),",
+  "note": "kek version alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  status TEXT NOT NULL",
+  "new": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  status TEXT NOT NULL",
+  "note": "fingerprint char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  status TEXT NOT NULL",
+  "new": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16),\n  status TEXT NOT NULL",
+  "note": "fingerprint alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  status TEXT NOT NULL CHECK (status IN ('unchecked', 'ok', 'rejected', 'revoked', 'error')),",
+  "new": "  status TEXT NOT NULL CHECK (status IN ('none', 'unchecked', 'ok', 'rejected', 'revoked', 'error')),",
+  "note": "credential status allows none"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  last_checked_ms INTEGER CHECK (last_checked_ms IS NULL OR last_checked_ms BETWEEN 0 AND 9007199254740991),",
+  "new": "  last_checked_ms INTEGER,",
+  "note": "last checked unbounded"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  set_by TEXT NOT NULL REFERENCES users (id),",
+  "new": "  set_by TEXT NOT NULL,",
+  "note": "set_by not a user"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  set_ms INTEGER NOT NULL CHECK (set_ms BETWEEN 0 AND 9007199254740991),",
+  "new": "  set_ms INTEGER NOT NULL,",
+  "note": "set_ms unbounded"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  UNIQUE (org_id, provider),\n",
+  "new": "",
+  "note": "one key per org and provider dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK ((status = 'unchecked') = (last_checked_ms IS NULL))\n",
+  "new": "  CHECK (1)\n",
+  "note": "unchecked iff never checked dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) IS NOT 'byok'",
+  "new": "WHEN (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) = 'resold'",
+  "note": "byok-only lets an unknown org through"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) IS NOT 'byok'",
+  "new": "WHEN 0",
+  "note": "byok-only dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "new": "WHEN NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "note": "credential id not fixed"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.provider IS NOT OLD.provider",
+  "note": "credential org not fixed"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id",
+  "note": "credential provider not fixed"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.version IS NOT OLD.version AND NEW.version IS NOT OLD.version + 1",
+  "new": "WHEN NEW.version < OLD.version",
+  "note": "version may jump"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.version IS NOT OLD.version AND NEW.version IS NOT OLD.version + 1",
+  "new": "WHEN NEW.version > OLD.version + 1",
+  "note": "version may go back"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "new": "  AND (NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "note": "same version may change fingerprint"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "new": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_ms IS NOT OLD.set_ms)",
+  "note": "same version may change setter"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "new": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by)",
+  "note": "same version may change set time"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.version = OLD.version\n",
+  "new": "WHEN NEW.version = OLD.version + 1\n",
+  "note": "same-version rule on the wrong step"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.sealed IS NOT OLD.sealed AND NEW.nonce IS OLD.nonce",
+  "new": "WHEN 0",
+  "note": "nonce may repeat"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  provider TEXT NOT NULL CHECK (provider IN ('runpod', 'shadeform', 'hyperstack', 'nebius')),\n  -- the credential row's",
+  "new": "  provider TEXT NOT NULL,\n  -- the credential row's",
+  "note": "event provider open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  credential_id TEXT NOT NULL CHECK (length(CAST(credential_id AS BLOB)) = 24 AND length(credential_id) = 24 AND substr(credential_id, 1, 4) = 'crd_' AND substr(credential_id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  credential_id TEXT NOT NULL,",
+  "note": "event credential id unchecked"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kind TEXT NOT NULL CHECK (kind IN ('set', 'replace', 'remove', 'check')),",
+  "new": "  kind TEXT NOT NULL,",
+  "note": "event kind open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  -- a check's",
+  "new": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16),\n  -- a check's",
+  "note": "event fingerprint alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  status TEXT CHECK (status IS NULL OR status IN ('ok', 'rejected', 'revoked', 'error')),",
+  "new": "  status TEXT CHECK (status IS NULL OR status IN ('unchecked', 'ok', 'rejected', 'revoked', 'error')),",
+  "note": "event status allows unchecked"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  actor TEXT REFERENCES users (id),",
+  "new": "  actor TEXT,",
+  "note": "event actor not a user"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  at_ms INTEGER NOT NULL CHECK (at_ms BETWEEN 0 AND 9007199254740991),",
+  "new": "  at_ms INTEGER NOT NULL,",
+  "note": "event time unbounded"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK ((kind = 'check') = (status IS NOT NULL)),",
+  "new": "  CHECK (kind <> 'check' OR status IS NOT NULL),",
+  "note": "event status on other kinds"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK ((kind = 'check') = (status IS NOT NULL)),",
+  "new": "  CHECK (kind = 'check' OR status IS NULL),",
+  "note": "event check without status"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK (kind = 'check' OR actor IS NOT NULL),",
+  "new": "  CHECK (1),",
+  "note": "event actor may be null"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK (kind <> 'set' OR credential_version = 1),",
+  "new": "  CHECK (1),",
+  "note": "set event any version"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK (kind <> 'replace' OR credential_version > 1)",
+  "new": "  CHECK (1)",
+  "note": "replace event at version 1"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "CREATE TRIGGER credential_events_no_update BEFORE UPDATE ON credential_events",
+  "new": "CREATE TRIGGER credential_events_no_update BEFORE UPDATE OF id ON credential_events",
+  "note": "events may change"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "CREATE TRIGGER credential_events_no_delete BEFORE DELETE ON credential_events",
+  "new": "CREATE TRIGGER credential_events_no_delete BEFORE DELETE ON credential_events WHEN 0",
+  "note": "events may be deleted"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "[AEIMQUYcgkosw048]=$/;",
+  "new": "[A-Za-z0-9+/]=$/;",
+  "note": "base64 not canonical"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "  if (!B64_32.test(fingerprintKey)) return null;\n",
+  "new": "",
+  "note": "fingerprint key unchecked"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "!VERSION.test(v) || ",
+  "new": "",
+  "note": "kek version unchecked"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": " || keks.has(v)",
+  "new": "",
+  "note": "duplicate kek version"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": " || k === fingerprintKey",
+  "new": "",
+  "note": "fingerprint key may be a kek"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "    current ??= v;",
+  "new": "    current = v;",
+  "note": "last kek current"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "importKey(\"raw\", unb64(fingerprintKey), { name: \"HMAC\"",
+  "new": "importKey(\"raw\", unb64(secret.split(\",\")[0]!.slice(secret.indexOf(\":\") + 1)), { name: \"HMAC\"",
+  "note": "fingerprint under the kek"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without env"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without org"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without provider"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without credential id"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${kekVersion}`",
+  "note": "aad without version"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}`",
+  "note": "aad without kek version"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "const iv = crypto.getRandomValues(new Uint8Array(12));",
+  "new": "const iv = new Uint8Array(12);",
+  "note": "fixed nonce"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "mac.subarray(0, 8)",
+  "new": "mac.subarray(0, 9)",
+  "note": "fingerprint 18 hex"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return status === \"ok\" || status === \"unchecked\";",
+  "new": "  return status === \"ok\" || status === \"unchecked\" || status === \"error\";",
+  "note": "error usable"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (!usableCredentialStatus(r.status)) return { ok: false, reason: \"paused\" };\n",
+  "new": "",
+  "note": "paused key opened"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`",
+  "new": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND ? IS NOT NULL AND kek_version = ?`",
+  "note": "error mark without version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`",
+  "new": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND ? IS NOT NULL`",
+  "note": "error mark without kek version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "         WHERE changes() = 1 AND org_id = ?",
+  "new": "         WHERE org_id = ?",
+  "note": "error event unconditional"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`,\n      [n.sealed",
+  "new": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND ? IS NOT NULL AND kek_version = ?`,\n      [n.sealed",
+  "note": "re-seal without version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`,\n      [n.sealed",
+  "new": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND ? IS NOT NULL`,\n      [n.sealed",
+  "note": "re-seal without kek version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (r.kek_version !== keys.current) {",
+  "new": "  if (false) {",
+  "note": "no re-seal"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (!keys) return { ok: false, reason: \"unavailable\" };",
+  "new": "  if (!keys) return { ok: false, reason: \"no-credential\" };",
+  "note": "unavailable misreported"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "LEFT JOIN provider_credentials c ON c.org_id = o.id AND c.provider = ?",
+  "new": "LEFT JOIN provider_credentials c ON c.provider = ?",
+  "note": "org resolver any org's key"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "LEFT JOIN provider_credentials c ON c.org_id = o.id AND c.provider = ?",
+  "new": "LEFT JOIN provider_credentials c ON c.org_id = o.id AND ? IS NOT NULL",
+  "note": "org resolver any provider's key"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "c.org_id = l.account_org_id AND c.provider = l.provider",
+  "new": "c.org_id = (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = l.machine_id) AND c.provider = l.provider",
+  "note": "launch resolver by current owner"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "c.org_id = l.account_org_id AND c.provider = l.provider",
+  "new": "c.org_id = l.account_org_id",
+  "note": "launch resolver any provider's key"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (l.account_kind === \"platform\") return",
+  "new": "  if (l.account_kind !== \"org\") return",
+  "note": "unknown account is ours"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": " && l.account_org_id !== null) return",
+  "new": ") return",
+  "note": "org account without org"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (!usableCredentialStatus(c.credential_status)) return { use: \"none\", reason: \"credential-paused\" };\n",
+  "new": "",
+  "note": "paused key chosen"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (mode === \"resold\") return { use: \"ours\", provider };",
+  "new": "  if (mode === \"byok\") return { use: \"ours\", provider };",
+  "note": "byok uses ours"
  },
  {
   "file": "src/container.ts",

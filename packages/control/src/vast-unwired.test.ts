@@ -43,7 +43,29 @@ test("the database refuses a 'vast' row in every table with a provider column", 
           )
           .run(p),
     ],
+    [
+      "provider_credentials",
+      (p) =>
+        db.raw
+          .prepare(
+            `INSERT INTO provider_credentials (id, org_id, provider, version, sealed, nonce, kek_version, fingerprint, status, last_checked_ms, set_by, set_ms)
+             VALUES (?, 'org_v', ?, 1, ?, ?, 'k1', '0123456789abcdef', 'ok', 0, 'usr_x', 0)`,
+          )
+          .run(p === "vast" ? "crd_00000000000000000002" : "crd_00000000000000000001", p, "A".repeat(24), "A".repeat(16)),
+    ],
+    [
+      "credential_events",
+      (p) =>
+        db.raw
+          .prepare(
+            `INSERT INTO credential_events (org_id, provider, credential_id, credential_version, kind, fingerprint, status, actor, at_ms)
+             VALUES ('org_v', ?, 'crd_00000000000000000000', 1, 'set', '0123456789abcdef', NULL, 'usr_x', 0)`,
+          )
+          .run(p),
+    ],
   ];
+  // (a byok organization, so the credential row's own trigger passes and its provider CHECK decides)
+  db.raw.prepare(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES ('org_v', 'O', 'byok', 0, 0)`).run();
   for (const [table, insert] of rows) {
     insert("nebius");
     assert.throws(() => insert("vast"), /CHECK constraint failed/, table);
@@ -55,7 +77,7 @@ test("no provider CHECK in the schema admits 'vast'", () => {
   // of its own: a compute entry must match its machine's accrual, which refuses 'vast' above.)
   const db = sqliteDb();
   const tables = db.raw.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE '%provider IN (%'").all() as Array<{ name: string; sql: string }>;
-  assert.deepEqual(tables.map((t) => t.name).sort(), ["availability_observations", "machine_accruals", "machines", "launches"].sort());
+  assert.deepEqual(tables.map((t) => t.name).sort(), ["availability_observations", "machine_accruals", "machines", "launches", "provider_credentials", "credential_events"].sort());
   for (const t of tables) {
     for (const m of t.sql.matchAll(/provider IN \(([^)]*)\)/g)) assert.ok(!m[1]!.includes("'vast'"), t.name);
   }
