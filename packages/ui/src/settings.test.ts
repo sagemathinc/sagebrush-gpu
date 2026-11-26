@@ -58,6 +58,8 @@ test("the form shows the project as strings", () => {
     maxSessionMinutes: "480",
     minStartMinutes: "15",
     finalSaveReserveMinutes: "10",
+    snapshotKeepLast: "10",
+    snapshotNamedMax: "5",
   });
   assert.deepEqual(f.gib, { storageQuotaBytesPerMember: "50", storageQuotaBytesPerTeam: "50" });
   assert.equal(f.setupScript, "");

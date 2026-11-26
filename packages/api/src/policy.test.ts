@@ -25,6 +25,8 @@ test("the bounds are the documented ones", () => {
     finalSaveReserveMinutes: [0, 1440],
     storageQuotaBytesPerMember: [0, 1024 ** 4],
     storageQuotaBytesPerTeam: [0, 1024 ** 4],
+    snapshotKeepLast: [1, 50],
+    snapshotNamedMax: [0, 20],
   });
 });
 

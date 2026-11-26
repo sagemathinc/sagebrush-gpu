@@ -68,6 +68,7 @@ test("the default policy is frozen and allows nothing until configured", () => {
   assert.deepEqual(DEFAULT_POLICY.allowedGpuTypes, []);
   assert.deepEqual(DEFAULT_POLICY.allowedProviders, []);
   assert.equal(DEFAULT_POLICY.finalSaveReserveMinutes, 10);
+  assert.deepEqual([DEFAULT_POLICY.snapshotKeepLast, DEFAULT_POLICY.snapshotNamedMax], [10, 5]);
 });
 
 test("billing modes: exactly resold and byok", () => {

@@ -4345,5 +4345,174 @@
   "old": "CASE WHEN ? = 'org' THEN (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
   "new": "CASE WHEN ? = 'org' THEN NULL ELSE (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
   "note": "the account's organization on the wrong kind"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted')",
+  "new": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted', 'running')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted')",
+  "new": "AND OLD.state NOT IN ('stopped', 'failed')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(member_area_key AS BLOB)) = 51",
+  "new": "length(CAST(member_area_key AS BLOB)) >= 51"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(team_area_key AS BLOB)) = 52",
+  "new": "length(CAST(team_area_key AS BLOB)) >= 52"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": " AND (team_area_key IS NULL OR member_area_key IS NOT NULL)",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "ON area_restores (area_key) WHERE state = 'claimed'",
+  "new": "ON area_restores (area_key)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state <> 'claimed' OR NEW.expected_head",
+  "new": "WHEN NEW.expected_head"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  OR NEW.jti IS NOT OLD.jti\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  OR NEW.created_ms IS NOT OLD.created_ms\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  OR NEW.target_snapshot_id IS NOT OLD.target_snapshot_id\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.expected_head IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.expected_head IS NOT NULL)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.expected_head IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.state <> 'claimed')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.token_exp_ms IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.state <> 'claimed')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.token_exp_ms IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.token_exp_ms IS NOT NULL)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "token_exp_ms + 30000 <= created_ms + lease_ms",
+  "new": "token_exp_ms <= created_ms + lease_ms"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "token_exp_ms > created_ms AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  CHECK (token_exp_ms IS NULL OR expected_head IS NOT NULL),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CHECK (lease_ms = 120000)",
+  "new": "CHECK (lease_ms BETWEEN 1 AND 120000)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "instr(op_id, char(0)) = 0 AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "instr(jti, char(0)) = 0 AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  SELECT RAISE(ABORT, 'restore records are kept');",
+  "new": "  SELECT 1;"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "actor_member_id TEXT NOT NULL REFERENCES members (id),",
+  "new": "actor_member_id TEXT NOT NULL,"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(length(CAST(area_key AS BLOB)) = 51 AND",
+  "new": "(length(CAST(area_key AS BLOB)) >= 51 AND"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(target_snapshot_id AS BLOB)) = 24",
+  "new": "length(CAST(target_snapshot_id AS BLOB)) >= 24"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "jti TEXT NOT NULL UNIQUE CHECK",
+  "new": "jti TEXT NOT NULL CHECK"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "NOT (OLD.state = 'claimed' AND",
+  "new": "NOT (OLD.state IN ('claimed', 'done') AND"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  expected_head TEXT CHECK (expected_head IS NULL OR length(CAST(expected_head AS BLOB)) = 24 AND expected_head GLOB 'snp_[0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z]'),",
+  "new": "  expected_head TEXT,",
+  "note": "T2: the expected head's whole shape check removed"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(expected_head AS BLOB)) = 24 AND expected_head GLOB",
+  "new": "expected_head GLOB"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND 0",
+  "note": "SEC H1: a keyless machine inserted live"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping')",
+  "new": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND 0",
+  "note": "SEC H1: a keyless machine moved into a live state"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "AND NEW.member_area_key IS NULL",
+  "note": "a migrated live machine kept from saving and stopping"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN",
+  "new": "WHEN NEW.state IN ('starting', 'running', 'saving') AND OLD.state NOT IN"
  }
 ]
