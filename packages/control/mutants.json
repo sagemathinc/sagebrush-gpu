@@ -200,11 +200,6 @@
   "new": "void d1.batch(stmts.map((s) => d1.prepare(s.sql).bind(...s.params)));"
  },
  {
-  "file": "src/db.ts",
-  "old": "      if (stmts.length === 0) return;\n",
-  "new": ""
- },
- {
   "file": "migrations/0001_ledger.sql",
   "old": "  FOREIGN KEY (allocation_id, project_id) REFERENCES allocations (id, project_id),\n  UNIQUE (id, project_id, allocation_id)",
   "new": "  UNIQUE (id, project_id, allocation_id)"
@@ -6175,6 +6170,275 @@
   "old": "j.object !== \"list\" || ",
   "new": "",
   "note": "no list marker accepted"
+ },
+ {
+  "file": "src/db.ts",
+  "old": "      if (stmts.length === 0) return [];\n",
+  "new": ""
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "  if (!isProviderId(p) || !accepted.includes(p)) throw credentialRefusal(\"unknownProvider\");",
+  "new": "  if (!isProviderId(p)) throw credentialRefusal(\"unknownProvider\");",
+  "note": "any known provider accepted"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "  if (r[0]?.billing_mode !== \"byok\") throw credentialRefusal(\"notByok\");",
+  "new": "  if (r[0]?.billing_mode === \"resold\" && false) throw credentialRefusal(\"notByok\");",
+  "note": "byok not required"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    ctx.deps.alert(\"credential store unavailable: CREDENTIAL_KEKS or CREDENTIAL_FINGERPRINT_KEY is missing or malformed\");\n",
+  "new": "",
+  "note": "no alert"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "  if (f.totp.length !== 1) throw credentialRefusal(\"mfaRequired\");",
+  "new": "  if (f.totp.length === 0) throw credentialRefusal(\"mfaRequired\");",
+  "note": "first of many factors"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "  if (!f.ok) throw credentialRefusal(\"checkUnavailable\");",
+  "new": "  if (!f.ok) throw credentialRefusal(\"mfaRequired\");",
+  "note": "factor outage as mfaRequired"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "outcome <> 'terminated' GROUP BY provider",
+  "new": "1 GROUP BY provider",
+  "note": "terminated launches counted"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "account_org_id = ? AND outcome",
+  "new": "account_org_id IS NOT ? AND outcome",
+  "note": "other orgs' launches counted"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (e instanceof Error && GUARD.test(e.message)) throw credentialRefusal(\"reauthenticate\");\n",
+  "new": "",
+  "note": "guard abort as unavailable"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "  return r[2]?.changes === 1;",
+  "new": "  return r[2]?.changes !== undefined;",
+  "note": "a lost swap succeeds"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    await requireStore(ctx);\n    return json(200, { items:",
+  "new": "    return json(200, { items:",
+  "note": "list without the store"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    const store = await requireStore(ctx);\n    const binding",
+  "new": "    const store = (await requireStore({ ...ctx, deps: { ...ctx.deps, alert: () => {} } }))!;\n    const binding",
+  "note": "put store failure silent"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (names.length !== 2 || !names.includes(\"expected\") || !isCredentialExpected(expected)) throw credentialRefusal(\"badExpected\");",
+  "new": "    if (!isCredentialExpected(expected ?? null)) throw credentialRefusal(\"badExpected\");",
+  "note": "expected optional, extras accepted"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!(await liveAssurance(deps.db, binding, deps.now()))) throw credentialRefusal(\"reauthenticate\");\n    if (!(await reserveCheck",
+  "new": "    if (!(await reserveCheck",
+  "note": "put checks before the assurance"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!(await reserveCheck(deps.db, orgId, deps.now()))) throw credentialRefusal(\"tooManyChecks\");\n",
+  "new": "",
+  "note": "put without the quota"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "      throw credentialRefusal(status === \"rejected\" || status === \"revoked\" ? \"rejected\" : \"checkUnavailable\");",
+  "new": "      throw credentialRefusal(status === \"rejected\" ? \"rejected\" : \"checkUnavailable\");",
+  "note": "revoked as unavailable"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (status !== \"ok\") {",
+  "new": "    if (status === \"rejected\") {",
+  "note": "an error check saves"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    } catch {\n      status = \"error\";\n    }",
+  "new": "    } catch {\n      status = \"ok\";\n    }",
+  "note": "a throwing check saves"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    const version = e ? e.version + 1 : 1;",
+  "new": "    const version = e ? e.version : 1;",
+  "note": "replace sealed for the old version"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "           WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`,\n          sealed.sealed,",
+  "new": "           WHERE ? IS NOT NULL AND provider = ? AND id = ? AND version = ?`,\n          sealed.sealed,",
+  "note": "replace without the org scope"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "           WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`,\n          sealed.sealed,",
+  "new": "           WHERE org_id = ? AND ? IS NOT NULL AND id = ? AND version = ?`,\n          sealed.sealed,",
+  "note": "replace without the provider scope"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "           WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`,\n          sealed.sealed,",
+  "new": "           WHERE org_id = ? AND provider = ? AND ? IS NOT NULL AND version = ?`,\n          sealed.sealed,",
+  "note": "replace without the id"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "           WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`,\n          sealed.sealed,",
+  "new": "           WHERE org_id = ? AND provider = ? AND id = ? AND ? IS NOT NULL`,\n          sealed.sealed,",
+  "note": "replace without the version"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "VALUES (?, ?, ?, 1, ?, ?, ?, ?, 'ok', ?, ?, ?) ON CONFLICT (org_id, provider) DO NOTHING`,",
+  "new": "VALUES (?, ?, ?, 1, ?, ?, ?, ?, 'ok', ?, ?, ?) ON CONFLICT (org_id, provider) DO UPDATE SET version = version + 1`,",
+  "note": "set over an existing key"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "       WHERE changes() = 1 AND org_id = ? AND provider = ? AND id = ? AND version = ?`,\n      e ? \"replace\"",
+  "new": "       WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`,\n      e ? \"replace\"",
+  "note": "put event unconditional"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!(await commit(deps.db, [...consumeAssurance(binding, at), swap, event]))) throw credentialRefusal(\"busy\");\n    const v =",
+  "new": "    if (!(await commit(deps.db, [...consumeAssurance(binding, at), swap, stmt(`INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`), event]))) throw credentialRefusal(\"busy\");\n    const v =",
+  "note": "put guard after the swap"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!isId(\"credential\", id) || version === null) throw credentialRefusal(\"badExpected\");",
+  "new": "    if (version === null) throw credentialRefusal(\"badExpected\");",
+  "note": "delete id unchecked"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!c) throw credentialRefusal(\"noKey\");",
+  "new": "    if (!c) throw credentialRefusal(\"busy\");",
+  "note": "no key as busy"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (c.id !== id || c.version !== version) throw credentialRefusal(\"busy\");\n",
+  "new": "",
+  "note": "delete ignores the listed key"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "`DELETE FROM provider_credentials WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`",
+  "new": "`DELETE FROM provider_credentials WHERE org_id = ? AND provider = ? AND id = ? AND ? IS NOT NULL`",
+  "note": "delete without the version"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "       SELECT ?, ?, ?, ?, 'remove', ?, NULL, ?, ? WHERE changes() = 1`,",
+  "new": "       SELECT ?, ?, ?, ?, 'remove', ?, NULL, ?, ? WHERE 1`,",
+  "note": "delete event unconditional"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!(await commit(deps.db, [...consumeAssurance(binding, at), swap, event]))) throw credentialRefusal(\"busy\");\n    return json(200, { removed: true });",
+  "new": "    if (!(await commit(deps.db, [...consumeAssurance(binding, at), swap, stmt(`INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`), event]))) throw credentialRefusal(\"busy\");\n    return json(200, { removed: true });",
+  "note": "delete guard after the swap"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    stmt(`UPDATE provider_credentials SET status = ?, last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`, status, nowMs,",
+  "new": "    stmt(`UPDATE provider_credentials SET status = ?, last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND ? IS NOT NULL`, status, nowMs,",
+  "note": "check without the version"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    stmt(`UPDATE provider_credentials SET status = ?, last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`, status, nowMs,",
+  "new": "    stmt(`UPDATE provider_credentials SET status = ?, last_checked_ms = ? WHERE ? IS NOT NULL AND provider = ? AND id = ? AND version = ?`, status, nowMs,",
+  "note": "check without the org scope"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    stmt(`UPDATE provider_credentials SET status = ?, last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ?`, status, nowMs,",
+  "new": "    stmt(`UPDATE provider_credentials SET status = ?, last_checked_ms = ? WHERE org_id = ? AND ? IS NOT NULL AND id = ? AND version = ?`, status, nowMs,",
+  "note": "check without the provider scope"
+ },
+ {
+  "file": "src/db.ts",
+  "old": "typeof r[i]?.meta?.changes === \"number\" ? r[i]!.meta!.changes! : -1",
+  "new": "typeof r[i]?.meta?.changes === \"number\" ? r[i]!.meta!.changes! : 1",
+  "note": "a missing count as a change"
+ },
+ {
+  "file": "src/db.ts",
+  "old": "      if (stmts.length === 0) return [];",
+  "new": "      if (stmts.length === 0) return [{ changes: 1 }];",
+  "note": "an empty batch reports a change"
+ },
+ {
+  "file": "src/testing/sqlite.ts",
+  "old": "        for (const s of stmts) out.push({ changes: Number(raw.prepare(s.sql).run(...s.params).changes) });",
+  "new": "        for (const s of stmts) out.push({ changes: Number(raw.prepare(s.sql).run(...s.params).changes) > 0 ? 1 : 1 });",
+  "note": "test db reports every statement changed"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  const keks = typeof env.CREDENTIAL_KEKS === \"string\" ? env.CREDENTIAL_KEKS : undefined;",
+  "new": "  const keks = undefined;",
+  "note": "KEKs not read from the environment"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "      try {\n        await deps.db.batch(consumeAssurance(binding, deps.now()));\n      } catch (err) {\n        throw credentialRefusal(err instanceof Error && GUARD.test(err.message) ? \"reauthenticate\" : \"checkUnavailable\");\n      }",
+  "new": "      await deps.db.batch(consumeAssurance(binding, deps.now())).catch(() => {});",
+  "note": "a failed use swallowed (the check's refusal anyway)"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "        throw credentialRefusal(err instanceof Error && GUARD.test(err.message) ? \"reauthenticate\" : \"checkUnavailable\");",
+  "new": "        throw credentialRefusal(\"rejected\");",
+  "note": "every failed use reported as rejected"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "        throw credentialRefusal(err instanceof Error && GUARD.test(err.message) ? \"reauthenticate\" : \"checkUnavailable\");",
+  "new": "        throw credentialRefusal(\"checkUnavailable\");",
+  "note": "a concurrent use reported as unavailable"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "        await deps.db.batch(consumeAssurance(binding, deps.now()));\n",
+  "new": "",
+  "note": "failed check keeps the assurance"
+ },
+ {
+  "file": "src/app.ts",
+  "old": ", putCredential: PUT_MAX_BODY_BYTES",
+  "new": "",
+  "note": "the PUT body cap dropped"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!(await reserveCheck(deps.db, orgId, deps.now()))) throw credentialRefusal(\"tooManyChecks\");",
+  "new": "    await reserveCheck(deps.db, orgId, deps.now());",
+  "note": "the quota reserved but its answer ignored"
  },
  {
   "file": "src/jobs.ts",

@@ -10,6 +10,7 @@ import type { AuthConfig } from "../auth.ts";
 import type { Fetch } from "../workos.ts";
 import type { VmProvider } from "../vm.ts";
 import type { ContainerDeps } from "../container.ts";
+import type { CredentialCheck } from "../credential-routes.ts";
 import type { AgentKeysSource, AgentSignerSource } from "../signer.ts";
 import { normalizeEmail } from "../validate.ts";
 import { stmt } from "../db.ts";
@@ -32,7 +33,7 @@ export interface World {
 }
 
 export async function world(
-  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch; vm?: VmProvider; container?: ContainerDeps; agentSigner?: AgentSignerSource; agentPublicKeys?: AgentKeysSource } = {},
+  o: { handlers?: Handlers; budget?: number; upgrade?: { at: string; seed(raw: DatabaseSync): void }; auth?: AuthConfig; fetch?: Fetch; vm?: VmProvider; container?: ContainerDeps; agentSigner?: AgentSignerSource; agentPublicKeys?: AgentKeysSource; credentialCheck?: CredentialCheck; credentialSecrets?: { keks?: string; fingerprintKey?: string } } = {},
 ): Promise<World> {
   const db = sqliteDb(o.upgrade ? { upgrade: o.upgrade } : {});
   const pending: Promise<unknown>[] = [];
@@ -48,7 +49,12 @@ export async function world(
       for (let i = 0; i < n; i++) b[i] = (counter * 31 + i * 7 + (counter >> 8)) & 255;
       return b;
     },
-    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: o.auth ?? null, installation: "test", containerLaunch: null },
+    config: {
+      ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: o.auth ?? null, installation: "test", containerLaunch: null,
+      ...(o.credentialSecrets?.keks !== undefined ? { credentialKeks: o.credentialSecrets.keks } : {}),
+      ...(o.credentialSecrets?.fingerprintKey !== undefined ? { credentialFingerprintKey: o.credentialSecrets.fingerprintKey } : {}),
+    },
+    credentialCheck: o.credentialCheck ?? null,
     vm: o.vm ?? null,
     container: o.container ?? null,
     fetch:

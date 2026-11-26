@@ -71,6 +71,7 @@ async function world(handlers?: Handlers): Promise<World> {
     agentSigner: async () => null,
     agentPublicKeys: async () => null,
     alert: () => {},
+    credentialCheck: null,
   };
   const orgId = newId("org");
   const projectId = newId("project");
