@@ -255,3 +255,27 @@ test("meter card: a low allocation says so", () => {
   assert.match(out, /Remaining \$1\.50 .* Running low\./);
   assert.doesNotMatch(out, /used up/);
 });
+
+test("a start that never came up says so on its card, with what it cost, and offers no stop", async () => {
+  const { demo, store } = await memberStore();
+  await store.start("L4");
+  demo.backend.advance(30_000);
+  const id = store.machines.value[0]!.id;
+  demo.backend.failStart(id, "podExited");
+  assert.throws(() => demo.backend.failStart(id, "createDeadline"), /only a starting machine fails to start \(this one is failed\)/);
+  const spent = demo.backend.machines.get(id)!.m.spent.total;
+  demo.backend.advance(10 * MIN); // (nothing more is charged)
+  assert.equal(demo.backend.machines.get(id)!.m.spent.total, spent);
+  await store.refresh();
+  const t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
+  assert.match(t, /1× L4 Didn't start/);
+  assert.match(t, /The machine didn't start: it stopped on its own before it was ready\. It cost \$0\.01 while it was starting, and nothing after that\. You can start a new one\./);
+  assert.match(t, /Delete/);
+  assert.doesNotMatch(t, /Stop\b|Start again/);
+  // stopped through the API anyway, then started again: the new start has no start failure
+  demo.backend.request("POST", `/v1/machines/${id}/stop`, {}, {});
+  demo.backend.advance(MIN);
+  assert.equal(demo.backend.machines.get(id)!.m.state, "stopped");
+  demo.backend.request("POST", `/v1/machines/${id}/start`, {}, {});
+  assert.deepEqual([demo.backend.machines.get(id)!.m.state, demo.backend.machines.get(id)!.m.startFailure], ["starting", null]);
+});

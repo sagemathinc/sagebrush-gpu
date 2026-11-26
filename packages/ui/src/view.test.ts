@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MACHINE_STATES, QUOTE_REFUSALS, STOP_REASONS, type Machine, type SpendMeter } from "@sbgpu/api";
 import { MACHINE_DOMAIN, TEST_MACHINE_DOMAIN } from "./config.ts";
 import { capitalize, GENERIC_LABELS, plural, resolveLabels, withArticle } from "./labels.ts";
-import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, pausedStartText, pauseView, refusalText, savePercent, STORAGE_NEAR_FRACTION, stopReasonText, storageLevel, storageWarning } from "./view.ts";
+import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, pausedStartText, pauseView, refusalText, savePercent, START_FAILURE_WORDS, startFailureText, STORAGE_NEAR_FRACTION, stopReasonText, storageLevel, storageWarning } from "./view.ts";
 
 const COURSE = resolveLabels({ project: "course", member: "student", manager: "instructor", assistant: "TA", team: "group" });
 
@@ -22,6 +22,7 @@ export function machine(over: Partial<Machine> = {}): Machine {
     incarnation: 1,
     stopReason: null,
     finalSaveIncomplete: false,
+    startFailure: null,
     save: { state: "idle", lastSavedAt: null, progress: null, error: null, snapshotId: null },
     spent: { providerCost: 0, margin: 0, total: 0 },
     createdAt: "2027-02-01T09:00:00.000Z",
@@ -250,4 +251,21 @@ test("storage levels: near from 90% of the quota, full at or over it (or with no
   assert.equal(storageWarning("ok", COURSE), null);
   assert.equal(storageWarning("near", COURSE), "Storage is nearly full. Delete files you don't need, or ask an instructor to raise the limit.");
   assert.equal(storageWarning("full", GENERIC_LABELS), "Storage is full: your workspace can't grow until you delete files or a manager raises the limit.");
+});
+
+test("a start that never came up: its own label, why in plain words, what it cost, and nothing to stop", () => {
+  const spent = { providerCost: 8_000, margin: 2_400, total: 10_400 };
+  const deadline = machine({ state: "failed", startFailure: "createDeadline", spent, startedAt: null });
+  const exited = machine({ state: "failed", startFailure: "podExited", spent, startedAt: null });
+  const lost = machine({ state: "failed", stopReason: "provider" });
+  assert.equal(machineStateLabel(deadline), "Didn't start");
+  assert.equal(machineStateLabel(exited), "Didn't start");
+  assert.equal(machineStateLabel(lost), "Failed");
+  assert.equal(startFailureText(deadline), "The machine didn't start: the provider didn't have it ready in time. It cost $0.01 while it was starting, and nothing after that. You can start a new one.");
+  assert.equal(startFailureText(exited), "The machine didn't start: it stopped on its own before it was ready. It cost $0.01 while it was starting, and nothing after that. You can start a new one.");
+  assert.equal(startFailureText(lost), null);
+  assert.equal(startFailureText(machine()), null);
+  assert.deepEqual(START_FAILURE_WORDS, { createDeadline: "the provider didn't have it ready in time", podExited: "it stopped on its own before it was ready" });
+  assert.deepEqual([machineActions(deadline).stop, machineActions(deadline).delete, machineActions(deadline).restart], [false, true, false]);
+  assert.deepEqual([machineActions(lost).stop, machineActions(lost).delete], [true, true], "a machine that failed later may still need stopping");
 });
