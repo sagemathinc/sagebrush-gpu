@@ -18,8 +18,8 @@ test("the database refuses a 'vast' row in every table with a provider column", 
       (p) =>
         db.raw
           .prepare(
-            `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms)
-             VALUES (?, 'prj_x', 'alc_x', 'mem_x', ?, 'L4', 1, 'machine-4242', 'starting', 0)`,
+            `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms)
+             VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, 'prj_x', 'alc_x', 'mem_x', ?, 'L4', 1, 'machine-4242', 'starting', 0)`,
           )
           .run(`mch_${p}`, p),
     ],

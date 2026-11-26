@@ -487,7 +487,7 @@ async function launchIn(db: Db, orgId: string, account: "platform" | "org") {
   await db.batch([
     project(p, orgId),
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, a, p, T0),
-    stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms) VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', 1, ?)`, m, p, a, T0),
+    stmt(`INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms) VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', 1, ?)`, m, p, a, T0),
     stmt(
       `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, account_kind, account_org_id, outcome, next_ms, created_ms)
        VALUES (?, 1, 'container', 'runpod', ?, ?, ?, ?, 'creating', ?, ?)`,
