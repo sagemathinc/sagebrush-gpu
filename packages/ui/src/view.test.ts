@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MACHINE_STATES, QUOTE_REFUSALS, STOP_REASONS, type Machine, type SpendMeter } from "@sbgpu/api";
 import { MACHINE_DOMAIN, TEST_MACHINE_DOMAIN } from "./config.ts";
 import { capitalize, GENERIC_LABELS, plural, resolveLabels, withArticle } from "./labels.ts";
-import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, pausedStartText, pauseView, refusalText, savePercent, stopReasonText } from "./view.ts";
+import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, pausedStartText, pauseView, refusalText, savePercent, STORAGE_NEAR_FRACTION, stopReasonText, storageLevel, storageWarning } from "./view.ts";
 
 const COURSE = resolveLabels({ project: "course", member: "student", manager: "instructor", assistant: "TA", team: "group" });
 
@@ -233,4 +233,21 @@ test("a paused provider: the refusal and the refused start name it; the banner's
   assert.equal(pauseView({ provider: "runpod", since: pause.since }, true, now).reason, null);
   assert.equal(pauseView({ ...pause, detail: { status: "revoked", lastCheckedAt: null } }, true, now).reason, "The organization's RunPod key was revoked at the provider; not checked since.");
   assert.equal(pauseView({ ...pause, detail: { status: "error", lastCheckedAt: pause.since } }, true, now).reason, "The organization's RunPod key couldn't be checked; last checked 10 min ago.");
+});
+
+test("storage levels: near from 90% of the quota, full at or over it (or with no quota); the meter's warnings", () => {
+  const q = 50 * 1024 ** 3;
+  assert.equal(STORAGE_NEAR_FRACTION, 0.9);
+  assert.equal(storageLevel(0, q), "ok");
+  assert.equal(storageLevel(0.9 * q - 1, q), "ok");
+  assert.equal(storageLevel(0.9 * q, q), "near");
+  assert.equal(storageLevel(q - 1, q), "near");
+  assert.equal(storageLevel(q, q), "full");
+  assert.equal(storageLevel(q + 1, q), "full");
+  assert.equal(storageLevel(0, 0), "full", "a quota of 0 has no room");
+  assert.equal(storageLevel(10, 100), "ok");
+  assert.equal(storageLevel(90, 100), "near");
+  assert.equal(storageWarning("ok", COURSE), null);
+  assert.equal(storageWarning("near", COURSE), "Storage is nearly full. Delete files you don't need, or ask an instructor to raise the limit.");
+  assert.equal(storageWarning("full", GENERIC_LABELS), "Storage is full: your workspace can't grow until you delete files or a manager raises the limit.");
 });

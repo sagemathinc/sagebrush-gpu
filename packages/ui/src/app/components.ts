@@ -5,10 +5,10 @@ import type { ComponentChildren, VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.ts";
 import type { BillingMode, Machine, PriceListItem, ProjectLabels, Quote, SignInOutcome, SpendMeter } from "@sbgpu/api";
-import { capitalize, withArticle } from "../labels.ts";
+import { capitalize, GENERIC_LABELS, withArticle } from "../labels.ts";
 import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
-import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, stopReasonText } from "../view.ts";
+import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, stopReasonText, storageWarning } from "../view.ts";
 import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
@@ -124,8 +124,21 @@ export function Home({ store, nav }: { store: Store; nav: Nav }): VNode {
 
 // ---------------------------------------------------------------- spend meter
 
-export function MeterCard({ title, meter, now, mode = "resold" }: { title: string; meter: SpendMeter; now: number; mode?: BillingMode }): VNode {
+export function MeterCard({
+  title,
+  meter,
+  now,
+  mode = "resold",
+  labels = GENERIC_LABELS,
+}: {
+  title: string;
+  meter: SpendMeter;
+  now: number;
+  mode?: BillingMode;
+  labels?: ProjectLabels;
+}): VNode {
   const v = meterView(meter, mode);
+  const storageNote = storageWarning(v.storageLevel, labels);
   return html`<section class=${`card meter band-${v.band}`} aria-label=${title}>
     <h2>${title}</h2>
     <div class="bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${v.usedPercent}
@@ -144,6 +157,7 @@ export function MeterCard({ title, meter, now, mode = "resold" }: { title: strin
       : v.band === "critical" || v.band === "low"
         ? html`<p class="warn">Running low.</p>`
         : null}
+    ${storageNote ? html`<p class=${`warn storage-${v.storageLevel}`} role="status">${storageNote}</p>` : null}
     <p class="muted small">Updated ${ago(meter.asOf, now)}.${v.reserved ? " While a machine runs, enough is held back for its final save." : ""}</p>
   </section>`;
 }
@@ -308,8 +322,8 @@ export function ProjectPage({ store, projectId, timers, nav }: { store: Store; p
       ${nav && store.isStaff.value ? html`<${Link} nav=${nav} to=${{ name: "manage", projectId }}>Manage this ${labels.project}<//>` : null}
     </header>
     <div class="grid">
-      ${mine ? html`<${MeterCard} title="Your allocation" meter=${mine} now=${now} mode=${store.billingMode.value} />` : null}
-      ${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`} meter=${team} now=${now} mode=${store.billingMode.value} />` : null}
+      ${mine ? html`<${MeterCard} title="Your allocation" meter=${mine} now=${now} mode=${store.billingMode.value} labels=${labels} />` : null}
+      ${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`} meter=${team} now=${now} mode=${store.billingMode.value} labels=${labels} />` : null}
     </div>
     <${PauseBanner} store=${store} nav=${nav} />
     <${StartPanel} store=${store} />

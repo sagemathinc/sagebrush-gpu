@@ -10,8 +10,8 @@ import { capitalize, plural } from "../labels.ts";
 import { bulkPlan, csvFilename, filterRows, invitePreview, memberRows, sortRows, teamRows, type MemberRow, type SortKey } from "../manage.ts";
 import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, parseUsd } from "../money.ts";
-import { formatBytes, machineStateLabel } from "../view.ts";
-import { Link, useProjectLoad, type Nav } from "./components.ts";
+import { formatBytes, machineStateLabel, storageLevel } from "../view.ts";
+import { Link, PauseBanner, useProjectLoad, type Nav } from "./components.ts";
 import { html } from "./html.ts";
 import type { PollTimers } from "./polling.ts";
 import { SettingsSection } from "./settings-section.ts";
@@ -163,7 +163,7 @@ function MembersTable({ store }: { store: Store }): VNode {
             <td>${formatUsd(r.spent)}</td>
             <td>${formatUsd(r.remaining)}</td>
             <td>${r.running}</td>
-            <td>${formatBytes(r.storageBytes)}</td>
+            <${StorageCell} row=${r} />
             ${canManage
               ? html`<td>${removable(r) ? html`<button class="link danger" disabled=${store.isBusy(`removeMember:${r.memberId}`)} onClick=${() => remove(r)}>Remove</button>` : null}</td>`
               : null}
@@ -173,6 +173,16 @@ function MembersTable({ store }: { store: Store }): VNode {
     </table>
     ${canManage && selected.size > 0 ? html`<${BulkBar} store=${store} rows=${all} selected=${selected} onDone=${() => setSelected(new Set())} />` : null}
   </section>`;
+}
+
+/** A member's storage: used of quota, flagged when nearly full (90%) or full. */
+function StorageCell({ row }: { row: MemberRow }): VNode {
+  const quota = row.storageQuotaBytes;
+  const level = quota == null ? "ok" : storageLevel(row.storageBytes, quota);
+  return html`<td class=${level === "ok" ? undefined : `storage-${level}`}>
+    ${formatBytes(row.storageBytes)}${quota == null ? null : ` of ${formatBytes(quota)}`}
+    ${level === "near" ? html` <span class="badge warn">nearly full</span>` : level === "full" ? html` <span class="badge danger">full</span>` : null}
+  </td>`;
 }
 
 function BulkBar({ store, rows, selected, onDone }: { store: Store; rows: MemberRow[]; selected: ReadonlySet<string>; onDone: () => void }): VNode | null {
@@ -292,6 +302,7 @@ export function ManagePage({ store, projectId, timers, nav }: { store: Store; pr
         : html`<span class="badge">${`${capitalize(plural(labels.assistant))} can stop machines (saving first); only ${plural(labels.manager)} change allocations and invites.`}</span>`}
       <${Link} nav=${nav} to=${{ name: "project", projectId }}>Your own view<//>
     </header>
+    <${PauseBanner} store=${store} nav=${nav} />
     <${Summary} store=${store} />
     <${MembersTable} store=${store} />
     <${TeamsSection} store=${store} />
