@@ -1,7 +1,7 @@
 // The launcher, run for real: /bin/sh against a local https server, with a prefix directory standing in for /.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
@@ -10,8 +10,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 
-import { BOOT_SCRIPT_VECTOR, BOOT_TOKEN_ENV, bootScriptSha256, ENV_COPY_ALLOWLIST, ENV_FIXED, renderBootCommand, renderBootScript, renderProbePrologue } from "./boot.ts";
-import { PROBE_PROLOGUE_SH } from "./bootstrap-script.ts";
+import { BOOT_SCRIPT_VECTOR, BOOT_TOKEN_ENV, bootScriptSha256, ENV_COPY_ALLOWLIST, ENV_FIXED, renderBootCommand, renderBootScript, renderProbePrologue, VM_HEADER } from "./boot.ts";
+import { BOOTSTRAP_SH, PROBE_PROLOGUE_SH } from "./bootstrap-script.ts";
 
 const TOKEN = "A".repeat(20) + "b-_" + "9".repeat(20); // 43 base64url characters
 const KEY = "rpa_TESTKEY0123456789"; // stands in for RunPod's injected key
@@ -411,4 +411,24 @@ test("vm mode: the machine id and nonce, required there and refused elsewhere; t
     assert.throws(() => renderBootScript({ ...container, ...extra }), /vm mode only/);
   }
   assert.ok(!renderBootScript(container).includes("SBGPU_MACHINE_ID") && !renderBootScript(container).includes("SBGPU_NONCE"));
+});
+
+test("vm mode: the two protections come first, ahead of every value; container mode is unchanged", () => {
+  assert.equal(VM_HEADER,
+    `umask 077 && [ "$(umask)" = 0077 ] || { echo 'SBGPU-BOOT {"v":1,"ok":false,"step":"limits","fail":["limits"]}' >&2; exit 2; }\n` +
+    `ulimit -c 0 && [ "$(ulimit -c)" = 0 ] || { echo 'SBGPU-BOOT {"v":1,"ok":false,"step":"limits","fail":["limits"]}' >&2; exit 2; }\n`);
+  const v = BOOT_SCRIPT_VECTOR.values;
+  assert.equal(renderBootScript(v),
+    "#!/bin/sh\n" + VM_HEADER + `SBGPU_AGENT_URL='${v.agentUrl}'\nSBGPU_AGENT_SHA256='${v.agentSha256}'\nSBGPU_CONTROL_URL='${v.controlUrl}'\n` +
+    `SBGPU_MODE='vm'\nSBGPU_MACHINE_ID='${v.machineId}'\nSBGPU_NONCE='${v.nonce}'\nSBGPU_PREFIX=''\n` + BOOTSTRAP_SH);
+  const { machineId: _m, nonce: _n, ...base } = v;
+  assert.ok(renderBootScript({ ...base, mode: "container" }).startsWith("#!/bin/sh\nSBGPU_AGENT_URL='"));
+});
+
+test("vm mode stays unreachable: the rendered VM script runs bootstrap.sh, which refuses it before anything", () => {
+  const prefix = mkdtempSync(join(root, "unreachable-"));
+  const r = spawnSync("/bin/sh", ["-c", renderBootScript(BOOT_SCRIPT_VECTOR.values, { prefix })], { encoding: "utf8", env: { PATH: process.env.PATH } });
+  assert.equal(r.status, 2);
+  assert.equal(r.stderr, "sbgpu-boot: vm mode is not built yet\n");
+  assert.deepEqual(readdirSync(prefix), []);
 });

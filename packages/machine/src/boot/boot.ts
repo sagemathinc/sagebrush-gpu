@@ -58,8 +58,18 @@ function check(v: BootValues): void {
   }
 }
 
+/**
+ * VM mode's first two lines, ahead of the values, so they run before the nonce is even assigned (the launcher's design,
+ * H1 and H3): a 077 umask and no core files, each read back, or the boot stops with `limits`.
+ */
+export const VM_HEADER =
+  `umask 077 && [ "$(umask)" = 0077 ] || { echo 'SBGPU-BOOT {"v":1,"ok":false,"step":"limits","fail":["limits"]}' >&2; exit 2; }\n` +
+  `ulimit -c 0 && [ "$(ulimit -c)" = 0 ] || { echo 'SBGPU-BOOT {"v":1,"ok":false,"step":"limits","fail":["limits"]}' >&2; exit 2; }\n`;
+
 /** The whole launcher script with its values.  The options are for tests only: `prefix`, a directory standing in
- * for /, and `body`, the script's text read from bootstrap.sh itself (so a mutant of the .sh is what runs). */
+ * for /, and `body`, the script's text read from bootstrap.sh itself (so a mutant of the .sh is what runs).  VM mode's
+ * body is still bootstrap.sh, which refuses it: vm-launcher.sh (VM_LAUNCHER_SH) is reached only by tests, as `body`,
+ * until VM mode is reviewed as a whole. */
 export function renderBootScript(v: BootValues, opts: { prefix?: string; body?: string } = {}): string {
   check(v);
   const prefix = opts.prefix ?? "";
@@ -69,6 +79,7 @@ export function renderBootScript(v: BootValues, opts: { prefix?: string; body?: 
   // Every value matched a pattern without quotes, so single quotes hold it exactly.
   return (
     "#!/bin/sh\n" +
+    (v.mode === "vm" ? VM_HEADER : "") +
     `SBGPU_AGENT_URL='${v.agentUrl}'\n` +
     `SBGPU_AGENT_SHA256='${v.agentSha256}'\n` +
     `SBGPU_CONTROL_URL='${v.controlUrl}'\n` +
@@ -103,7 +114,7 @@ export const BOOT_SCRIPT_VECTOR = Object.freeze({
     machineId: "mch_0123456789abcdefghjk",
     nonce: "AAAAAAAAAAAAAAAAAAAAAA",
   } as const),
-  sha256: "0c04dcc413a4a04f796f0a3cac34a2454910aa06fa8d3f88b80397d3b328604a",
+  sha256: "6ca41a78c5cb14c0fc58536b742f1446f652d6a545ca081c2ec32efa8523e7e5",
 });
 
 /** What a provider adapter launches with: the container's entrypoint (the launcher runs as PID 1), or a VM's
