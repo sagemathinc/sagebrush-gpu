@@ -28,9 +28,11 @@ import http.client
 import json
 import os
 import re
+import socket
 import ssl
 import stat
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -56,7 +58,31 @@ EXIT_LOCAL = 2
 EXIT_ANNOUNCE = 3
 
 wall_s = time.time  # (the one wall-clock read: the token's freshness when it arrives)
-HTTPS = http.client.HTTPSConnection
+RESOLVE_SLICE_S = 0.05  # (how often a wait for the resolver looks at CLOCK_BOOTTIME again)
+
+
+class PinnedHTTPS(http.client.HTTPSConnection):
+    """An HTTPSConnection to an address resolved beforehand (resolve()), so its connect does no name lookup of its own.
+    The TLS server name, the certificate's name check and the Host header are still the URL's host."""
+
+    def __init__(self, host, port, addr, timeout, context):
+        http.client.HTTPSConnection.__init__(self, host, port, timeout=timeout, context=context)
+        self.addr = addr  # (family, sockaddr)
+        self.tls = context
+
+    def connect(self):
+        family, sockaddr = self.addr
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(self.timeout)
+            sock.connect(sockaddr)
+            self.sock = self.tls.wrap_socket(sock, server_hostname=self.host)  # (the handshake, under the timeout)
+        except BaseException:
+            sock.close()
+            raise
+
+
+HTTPS = PinnedHTTPS
 
 
 def tls():
@@ -111,12 +137,38 @@ def _no_dups(pairs):
 
 
 # ---- the one POST
+def resolve(host, port, deadline):
+    """(family, sockaddr): the first TCP address getaddrinfo gives for host:port.  The lookup runs in a daemon thread;
+    this waits for it in slices of at most RESOLVE_SLICE_S, reading CLOCK_BOOTTIME after each, and at `deadline` it
+    abandons the lookup (Late): nothing connects to anything it answers later."""
+    box = {}
+    done = threading.Event()
+
+    def lookup():
+        try:
+            box["addrs"] = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+        except BaseException as e:  # (any failure is reported to the waiter, never raised in the thread)
+            box["error"] = e
+        finally:
+            done.set()
+    threading.Thread(target=lookup, daemon=True).start()
+    while not done.wait(max(0.0, min(RESOLVE_SLICE_S, (deadline - boottime.boottime_ms()) / 1000))):
+        check(deadline)
+    check(deadline)  # (an answer that arrives at or past the deadline is not used)
+    if "error" in box:
+        raise Refused("dns")
+    family, _, _, _, sockaddr = box["addrs"][0]  # (no address at all: an IndexError, which refuses too)
+    return family, sockaddr
+
+
 def post(url, headers, body, deadline, cap):
     """(status, body, CLOCK_BOOTTIME ms when the status arrived) of one https POST; no redirect is followed (a 3xx is
-    just a status).  Every blocking call (the connect with its TLS handshake, sending the request, reading the status
-    and headers, each read of the body, its EOF included) runs through bounded(): its socket timeout is the time left
-    to `deadline` (none left: Late, and the call isn't made), and a call that returns at or past `deadline` is Late.
-    So the whole request is bounded by it.  At most cap + 1 bytes of the body are read."""
+    just a status).  The host's address is resolved first, by resolve(), which gives up at `deadline` however long
+    the resolver takes, and the connection goes to that address.  Every blocking call after it (the connect with its
+    TLS handshake, sending the request, reading the status and headers, each read of the body, its EOF included) runs
+    through bounded(): its socket timeout is the time left to `deadline` (none left: Late, and the call isn't made),
+    and a call that returns at or past `deadline` is Late.  So the whole request is bounded by it.  At most cap + 1
+    bytes of the body are read."""
     u = urllib.parse.urlsplit(url)
     if u.scheme != "https" or not u.hostname or u.query or u.fragment:
         raise Refused("url")
@@ -127,7 +179,8 @@ def post(url, headers, body, deadline, cap):
             raise Late()
         return ms / 1000
 
-    conn = HTTPS(u.hostname, u.port or 443, timeout=timeout(), context=tls())
+    addr = resolve(u.hostname, u.port or 443, deadline)
+    conn = HTTPS(u.hostname, u.port or 443, addr, timeout=timeout(), context=tls())
 
     def bounded(call):
         if conn.sock is None:

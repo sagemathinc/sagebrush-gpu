@@ -6,10 +6,12 @@ import hashlib
 import io
 import json
 import os
+import socket
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -31,6 +33,32 @@ NOW = 1_800_000_000.0  # the wall clock, epoch seconds
 
 def iso(t):
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(int(t))) + ".%03dZ" % round((t - int(t)) * 1000)
+
+
+ADDR = (socket.AF_INET, ("192.0.2.7", 443))
+
+
+def fake_getaddrinfo(host, port, family=0, type=0, *rest):
+    """The stub resolver: every name is 192.0.2.7 (a documentation address)."""
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.7", port))]
+
+
+class HeldResolver:
+    """A resolver held while CLOCK_BOOTTIME moves to `at` (a suspend, or just a slow resolver): it moves the clock,
+    then answers only when released (or at once, with release=True)."""
+
+    def __init__(self, clock, at, release=False, answer=fake_getaddrinfo):
+        self.clock, self.at, self.answer = clock, at, answer
+        self.go = threading.Event()
+        self.calls = []
+        if release:
+            self.go.set()
+
+    def __call__(self, host, port, *rest):
+        self.calls.append((host, port))
+        self.clock.ms = self.at
+        self.go.wait(30)
+        return self.answer(host, port, *rest)
 
 
 class Clock:
@@ -75,13 +103,15 @@ class Server:
         self.on_connect = None  # (each called as that call returns: a test moves the clock there)
         self.on_request = None
         self.chunk = 1000  # (bytes per read of the body)
+        self.addrs = []  # (the resolved address each connection was given)
         self.on_response = None  # (called as the status arrives: a test moves the clock here)
 
     def issue(self, life=120.0, token=TOKEN):
         self.body = json.dumps({"bootToken": token, "expiresAt": iso(NOW + life)}).encode()
 
-    def factory(self, host, port, timeout, context):
+    def factory(self, host, port, addr, timeout, context):
         server = self
+        self.addrs.append(addr)
 
         class Conn:
             def __init__(self):
@@ -198,7 +228,8 @@ class Base(unittest.TestCase):
         self.server = Server(clock=self.clock)
         self.server.issue()
         for target, value in ((boottime, ("boottime_ms", self.clock)), (B, ("HTTPS", self.server.factory)),
-                              (B, ("wall_s", lambda: NOW)), (B, ("undumpable", lambda: None))):
+                              (B, ("wall_s", lambda: NOW)), (B, ("undumpable", lambda: None)),
+                              (socket, ("getaddrinfo", fake_getaddrinfo))):
             p = mock.patch.object(target, value[0], value[1])
             p.start()
             self.addCleanup(p.stop)
@@ -210,6 +241,37 @@ class Base(unittest.TestCase):
         out = io.StringIO()
         code = B.announce(self.root, url, MACHINE, SCRIPT_SHA, AGENT_SHA, io.BytesIO(nonce.encode()), out)
         return code, out.getvalue()
+
+
+class TestPinnedHTTPS(unittest.TestCase):
+    """The connection goes to the resolved address, with the URL's host as the TLS server name and the Host header."""
+
+    def test_connect_and_names(self):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+        port = listener.getsockname()[1]
+        wrapped = []
+
+        class Plain:  # (stands in for the TLS context: records the server name, leaves the socket plain)
+            def wrap_socket(self, sock, server_hostname=None):
+                wrapped.append(server_hostname)
+                return sock
+        with mock.patch.object(socket, "getaddrinfo", mock.Mock(side_effect=AssertionError("no lookup in connect"))):
+            conn = B.PinnedHTTPS("control.example.com", 8443, (socket.AF_INET, ("127.0.0.1", port)), 5, Plain())
+            conn.connect()
+            conn.request("POST", "/v1/agent/announce", body=b"{}", headers={})
+        peer, _ = listener.accept()
+        self.addCleanup(peer.close)
+        self.addCleanup(conn.close)
+        peer.settimeout(5)
+        data = b""
+        while b"\r\n\r\n" not in data:
+            data += peer.recv(4096)
+        self.assertEqual(wrapped, ["control.example.com"])
+        self.assertIn(b"\r\nHost: control.example.com:8443\r\n", data)
+        self.assertEqual(conn.sock.getpeername(), ("127.0.0.1", port))
 
 
 class TestClock(unittest.TestCase):
@@ -389,6 +451,71 @@ class TestAnnounce(Base):
                 if want == 3:
                     self.assertEqual(out, "", (call, delta))
                     self.assertFalse(os.path.exists(self.root + "/run/sbgpu"), (call, delta))
+
+    def test_the_connection_goes_to_the_resolved_address(self):
+        self.assertEqual(self.announce()[0], 0)
+        self.assertEqual(self.server.addrs, [ADDR])
+
+    def test_a_held_resolver_is_abandoned_at_the_deadline(self):
+        """H2: the lookup held while BOOTTIME reaches the budget, or 1 ms past it: post gives up at once (it doesn't
+        wait for the resolver), and nothing connects or is sent.  1 ms before it, the announce goes on."""
+        for delta, want in ((30_000, 3), (30_001, 3), (29_999, 0)):
+            self.tearDown()
+            self.root = make_root()
+            self.clock.ms = T0
+            held = HeldResolver(self.clock, T0 + delta, release=(want == 0))
+            self.addCleanup(held.go.set)
+            started = time.monotonic()
+            with mock.patch.object(socket, "getaddrinfo", held):
+                code, out = self.announce()
+            self.assertEqual(code, want, delta)
+            self.assertEqual(held.calls, [("control.example.com", 443)])
+            if want == 3:
+                self.assertLess(time.monotonic() - started, 5, "post waited for the held resolver")
+                self.assertEqual((out, self.server.conns, self.server.requests), ("", [], []), delta)
+                self.assertFalse(os.path.exists(self.root + "/run/sbgpu"))
+            held.go.set()
+
+    def test_the_wait_looks_at_the_clock_while_the_resolver_is_held(self):
+        """The resolver is held; 0.2 s into it, BOOTTIME crosses the deadline (a suspend, say).  resolve() notices
+        within a slice and gives up: it doesn't wait for the answer, nor for the time it thought was left."""
+        go = threading.Event()
+        self.addCleanup(go.set)
+
+        def slow(host, port, *rest):
+            time.sleep(0.2)
+            self.clock.ms = T0 + 30_000
+            go.wait(30)
+            return fake_getaddrinfo(host, port)
+        started = time.monotonic()
+        with mock.patch.object(socket, "getaddrinfo", slow), self.assertRaises(B.Late):
+            B.resolve("control.example.com", 443, T0 + 30_000)
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_resolve_refuses_an_answer_given_at_the_deadline(self):
+        for delta, late in ((30_000, True), (30_001, True), (29_999, False)):
+            self.clock.ms = T0
+            with mock.patch.object(socket, "getaddrinfo", HeldResolver(self.clock, T0 + delta, release=True)):
+                if late:
+                    with self.assertRaises(B.Late, msg=delta):
+                        B.resolve("control.example.com", 443, T0 + 30_000)
+                else:
+                    self.assertEqual(B.resolve("control.example.com", 443, T0 + 30_000), ADDR)
+
+    def test_an_answer_at_the_deadline_is_not_used(self):
+        for delta in (30_000, 30_001):
+            self.clock.ms = T0
+            with mock.patch.object(socket, "getaddrinfo", HeldResolver(self.clock, T0 + delta, release=True)):
+                self.assertEqual(self.announce(), (3, ""))
+        self.assertEqual(self.server.conns, [])
+
+    def test_no_address_or_a_failed_lookup(self):
+        def fails(*a):
+            raise socket.gaierror("no such name")
+        for resolver in (fails, lambda *a: []):
+            with mock.patch.object(socket, "getaddrinfo", resolver):
+                self.assertEqual(self.announce(), (3, ""))
+        self.assertEqual(self.server.conns, [])
 
     def test_no_time_left_makes_no_call(self):
         self.clock.ms = T0

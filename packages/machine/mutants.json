@@ -3238,5 +3238,35 @@
   "old": "            conn.sock.settimeout(timeout())\n",
   "new": "            pass\n",
   "note": "PR C: a blocking call's socket timeout not the time left"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    check(deadline)  # (an answer that arrives at or past the deadline is not used)\n",
+  "new": "",
+  "note": "PR C: resolve: an answer at or past the deadline used"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "RESOLVE_SLICE_S = 0.05",
+  "new": "RESOLVE_SLICE_S = 60",
+  "note": "PR C: resolve: waits a whole slice longer than the clock allows"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    while not done.wait(max(0.0, min(RESOLVE_SLICE_S, (deadline - boottime.boottime_ms()) / 1000))):\n        check(deadline)\n",
+  "new": "    while not done.wait(max(0.0, min(RESOLVE_SLICE_S, (deadline - boottime.boottime_ms()) / 1000))):\n        pass\n",
+  "note": "PR C: resolve: no check while waiting"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            self.sock = self.tls.wrap_socket(sock, server_hostname=self.host)",
+  "new": "            self.sock = self.tls.wrap_socket(sock, server_hostname=None)",
+  "note": "PR C: pinned: no TLS server name"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "    addr = resolve(u.hostname, u.port or 443, deadline)\n",
+  "new": "    addr = (socket.AF_INET, (u.hostname, u.port or 443))\n",
+  "note": "PR C: post: no bounded resolution"
  }
 ]

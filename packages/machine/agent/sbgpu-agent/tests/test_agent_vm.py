@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sbgpu_agent import boottime, main, vmboot  # noqa: E402
 from sbgpu_agent.control import ControlError  # noqa: E402
 from test_agent import ENROLLED, FakeControl, no_gpu  # noqa: E402
-from test_vmboot import CALLS, Clock, Server, returning_at  # noqa: E402
+from test_vmboot import CALLS, Clock, HeldResolver, Server, fake_getaddrinfo, returning_at  # noqa: E402
+import socket  # noqa: E402
 
 TOKEN = "A" * 20 + "b-_" + "9" * 20
 T0 = 5_000_000
@@ -128,6 +129,9 @@ class TestEnroll(VmTest):
             self.assertEqual(len(control.calls), 1, answer)
 
     def test_the_real_transport_is_bounded_by_its_timeout(self):
+        p = mock.patch.object(socket, "getaddrinfo", fake_getaddrinfo)
+        p.start()
+        self.addCleanup(p.stop)
         server = Server(status=200, body=json.dumps(ENROLLED).encode())
         with mock.patch.object(vmboot, "HTTPS", server.factory):
             self.assertEqual(main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5),
@@ -151,6 +155,20 @@ class TestEnroll(VmTest):
                             main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)
                     else:
                         self.assertEqual(main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)[0], 200)
+        # (H2: the lookup held at the timeout, or 1 ms past it: abandoned there, nothing connects; 1 ms before, it goes on)
+        for at, late in ((T0 + 7_500, True), (T0 + 7_501, True), (T0 + 7_499, False)):
+            self.clock.ms = T0
+            held = HeldResolver(self.clock, at, release=not late)
+            self.addCleanup(held.go.set)
+            before = len(server.conns)
+            with mock.patch.object(vmboot, "HTTPS", server.factory), mock.patch.object(socket, "getaddrinfo", held):
+                if late:
+                    with self.assertRaises(ControlError, msg=at):
+                        main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)
+                    self.assertEqual(len(server.conns), before, at)
+                else:
+                    self.assertEqual(main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)[0], 200)
+            held.go.set()
         self.clock.ms = T0
         server.connect_error = OSError("x")
         with mock.patch.object(vmboot, "HTTPS", server.factory), self.assertRaises(ControlError):
