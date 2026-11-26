@@ -322,3 +322,39 @@ test("only the latest read of an area's saves is shown: an older reload, or a po
   assert.equal(nameOf(a), "fresh name", "the older poll doesn't undo the name");
   assert.equal(s.b.snapshots.get(s.mine)!.find((x) => x.id === a)!.name, "fresh name");
 });
+
+test("a late saves answer never shows after the session ends or changes hands", async () => {
+  const s = await open();
+  const a = s.b.seedSnapshot(s.mine);
+  const t = s.b.seedSnapshot(s.team("Team Qwen"));
+  await s.reload();
+  const area = (which: string) => new RegExp(`GET /v1/projects/${s.t.demo.projectId}/snapshots\\?area=${which}`);
+  // signed out while renames' reloads (both areas) are held
+  const holdMember = s.t.gate(area("member"));
+  const holdTeam = s.t.gate(area("team"));
+  const naming = s.t.store.nameSave("member", a, "private name");
+  const namingTeam = s.t.store.nameSave("team", t, "team secret");
+  await settle();
+  await s.t.store.signOut();
+  assert.deepEqual(s.t.store.saves.value, { member: null, team: null });
+  holdMember();
+  holdTeam();
+  await naming;
+  await namingTeam;
+  assert.deepEqual(s.t.store.saves.value, { member: null, team: null }, "nothing back after sign-out, in either area");
+  // someone else signs in while a rename's reload is held
+  s.b.signInAs(EMAILS.member);
+  await s.t.store.sessionStarted();
+  await s.t.store.openProject(s.t.demo.projectId);
+  await s.reload();
+  const before = s.t.store.saves.value;
+  assert.notEqual(before.member, null);
+  const hold = s.t.gate(area("member"));
+  const renaming = s.t.store.nameSave("member", a, "Ada's");
+  await settle();
+  s.b.signInAs(EMAILS.teamMember);
+  await s.t.store.sessionStarted();
+  hold();
+  await renaming;
+  assert.equal(s.t.store.saves.value, before, "the previous person's late answer changes nothing");
+});

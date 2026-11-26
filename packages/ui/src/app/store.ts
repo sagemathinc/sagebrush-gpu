@@ -182,6 +182,7 @@ export class Store {
    */
   #endSession(): void {
     this.#generation++;
+    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)
     this.keys.endSession();
     batch(() => {
       this.me.value = null;
@@ -233,6 +234,7 @@ export class Store {
   async sessionStarted(): Promise<void> {
     this.#generation++;
     this.#sessionGeneration++;
+    this.#staleSaves(); // (nor the previous person's to the new one)
     this.signInNotice.value = null;
     await this.loadMe();
   }
@@ -331,8 +333,7 @@ export class Store {
         this.allMachines.value = [];
         this.saves.value = { member: null, team: null };
         // reads for the project left are older than anything the new one asks: none will show
-        this.#savesReads.member++;
-        this.#savesReads.team++;
+        this.#staleSaves();
       });
     }
     const generation = ++this.#generation;
@@ -463,6 +464,12 @@ export class Store {
 
   /** Saves reads asked so far, per area (by #refresh and #reloadSaves alike): only the latest one asked may publish. */
   readonly #savesReads: Record<SnapshotArea, number> = { member: 0, team: 0 };
+
+  /** Every saves read asked so far is stale: none of their answers will show. */
+  #staleSaves(): void {
+    this.#savesReads.member++;
+    this.#savesReads.team++;
+  }
 
   /** Read one area's saves, numbered when asked. */
   async #readSaves(projectId: string, area: SnapshotArea): Promise<{ area: SnapshotArea; read: number; list: ListSnapshotsResponse | null }> {

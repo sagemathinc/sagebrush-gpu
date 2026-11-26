@@ -1056,8 +1056,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#savesReads.member++;\n        this.#savesReads.team++;\n      });\n    }\n    const generation",
-  "new": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#savesReads.member++;\n        this.#savesReads.team++;\n      });\n    }\n    const generation"
+  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n      });\n    }\n    const generation",
+  "new": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n      });\n    }\n    const generation"
  },
  {
   "file": "src/app/store.ts",
@@ -1656,13 +1656,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
-  "new": "    this.#generation++;\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
-  "new": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -1701,8 +1701,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;\n",
-  "new": "    this.#sessionGeneration++;\n"
+  "old": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;\n",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n"
  },
  {
   "file": "src/app/store.ts",
@@ -3473,7 +3473,7 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.keys.endSession();",
+  "old": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
   "new": "    this.#generation++;",
   "note": "endSession: keys kept"
  },
@@ -4186,8 +4186,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.#savesReads.member++;\n        this.#savesReads.team++;\n",
-  "new": "",
+  "old": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n",
+  "new": "        this.saves.value = { member: null, team: null };\n",
   "note": "a read for the project left, answering before the new one reads"
  },
  {
@@ -4287,5 +4287,21 @@
   "file": "src/saves.ts",
   "old": "It becomes the current save. Nothing is deleted now: the save that's current stays in the list, so you can restore it again. ",
   "new": "It becomes the current save. "
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n",
+  "new": "",
+  "note": "a held saves answer after sign-out (TESTS on #92)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#savesReads.member++;\n    this.#savesReads.team++;\n  }",
+  "new": "    this.#savesReads.member++;\n  }"
  }
 ]
