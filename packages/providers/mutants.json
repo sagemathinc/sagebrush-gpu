@@ -4534,5 +4534,107 @@
   "file": "src/vast/adapter.ts",
   "old": "if (typeof e === \"string\" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];",
   "new": "if (typeof e === \"string\" && e.length >= MAX_ENV_ENTRY_CHARS) return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  /^\\/api\\/v0\\/instances\\/[0-9]{1,18}\\/?$/,",
+  "new": "  /^\\/api\\/v0\\/instances\\/.*$/,",
+  "note": "any instance subpath allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  /^\\/api\\/v0\\/bundles\\/?$/,",
+  "new": "  /^\\/api\\/v0\\/.*$/,",
+  "note": "any v0 path allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  /^\\/api\\/v1\\/instances\\/?\\?[A-Za-z0-9%._~&=+-]*$/,",
+  "new": "  /^\\/api\\/v1\\/instances\\/?\\?.*$/,",
+  "note": "any list query allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "&& !/ssh/i.test(path) &&",
+  "new": "&&",
+  "note": "an SSH path allowed if it fits a pattern"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "&& !namesSsh(body);",
+  "new": ";",
+  "note": "SSH fields in a body allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "Object.keys(x).some((k) => /ssh/i.test(k) || namesSsh(x[k], depth + 1));",
+  "new": "Object.keys(x).some((k) => /ssh/i.test(k));",
+  "note": "nested SSH fields allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  if (Array.isArray(x)) return x.some((v) => namesSsh(v, depth + 1));\n",
+  "new": "",
+  "note": "SSH fields inside a list allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  const out: string[] = sshSettings(inst);",
+  "new": "  const out: string[] = [];",
+  "note": "SSH on an instance not refused"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  if (isSet(inst[\"ssh_host\"])) out.push(\"ssh:host\");\n",
+  "new": "",
+  "note": "an SSH host not refused"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  if (isSet(inst[\"ssh_port\"])) out.push(\"ssh:port\");\n",
+  "new": "",
+  "note": "an SSH port not refused"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    out.push(/key/i.test(k) ? \"ssh:key\" : \"ssh:set\");",
+  "new": "    out.push(\"ssh:set\");",
+  "note": "key material not named"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    if (k === \"ssh_host\" || k === \"ssh_port\" || !/ssh/i.test(k) || !isSet(inst[k])) continue;",
+  "new": "    if (k === \"ssh_host\" || k === \"ssh_port\" || !/^ssh_/.test(k) || !isSet(inst[k])) continue;",
+  "note": "only ssh_ fields checked"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  return [...new Set(out)];",
+  "new": "  return out;",
+  "note": "a kind named twice"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": " && v !== false && ",
+  "new": " && ",
+  "note": "false taken for set"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": " && !(Array.isArray(v) && v.length === 0);",
+  "new": ";",
+  "note": "an empty list taken for set"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  return v !== null && v !== undefined && v !== \"\" &&",
+  "new": "  return v !== null && v !== undefined &&",
+  "note": "an empty string taken for set"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  \"host\", \"port\",\n",
+  "new": "",
+  "note": "Vast's SSH words reported as other"
  }
 ]

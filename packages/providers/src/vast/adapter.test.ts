@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { expectedSpec, specDrift } from "../drift.ts";
+import { inspect } from "node:util";
+import { driftMarkers, expectedSpec, isDriftMarker, specDrift } from "../drift.ts";
 import { ProviderError } from "../errors.ts";
 import type { Fetch, HttpRequest } from "../http.ts";
 import { launchWithFallback } from "../placement.ts";
 import type { LaunchSpec, Offer } from "../types.ts";
 import {
+  allowedRequest,
   instanceStatus,
   MAX_ARGS,
   MAX_COMMAND_CHARS,
@@ -722,6 +724,117 @@ test("the key never reaches a message, whatever fails", async () => {
     const { a } = adapter([f]);
     await assert.rejects(a.status("31337"), (e: unknown) => e instanceof ProviderError && !e.message.includes(KEY));
   }
+});
+
+// ---------------------------------------------------------------- no SSH, ever (SEC ruling); the create reply's key
+
+test("every request is one of the fixed set: no SSH path, no SSH field in any body, whatever the adapter does", async () => {
+  const listed = (instances: unknown[]) => ok({ success: true, instances, next_token: null });
+  const { a, calls } = adapter([
+    ok({ offers: [offer()] }),
+    ok({ offers: [offer()] }), ok({ success: true, new_contract: 31337 }), ok({ instances: inst() }),
+    ok({ offers: [offer()] }), new TypeError("fetch failed"), listed([inst()]), ok({ instances: inst() }),
+    ok({ instances: inst() }),
+    ok({ success: true, msg: "Instance destroyed successfully" }),
+    listed([inst()]),
+  ]);
+  await a.listOffers({ gpuCount: 1 } as Parameters<VastAdapter["listOffers"]>[0]);
+  await a.launch(SPEC);
+  await a.launch(SPEC);
+  await a.status("31337");
+  await a.terminate("31337");
+  await a.listMachines();
+  assert.equal(calls.length, 11);
+  for (const c of calls) {
+    const path = c.url.slice("https://console.vast.ai".length);
+    const body = c.init.body === undefined ? undefined : (JSON.parse(String(c.init.body)) as unknown);
+    assert.ok(allowedRequest(path, body), `${c.init.method} ${path}`);
+    assert.doesNotMatch(c.url, /ssh/i);
+    assert.doesNotMatch(String(c.init.body ?? ""), /ssh/i);
+  }
+  // the create's body: the args runtype, and no SSH or Jupyter of any kind
+  const create = calls.find((c) => c.init.method === "PUT")!;
+  assert.equal((JSON.parse(String(create.init.body)) as Record<string, unknown>)["runtype"], "args");
+});
+
+test("the fixed request set: the real paths pass (slashed or not); an SSH path or field, or any other path, is refused", () => {
+  for (const p of ["/api/v0/bundles", "/api/v0/bundles/", "/api/v0/asks/9001", "/api/v0/asks/9001/", "/api/v0/instances/31337", "/api/v0/instances/31337/", "/api/v1/instances?limit=25", "/api/v1/instances/?limit=25&select_filters=%7B%22label%22%7D"]) {
+    assert.ok(allowedRequest(p, undefined), p);
+  }
+  for (const p of [
+    "/api/v0/instances/31337/ssh/", "/api/v0/instances/31337/ssh", "/api/v0/ssh/", "/api/v0/ssh", "/api/v0/users/current/", "/api/v0/instances/31337/attach/",
+    "/api/v0/instances/", "/api/v0/asks/x", "/api/v1/instances?ssh=1", "/api/v1/instances?a=/b", "/api/v0/bundles/../ssh", "/API/v0/bundles",
+  ]) {
+    assert.equal(allowedRequest(p, undefined), false, p);
+  }
+  assert.ok(allowedRequest("/api/v0/asks/9001/", { image: "x", runtype: "args", env: "-e A=b" }));
+  for (const body of [{ ssh_key: "ssh-ed25519 AAAA" }, { image: "x", SSH_KEY: "k" }, { a: { b: [{ sshKey: 1 }] } }, { runtype: "args", extra: { ssh: true } }]) {
+    assert.equal(allowedRequest("/api/v0/asks/9001/", body), false, JSON.stringify(body));
+  }
+});
+
+test("readback: any SSH sign refuses the launch (its id kept, so it is ended): a host, a port, key material, any SSH field set", async () => {
+  const settings = (over: Record<string, unknown>) => instanceStatus(inst(over), T).unexpectedSettings;
+  assert.deepEqual(settings({ ssh_host: "ssh4.vast.ai" }), ["ssh:host"]);
+  assert.deepEqual(settings({ ssh_port: 22 }), ["ssh:port"]);
+  assert.deepEqual(settings({ ssh_port: 0 }), ["ssh:port"]);
+  assert.deepEqual(settings({ ssh_key: "ssh-ed25519 AAAAC3Nz" }), ["ssh:key"]);
+  assert.deepEqual(settings({ ssh_keys: ["ssh-ed25519 AAAAC3Nz"] }), ["ssh:key"]);
+  assert.deepEqual(settings({ SSH_PUBLIC_KEY: "x" }), ["ssh:key"]);
+  assert.deepEqual(settings({ ssh_idx: "3" }), ["ssh:set"]);
+  assert.deepEqual(settings({ use_ssh: true }), ["ssh:set"]);
+  assert.deepEqual(settings({ ssh_host: "h", ssh_port: 2222, ssh_key: "k" }), ["ssh:host", "ssh:port", "ssh:key"]);
+  assert.deepEqual(settings({ ssh_key: "k", ssh_keys: ["k"], ssh_idx: 1, use_ssh: true }), ["ssh:key", "ssh:set"], "each kind once");
+  // nothing set: no SSH (what an args instance showed: no host, a null port)
+  assert.deepEqual(settings({ ssh_host: null, ssh_port: null, ssh_key: "", ssh_keys: [], use_ssh: false }), []);
+  // the report's markers are fixed words
+  const s = instanceStatus(inst({ ssh_host: "h", ssh_port: 22, ssh_key: "k", ssh_idx: 1 }), T);
+  const markers = driftMarkers(specDrift(expectedSpec(SPEC, new VastAdapter({ apiKey: KEY, fetch: mockFetch([]).fetch }).info, "31337"), s), s);
+  assert.deepEqual(markers.filter((m) => m.startsWith("unexpectedSettings")), ["unexpectedSettings:ssh:host", "unexpectedSettings:ssh:port", "unexpectedSettings:ssh:key", "unexpectedSettings:ssh:set"]);
+  assert.ok(markers.every(isDriftMarker));
+  // and a launch whose readback shows any of them is refused with the instance's id
+  for (const over of [{ ssh_host: "ssh4.vast.ai" }, { ssh_port: 41234 }, { ssh_key: "ssh-ed25519 AAAAC3Nz" }, { ssh_idx: "3" }]) {
+    const { a } = adapter([ok({ offers: [offer()] }), ok({ success: true, new_contract: 31337 }), ok({ instances: inst(over) })]);
+    await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "spec_mismatch" && e.providerMachineId === "31337", JSON.stringify(over));
+  }
+});
+
+test("the create reply's instance_api_key is never read, kept or shown: not in a result, an error, a status or any console output", async () => {
+  const SECRET = "c0ffee11c0ffee22c0ffee33c0ffee44c0ffee55c0ffee66c0ffee77c0ffee88";
+  const created = (over: Record<string, unknown> = {}) => ok({ success: true, new_contract: 31337, instance_api_key: SECRET, ...over });
+  const printed: string[] = [];
+  const saved = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug };
+  for (const k of Object.keys(saved) as Array<keyof typeof saved>) console[k] = (...xs: unknown[]) => void printed.push(inspect(xs, { depth: null }));
+  const seen: unknown[] = [];
+  try {
+    const listed = (instances: unknown[]) => ok({ success: true, instances, next_token: null });
+    const runs: Reply[][] = [
+      [ok({ offers: [offer()] }), created(), ok({ instances: inst() })], // accepted
+      [ok({ offers: [offer()] }), created(), ok({ instances: inst({ ssh_host: "h" }) })], // drift
+      [ok({ offers: [offer()] }), created(), { status: 500 }], // no readback
+      [ok({ offers: [offer()] }), created({ success: false }), listed([])], // a reply that proves no instance
+      [ok({ offers: [offer()] }), created({ new_contract: "x" }), listed([inst()]), ok({ instances: inst() })], // recovered by its label
+    ];
+    for (const r of runs) {
+      const { a } = adapter(r);
+      try {
+        seen.push(await a.launch(SPEC));
+      } catch (e) {
+        seen.push(e);
+      }
+      seen.push(a);
+    }
+  } finally {
+    Object.assign(console, saved);
+  }
+  assert.equal(seen.length, 10);
+  for (const x of seen) {
+    const shown = inspect(x, { depth: null, showHidden: true, getters: true });
+    assert.ok(!shown.includes(SECRET), shown.slice(0, 200));
+    if (x instanceof Error) assert.ok(!String(x.stack).includes(SECRET) && !JSON.stringify(x).includes(SECRET));
+    else assert.ok(!JSON.stringify(x).includes(SECRET));
+  }
+  assert.ok(!printed.join("\n").includes(SECRET));
 });
 
 // ---------------------------------------------------------------- 'vast' in the contract, unwired
