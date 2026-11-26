@@ -458,6 +458,14 @@ test("launch: a lost create reply is recovered by exact label, or stays unknown"
   }
 });
 
+test("launch: a lost create's recovery never takes an instance of this machine labeled for another installation or incarnation", async () => {
+  for (const label of [machineName("othr", MID, 1), machineName("test", MID, 2)]) {
+    const { a, calls } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), ok({ success: true, instances: [inst({ id: 1, label })], next_token: null })]);
+    await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === null, label);
+    assert.equal(calls.length, 3, "the search, the create and the list only: the foreign instance is never read");
+  }
+});
+
 test("launch: a created instance that can't be read back, or drifts, is reported with its id", async () => {
   {
     const { a } = adapter([ok({ offers: [offer()] }), ok({ success: true, new_contract: 31337 }), { status: 500 }]);

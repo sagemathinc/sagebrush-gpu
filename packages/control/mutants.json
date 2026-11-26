@@ -3904,12 +3904,6 @@
  },
  {
   "file": "src/container.ts",
-  "old": "sameMachineName(s.parsedName, name) && s.state !== \"terminated\")",
-  "new": "sameMachineName(s.parsedName, name))",
-  "note": "terminated pods counted by name"
- },
- {
-  "file": "src/container.ts",
   "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
   "new": "  if (false) {",
   "note": "pods found by name never billed"
@@ -4672,6 +4666,18 @@
   "note": "the due index VM-only again"
  },
  {
+  "file": "src/enroll.ts",
+  "old": "export const ERADICATION_CHECKS = AGENT_ERADICATION_CHECKS;",
+  "new": "export const ERADICATION_CHECKS = [\"env\", \"processes\", \"files\"] as const;",
+  "note": "container enroll: the eradication checks not the contract's (no ssh)"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "sameMachineName(s.parsedName, name) && s.state !== \"terminated\")",
+  "new": "sameMachineName(s.parsedName, name))",
+  "note": "terminated pods counted by name"
+ },
+ {
   "file": "src/container.ts",
   "old": "  return list.filter((s) => sameMachineName(s.parsedName, name) && s.state",
   "new": "  return list.filter((s) => s.machineId === machineId && s.state",
@@ -4727,14 +4733,14 @@
  },
  {
   "file": "src/worker.ts",
-  "old": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n",
-  "new": "",
+  "old": "  const c = config.containerLaunch;\n  if (c === null) return { off: true };\n  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n",
+  "new": "  const c = config.containerLaunch;\n  if (c === null) return { off: true };\n",
   "note": "container deps without an installation"
  },
  {
   "file": "src/worker.ts",
-  "old": "  if (typeof apiKey !== \"string\" || apiKey === \"\") return { unusable: \"RUNPOD_API_KEY is unset\" };\n",
-  "new": "",
+  "old": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  if (typeof apiKey !== \"string\" || apiKey === \"\") return { unusable: \"RUNPOD_API_KEY is unset\" };\n  const boot = renderBootCommand({ agentUrl: c.agentUrl, agentSha256: c.agentSha256, controlUrl: config.appOrigin, mode: \"container\" });\n",
+  "new": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  const boot = renderBootCommand({ agentUrl: c.agentUrl, agentSha256: c.agentSha256, controlUrl: config.appOrigin, mode: \"container\" });\n",
   "note": "container deps without a key"
  },
  {
@@ -4745,8 +4751,8 @@
  },
  {
   "file": "src/worker.ts",
-  "old": "          log(`control: alert: container launch is on but ${d.unusable}: launches not started`);\n",
-  "new": "",
+  "old": "        if (\"unusable\" in d) log(`control: alert: container launch is on but ${d.unusable}: launches not started`);\n",
+  "new": "        if (\"unusable\" in d) {}\n",
   "note": "no alert when on but unusable"
  },
  {

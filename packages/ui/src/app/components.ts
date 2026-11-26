@@ -3,12 +3,13 @@
 
 import type { ComponentChildren, VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { SavesSection, SaveWithName } from "./saves-section.ts";
 import { html } from "./html.ts";
 import type { BillingMode, Machine, PriceListItem, ProjectLabels, Quote, SignInOutcome, SpendMeter } from "@sbgpu/api";
 import { capitalize, GENERIC_LABELS, withArticle } from "../labels.ts";
 import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
-import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, stopReasonText, storageWarning } from "../view.ts";
+import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, startFailureText, stopReasonText, storageWarning } from "../view.ts";
 import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
@@ -253,11 +254,13 @@ export function MachineCard({ store, machine: m, labels, now }: { store: Store; 
       ? html`<p class="small">${stopReasonText(m.stopReason, labels)}</p>`
       : null}
     ${m.finalSaveIncomplete ? html`<p class="warn small">The final save didn't finish; work after the last save was lost.</p>` : null}
+    ${m.startFailure ? html`<p class="warn small">${startFailureText(m, store.billingMode.value)}</p>` : null}
     ${m.error ? html`<p class="warn small">${m.error}</p>` : null}
     <div class="actions">
       ${actions.openTerminal && !terminalOpen ? html`<button onClick=${() => setTerminalOpen(true)}>Open terminal</button>` : null}
       ${actions.openJupyter ? html`<button onClick=${openJupyter} disabled=${busy("jupyter")}>Open Jupyter</button>` : null}
       ${actions.save ? html`<button class="secondary" onClick=${() => store.save(m.id)} disabled=${busy("save")}>Save now</button>` : null}
+      ${actions.save ? html`<${SaveWithName} store=${store} machineId=${m.id} />` : null}
       ${actions.stop ? html`<button class="secondary" onClick=${() => store.stop(m.id)} disabled=${busy("stop")}>Stop</button>` : null}
       ${actions.restart ? html`<button onClick=${() => store.restart(m.id)} disabled=${busy("restart")}>Start again</button>` : null}
       ${actions.delete ? html`<button class="danger" onClick=${remove} disabled=${busy("delete")}>Delete</button>` : null}
@@ -328,6 +331,7 @@ export function ProjectPage({ store, projectId, timers, nav }: { store: Store; p
     <${PauseBanner} store=${store} nav=${nav} />
     <${StartPanel} store=${store} />
     <${MachineList} store=${store} />
+    <${SavesSection} store=${store} />
   </main>`;
 }
 

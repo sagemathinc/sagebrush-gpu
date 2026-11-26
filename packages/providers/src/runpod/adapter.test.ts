@@ -398,6 +398,14 @@ test("launch after a lost response finds the pod by name", async () => {
   assert.ok(calls[1]!.url.startsWith("https://api.runpod.io/v2/pods?"));
 });
 
+test("launch after a lost response never takes a pod of this machine named for another installation or incarnation", async () => {
+  for (const name of [machineName("othr", MID, 1), machineName("test", MID, 2)]) {
+    const { a, calls } = adapter([new TypeError("fetch failed"), listReply([{ ...POD, name }])]);
+    await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === null, name);
+    assert.equal(calls.length, 2, "the create and the list only: the foreign pod is never read");
+  }
+});
+
 test("launch after a lost response with no pod found is outcome_unknown", async () => {
   const { a } = adapter([new TypeError("fetch failed"), listReply([{ ...POD, status: "TERMINATED" }])]);
   await assert.rejects(a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");

@@ -1509,5 +1509,15 @@
   "old": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;",
   "new": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9]{22}$/;",
   "note": "T1 (TESTS on #89): the op's alphabet narrowed"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const START_FAILURES = [\"createDeadline\", \"podExited\"] as const;",
+  "new": "export const START_FAILURES = [\"createDeadline\"] as const;"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "return typeof x === \"string\" && (START_FAILURES as readonly string[]).includes(x);",
+  "new": "return typeof x === \"string\";"
  }
 ]
