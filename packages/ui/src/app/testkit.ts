@@ -25,8 +25,8 @@ export async function signInAs(store: Store, backend: MockBackend, email: string
  * shared client sends; the keys' path never shows up there. The reauth window runs on a
  * monotonic clock (mono, advanceMono) and its own fake timers (keyTimers).
  */
-export async function controllable(email?: string, options: StoreOptions = {}) {
-  const demo = seedDemo();
+export async function controllable(email?: string, options: StoreOptions = {}, seed: Parameters<typeof seedDemo>[0] = {}) {
+  const demo = seedDemo(seed);
   const other = demo.backend.addProject(demo.orgId, {
     name: "Second project",
     budget: 100_000_000,

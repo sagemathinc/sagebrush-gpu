@@ -19,10 +19,11 @@ import {
   type SignInOutcome,
   type SpendMeter,
   type UpdateProjectRequest,
+  type ProviderPause,
 } from "@sbgpu/api";
 import { ApiError, type Client, type FetchFn } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
-import { jupyterUrl } from "../view.ts";
+import { jupyterUrl, pausedStartText } from "../view.ts";
 import { terminalUrl } from "../terminal/session.ts";
 import type { PollTimers } from "./polling.ts";
 import { ProviderKeys, WINDOW_TIMERS } from "./provider-keys.ts";
@@ -80,6 +81,8 @@ export class Store {
   readonly machines = signal<Machine[]>([]);
   readonly gpuTypes = signal<PriceListItem[]>([]);
   readonly quotes = signal<Readonly<Record<string, Quote>>>({});
+  /** Providers whose launches are paused for the project's organization (the reason only for manager and above). */
+  readonly paused = signal<ProviderPause[]>([]);
   /** Staff only (assistant and up): everyone in the project, its teams, and every machine. */
   readonly members = signal<Member[]>([]);
   readonly teams = signal<Team[]>([]);
@@ -158,7 +161,8 @@ export class Store {
       // neither its 401 nor its message may touch the new session.
       if (session !== this.#sessionGeneration) return null;
       if (err instanceof ApiError && err.code === "unauthenticated") this.#endSession();
-      this.error.value = err instanceof Error ? err.message : String(err);
+      this.error.value =
+        err instanceof ApiError && err.code === "credentialUnusable" ? pausedStartText(err.provider, err.message) : err instanceof Error ? err.message : String(err);
       return null;
     } finally {
       const next = new Set(this.busy.value);
@@ -183,6 +187,7 @@ export class Store {
       this.machines.value = [];
       this.gpuTypes.value = [];
       this.quotes.value = {};
+      this.paused.value = [];
       this.members.value = [];
       this.teams.value = [];
       this.allMachines.value = [];
@@ -315,6 +320,7 @@ export class Store {
         this.machines.value = [];
         this.gpuTypes.value = [];
         this.quotes.value = {};
+        this.paused.value = [];
         this.members.value = [];
         this.teams.value = [];
         this.allMachines.value = [];
@@ -404,10 +410,12 @@ export class Store {
     const params = { projectId };
     const gpuTypes = this.gpuTypes.value;
     const staff = this.isStaff.value;
-    const [spend, machines, quotes, managed] = await Promise.all([
+    const [spend, machines, quotes, prices, managed] = await Promise.all([
       this.client.call("getSpend", { params }),
       this.#allPages((cursor) => this.client.call("listMachines", { params, query: cursor === undefined ? {} : { cursor } })),
       Promise.all(gpuTypes.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
+      // (for the paused providers: a pause can begin or end while the page is open)
+      this.client.call("listGpuTypes", { params }),
       staff
         ? Promise.all([
             this.client.call("getProject", { params }),
@@ -424,6 +432,7 @@ export class Store {
       const cut = new Set<string>();
       if (machines.truncated) cut.add("machines");
       this.quotes.value = Object.fromEntries(quotes.map((q) => [q.gpuType, q]));
+      this.paused.value = prices.paused;
       if (managed) {
         const [project, members, teams, all] = managed;
         this.project.value = project;

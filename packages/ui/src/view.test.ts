@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MACHINE_STATES, QUOTE_REFUSALS, STOP_REASONS, type Machine, type SpendMeter } from "@sbgpu/api";
 import { MACHINE_DOMAIN, TEST_MACHINE_DOMAIN } from "./config.ts";
 import { capitalize, GENERIC_LABELS, plural, resolveLabels, withArticle } from "./labels.ts";
-import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "./view.ts";
+import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, pausedStartText, pauseView, refusalText, savePercent, stopReasonText } from "./view.ts";
 
 const COURSE = resolveLabels({ project: "course", member: "student", manager: "instructor", assistant: "TA", team: "group" });
 
@@ -211,4 +211,26 @@ test("meterView under byok: the rate without a service part", () => {
   assert.equal(meterView(running, "byok").rate, "$0.48/h");
   assert.equal(meterView(running).rate, "provider $0.48/h + service $0.00/h = $0.48/h"); // resold, the default
   assert.equal(meterView(meter(), "byok").rate, null);
+});
+
+test("a paused provider: the refusal and the refused start name it; the banner's reason only when asked to show it", () => {
+  assert.equal(refusalText("credentialUnusable", COURSE, "vast"), "Launches on Vast.ai are paused: the organization's key for it isn't working.");
+  assert.equal(refusalText("credentialUnusable", COURSE), "Launches are paused: the organization's provider key isn't working.");
+  assert.equal(refusalText("noCapacity", COURSE, "vast"), refusalText("noCapacity", COURSE), "only credentialUnusable names a provider");
+  assert.equal(pausedStartText("hyperstack", "api words"), "Launches on Hyperstack are paused for this organization until its key works again.");
+  assert.equal(pausedStartText(undefined, "api words"), "api words");
+  const now = Date.parse("2027-02-01T10:00:00.000Z");
+  const pause = { provider: "runpod" as const, since: "2027-02-01T09:50:00.000Z", detail: { status: "rejected" as const, lastCheckedAt: "2027-02-01T09:57:00.000Z" } };
+  const shown = pauseView(pause, true, now);
+  assert.deepEqual(shown, {
+    headline: "Launches on RunPod are paused for this organization. Machines already running keep running.",
+    since: "Paused 10 min ago.",
+    reason: "The organization's RunPod key was refused by the provider; last checked 3 min ago.",
+  });
+  // Not shown to this caller: no reason, even when the pause carries one.
+  assert.deepEqual(pauseView(pause, false, now), { ...shown, reason: null });
+  // Shown, but the server sent none: none.
+  assert.equal(pauseView({ provider: "runpod", since: pause.since }, true, now).reason, null);
+  assert.equal(pauseView({ ...pause, detail: { status: "revoked", lastCheckedAt: null } }, true, now).reason, "The organization's RunPod key was revoked at the provider; not checked since.");
+  assert.equal(pauseView({ ...pause, detail: { status: "error", lastCheckedAt: pause.since } }, true, now).reason, "The organization's RunPod key couldn't be checked; last checked 10 min ago.");
 });

@@ -8,14 +8,9 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { ROUTES, isCredentialKeyShape, type ProviderCredential, type ProviderId } from "@sbgpu/api";
 import { html } from "./html.ts";
 import { KEY_STATUS_WORDS, type ProviderKeys } from "./provider-keys.ts";
+import { PROVIDER_NAMES } from "../providers.ts";
 
-export const PROVIDER_NAMES: Readonly<Record<ProviderId, string>> = Object.freeze({
-  runpod: "RunPod",
-  shadeform: "Shadeform",
-  hyperstack: "Hyperstack",
-  nebius: "Nebius",
-  vast: "Vast.ai",
-});
+export { PROVIDER_NAMES };
 
 /** The sign-in that opens the window: a fresh authentication, then back to this organization. */
 export function reauthHref(orgId: string): string {

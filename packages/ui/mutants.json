@@ -3554,5 +3554,203 @@
   "old": "      return { items, asOf: toIso(this.#now), paused: [] };",
   "new": "      return { items, asOf: toIso(this.#now) } as never;",
   "note": "mock listGpuTypes: no paused list"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "throw new ApiError(body.error.code, response.status, body.error.message, body.error.provider);",
+  "new": "throw new ApiError(body.error.code, response.status, body.error.message);",
+  "note": "client: the paused provider is dropped from the error"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return provider\n        ? `Launches on ${PROVIDER_NAMES[provider]} are paused: the organization's key for it isn't working.`\n        :",
+  "new": "      return false\n        ? ``\n        :",
+  "note": "refusalText: the provider isn't named"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  return provider ? `Launches on ${PROVIDER_NAMES[provider]} are paused for this organization until its key works again.` : apiMessage;",
+  "new": "  return apiMessage;",
+  "note": "pausedStartText: the provider isn't named"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  const detail = showReason ? pause.detail : undefined;",
+  "new": "  const detail = pause.detail;",
+  "note": "pauseView: a reason that reaches the page is shown to anyone"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  rejected: \"was refused by the provider\",\n  revoked: \"was revoked at the provider\",",
+  "new": "  rejected: \"was revoked at the provider\",\n  revoked: \"was refused by the provider\",",
+  "note": "pauseView: the reasons swapped"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "${detail.lastCheckedAt ? `last checked ${ago(detail.lastCheckedAt, nowMs)}` : \"not checked since\"}",
+  "new": "last checked ${ago(detail.lastCheckedAt ?? pause.since, nowMs)}",
+  "note": "pauseView: a missing last check reads as a check"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    since: `Paused ${ago(pause.since, nowMs)}.`,",
+  "new": "    since: \"\",",
+  "note": "pauseView: no since"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        err instanceof ApiError && err.code === \"credentialUnusable\" ? pausedStartText(err.provider, err.message) : err instanceof Error ? err.message : String(err);",
+  "new": "        err instanceof Error ? err.message : String(err);",
+  "note": "store: a refused start shows the API's words, not the provider"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.paused.value = prices.paused;\n",
+  "new": "",
+  "note": "store: pauses never refresh (nor load)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.quotes.value = {};\n        this.paused.value = [];\n        this.members.value = [];",
+  "new": "        this.quotes.value = {};\n        this.members.value = [];",
+  "note": "store: a project switch keeps the old project's pauses"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.quotes.value = {};\n      this.paused.value = [];\n      this.members.value = [];",
+  "new": "      this.quotes.value = {};\n      this.members.value = [];",
+  "note": "store: sign-out keeps the pauses"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const showReason = store.canManage.value;",
+  "new": "  const showReason = true;",
+  "note": "PauseBanner: the reason and owner text for everyone"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const showReason = store.canManage.value;",
+  "new": "  const showReason = store.isStaff.value;",
+  "note": "PauseBanner: assistants see the reason"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "o.orgId === orgId && o.role === \"owner\"",
+  "new": "o.orgId === orgId",
+  "note": "PauseBanner: any org role gets the owner's link"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${showReason && owner && nav && orgId",
+  "new": "${showReason && nav && orgId",
+  "note": "PauseBanner: a manager gets the owner's link"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "refusalText(quote.reason, labels, quote.reasonProvider)",
+  "new": "refusalText(quote.reason, labels)",
+  "note": "GpuRow: the refusal doesn't name the provider"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    <${PauseBanner} store=${store} nav=${nav} />\n",
+  "new": "",
+  "note": "ProjectPage: no pause banner"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const showReason = role != null && projectRoleAtLeast(role, \"manager\");",
+  "new": "    const showReason = role != null && projectRoleAtLeast(role, \"assistant\");",
+  "note": "mock: assistants get the reason"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#org(orgId).billingMode !== \"byok\") return out;\n",
+  "new": "",
+  "note": "mock: a resold organization pauses too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "PROVIDER_IDS.filter((p) => paused.has(p) && project.policy.allowedProviders.includes(p))",
+  "new": "PROVIDER_IDS.filter((p) => paused.has(p))",
+  "note": "mock: other providers' pauses listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (rec && isPausingCredentialStatus(rec.status)) out.add(provider);",
+  "new": "      if (rec && rec.status !== \"ok\") out.add(provider);",
+  "note": "mock: unchecked pauses"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    else if (live.length === 0) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "new": "    else if (underCap.every((o) => o.stock === \"none\")) reason = \"noCapacity\";\n    else if (live.length === 0) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "note": "mock: noCapacity before credentialUnusable"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const live = underCap.filter((o) => !paused.has(o.provider));",
+  "new": "    const live = underCap;",
+  "note": "mock: paused offers kept"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (provider) quote.reasonProvider = provider;",
+  "new": "",
+  "note": "mock: reasonProvider missing"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "PROVIDER_IDS.find((p) => paused.has(p) && underCap.some((o) => o.provider === p))",
+  "new": "[...PROVIDER_IDS].reverse().find((p) => paused.has(p) && underCap.some((o) => o.provider === p))",
+  "note": "mock: reasonProvider not the first in provider order"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (isPausingCredentialStatus(status) && !wasPaused) rec.pausedSince = this.#now;",
+  "new": "    if (isPausingCredentialStatus(status)) rec.pausedSince = this.#now;",
+  "note": "mock: a pause restarts on every pausing status"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (showReason && isPausingCredentialStatus(rec.status)) pause.detail = { status: rec.status, lastCheckedAt: toIso(rec.lastCheckedAt) };",
+  "new": "      if (showReason && isPausingCredentialStatus(rec.status)) pause.detail = { status: rec.status, lastCheckedAt: toIso(rec.setAt) };",
+  "note": "mock: the wrong last check"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`, quote.reasonProvider);\n      }",
+  "new": "throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`);\n      }",
+  "note": "mock: start refusal without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`, quote.reasonProvider);",
+  "new": "      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`);",
+  "note": "mock: restart refusal without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider));",
+  "new": "o.pricePerHour.total <= project.policy.maxPricePerHour);",
+  "note": "mock: price list prices a paused provider's offer"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider)),",
+  "new": "underCap.length > 0 ? [] : allowed,",
+  "note": "mock: over the limit, paused offers listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (err instanceof ApiFail && err.code === \"credentialUnusable\" && err.provider) {\n        return { status: ERROR_STATUS.credentialUnusable, contentType: \"application/json\", body: credentialUnusableBody(err.provider) };\n      }\n",
+  "new": "",
+  "note": "mock: credentialUnusable body without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };",
+  "new": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, \"owner\") };",
+  "note": "mock: everyone gets the reason"
  }
 ]
