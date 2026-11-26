@@ -365,18 +365,23 @@ test("readBody: waiting for the deadline costs one race, however many chunks are
     assert.deepEqual(await readBody(response(stream), 1, LATER()), { ok: true, text: "x" });
     assert.equal(stats.pulls, 1_002);
     assert.equal(races, 1);
-    // The same for a body cut off at the deadline after many reads.
+    // The same for a body cut off at the deadline after many reads: 50 empty chunks answered at
+    // once, then a read that never answers, so only the one deadline race can end it. (Counted
+    // exactly, without timers: a count against a short wall-clock deadline failed under load.)
     races = 0;
     let pulls = 0;
-    const trickle = new ReadableStream<Uint8Array>({
-      async pull(ctl) {
+    const stalls = new ReadableStream<Uint8Array>({
+      pull(ctl) {
         pulls++;
-        await new Promise((ok) => setTimeout(ok, 1));
-        ctl.enqueue(empty);
+        if (pulls <= 50) {
+          ctl.enqueue(empty);
+          return;
+        }
+        return new Promise<void>(() => {});
       },
     }, { highWaterMark: 0 });
-    assert.deepEqual(await readBody(response(trickle), 1, Date.now() + 40), { ok: false, why: "timeout" });
-    assert.ok(pulls > 3, `pulls ${pulls}`);
+    assert.deepEqual(await readBody(response(stalls), 1, Date.now() + 500), { ok: false, why: "timeout" });
+    assert.equal(pulls, 51);
     assert.equal(races, 1);
   } finally {
     Promise.race = race;
