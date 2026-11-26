@@ -20,6 +20,8 @@ export const POLICY_BOUNDS = {
   snapshotNamedMax: [0, 20],
 } as const satisfies Partial<Record<keyof ProjectPolicy, readonly [number, number]>>;
 
+/** maxGpusPerTeam: null (the team's member count), or a whole number in these bounds. */
+export const MAX_GPUS_PER_TEAM = 1000;
 export const MAX_POLICY_LIST = 64;
 export const MAX_SETUP_SCRIPT_LENGTH = 16 * 1024;
 export const MAX_LABEL_LENGTH = 40;
@@ -32,6 +34,7 @@ const POLICY_KEYS = new Set<keyof ProjectPolicy>([
   "maxPricePerHour",
   "maxConcurrentMachines",
   "maxMachinesPerMember",
+  "maxGpusPerTeam",
   "idleStopMinutes",
   "maxSessionMinutes",
   "minStartMinutes",
@@ -76,6 +79,8 @@ export function validatePolicyPatch(x: unknown): Checked<Partial<ProjectPolicy>>
     } else if (key === "allowedCountries") {
       const isCountry = (c: unknown): c is string => typeof c === "string" && COUNTRY.test(c);
       if (v !== null && !distinctList(v, MAX_POLICY_LIST, isCountry)) return { ok: false, reason: "allowedCountries: null, or distinct ISO 3166 alpha-2 codes" };
+    } else if (key === "maxGpusPerTeam") {
+      if (v !== null && (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0 || v > MAX_GPUS_PER_TEAM)) return { ok: false, reason: `maxGpusPerTeam: null, or a whole number from 0 to ${MAX_GPUS_PER_TEAM}` };
     } else if (key === "setupScript") {
       if (v !== null && (typeof v !== "string" || v.length > MAX_SETUP_SCRIPT_LENGTH)) return { ok: false, reason: `setupScript: null, or a string of at most ${MAX_SETUP_SCRIPT_LENGTH} characters` };
     }

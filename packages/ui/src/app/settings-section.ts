@@ -100,6 +100,8 @@ export function SettingsSection({ store }: { store: Store }): VNode | null {
       <p class="muted small">Two-letter country codes such as GB, SE. Empty for no further limit.</p>
       ${number("settings-price", `${FIELD_NAMES.maxPricePerHour} ($)`, form.maxPricePerHour, (f, v) => (f.maxPricePerHour = v))}
       ${WHOLE_FIELDS.map((k) => number(`settings-${k}`, FIELD_NAMES[k], form.whole[k], (f, v) => (f.whole[k] = v)))}
+      ${number("settings-maxGpusPerTeam", FIELD_NAMES.maxGpusPerTeam, form.maxGpusPerTeam, (f, v) => (f.maxGpusPerTeam = v))}
+      <p class="muted small">Counted in GPUs across a team's members. Empty for one per member.</p>
       ${GIB_FIELDS.map((k) => number(`settings-${k}`, FIELD_NAMES[k], form.gib[k], (f, v) => (f.gib[k] = v)))}
       <label for="settings-setup-script">${FIELD_NAMES.setupScript}</label>
       <textarea disabled=${busy} id="settings-setup-script" rows="4" value=${form.setupScript} onInput=${(e: Event) => edit((f) => (f.setupScript = value(e)))}></textarea>

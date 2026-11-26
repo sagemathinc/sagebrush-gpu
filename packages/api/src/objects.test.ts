@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ACCRUING_STATES,
   QUOTE_REFUSALS,
+  OFFER_MISSES,
   BILLING_MODES,
   DEFAULT_POLICY,
   MACHINE_STATES,
@@ -120,6 +121,11 @@ test("quote refusals in precedence order: credentialUnusable just before noCapac
     [...QUOTE_REFUSALS],
     ["projectNotStarted", "projectEnded", "policy", "priceCap", "credentialUnusable", "noCapacity", "concurrencyCap", "allocationTooLow"],
   );
+});
+
+test("offer misses in the order a quote checks them, and the team GPU cap defaults to one per member", () => {
+  assert.deepEqual([...OFFER_MISSES], ["gpuCount", "gpuTooSmall", "gpuTooLarge", "gpuTypeNotAllowed", "providerNotAllowed", "locality", "overPrice", "noStock"]);
+  assert.equal(DEFAULT_POLICY.maxGpusPerTeam, null);
 });
 
 test("start failures: the two reasons a machine never starts, and nothing else", () => {

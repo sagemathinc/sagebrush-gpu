@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_POLICY } from "./objects.ts";
-import { MAX_LABEL_LENGTH, MAX_POLICY_LIST, MAX_SETUP_SCRIPT_LENGTH, POLICY_BOUNDS, mergePolicy, validateLabels, validatePolicyPatch } from "./policy.ts";
+import { MAX_GPUS_PER_TEAM, MAX_LABEL_LENGTH, MAX_POLICY_LIST, MAX_SETUP_SCRIPT_LENGTH, POLICY_BOUNDS, mergePolicy, validateLabels, validatePolicyPatch } from "./policy.ts";
 
 const ok = (x: unknown) => validatePolicyPatch(x).ok;
 const why = (x: unknown) => {
@@ -44,6 +44,14 @@ test("numeric fields: whole numbers within their bounds", () => {
   for (const [k, [lo, hi]] of Object.entries(POLICY_BOUNDS)) {
     const v = (DEFAULT_POLICY as unknown as Record<string, number>)[k]!;
     assert.ok(v >= lo && v <= hi, k);
+  }
+});
+
+test("maxGpusPerTeam: null (one per member) or a whole number from 0 to 1000", () => {
+  assert.equal(MAX_GPUS_PER_TEAM, 1000);
+  for (const v of [null, 0, 1, 2, 1000]) assert.equal(why({ maxGpusPerTeam: v }), "ok", String(v));
+  for (const v of [-1, 1001, 1.5, "2", undefined, [], {}, Number.NaN]) {
+    assert.equal(why({ maxGpusPerTeam: v }), "maxGpusPerTeam: null, or a whole number from 0 to 1000", String(v));
   }
 });
 

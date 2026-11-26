@@ -4480,5 +4480,47 @@
   "file": "src/app/store.ts",
   "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n",
   "new": "    this.#staleSaves(); // (nor the previous person's to the new one)\n"
+ },
+ {
+  "file": "src/settings.ts",
+  "old": "    maxGpusPerTeam: p.maxGpusPerTeam === null ? \"\" : String(p.maxGpusPerTeam),",
+  "new": "    maxGpusPerTeam: \"\",",
+  "note": "the form hides a set team GPU cap"
+ },
+ {
+  "file": "src/settings.ts",
+  "old": "  if (teamGpus !== base.maxGpusPerTeam) {",
+  "new": "  if (teamGpus !== \"\" && teamGpus !== base.maxGpusPerTeam) {",
+  "note": "clearing the team GPU cap sends nothing"
+ },
+ {
+  "file": "src/settings.ts",
+  "old": "    policy.maxGpusPerTeam = teamGpus === \"\" ? null : Number(teamGpus);",
+  "new": "    policy.maxGpusPerTeam = teamGpus === \"\" ? 0 : Number(teamGpus);",
+  "note": "cleared team GPU cap sent as 0"
+ },
+ {
+  "file": "src/settings.ts",
+  "old": "(!/^\\d+$/.test(teamGpus) || Number(teamGpus) > MAX_GPUS_PER_TEAM)",
+  "new": "(Number(teamGpus) > MAX_GPUS_PER_TEAM)",
+  "note": "team GPU cap text unchecked"
+ },
+ {
+  "file": "src/settings.ts",
+  "old": "Number(teamGpus) > MAX_GPUS_PER_TEAM)) {",
+  "new": "Number(teamGpus) > MAX_GPUS_PER_TEAM + 1)) {",
+  "note": "team GPU cap bound off by one"
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "      ${number(\"settings-maxGpusPerTeam\", FIELD_NAMES.maxGpusPerTeam, form.maxGpusPerTeam, (f, v) => (f.maxGpusPerTeam = v))}\n",
+  "new": "",
+  "note": "the team GPU cap field is not on the form"
+ },
+ {
+  "file": "src/app/settings-section.ts",
+  "old": "form.maxGpusPerTeam, (f, v) => (f.maxGpusPerTeam = v))}",
+  "new": "form.maxGpusPerTeam, () => undefined)}",
+  "note": "typing in the team GPU cap field changes nothing"
  }
 ]
