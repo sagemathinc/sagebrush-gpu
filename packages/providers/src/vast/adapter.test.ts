@@ -748,7 +748,7 @@ test("every request is one of the fixed set: no SSH path, no SSH field in any bo
   for (const c of calls) {
     const path = c.url.slice("https://console.vast.ai".length);
     const body = c.init.body === undefined ? undefined : (JSON.parse(String(c.init.body)) as unknown);
-    assert.ok(allowedRequest(path, body), `${c.init.method} ${path}`);
+    assert.ok(allowedRequest(c.init.method, path, body), `${c.init.method} ${path}`);
     assert.doesNotMatch(c.url, /ssh/i);
     assert.doesNotMatch(String(c.init.body ?? ""), /ssh/i);
   }
@@ -757,19 +757,55 @@ test("every request is one of the fixed set: no SSH path, no SSH field in any bo
   assert.equal((JSON.parse(String(create.init.body)) as Record<string, unknown>)["runtype"], "args");
 });
 
-test("the fixed request set: the real paths pass (slashed or not); an SSH path or field, or any other path, is refused", () => {
-  for (const p of ["/api/v0/bundles", "/api/v0/bundles/", "/api/v0/asks/9001", "/api/v0/asks/9001/", "/api/v0/instances/31337", "/api/v0/instances/31337/", "/api/v1/instances?limit=25", "/api/v1/instances/?limit=25&select_filters=%7B%22label%22%7D"]) {
-    assert.ok(allowedRequest(p, undefined), p);
+test("the fixed request set: each route's exact method, path and query shape; any other method, path, query key or body is refused", () => {
+  const B = { image: "x", runtype: "args" };
+  const q = (o: Record<string, string>) => new URLSearchParams(o).toString();
+  const sel = (label: unknown) => JSON.stringify({ label: { eq: label } });
+  // the real requests, slashed or not
+  for (const [m, p, b] of [
+    ["POST", "/api/v0/bundles", B], ["POST", "/api/v0/bundles/", B],
+    ["PUT", "/api/v0/asks/9001", B], ["PUT", "/api/v0/asks/9001/", B],
+    ["GET", "/api/v0/instances/31337", undefined], ["GET", "/api/v0/instances/31337/", undefined],
+    ["DELETE", "/api/v0/instances/31337", undefined], ["DELETE", "/api/v0/instances/31337/", undefined],
+    ["GET", `/api/v1/instances?${q({ limit: "25" })}`, undefined],
+    ["GET", `/api/v1/instances/?${q({ limit: "25", select_filters: sel(`sbg-${MID}`), after_token: "eyJpZCI6IDQyfQ==" })}`, undefined],
+  ] as Array<[string, string, unknown]>) {
+    assert.ok(allowedRequest(m, p, b), `${m} ${p}`);
   }
-  for (const p of [
-    "/api/v0/instances/31337/ssh/", "/api/v0/instances/31337/ssh", "/api/v0/ssh/", "/api/v0/ssh", "/api/v0/users/current/", "/api/v0/instances/31337/attach/",
-    "/api/v0/instances/", "/api/v0/asks/x", "/api/v1/instances?ssh=1", "/api/v1/instances?a=/b", "/api/v0/bundles/../ssh", "/API/v0/bundles",
+  // a wrong method on every route
+  for (const [p, ok] of [["/api/v0/bundles/", "POST"], ["/api/v0/asks/9001/", "PUT"], ["/api/v0/instances/31337/", "GET DELETE"], ["/api/v1/instances?limit=25", "GET"]] as const) {
+    for (const m of ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "get"]) {
+      if (ok.split(" ").includes(m)) continue;
+      assert.equal(allowedRequest(m, p, m === "POST" || m === "PUT" ? B : undefined), false, `${m} ${p}`);
+      assert.equal(allowedRequest(m, p, B), false, `${m} ${p} with a body`);
+    }
+  }
+  // SSH and other paths
+  for (const p of ["/api/v0/instances/31337/ssh/", "/api/v0/instances/31337/ssh", "/api/v0/ssh/", "/api/v0/users/current/", "/api/v0/instances/31337/attach/", "/api/v0/instances/", "/api/v0/instances/x/", "/api/v0/bundles/../ssh", "/API/v0/bundles", "/api/v0/instances/31337?ssh=1"]) {
+    for (const m of ["GET", "POST", "PUT", "DELETE"]) assert.equal(allowedRequest(m, p, m === "POST" || m === "PUT" ? B : undefined), false, `${m} ${p}`);
+  }
+  // the list's query: exactly its keys, decoded, each once, each in its shape
+  for (const query of [
+    "%73%73%68=1", "%53%53%48=1", "x=%2f%73%73%68", "limit=25&%73%73%68=1", "limit=25&ssh=1", "limit=25&x=1", "",
+    "limit=25&limit=25", "limit=0", "limit=x", "limit=1000", "limit=%32%35%26ssh%3D1",
+    `limit=25&${q({ select_filters: JSON.stringify({ label: { eq: `sbg-${MID}` }, ssh: 1 }) })}`,
+    `limit=25&${q({ select_filters: JSON.stringify({ label: { eq: `sbg-${MID}`, ssh: 1 } }) })}`,
+    `limit=25&${q({ select_filters: sel("ssh") })}`, `limit=25&${q({ select_filters: sel(1) })}`, "limit=25&select_filters=%7B",
+    `${q({ select_filters: sel(`sbg-${MID}`) })}`, "limit=25&after_token=", "limit=25&after_token=%20", "limit=25&after_token=a/b", "limit=25&a%66ter_token=x&after_token=y",
   ]) {
-    assert.equal(allowedRequest(p, undefined), false, p);
+    assert.equal(allowedRequest("GET", `/api/v1/instances?${query}`, undefined), false, query);
   }
-  assert.ok(allowedRequest("/api/v0/asks/9001/", { image: "x", runtype: "args", env: "-e A=b" }));
+  // a value may hold the letters s, s, h: a machine id can (they are in its alphabet), and so can a page token
+  const sshId = "mch_0ssh0000000000000000";
+  assert.equal(sshId.length, MID.length);
+  assert.ok(allowedRequest("GET", `/api/v1/instances?${q({ limit: "25", select_filters: sel(`sbg-${sshId}`), after_token: "ssh" })}`, undefined));
+  assert.ok(allowedRequest("PUT", "/api/v0/asks/9001/", { ...B, label: `sbg-${sshId}`, env: "-e A=ssh" }));
+  // bodies: exactly where the route has one, never naming SSH
+  assert.equal(allowedRequest("PUT", "/api/v0/asks/9001/", undefined), false);
+  assert.equal(allowedRequest("POST", "/api/v0/bundles/", "ssh"), false);
+  assert.equal(allowedRequest("GET", "/api/v0/instances/31337/", {}), false);
   for (const body of [{ ssh_key: "ssh-ed25519 AAAA" }, { image: "x", SSH_KEY: "k" }, { a: { b: [{ sshKey: 1 }] } }, { runtype: "args", extra: { ssh: true } }]) {
-    assert.equal(allowedRequest("/api/v0/asks/9001/", body), false, JSON.stringify(body));
+    assert.equal(allowedRequest("PUT", "/api/v0/asks/9001/", body), false, JSON.stringify(body));
   }
 });
 

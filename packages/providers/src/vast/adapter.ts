@@ -5,7 +5,7 @@
 // offer; our launcher in the `args` runtype, so the image must have no ENTRYPOINT of its own and
 // the launcher is PID 1; no SSH or Jupyter runtype, no onstart, no template, no volume, no bid;
 // never an SSH key (SEC ruling: no attach call and no ssh_key field, ever, and a readback showing
-// SSH is refused; only the requests in ALLOWED_PATHS are ever sent);
+// SSH is refused; only the requests in ROUTES are ever sent);
 // the only environment variable is the boot token. Vast's VMs (beta, consumer GPUs only) are never
 // used. Offers are per host machine: our data-center id is "machine-<id>", and a launch searches
 // that machine's current offer again (offer ids don't last) before accepting it.
@@ -304,16 +304,57 @@ function usableOffer(o: unknown, gpuCount: number): { askId: number; gpuType: st
   return { askId, gpuType, dataCenter, country, usdPerHour: usd };
 }
 
+type Method = "GET" | "POST" | "PUT" | "DELETE";
+
 /**
- * The only requests this adapter ever sends: the offer search, the create, one instance's show
- * and delete, and the instance list. Never an SSH-key call (SEC ruling).
+ * The only requests this adapter ever sends, each an exact method, path and query shape: the
+ * offer search, the create, one instance's show and delete, and the instance list. Never an
+ * SSH-key call (SEC ruling).
  */
-const ALLOWED_PATHS: readonly RegExp[] = [
-  /^\/api\/v0\/bundles\/?$/,
-  /^\/api\/v0\/asks\/[0-9]{1,18}\/?$/,
-  /^\/api\/v0\/instances\/[0-9]{1,18}\/?$/,
-  /^\/api\/v1\/instances\/?\?[A-Za-z0-9%._~&=+-]*$/,
+const ROUTES: ReadonlyArray<{ method: Method; path: RegExp; query: "none" | "list"; body: boolean }> = [
+  { method: "POST", path: /^\/api\/v0\/bundles\/?$/, query: "none", body: true },
+  { method: "PUT", path: /^\/api\/v0\/asks\/[0-9]{1,18}\/?$/, query: "none", body: true },
+  { method: "GET", path: /^\/api\/v0\/instances\/[0-9]{1,18}\/?$/, query: "none", body: false },
+  { method: "DELETE", path: /^\/api\/v0\/instances\/[0-9]{1,18}\/?$/, query: "none", body: false },
+  { method: "GET", path: /^\/api\/v1\/instances\/?$/, query: "list", body: false },
 ];
+
+/**
+ * The list's query, decoded: exactly the keys the list sends, each once, each value in its shape:
+ * `limit` (required), `select_filters` (exactly {"label": {"eq": <one of our machine names>}})
+ * and `after_token` (the page token Vast gave). Any other key, encoded or not, is refused.
+ */
+function listQueryOk(query: string): boolean {
+  if (!/^[A-Za-z0-9%._~&=+-]*$/.test(query)) return false;
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(query);
+  } catch {
+    return false;
+  }
+  const seen = new Set<string>();
+  for (const [k, v] of params) {
+    if (seen.has(k)) return false;
+    seen.add(k);
+    if (k === "limit") {
+      if (!/^[1-9][0-9]{0,2}$/.test(v)) return false;
+    } else if (k === "select_filters") {
+      let f: unknown;
+      try {
+        f = JSON.parse(v);
+      } catch {
+        return false;
+      }
+      const label = isObject(f) && Object.keys(f).length === 1 && isObject(f["label"]) && Object.keys(f["label"]).length === 1 ? f["label"]["eq"] : undefined;
+      if (typeof label !== "string" || parseMachineName(label) === null) return false;
+    } else if (k === "after_token") {
+      if (!/^[A-Za-z0-9._~+/=:-]{1,512}$/.test(v)) return false;
+    } else {
+      return false;
+    }
+  }
+  return seen.has("limit");
+}
 
 /** Whether a body names SSH anywhere: in any key, at any depth. */
 function namesSsh(x: unknown, depth = 0): boolean {
@@ -323,9 +364,21 @@ function namesSsh(x: unknown, depth = 0): boolean {
   return Object.keys(x).some((k) => /ssh/i.test(k) || namesSsh(x[k], depth + 1));
 }
 
-/** Whether a request is one of ours: an allowed path, no SSH in it, and no SSH field in its body. */
-export function allowedRequest(path: string, body: unknown): boolean {
-  return ALLOWED_PATHS.some((re) => re.test(path)) && !/ssh/i.test(path) && !namesSsh(body);
+/**
+ * Whether a request is one of ours: a route's exact method and path, its query shape (none, or the
+ * list's exact keys), a body exactly where the route has one, and no SSH field in that body.
+ */
+export function allowedRequest(method: string, path: string, body: unknown): boolean {
+  const q = path.indexOf("?");
+  const pathname = q < 0 ? path : path.slice(0, q);
+  const query = q < 0 ? null : path.slice(q + 1);
+  return ROUTES.some(
+    (r) =>
+      r.method === method &&
+      r.path.test(pathname) &&
+      (r.query === "none" ? query === null : query !== null && listQueryOk(query)) &&
+      (r.body ? isObject(body) && !namesSsh(body) : body === undefined),
+  );
 }
 
 /** A Docker image name we pass on (the control plane's allowlist decides which). */
@@ -362,7 +415,7 @@ export class VastAdapter implements ProviderAdapter {
   async #call(method: "GET" | "POST" | "PUT" | "DELETE", path: string, call: VastCall, body?: unknown, shouldStop?: () => boolean): Promise<unknown> {
     const where = `Vast ${method} ${path.split("?")[0]}`;
     // (before anything is sent: a request outside the fixed set is a bug, and fails closed)
-    if (!allowedRequest(path, body)) throw new ProviderError("vast", "invalid_request", "Vast: a request outside the adapter's fixed set");
+    if (!allowedRequest(method, path, body)) throw new ProviderError("vast", "invalid_request", "Vast: a request outside the adapter's fixed set");
     if (shouldStop?.() === true) throw new ProviderError("vast", "outcome_unknown", `${where}: stopped at the caller's deadline`);
     const deadline = Date.now() + this.#timeoutMs;
     const init: Parameters<Fetch>[1] = {
