@@ -5,6 +5,7 @@
 // and validateLabels have the last word, as they do on the server.
 
 import {
+  MAX_GPUS_PER_TEAM,
   MAX_LABEL_LENGTH,
   MAX_SETUP_SCRIPT_LENGTH,
   POLICY_BOUNDS,
@@ -49,6 +50,7 @@ export const FIELD_NAMES: { readonly [K in keyof ProjectPolicy]: string } = {
   maxPricePerHour: "Highest price per hour",
   maxConcurrentMachines: "Machines running at once, in all",
   maxMachinesPerMember: "Machines running at once, per person",
+  maxGpusPerTeam: "GPUs running at once, per team",
   idleStopMinutes: "Stop when idle for (minutes)",
   maxSessionMinutes: "Longest session (minutes)",
   minStartMinutes: "Least running time a start must afford (minutes)",
@@ -74,6 +76,8 @@ export interface SettingsForm {
   /** Dollars. */
   maxPricePerHour: string;
   whole: Record<WholeField, string>;
+  /** Empty for the team's member count (one GPU per member). */
+  maxGpusPerTeam: string;
   /** GiB. */
   gib: Record<GibField, string>;
   /** Empty for none. */
@@ -99,6 +103,7 @@ export function settingsForm(project: Project): SettingsForm {
     allowedCountries: (p.allowedCountries ?? []).join(", "),
     maxPricePerHour: microToDollars(p.maxPricePerHour),
     whole: Object.fromEntries(WHOLE_FIELDS.map((k) => [k, String(p[k])])) as Record<WholeField, string>,
+    maxGpusPerTeam: p.maxGpusPerTeam === null ? "" : String(p.maxGpusPerTeam),
     gib: Object.fromEntries(GIB_FIELDS.map((k) => [k, String(p[k] / GIB)])) as Record<GibField, string>,
     setupScript: p.setupScript ?? "",
   };
@@ -158,6 +163,13 @@ export function settingsRequest(form: SettingsForm, base: SettingsForm): Checked
     const [lo, hi] = POLICY_BOUNDS[k];
     if (!/^\d+$/.test(text) || n < lo || n > hi) return { ok: false, reason: `${FIELD_NAMES[k]}: a whole number from ${lo} to ${hi}` };
     policy[k] = n;
+  }
+  const teamGpus = form.maxGpusPerTeam.trim();
+  if (teamGpus !== base.maxGpusPerTeam) {
+    if (teamGpus !== "" && (!/^\d+$/.test(teamGpus) || Number(teamGpus) > MAX_GPUS_PER_TEAM)) {
+      return { ok: false, reason: `${FIELD_NAMES.maxGpusPerTeam}: empty for one per member, or a whole number from 0 to ${MAX_GPUS_PER_TEAM}` };
+    }
+    policy.maxGpusPerTeam = teamGpus === "" ? null : Number(teamGpus);
   }
   for (const k of GIB_FIELDS) {
     const text = form.gib[k].trim();

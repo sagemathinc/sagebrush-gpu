@@ -400,8 +400,9 @@ test("race: 12 admissions over two database handles commit no more than the mone
     batch: async (stmts: Stmt[]) => {
       r.exec("BEGIN IMMEDIATE");
       try {
-        for (const s of stmts) r.prepare(s.sql).run(...s.params);
+        const out = stmts.map((s) => ({ changes: Number(r.prepare(s.sql).run(...s.params).changes) }));
         r.exec("COMMIT");
+        return out;
       } catch (e) {
         r.exec("ROLLBACK");
         throw e;

@@ -242,8 +242,9 @@ function fileDb(path: string, migrate: boolean): Db & { raw: DatabaseSync } {
     async batch(stmts: Stmt[]) {
       raw.exec("BEGIN");
       try {
-        for (const s of stmts) raw.prepare(s.sql).run(...s.params);
+        const out = stmts.map((s) => ({ changes: Number(raw.prepare(s.sql).run(...s.params).changes) }));
         raw.exec("COMMIT");
+        return out;
       } catch (e) {
         raw.exec("ROLLBACK");
         throw e;

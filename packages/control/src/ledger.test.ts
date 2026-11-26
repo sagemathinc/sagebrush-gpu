@@ -540,6 +540,7 @@ test("d1Db sends one awaited batch of bound statements, and propagates rejection
       await new Promise((r) => setTimeout(r, 5));
       calls.push("batch done");
       if (reject) throw new Error("D1 says no");
+      return statements.map(() => ({ meta: { changes: 1 } }));
     },
   };
   const db = d1Db(fake);

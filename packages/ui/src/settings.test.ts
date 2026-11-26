@@ -62,7 +62,9 @@ test("the form shows the project as strings", () => {
     snapshotNamedMax: "5",
   });
   assert.deepEqual(f.gib, { storageQuotaBytesPerMember: "50", storageQuotaBytesPerTeam: "50" });
+  assert.equal(f.maxGpusPerTeam, "");
   assert.equal(f.setupScript, "");
+  assert.equal(settingsForm(project({ policy: { ...DEFAULT_POLICY, maxGpusPerTeam: 3 } })).maxGpusPerTeam, "3");
   const g = settingsForm(project({ policy: { ...DEFAULT_POLICY, allowedCountries: null, setupScript: "pip install peft" } }));
   assert.equal(g.customLabels, false);
   assert.equal(g.labels.member, "member"); // the generic words, ready to edit
@@ -160,6 +162,18 @@ test("numbers outside their bounds, or not numbers, say which field and the rang
   }
   assert.deepEqual(whole("maxMachinesPerMember", "0"), { ok: true, value: { policy: { maxMachinesPerMember: 0 } } });
   assert.deepEqual(whole("maxMachinesPerMember", "17"), { ok: false, reason: "Machines running at once, per person: a whole number from 0 to 16" });
+
+  const team = (v: string, p = project()) => after((f) => (f.maxGpusPerTeam = v), p);
+  assert.deepEqual(team("2"), { ok: true, value: { policy: { maxGpusPerTeam: 2 } } });
+  assert.deepEqual(team(" 0 "), { ok: true, value: { policy: { maxGpusPerTeam: 0 } } });
+  assert.deepEqual(team("1000"), { ok: true, value: { policy: { maxGpusPerTeam: 1000 } } });
+  assert.deepEqual(team("  "), { ok: true, value: {} }); // still one per member: no change
+  const capped = project({ policy: { ...DEFAULT_POLICY, maxGpusPerTeam: 3 } });
+  assert.deepEqual(team("", capped), { ok: true, value: { policy: { maxGpusPerTeam: null } } });
+  assert.deepEqual(team("3", capped), { ok: true, value: {} });
+  for (const bad of ["1001", "1.5", "-1", "two", "1e2"]) {
+    assert.deepEqual(team(bad), { ok: false, reason: "GPUs running at once, per team: empty for one per member, or a whole number from 0 to 1000" }, bad);
+  }
 
   const price = (v: string) => after((f) => (f.maxPricePerHour = v));
   assert.deepEqual(price("1000"), { ok: true, value: { policy: { maxPricePerHour: 1_000_000_000 } } });

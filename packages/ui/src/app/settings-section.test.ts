@@ -74,6 +74,24 @@ test("Save sends what was edited, and leaves alone what someone else changed mea
   m.page.unmount();
 });
 
+test("GPUs per team: empty is one per member, a number caps the team, clearing it goes back", async () => {
+  const m = await open();
+  assert.equal(m.project().policy.maxGpusPerTeam, null);
+  assert.equal(m.input("settings-maxGpusPerTeam")?.value, "");
+  m.page.type(m.input("settings-maxGpusPerTeam"), "2");
+  await settle();
+  await m.save();
+  assert.equal(m.project().policy.maxGpusPerTeam, 2);
+  assert.equal(m.input("settings-maxGpusPerTeam")?.value, "2");
+  m.page.type(m.input("settings-maxGpusPerTeam"), "");
+  await settle();
+  await m.save();
+  assert.equal(m.patches(), 2);
+  assert.equal(m.project().policy.maxGpusPerTeam, null);
+  assert.equal(m.input("settings-maxGpusPerTeam")?.value, "");
+  m.page.unmount();
+});
+
 test("a value out of range says so, can't be saved, and Discard puts the form back", async () => {
   const m = await open();
   m.page.type(m.input("settings-idleStopMinutes"), "4");

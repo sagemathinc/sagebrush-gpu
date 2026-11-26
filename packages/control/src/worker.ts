@@ -121,6 +121,8 @@ export function createWorker(o: WorkerOptions = {}) {
           const d = containerDeps(config, env.RUNPOD_API_KEY, fetch);
           return "deps" in d ? d.deps : null;
         })(),
+        // (row 3 wires the provider checks; until then no provider's keys are accepted)
+        credentialCheck: null,
         waitUntil: guardedWaitUntil(ctx, log),
         agentSigner: () => loadAgentSigner(env.AGENT_SIGNING_JWK, env.AGENT_SIGNING_KID, env.AGENT_PUBLIC_KEYS),
         agentPublicKeys: () => loadAgentPublicKeys(env.AGENT_PUBLIC_KEYS),

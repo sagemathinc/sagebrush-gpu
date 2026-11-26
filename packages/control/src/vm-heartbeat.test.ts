@@ -295,7 +295,7 @@ test("watchdog race: a heartbeat landing after the stale read leaves the launch 
 });
 
 test("watchdog race: the machine, its incarnation or the launch changing after the read leaves it alone; unchanged, it's marked", async () => {
-  const changes: Array<[string, (m: string) => Promise<void>]> = [
+  const changes: Array<[string, (m: string) => Promise<unknown>]> = [
     ["machine stopping", (m) => w.db.batch([stmt(`UPDATE machines SET state = 'stopping' WHERE id = ?`, m)])],
     ["another incarnation", (m) => w.db.batch([stmt(`UPDATE machines SET incarnation = 2 WHERE id = ?`, m)])],
     ["the launch claimed", (m) => w.db.batch([stmt(`UPDATE launches SET watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, m)])],
