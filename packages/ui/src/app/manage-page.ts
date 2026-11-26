@@ -179,7 +179,7 @@ function MembersTable({ store }: { store: Store }): VNode {
 function StorageCell({ row }: { row: MemberRow }): VNode {
   const quota = row.storageQuotaBytes;
   const level = quota == null ? "ok" : storageLevel(row.storageBytes, quota);
-  return html`<td class=${level === "ok" ? undefined : `storage-${level}`}>
+  return html`<td class=${level === "ok" ? "storage" : `storage storage-${level}`}>
     ${formatBytes(row.storageBytes)}${quota == null ? null : ` of ${formatBytes(quota)}`}
     ${level === "near" ? html` <span class="badge warn">nearly full</span>` : level === "full" ? html` <span class="badge danger">full</span>` : null}
   </td>`;
