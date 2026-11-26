@@ -348,7 +348,7 @@ test("rotation: a removed KEK can't open: status error with its event, never a f
 });
 
 /** `db`, with `between` run once right after the first read of provider_credentials (a write crossing the open). */
-function crossing(db: TestDb, between: () => Promise<void>): Db {
+function crossing(db: TestDb, between: () => Promise<unknown>): Db {
   let done = false;
   return {
     ...db,

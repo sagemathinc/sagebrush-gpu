@@ -13,8 +13,8 @@ export interface Db {
   all<T>(sql: string, params?: SqlValue[]): Promise<T[]>;
   /** One write; how many rows it changed (for compare-and-set updates). */
   run(sql: string, params?: SqlValue[]): Promise<{ changes: number }>;
-  /** All statements in one transaction, or none. */
-  batch(stmts: Stmt[]): Promise<void>;
+  /** All statements in one transaction, or none; how many rows each changed, in order (D1's per-statement results). */
+  batch(stmts: Stmt[]): Promise<{ changes: number }[]>;
 }
 
 /**
@@ -38,7 +38,7 @@ export function stmt(sql: string, ...params: SqlValue[]): Stmt {
 /** The part of Cloudflare's D1Database this module uses. */
 export interface D1Like {
   prepare(sql: string): { bind(...values: SqlValue[]): D1StatementLike };
-  batch(statements: D1StatementLike[]): Promise<unknown>;
+  batch(statements: D1StatementLike[]): Promise<Array<{ meta?: { changes?: number } }>>;
 }
 interface D1StatementLike {
   all<T>(): Promise<{ results: T[] }>;
@@ -55,8 +55,10 @@ export function d1Db(d1: D1Like): Db {
       return { changes: r.meta.changes };
     },
     async batch(stmts: Stmt[]) {
-      if (stmts.length === 0) return;
-      await d1.batch(stmts.map((s) => d1.prepare(s.sql).bind(...s.params)));
+      if (stmts.length === 0) return [];
+      const r = await d1.batch(stmts.map((s) => d1.prepare(s.sql).bind(...s.params)));
+      // (a result without its count is no count: never read as a change)
+      return stmts.map((_, i) => ({ changes: typeof r[i]?.meta?.changes === "number" ? r[i]!.meta!.changes! : -1 }));
     },
   };
 }

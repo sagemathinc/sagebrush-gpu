@@ -39,6 +39,7 @@ import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
 import { normalizeEmail } from "./validate.ts";
+import { CREDENTIAL_HANDLERS, PUT_MAX_BODY_BYTES, type CredentialCheck } from "./credential-routes.ts";
 import { ASSURANCE_HANDLERS, ASSURANCE_MAX_BODY_BYTES, CREDENTIAL_ROUTES, asCredentialRefusal, meRecentAuth } from "./credential-assurance.ts";
 
 export { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, json, normalizeEmail, sha256Hex };
@@ -64,6 +65,9 @@ export interface AppConfig {
    * runs. Null when off (the default).
    */
   containerLaunch: ContainerLaunchConfig | null;
+  /** The credential store's Worker secrets, as set (credential-seal.ts parses them strictly; missing or malformed: the store is unavailable). */
+  credentialKeks?: string;
+  credentialFingerprintKey?: string;
 }
 
 /** What every container launch pins: the release's image, and its agent tarball with that tarball's sha256. */
@@ -118,6 +122,9 @@ export function configFromEnv(env: Record<string, unknown>): AppConfig {
   if (typeof machineDomain !== "string" || !HOSTNAME.test(machineDomain)) throw new Error("MACHINE_DOMAIN must be a lowercase hostname");
   const installation = env.SBGPU_INSTALLATION;
   if (installation !== undefined && !isInstallation(installation)) throw new Error("SBGPU_INSTALLATION must be 4 to 8 of [a-z0-9]");
+  // (passed on as set: the store parses them strictly, and anything malformed leaves it unavailable)
+  const keks = typeof env.CREDENTIAL_KEKS === "string" ? env.CREDENTIAL_KEKS : undefined;
+  const fp = typeof env.CREDENTIAL_FINGERPRINT_KEY === "string" ? env.CREDENTIAL_FINGERPRINT_KEY : undefined;
   return {
     ...DEFAULT_CONFIG,
     appOrigin,
@@ -125,6 +132,8 @@ export function configFromEnv(env: Record<string, unknown>): AppConfig {
     auth: authConfigFromEnv(env),
     installation: installation ?? null,
     containerLaunch: containerLaunchFromEnv(env, appOrigin),
+    ...(keks !== undefined ? { credentialKeks: keks } : {}),
+    ...(fp !== undefined ? { credentialFingerprintKey: fp } : {}),
   };
 }
 
@@ -149,6 +158,8 @@ export interface AppDeps {
   agentPublicKeys: AgentKeysSource;
   /** An operator alert: a fixed line (never a token, key, address or other value). */
   alert(line: string): void;
+  /** Row 3's provider check of an organization's key (and the providers keys are accepted for); null where none is wired (no provider is then accepted). */
+  credentialCheck: CredentialCheck | null;
 }
 
 // ---------------------------------------------------------------- http helpers
@@ -166,7 +177,7 @@ export function withSecurityHeaders(res: Response): Response {
 
 export const MAX_BODY_BYTES = 64 * 1024;
 /** Routes whose bodies are smaller still (read, counted and refused the same way, before any handler). */
-const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES, verifyCredentialAssurance: ASSURANCE_MAX_BODY_BYTES };
+const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES, verifyCredentialAssurance: ASSURANCE_MAX_BODY_BYTES, putCredential: PUT_MAX_BODY_BYTES };
 
 function fail(e: HttpError): Response {
   return json(ERROR_STATUS[e.code], errorBody(e.code, e.message));
@@ -350,7 +361,7 @@ const AUTH_HANDLERS: Handlers = {
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS, ...HEARTBEAT_HANDLERS, ...ASSURANCE_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS, ...HEARTBEAT_HANDLERS, ...ASSURANCE_HANDLERS, ...CREDENTIAL_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 

@@ -16,8 +16,8 @@ import { credentialKeys, openSealed, sealCredential, type CredentialKeys } from 
 export interface CredentialSecrets {
   /** The deployment's environment name (in every seal's associated data). */
   env: string;
-  CREDENTIAL_KEKS?: string;
-  CREDENTIAL_FINGERPRINT_KEY?: string;
+  CREDENTIAL_KEKS?: string | undefined;
+  CREDENTIAL_FINGERPRINT_KEY?: string | undefined;
 }
 
 export type OpenedCredential =

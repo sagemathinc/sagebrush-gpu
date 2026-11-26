@@ -46,8 +46,10 @@ export function sqliteDb(o: { upgrade?: { at: string; seed(raw: DatabaseSync): v
     async batch(stmts: Stmt[]) {
       raw.exec("BEGIN");
       try {
-        for (const s of stmts) raw.prepare(s.sql).run(...s.params);
+        const out: { changes: number }[] = [];
+        for (const s of stmts) out.push({ changes: Number(raw.prepare(s.sql).run(...s.params).changes) });
         raw.exec("COMMIT");
+        return out;
       } catch (e) {
         raw.exec("ROLLBACK");
         throw e;
