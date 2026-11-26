@@ -3904,12 +3904,6 @@
  },
  {
   "file": "src/container.ts",
-  "old": "sameMachineName(s.parsedName, name) && s.state !== \"terminated\")",
-  "new": "sameMachineName(s.parsedName, name))",
-  "note": "terminated pods counted by name"
- },
- {
-  "file": "src/container.ts",
   "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
   "new": "  if (false) {",
   "note": "pods found by name never billed"
@@ -4670,6 +4664,18 @@
   "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
   "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
   "note": "the due index VM-only again"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "export const ERADICATION_CHECKS = AGENT_ERADICATION_CHECKS;",
+  "new": "export const ERADICATION_CHECKS = [\"env\", \"processes\", \"files\"] as const;",
+  "note": "container enroll: the eradication checks not the contract's (no ssh)"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "sameMachineName(s.parsedName, name) && s.state !== \"terminated\")",
+  "new": "sameMachineName(s.parsedName, name))",
+  "note": "terminated pods counted by name"
  },
  {
   "file": "src/container.ts",

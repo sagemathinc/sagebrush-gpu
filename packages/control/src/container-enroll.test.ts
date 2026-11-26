@@ -327,11 +327,12 @@ test("refused, nothing changed: every request outside the container shape", asyn
     ["no report", { eradication: undefined }],
     ["a report with no checks", { eradication: { ok: true, checks: [] } }],
     ["two checks", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }] } }],
+    ["three checks (no ssh)", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: true }] } }],
     ["a fourth check", { eradication: { ok: true, checks: [...passing().checks, { name: "more", ok: true }] } }],
-    ["checks out of order", { eradication: { ok: true, checks: [{ name: "processes", ok: true }, { name: "env", ok: true }, { name: "files", ok: true }] } }],
-    ["a renamed check", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "procs", ok: true }, { name: "files", ok: true }] } }],
-    ["a check's ok not boolean", { eradication: { ok: true, checks: [{ name: "env", ok: 1 }, { name: "processes", ok: true }, { name: "files", ok: true }] } }],
-    ["a check with more fields", { eradication: { ok: true, checks: [{ name: "env", ok: true, why: "x" }, { name: "processes", ok: true }, { name: "files", ok: true }] } }],
+    ["checks out of order", { eradication: { ok: true, checks: [{ name: "processes", ok: true }, { name: "env", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
+    ["a renamed check", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "procs", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
+    ["a check's ok not boolean", { eradication: { ok: true, checks: [{ name: "env", ok: 1 }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
+    ["a check with more fields", { eradication: { ok: true, checks: [{ name: "env", ok: true, why: "x" }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
     ["the report's ok not boolean", { eradication: { ok: "yes", checks: passing().checks } }],
     ["a report with more fields", { eradication: { ...passing(), extra: 1 } }],
     ["a report as a list", { eradication: [] }],
@@ -357,8 +358,9 @@ test("refused, nothing changed: every request outside the container shape", asyn
 
 test("definitive: an eradication report that doesn't pass uses the token, marks the launch to terminate, then ends the pod", async () => {
   const failing = [
-    { ok: false, checks: [{ name: "env", ok: false }, { name: "processes", ok: true }, { name: "files", ok: true }] },
-    { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: false }] },
+    { ok: false, checks: [{ name: "env", ok: false }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] },
+    { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: false }, { name: "ssh", ok: true }] },
+    { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: false }] },
     { ok: false, checks: passing().checks },
   ];
   for (const eradication of failing) {

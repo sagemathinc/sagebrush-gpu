@@ -1,7 +1,7 @@
 // What the screens show and allow, as pure functions of API objects, so the decisions
 // are tested without a DOM. Components only lay these out.
 
-import type { BillingMode, Machine, ProjectLabels, ProviderId, ProviderPause, QuoteRefusal, SpendMeter, StopReason } from "@sbgpu/api";
+import type { BillingMode, Machine, ProjectLabels, ProviderId, ProviderPause, QuoteRefusal, SpendMeter, StartFailure, StopReason } from "@sbgpu/api";
 import { MACHINE_DOMAIN } from "./config.ts";
 import { withArticle } from "./labels.ts";
 import { computeMeter, formatDuration, type MeterBand } from "./meter.ts";
@@ -21,10 +21,30 @@ export function machineStateLabel(m: Machine): string {
     case "stopped":
       return "Stopped";
     case "failed":
-      return "Failed";
+      return m.startFailure ? "Didn't start" : "Failed";
     case "deleted":
       return "Deleted";
   }
+}
+
+/** Why a machine never started, in plain words. */
+export const START_FAILURE_WORDS: { readonly [K in StartFailure]: string } = {
+  createDeadline: "the provider didn't have it ready in time",
+  podExited: "it stopped on its own before it was ready",
+};
+
+/**
+ * What the card says about a start that never came up; null for any other machine. Resold: what
+ * we charged for this machine. byok: its metered use only (the provider bills the organization).
+ */
+export function startFailureText(m: Machine, mode: BillingMode): string | null {
+  if (m.startFailure == null) return null;
+  const why = `The machine didn't start: ${START_FAILURE_WORDS[m.startFailure]}.`;
+  const cost =
+    mode === "byok"
+      ? `Metered use while starting: ${formatUsd(m.spent.total)}. No further use is being metered for this machine. Your provider bills your organization separately.`
+      : `This machine was charged ${formatUsd(m.spent.total)} while it was starting, and nothing after that.`;
+  return `${why} ${cost} You can start a new one.`;
 }
 
 export function stopReasonText(reason: StopReason, labels: ProjectLabels): string {
@@ -117,7 +137,8 @@ export function machineActions(m: Machine): MachineActions {
     openTerminal: running && m.terminalAvailable,
     openJupyter: running && m.jupyterAvailable,
     save: running && m.save.state !== "saving",
-    stop: m.state === "starting" || running || m.state === "failed",
+    // (a start that never came up has already been ended: nothing to stop)
+    stop: m.state === "starting" || running || (m.state === "failed" && m.startFailure == null),
     restart: m.state === "stopped",
     delete: m.state === "stopped" || m.state === "failed",
   };
