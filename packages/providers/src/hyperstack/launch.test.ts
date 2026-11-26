@@ -445,6 +445,14 @@ test("launch: a spec whose name isn't exactly its own machine and incarnation is
   }
 });
 
+test("launch: a lost create's recovery never takes a VM of this machine named for another installation or incarnation", async () => {
+  for (const name of [machineName("othr", MID, 1), machineName("test", MID, 2)]) {
+    const { a, calls } = launcher(routes({ create: new Error("reset"), list: { status: 200, body: { count: 1, instances: [vm({ id: 4300, name })] } } }));
+    await assert.rejects(a.launch(spec), fails("outcome_unknown", { id: null, message: /no VM named/ }), name);
+    assert.ok(!trail(calls).includes("GET /core/virtual-machines/4300"), name);
+  }
+});
+
 test("launch: a lost create's recovery takes only the VM with our name, not another machine of ours", async () => {
   const other = vm({ id: 4300, name: machineName("test", "mch_7f3k9q2m4x8z1c5v6b0n", 1) });
   const listed = { status: 200, body: { count: 2, instances: [other, vm()] } };

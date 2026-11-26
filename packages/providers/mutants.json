@@ -4936,5 +4936,23 @@
   "old": "    if (!specNameMatches(spec)) throw new ProviderError(\"hyperstack\", \"invalid_request\", \"Hyperstack: the spec's name isn't its machine's\");\n",
   "new": "",
   "note": "Hyperstack: any spec name"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": ".filter((s) => sameMachineName(s.parsedName, name) && s.state !== \"terminated\");",
+  "new": ".filter((s) => s.machineId !== null && s.machineId === nameFields(name).machineId && s.state !== \"terminated\");",
+  "note": "RunPod recovery by machine id only"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": ".filter((s) => sameMachineName(s.parsedName, name));",
+  "new": ".filter((s) => s.machineId !== null && s.machineId === nameFields(name).machineId);",
+  "note": "Hyperstack recovery by machine id only"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "        if (label !== undefined && !sameMachineName(s.parsedName, label)) continue;",
+  "new": "        if (label !== undefined && s.machineId !== nameFields(label).machineId) continue;",
+  "note": "Vast's label filter by machine id only"
  }
 ]
