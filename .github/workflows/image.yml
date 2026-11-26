@@ -1,0 +1,23 @@
+name: image
+# Builds the machine image (packages/machine/image) and runs its smoke test inside it.  Nothing is pushed: where the
+# image is published, and its digest pinned for launches, is a later step.
+on:
+  pull_request:
+    paths: ["packages/machine/image/**", ".github/workflows/image.yml"]
+  push:
+    branches: [main]
+    paths: ["packages/machine/image/**", ".github/workflows/image.yml"]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: docker build --pull -t sbgpu-machine:ci packages/machine/image
+      - name: smoke
+        run: docker run --rm --entrypoint /bin/sh sbgpu-machine:ci /opt/sbgpu/smoke.sh
+      - name: size
+        run: docker image inspect sbgpu-machine:ci --format '{{.Size}}'
