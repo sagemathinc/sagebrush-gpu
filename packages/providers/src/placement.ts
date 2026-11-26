@@ -1,6 +1,7 @@
 import { isBasisPoints, type BasisPoints, type ProjectPolicy } from "@sbgpu/api";
 import { ProviderError, launchErrorAction, type ProviderErrorKind } from "./errors.ts";
 import { countryAllowed, localityFor, type Locality } from "./locality.ts";
+import { GPU_TYPES } from "./gpus.ts";
 import type {
   GpuTypeId,
   LaunchResult,
@@ -70,6 +71,55 @@ const STOCK_ORDER: Record<StockLevel, number> = {
 };
 
 /**
+ * Why an offer is outside a policy: a closed list, checked in this order (an offer failing several
+ * checks reports the first). The GPU type's three reasons compare its memory with the allowed
+ * types' (GPU_TYPES): smaller than the smallest, larger than the largest, or neither.
+ */
+export const OFFER_MISSES = [
+  "gpuCount",
+  "gpuTooSmall",
+  "gpuTooLarge",
+  "gpuTypeNotAllowed",
+  "providerNotAllowed",
+  "locality",
+  "overPrice",
+  "noStock",
+] as const;
+export type OfferMiss = (typeof OFFER_MISSES)[number];
+
+function vramGb(gpuType: GpuTypeId): number | null {
+  return GPU_TYPES.find((g) => g.id === gpuType)?.vramGb ?? null;
+}
+
+/** Why `offer` is outside `policy` for a request of `gpuCount` GPUs, or null when it's inside. */
+export function policyMiss(offer: Offer, policy: PlacementPolicy, gpuCount: number): OfferMiss | null {
+  if (offer.gpuCount !== gpuCount) return "gpuCount";
+  if (!policy.allowedGpuTypes.includes(offer.gpuType)) {
+    const allowed = policy.allowedGpuTypes.map(vramGb).filter((v): v is number => v !== null);
+    const v = vramGb(offer.gpuType);
+    if (v !== null && allowed.length > 0 && v < Math.min(...allowed)) return "gpuTooSmall";
+    if (v !== null && allowed.length > 0 && v > Math.max(...allowed)) return "gpuTooLarge";
+    return "gpuTypeNotAllowed";
+  }
+  if (!policy.allowedProviders.includes(offer.provider)) return "providerNotAllowed";
+  if (!countryAllowed(policy.locality, offer.country)) return "locality";
+  if (offer.providerCostPerHour > policy.maxProviderCostPerHour) return "overPrice";
+  if (offer.stock === "none") return "noStock";
+  return null;
+}
+
+/** Best first: cheapest, the better stock label, then provider, data center and GPU type, so the order is total. */
+function byRank(a: Offer, b: Offer): number {
+  return (
+    a.providerCostPerHour - b.providerCostPerHour ||
+    STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||
+    compare(a.provider, b.provider) ||
+    compare(a.dataCenter, b.dataCenter) ||
+    compare(a.gpuType, b.gpuType)
+  );
+}
+
+/**
  * The offers a request may use, best first: cheapest, then the better stock label, then a fixed
  * order (provider, data center) so the same inputs always give the same order. Offers whose
  * stock is "none" are dropped; other labels only order offers of equal price.
@@ -80,23 +130,34 @@ export function rankOffers(
   request: PlacementRequest,
 ): Offer[] {
   if (!policy.allowedGpuTypes.includes(request.gpuType)) return [];
-  return offers
-    .filter(
-      (o) =>
-        o.gpuType === request.gpuType &&
-        o.gpuCount === request.gpuCount &&
-        policy.allowedProviders.includes(o.provider) &&
-        countryAllowed(policy.locality, o.country) &&
-        o.providerCostPerHour <= policy.maxProviderCostPerHour &&
-        o.stock !== "none",
-    )
-    .sort(
-      (a, b) =>
-        a.providerCostPerHour - b.providerCostPerHour ||
-        STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||
-        compare(a.provider, b.provider) ||
-        compare(a.dataCenter, b.dataCenter),
-    );
+  return offers.filter((o) => o.gpuType === request.gpuType && policyMiss(o, policy, request.gpuCount) === null).sort(byRank);
+}
+
+/** Every offer inside the policy, of any allowed GPU type, for `gpuCount` GPUs: best first, as rankOffers orders. */
+export function rankAllowed(offers: readonly Offer[], policy: PlacementPolicy, gpuCount: number): Offer[] {
+  return offers.filter((o) => policyMiss(o, policy, gpuCount) === null).sort(byRank);
+}
+
+export interface OfferQuote {
+  /** The best `n` offers inside the policy (rankAllowed). */
+  best: Offer[];
+  /**
+   * The cheapest offer outside the policy that a member could otherwise take (not a sold-out
+   * offer, nor another GPU count), with why; null when there is none.
+   */
+  outside: { offer: Offer; reason: OfferMiss } | null;
+}
+
+/** An intent-first quote across every allowed GPU type: the best few offers, and the cheapest one just outside. */
+export function quoteOffers(offers: readonly Offer[], policy: PlacementPolicy, gpuCount: number, n = 3): OfferQuote {
+  if (!Number.isSafeInteger(n) || n < 1 || n > 20) throw new RangeError(`n must be an integer in [1, 20], got ${n}`);
+  // (only offers a member could take but for the policy: never a sold-out one, nor another GPU count)
+  const outside = offers
+    .filter((offer) => offer.stock !== "none" && offer.gpuCount === gpuCount)
+    .map((offer) => ({ offer, reason: policyMiss(offer, policy, gpuCount) }))
+    .filter((x): x is { offer: Offer; reason: OfferMiss } => x.reason !== null)
+    .sort((a, b) => byRank(a.offer, b.offer));
+  return { best: rankAllowed(offers, policy, gpuCount).slice(0, n), outside: outside[0] ?? null };
 }
 
 function compare(a: string, b: string): number {
