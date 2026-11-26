@@ -3835,5 +3835,11 @@
   "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
   "new": "  account_kind TEXT NOT NULL,",
   "note": "account kind open"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
+  "new": "  account_kind TEXT NOT NULL DEFAULT 'platform' CHECK (account_kind IN ('platform', 'org')),",
+  "note": "account kind defaulted"
  }
 ]

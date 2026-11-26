@@ -120,6 +120,26 @@ test("launches: which launch a row is (machine, incarnation) never changes, in b
   assert.deepEqual(rows.map((r) => [r.machine_id, r.incarnation]).sort(), [[c, 1], [v, 1]].sort());
 });
 
+test("launches: the account kind has no default: an intent that omits it is refused, in both modes", async () => {
+  // (an explicit NULL is refused by NOT NULL alone; this is the omission, which a DEFAULT would accept)
+  const omit = (v: Record<string, SqlValue>) => {
+    const rest = { ...v };
+    delete rest.account_kind;
+    return insert("launches", rest);
+  };
+  const c = await machine();
+  await assert.rejects(
+    omit({ machine_id: c, incarnation: 1, mode: "container", provider: "runpod", agent_sha256: H, credential_kind: "ours", outcome: "creating", next_ms: T0, created_ms: T0 }),
+    /NOT NULL constraint failed: launches\.account_kind/,
+  );
+  const v = await machine("shadeform");
+  await assert.rejects(
+    omit({ machine_id: v, incarnation: 1, mode: "vm", provider: "shadeform", nonce_sha256: H, boot_script_sha256: H, agent_sha256: H, outcome: "creating", next_ms: T0, created_ms: T0 }),
+    /NOT NULL constraint failed: launches\.account_kind/,
+  );
+  assert.equal((await w.db.all(`SELECT 1 FROM launches WHERE machine_id IN (?, ?)`, [c, v])).length, 0);
+});
+
 test("launches: the account is pinned at the intent (the machine's organization then), and moves of the machine or its project don't change it", async () => {
   const other = newId("org");
   await w.db.batch([stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms, total_credit) VALUES (?, 'Other', 'resold', 3000, ?, 0)`, other, T0)]);
