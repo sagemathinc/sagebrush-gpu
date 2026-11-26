@@ -330,6 +330,9 @@ export class Store {
         this.teams.value = [];
         this.allMachines.value = [];
         this.saves.value = { member: null, team: null };
+        // reads for the project left are older than anything the new one asks: none will show
+        this.#savesReads.member++;
+        this.#savesReads.team++;
       });
     }
     const generation = ++this.#generation;
@@ -422,8 +425,8 @@ export class Store {
       Promise.all(gpuTypes.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
       // (for the paused providers: a pause can begin or end while the page is open)
       this.client.call("listGpuTypes", { params }),
-      this.#savesOf(projectId, "member"),
-      this.#savesOf(projectId, "team"),
+      this.#readSaves(projectId, "member"),
+      this.#readSaves(projectId, "team"),
       staff
         ? Promise.all([
             this.client.call("getProject", { params }),
@@ -441,7 +444,8 @@ export class Store {
       if (machines.truncated) cut.add("machines");
       this.quotes.value = Object.fromEntries(quotes.map((q) => [q.gpuType, q]));
       this.paused.value = prices.paused;
-      this.saves.value = { member: memberSaves, team: teamSaves };
+      this.#publishSaves(memberSaves);
+      this.#publishSaves(teamSaves);
       if (managed) {
         const [project, members, teams, all] = managed;
         this.project.value = project;
@@ -457,6 +461,21 @@ export class Store {
 
   // ---------------------------------------------------------------- saves
 
+  /** Saves reads asked so far, per area (by #refresh and #reloadSaves alike): only the latest one asked may publish. */
+  readonly #savesReads: Record<SnapshotArea, number> = { member: 0, team: 0 };
+
+  /** Read one area's saves, numbered when asked. */
+  async #readSaves(projectId: string, area: SnapshotArea): Promise<{ area: SnapshotArea; read: number; list: ListSnapshotsResponse | null }> {
+    const read = ++this.#savesReads[area];
+    return { area, read, list: await this.#savesOf(projectId, area) };
+  }
+
+  /** Show a read's list, unless a later read of the same area was asked meanwhile. */
+  #publishSaves(r: { area: SnapshotArea; read: number; list: ListSnapshotsResponse | null }): void {
+    if (r.read !== this.#savesReads[r.area]) return;
+    this.saves.value = { ...this.saves.value, [r.area]: r.list };
+  }
+
   /** One area's saves; null when the caller has no such area (the server's notFound: no team, or no member record). */
   async #savesOf(projectId: string, area: SnapshotArea): Promise<ListSnapshotsResponse | null> {
     try {
@@ -471,10 +490,8 @@ export class Store {
   async #reloadSaves(area: SnapshotArea): Promise<void> {
     const projectId = this.projectId.value;
     if (projectId == null) return;
-    const generation = this.#generation;
-    const list = await this.#savesOf(projectId, area);
-    if (generation !== this.#generation) return;
-    this.saves.value = { ...this.saves.value, [area]: list };
+    // (a move to another project counts as a later read: see openProject)
+    this.#publishSaves(await this.#readSaves(projectId, area));
   }
 
   /** Name a save, or remove its name (null). */

@@ -51,10 +51,14 @@ test("a restore is offered only while none of your machines writes a workspace",
   assert.match(restoreBlockedText(GENERIC_LABELS), /stop your machines first: a running machine keeps writing to your workspace and your team's/);
 });
 
-test("the restore confirmation names the save and says nothing is deleted", () => {
+test("the restore confirmation names the save and the workspace, says nothing is deleted now, and that later saves follow retention", () => {
   const [named, plain] = saveRows([snap("a", 120, { name: "good run" }), snap("b", 60)], NOW);
-  assert.equal(restoreConfirmText(named!), `Restore "good run" (saved ${ago(iso(120), NOW)})? It becomes your current workspace. Nothing is deleted: the current save stays in the list, so you can restore it again.`);
-  assert.match(restoreConfirmText(plain!), new RegExp(`^Restore the save from ${ago(iso(60), NOW)}\\?`));
+  assert.equal(
+    restoreConfirmText(named!, "member", GENERIC_LABELS, 10),
+    `Restore "good run" (saved ${ago(iso(120), NOW)}) into your workspace? It becomes the current save. Nothing is deleted now: the save that's current stays in the list, so you can restore it again. Later saves follow the usual rule: only the newest 10 unnamed saves are kept, so name it to keep it for good.`,
+  );
+  assert.match(restoreConfirmText(plain!, "member", GENERIC_LABELS, 1), new RegExp(`^Restore the save from ${ago(iso(60), NOW)} into your workspace\\? .* only the newest 1 unnamed saves are kept`));
+  assert.match(restoreConfirmText(plain!, "team", { ...GENERIC_LABELS, team: "group" }, 3), / into your group's shared workspace\? /);
 });
 
 test("a name: trimmed, the server's rule, unique in the workspace, within the limit (a rename isn't counted twice)", () => {

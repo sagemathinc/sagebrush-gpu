@@ -127,7 +127,7 @@ test("naming: name a save, rename it, remove the name; a taken name or one over 
   assert.equal(s.card("member")!.querySelector("input") === null, true);
 });
 
-test("restore: only on a save that isn't current, after a confirmation that names it; it becomes the current save, and nothing is deleted", async () => {
+test("restore: only on a save that isn't current, after a confirmation that names it; it becomes the current save", async () => {
   const s = await open();
   const old = s.b.seedSnapshot(s.mine, { name: "good run" });
   s.b.advance(600 * SEC);
@@ -137,7 +137,7 @@ test("restore: only on a save that isn't current, after a confirmation that name
   const asked = s.confirm(false);
   await s.click(s.within("member", /Restore the save from/));
   assert.equal(asked.length, 1);
-  assert.match(asked[0]!, /^Restore "good run" \(saved 10 min ago\)\? It becomes your current workspace\. Nothing is deleted: the current save stays in the list, so you can restore it again\.$/);
+  assert.match(asked[0]!, /^Restore "good run" \(saved 10 min ago\) into your workspace\? It becomes the current save\. Nothing is deleted now: the save that's current stays in the list, so you can restore it again\. Later saves follow the usual rule: only the newest 10 unnamed saves are kept, so name it to keep it for good\.$/);
   assert.equal(s.b.snapshots.get(s.mine)!.length, 2, "declined: nothing sent");
   assert.equal(s.t.log.some((l) => /restore/.test(l)), false);
   s.confirm(true);
@@ -146,6 +146,33 @@ test("restore: only on a save that isn't current, after a confirmation that name
   assert.equal(list.length, 3);
   assert.deepEqual([list[2]!.kind, list[2]!.restoredFrom], ["restore", old]);
   assert.match(s.rows("member")[0]!, /^just now Current \| Restored from the save of 10 min ago \| 120\.0 MB \| Name \|$/);
+});
+
+test("a restore deletes nothing: with keepLast 1, the unnamed save that was current is still listed; the next save prunes as usual; a team restore names the shared workspace", async () => {
+  const s = await open();
+  s.b.projects.get(s.t.demo.projectId)!.policy.snapshotKeepLast = 1;
+  const named = s.b.seedSnapshot(s.mine, { name: "A" });
+  const current = s.b.seedSnapshot(s.mine);
+  await s.reload();
+  const asked = s.confirm(true);
+  await s.click(s.within("member", /Restore "?A"?|Restore the save from/));
+  assert.match(asked[0]!, /Nothing is deleted now: the save that's current stays in the list, so you can restore it again\. Later saves follow the usual rule: only the newest 1 unnamed saves are kept, so name it to keep it for good\.$/);
+  const after = s.b.snapshots.get(s.mine)!.map((x) => x.id);
+  assert.equal(after.length, 3);
+  assert.equal(after.includes(current), true, "the unnamed save that was current is still listed");
+  assert.equal(after.includes(named), true);
+  assert.equal(s.rows("member").length, 3);
+  // the next normal save prunes as usual: one unnamed save kept, and the named one
+  s.b.seedSnapshot(s.mine);
+  assert.equal(s.b.snapshots.get(s.mine)!.length, 2);
+  assert.equal(s.b.snapshots.get(s.mine)!.some((x) => x.id === named), true);
+  // a team restore names the team's shared workspace
+  s.b.seedSnapshot(s.team("Team Qwen"), { name: "older" });
+  s.b.seedSnapshot(s.team("Team Qwen"));
+  await s.reload();
+  const teamAsked = s.confirm(false);
+  await s.click(s.within("team", /Restore the save from/));
+  assert.match(teamAsked[0]!, / into your team's shared workspace\? /);
 });
 
 test("while one of your machines runs, no restore is offered, and the page says why", async () => {
@@ -252,4 +279,46 @@ test("saves belong to the project shown: answers for a project left meanwhile ar
   hold();
   await naming;
   assert.deepEqual(shown().member?.items, [], "the first project's late answer is dropped");
+  // the same, answering before the new project has asked for any saves (its load is held)
+  await s.t.store.openProject(s.t.demo.projectId);
+  const holdReload = s.t.gate(new RegExp(`GET /v1/projects/${s.t.demo.projectId}/snapshots\\?area=member`));
+  const renaming = s.t.store.nameSave("member", s.b.snapshots.get(s.mine)![0]!.id, "later");
+  await settle();
+  const holdLoad = s.t.gate(new RegExp(`GET /v1/projects/${other}$`));
+  const moving2 = s.t.store.openProject(other);
+  holdReload();
+  await renaming;
+  assert.deepEqual(shown(), { member: null, team: null }, "nothing from the project left, even before the new one reads");
+  holdLoad();
+  await moving2;
+  assert.deepEqual(shown().member?.items, []);
+});
+
+test("only the latest read of an area's saves is shown: an older reload, or a poll, answering after a newer name changes nothing", async () => {
+  const s = await open();
+  const a = s.b.seedSnapshot(s.mine);
+  const z = s.b.seedSnapshot(s.mine);
+  await s.reload();
+  const list = new RegExp(`GET /v1/projects/${s.t.demo.projectId}/snapshots\\?area=member`);
+  const nameOf = (id: string) => s.t.store.saves.value.member!.items.find((x) => x.id === id)!.name;
+  // (1) the first rename's reload is held; a second rename completes; then the first answers
+  const hold = s.t.gate(list);
+  const first = s.t.store.nameSave("member", a, "name A");
+  await settle();
+  assert.equal(await s.t.store.nameSave("member", z, "name B"), true);
+  assert.equal(nameOf(z), "name B");
+  hold();
+  await first;
+  assert.equal(nameOf(z), "name B", "the older reload doesn't undo the newer name");
+  assert.equal(nameOf(a), "name A");
+  // (2) a polling refresh's read is held; a rename completes; then the poll answers
+  const holdPoll = s.t.gate(list);
+  const poll = s.t.store.refresh();
+  await settle();
+  assert.equal(await s.t.store.nameSave("member", a, "fresh name"), true);
+  assert.equal(nameOf(a), "fresh name");
+  holdPoll();
+  await poll;
+  assert.equal(nameOf(a), "fresh name", "the older poll doesn't undo the name");
+  assert.equal(s.b.snapshots.get(s.mine)!.find((x) => x.id === a)!.name, "fresh name");
 });

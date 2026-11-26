@@ -1056,8 +1056,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n        this.saves.value = { member: null, team: null };\n      });\n    }\n    const generation",
-  "new": "        this.saves.value = { member: null, team: null };\n      });\n    }\n    const generation"
+  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#savesReads.member++;\n        this.#savesReads.team++;\n      });\n    }\n    const generation",
+  "new": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#savesReads.member++;\n        this.#savesReads.team++;\n      });\n    }\n    const generation"
  },
  {
   "file": "src/app/store.ts",
@@ -4013,14 +4013,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "unnamed.length - policy.snapshotKeepLast)",
-  "new": "unnamed.length - (policy.snapshotKeepLast - 1))"
+  "old": "unnamed.length - keepLast)",
+  "new": "unnamed.length - (keepLast - 1))"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "const unnamed = list.filter((x) => x.name == null);\n    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - policy.snapshotKeepLast))",
-  "new": "const unnamed = list.filter((x) => x.name == null && x.id !== rec.id);\n    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - (policy.snapshotKeepLast - 1)))",
-  "note": "the reported bug (TESTS hold on #86): a named commit dropping one unnamed save too many"
+  "old": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast);",
+  "new": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast - 1);",
+  "note": "the reported bug (TESTS on #86): one unnamed save too many dropped"
  },
  {
   "file": "src/mock/backend.ts",
@@ -4064,8 +4064,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "Math.max(0, unnamed.length - policy.snapshotKeepLast)",
-  "new": "unnamed.length - policy.snapshotKeepLast"
+  "old": "Math.max(0, unnamed.length - keepLast)",
+  "new": "unnamed.length - keepLast"
  },
  {
   "file": "src/mock/backend.ts",
@@ -4186,8 +4186,9 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    const list = await this.#savesOf(projectId, area);\n    if (generation !== this.#generation) return;",
-  "new": "    const list = await this.#savesOf(projectId, area);"
+  "old": "        this.#savesReads.member++;\n        this.#savesReads.team++;\n",
+  "new": "",
+  "note": "a read for the project left, answering before the new one reads"
  },
  {
   "file": "src/app/store.ts",
@@ -4196,13 +4197,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.saves.value = { member: null, team: null };\n      });\n    }\n    const generation",
-  "new": "      });\n    }\n    const generation"
+  "old": "        this.saves.value = { member: null, team: null };\n        // reads for the project left",
+  "new": "        // reads for the project left"
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.saves.value = { member: memberSaves, team: teamSaves };",
-  "new": "      this.saves.value = { member: memberSaves, team: null };"
+  "old": "      this.#publishSaves(teamSaves);\n",
+  "new": ""
  },
  {
   "file": "src/app/saves-section.ts",
@@ -4221,7 +4222,7 @@
  },
  {
   "file": "src/app/saves-section.ts",
-  "old": "    if (window.confirm(restoreConfirmText(row))) void store.restoreSave(area, row.id);",
+  "old": "    if (window.confirm(restoreConfirmText(row, area, labels, list.keepLast))) void store.restoreSave(area, row.id);",
   "new": "    void store.restoreSave(area, row.id);"
  },
  {
@@ -4243,5 +4244,48 @@
   "file": "src/app/components.ts",
   "old": "      ${actions.save ? html`<${SaveWithName} store=${store} machineId=${m.id} />` : null}\n",
   "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (r.read !== this.#savesReads[r.area]) return;\n",
+  "new": "",
+  "note": "an older saves read publishing over a newer one (TESTS on #92)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const read = ++this.#savesReads[area];",
+  "new": "    const read = this.#savesReads[area];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.#publishSaves(memberSaves);\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast);",
+  "new": "    if (true) this.#prune(areaKey, policy.snapshotKeepLast);",
+  "note": "retention at the restore's commit (ruling (a))"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;\n    return id;",
+  "new": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;\n    this.#prune(areaKey, 1);\n    return id;",
+  "note": "retention at a restore commit's retry"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;",
+  "new": "    if (id == null) return null;"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const where = area === \"team\" ? `your ${labels.team}'s shared workspace` : \"your workspace\";",
+  "new": "const where = \"your workspace\";"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "It becomes the current save. Nothing is deleted now: the save that's current stays in the list, so you can restore it again. ",
+  "new": "It becomes the current save. "
  }
 ]

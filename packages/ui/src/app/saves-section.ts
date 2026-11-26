@@ -1,6 +1,7 @@
 // The workspace's saves on the project page: the caller's own and their team's, each newest
 // first, with the current one marked. A save can be named (and renamed, or its name removed),
-// and restored, which writes a new current save from it and deletes nothing. The page offers a
+// and restored, which writes a new current save from it and deletes nothing then (later saves follow
+// the usual retention: the confirmation says so). The page offers a
 // restore only while none of the caller's machines is running (a running machine writes to both
 // workspaces), and asks first.
 
@@ -47,7 +48,7 @@ function SavesCard({ store, area, title, list }: { store: Store; area: SnapshotA
   const restorable = canRestore(store.machines.value);
   const restoring = store.isBusy(`restore:${area}`);
   const restore = (row: SaveRow) => {
-    if (window.confirm(restoreConfirmText(row))) void store.restoreSave(area, row.id);
+    if (window.confirm(restoreConfirmText(row, area, labels, list.keepLast))) void store.restoreSave(area, row.id);
   };
   return html`<section class="card saves" data-area=${area}>
     <h2>${title}</h2>

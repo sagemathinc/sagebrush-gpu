@@ -156,9 +156,12 @@ test("retention: the newest snapshotKeepLast unnamed ones, every named one, and 
   const key = w.mine(ada);
   const ids = [w.b.seedSnapshot(key, { name: "old but named" }), w.b.seedSnapshot(key), w.b.seedSnapshot(key), w.b.seedSnapshot(key)];
   assert.deepEqual((await w.list(ada, "member")).map((s) => s.id), [ids[3], ids[2], ids[0]]);
-  // a restore of a named snapshot is itself unnamed, and current; the oldest unnamed goes
+  // a restore of a named snapshot is itself unnamed, and current; its commit prunes nothing
   const r = await w.restore(ada, ids[0]!, "member");
-  assert.deepEqual((await w.list(ada, "member")).map((s) => s.id), [r.id, ids[3], ids[0]]);
+  assert.deepEqual((await w.list(ada, "member")).map((s) => s.id), [r.id, ids[3], ids[2], ids[0]]);
+  // retention resumes at the next save: the newest 2 unnamed (the new one and the restore), and the named one
+  const next = w.b.seedSnapshot(key);
+  assert.deepEqual((await w.list(ada, "member")).map((s) => s.id), [next, r.id, ids[0]]);
 });
 
 test("retention counts the current snapshot among the unnamed ones only when it is unnamed: a named commit drops none", async () => {
@@ -178,7 +181,7 @@ test("retention counts the current snapshot among the unnamed ones only when it 
   assert.deepEqual((await fresh.list(ada, "member")).map((s) => s.id), [...many].reverse());
 });
 
-test("restore: a new current snapshot from the target, while nothing writes the area; another restore undoes it", async () => {
+test("restore: a new current snapshot from the target, while nothing writes the area; with room under keepLast, another restore undoes it", async () => {
   const w = world();
   const ada = w.emails.member;
   const id = await w.running(ada);
@@ -200,7 +203,7 @@ test("restore: a new current snapshot from the target, while nothing writes the 
     { id: "", area: "member", createdAt: "", kind: "restore", bytes: good!.bytes, name: null, machineId: null, current: true, restoredFrom: good!.id },
   );
   assert.deepEqual((await w.list(ada, "member")).map(view), [["restore", null, true, "from"], ["final", null, false, null], ["manual", null, false, null]]);
-  // nothing was deleted: restoring the final save undoes it
+  // under keepLast nothing was dropped: restoring the final save undoes it
   const back = await w.restore(ada, bad!.id, "member");
   assert.equal(back.restoredFrom, bad!.id);
   assert.equal((await w.list(ada, "member")).length, 4);
@@ -249,4 +252,25 @@ test("a team move while running (C1): the machine writes its pinned areas until 
   await w.as(alan).call("restartMachine", { params: { machineId: id } });
   assert.deepEqual([w.b.machines.get(id)!.memberAreaKey, w.b.machines.get(id)!.teamAreaKey], [w.mine(alan), w.team("Team Qwen")]);
   await refused(w.restore(w.emails.member, qwen, "team"), "writerRunning");
+});
+
+test("a restore commit, and any retry of it, prunes nothing; the next ordinary save applies retention", async () => {
+  const w = world();
+  const ada = w.emails.member;
+  await w.as(w.emails.manager).call("updateProject", { params: w.p, body: { policy: { snapshotKeepLast: 1 } } });
+  const key = w.mine(ada);
+  const named = w.b.seedSnapshot(key, { name: "A" });
+  const current = w.b.seedSnapshot(key);
+  const r = await w.restore(ada, named, "member");
+  const ids = async () => (await w.list(ada, "member")).map((s) => s.id);
+  assert.deepEqual(await ids(), [r.id, current, named], "the restore's commit kept the unnamed save that was current");
+  // the gateway retries the commit (a replay, or crash recovery): nothing changes, nothing is pruned
+  assert.equal(w.b.retryRestoreCommit(key), r.id);
+  assert.equal(w.b.retryRestoreCommit(key), r.id);
+  assert.deepEqual(await ids(), [r.id, current, named]);
+  assert.equal(w.b.retryRestoreCommit(w.team("Team Qwen")), null, "no restore there to retry");
+  // the next ordinary save: keepLast 1 unnamed (itself), and the named one
+  const next = w.b.seedSnapshot(key);
+  assert.deepEqual(await ids(), [next, named]);
+  assert.equal(w.b.retryRestoreCommit(key), null, "the restore it would retry is gone");
 });

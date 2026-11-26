@@ -2,7 +2,7 @@
 // each kind, the check of a name before it is sent, and when the page offers a restore. The
 // server has the last word on all of it (snapshots.ts's refusals).
 
-import { SNAPSHOT_NAME_MAX, isSnapshotName, type ListSnapshotsResponse, type Machine, type ProjectLabels, type Snapshot, type SnapshotKind } from "@sbgpu/api";
+import { SNAPSHOT_NAME_MAX, isSnapshotName, type ListSnapshotsResponse, type Machine, type ProjectLabels, type Snapshot, type SnapshotArea, type SnapshotKind } from "@sbgpu/api";
 import { ago, formatBytes } from "./view.ts";
 
 /** What made each kind of save. */
@@ -60,10 +60,15 @@ export function restoreBlockedText(labels: ProjectLabels): string {
   return `To restore a save, stop your machines first: a running machine keeps writing to your workspace and your ${labels.team}'s.`;
 }
 
-/** The confirmation before a restore. */
-export function restoreConfirmText(row: SaveRow): string {
+/**
+ * The confirmation before a restore: which save, into which workspace (the team's is shared); that
+ * nothing is deleted now (a restore's commit prunes nothing); and that later saves follow the usual
+ * retention, so the save that's current now is kept for good only if named.
+ */
+export function restoreConfirmText(row: SaveRow, area: SnapshotArea, labels: ProjectLabels, keepLast: number): string {
   const which = row.name ? `"${row.name}" (saved ${row.when})` : `the save from ${row.when}`;
-  return `Restore ${which}? It becomes your current workspace. Nothing is deleted: the current save stays in the list, so you can restore it again.`;
+  const where = area === "team" ? `your ${labels.team}'s shared workspace` : "your workspace";
+  return `Restore ${which} into ${where}? It becomes the current save. Nothing is deleted now: the save that's current stays in the list, so you can restore it again. Later saves follow the usual rule: only the newest ${keepLast} unnamed saves are kept, so name it to keep it for good.`;
 }
 
 export type NameCheck = { ok: true; name: string } | { ok: false; reason: string };

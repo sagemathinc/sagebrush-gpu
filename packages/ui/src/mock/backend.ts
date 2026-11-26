@@ -307,6 +307,8 @@ export class MockBackend {
    * ever held here by a test (holdRestore), to show a restore in progress.
    */
   readonly restoreClaims = new Set<string>();
+  /** Each area's last restore commit, for retryRestoreCommit. */
+  readonly #lastRestore = new Map<string, string>();
   offers: Offer[] = [];
   /** The signed-in user; the mock's stand-in for the session cookie. */
   currentUserId: string | null = null;
@@ -1075,7 +1077,8 @@ export class MockBackend {
   }
 
   /**
-   * Commit a snapshot to an area as the gateway does: it becomes the head, then retention keeps
+   * Commit a snapshot to an area as the gateway does: it becomes the head, then (except for a
+   * restore's commit, which prunes nothing) retention keeps
    * the newest snapshotKeepLast unnamed ones, every named one and the head. The head is the newest
    * snapshot, so it is one of those unnamed ones when it is unnamed; a named head leaves room for
    * snapshotKeepLast unnamed ones besides.
@@ -1089,10 +1092,30 @@ export class MockBackend {
     const rec: SnapshotRec = { ...init, name, id: this.newId("snapshot"), createdAt: this.#now };
     list.push(rec);
     this.snapshotHeads.set(areaKey, rec.id);
-    const unnamed = list.filter((x) => x.name == null);
-    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - policy.snapshotKeepLast)).map((x) => x.id));
-    this.snapshots.set(areaKey, list.filter((x) => !drop.has(x.id)));
+    this.snapshots.set(areaKey, list);
+    // A restore's commit prunes nothing, so the save that was current is still there to restore
+    // back to; retention resumes at the next ordinary save (the contract's rule for the gateway).
+    if (init.kind !== "restore") this.#prune(areaKey, policy.snapshotKeepLast);
+    else this.#lastRestore.set(areaKey, rec.id);
     return rec.id;
+  }
+
+  /** Retention: the newest keepLast unnamed snapshots, every named one, and the head (the newest). */
+  #prune(areaKey: string, keepLast: number): void {
+    const list = this.snapshots.get(areaKey) ?? [];
+    const unnamed = list.filter((x) => x.name == null);
+    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - keepLast)).map((x) => x.id));
+    this.snapshots.set(areaKey, list.filter((x) => !drop.has(x.id)));
+  }
+
+  /**
+   * Test hook: the gateway retries an area's last restore commit (a replay or crash recovery). The
+   * commit is already durable, so the retry changes nothing: no new snapshot, and no retention.
+   */
+  retryRestoreCommit(areaKey: string): string | null {
+    const id = this.#lastRestore.get(areaKey) ?? null;
+    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;
+    return id;
   }
 
   #snapshotView(areaKey: string, area: SnapshotArea, x: SnapshotRec): Snapshot {
