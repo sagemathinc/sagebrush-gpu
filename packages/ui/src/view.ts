@@ -53,6 +53,8 @@ export function refusalText(reason: QuoteRefusal, labels: ProjectLabels): string
       return "Not enough allocation left to start.";
     case "priceCap":
       return `Over the ${labels.project}'s price limit.`;
+    case "credentialUnusable":
+      return "Launches are paused: the organization's provider key isn't working.";
     case "noCapacity":
       return "No capacity right now. Try another type or try again soon.";
     case "policy":
