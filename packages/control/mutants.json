@@ -4862,5 +4862,11 @@
   "old": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`",
   "new": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ?`",
   "note": "a starting machine stopped once the pod is gone"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`, params: [r.machine_id, r.incarnation]",
+  "new": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND ? > 0 AND state = 'stopping'`, params: [r.machine_id, r.incarnation]",
+  "note": "the machine stopped at any incarnation once the pod is gone"
  }
 ]

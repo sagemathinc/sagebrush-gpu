@@ -238,6 +238,12 @@ test("revocation leaves a starting machine for the start path (no workspace or p
   await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'abort', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [w.clock.t, o.machineId]);
   assert.equal(await runContainerWatchdog(cenv()), 1);
   assert.deepEqual([(await launch(o.machineId)).outcome, await machineState(o.machineId)], ["terminated", "running"]);
+  // the same, with the newer incarnation already stopping: the old launch's end doesn't make it stopped
+  const p = await container();
+  await w.db.run(`UPDATE machines SET incarnation = 2, state = 'stopping' WHERE id = ?`, [p.machineId]);
+  await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'abort', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [w.clock.t, p.machineId]);
+  assert.equal(await runContainerWatchdog(cenv()), 1);
+  assert.deepEqual([(await launch(p.machineId)).outcome, await machineState(p.machineId)], ["terminated", "stopping"]);
 });
 
 test("a heartbeat landing first keeps the container; a machine not running is deferred, not marked", async () => {
