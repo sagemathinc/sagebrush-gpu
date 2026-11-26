@@ -4652,5 +4652,11 @@
   "old": "    deps.alert(`container-enroll: ${reason} (not recorded)`);\n",
   "new": "",
   "note": "no alert for an unrecorded failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (seen !== \"running\") throw REFUSED();\n",
+  "new": "",
+  "note": "enroll from an earlier read's facts"
  }
 ]

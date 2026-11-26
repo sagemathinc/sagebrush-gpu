@@ -276,6 +276,27 @@ test("refused, nothing changed: the window over, the pod not running yet, the pr
   }
 });
 
+test("refused, nothing changed: a window already open, but enroll's own read finds the provider unavailable or the pod not running", async () => {
+  const { observeContainer } = await import("./container.ts");
+  for (const fault of ["unavailable", "not running"] as const) {
+    w.clock.t = T0;
+    const l = await launched();
+    // the launch loop opened the window at T0 + 1000: the launch is issued, its token in its window
+    w.clock.t = T0 + 1000;
+    assert.equal(await observeContainer(env(), l.machineId, 1), "running");
+    w.clock.t = T0 + 2000;
+    if (fault === "unavailable") rp.statusFails = true;
+    else rp.override = { state: "provisioning" };
+    assert.equal((await enroll(body(l))).status, 403, fault);
+    rp.statusFails = false;
+    rp.override = {};
+    // (no enroll from the earlier facts: the read at enroll must itself show the pod running)
+    await untouched(l, "issued", fault);
+    assert.equal(await observeContainer(env(), l.machineId, 1), "running");
+    assert.equal((await enroll(body(l))).status, 200, `${fault}: then enrolls once the read shows it running`);
+  }
+});
+
 test("refused, nothing changed: an unknown token, another pod's id, another agent, a machine not starting", async () => {
   const l = await launched();
   const calls = rp.statusCalls;
