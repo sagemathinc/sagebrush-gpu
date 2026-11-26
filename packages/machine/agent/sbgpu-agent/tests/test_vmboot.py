@@ -109,7 +109,7 @@ class Server:
     def issue(self, life=120.0, token=TOKEN):
         self.body = json.dumps({"bootToken": token, "expiresAt": iso(NOW + life)}).encode()
 
-    def factory(self, host, port, addr, timeout, context):
+    def factory(self, host, port, addr, deadline, timeout, context):
         server = self
         self.addrs.append(addr)
 
@@ -259,7 +259,8 @@ class TestPinnedHTTPS(unittest.TestCase):
                 wrapped.append(server_hostname)
                 return sock
         with mock.patch.object(socket, "getaddrinfo", mock.Mock(side_effect=AssertionError("no lookup in connect"))):
-            conn = B.PinnedHTTPS("control.example.com", 8443, (socket.AF_INET, ("127.0.0.1", port)), 5, Plain())
+            conn = B.PinnedHTTPS("control.example.com", 8443, (socket.AF_INET, ("127.0.0.1", port)),
+                                 boottime.boottime_ms() + 5_000, 5, Plain())
             conn.connect()
             conn.request("POST", "/v1/agent/announce", body=b"{}", headers={})
         peer, _ = listener.accept()
@@ -272,6 +273,51 @@ class TestPinnedHTTPS(unittest.TestCase):
         self.assertEqual(wrapped, ["control.example.com"])
         self.assertIn(b"\r\nHost: control.example.com:8443\r\n", data)
         self.assertEqual(conn.sock.getpeername(), ("127.0.0.1", port))
+
+
+class TestConnectBudget(unittest.TestCase):
+    """The TCP connect and the TLS handshake share one budget: after TCP returns, the time left is read again from
+    CLOCK_BOOTTIME; none left closes the socket with no handshake, and otherwise the handshake's timeout is what is
+    left.  (A deadline 100 ms out; TCP returns at the clock given.)"""
+
+    def connect_with_tcp_ending_at(self, at):
+        clock = Clock(T0)
+        log = []
+
+        class Sock:
+            def settimeout(self, t):
+                log.append(("timeout", round(t, 6)))
+
+            def connect(self, addr):
+                log.append(("tcp", addr))
+                clock.ms = at
+
+            def close(self):
+                log.append(("close",))
+
+        class Tls:
+            def wrap_socket(self, sock, server_hostname=None):
+                log.append(("tls", server_hostname))
+                return sock
+        with mock.patch.object(boottime, "boottime_ms", clock), mock.patch.object(socket, "socket", lambda *a: Sock()):
+            conn = B.PinnedHTTPS("control.example.com", 443, ADDR, T0 + 100, 0.1, Tls())
+            try:
+                conn.connect()
+                return log, None
+            except B.Late as e:
+                return log, e
+
+    def test_tcp_using_part_of_the_budget_shortens_the_handshake(self):
+        for at, left in ((T0 + 20, 0.08), (T0 + 80, 0.02), (T0 + 99, 0.001)):
+            log, late = self.connect_with_tcp_ending_at(at)
+            self.assertIsNone(late, at)
+            self.assertEqual(log, [("timeout", 0.1), ("tcp", ADDR[1]), ("timeout", left), ("tls", "control.example.com")], at)
+
+    def test_tcp_using_all_of_it_means_no_handshake(self):
+        for at in (T0 + 100, T0 + 101, T0 + 5_000):
+            log, late = self.connect_with_tcp_ending_at(at)
+            self.assertIsInstance(late, B.Late, at)
+            self.assertEqual(log, [("timeout", 0.1), ("tcp", ADDR[1]), ("close",)], at)
 
 
 class TestClock(unittest.TestCase):

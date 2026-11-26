@@ -63,11 +63,14 @@ RESOLVE_SLICE_S = 0.05  # (how often a wait for the resolver looks at CLOCK_BOOT
 
 class PinnedHTTPS(http.client.HTTPSConnection):
     """An HTTPSConnection to an address resolved beforehand (resolve()), so its connect does no name lookup of its own.
-    The TLS server name, the certificate's name check and the Host header are still the URL's host."""
+    The TLS server name, the certificate's name check and the Host header are still the URL's host.  The connect is
+    two blocking steps, TCP then the TLS handshake: the handshake gets only what the TCP connect left of `deadline`
+    (CLOCK_BOOTTIME ms), and none left means no handshake (Late)."""
 
-    def __init__(self, host, port, addr, timeout, context):
+    def __init__(self, host, port, addr, deadline, timeout, context):
         http.client.HTTPSConnection.__init__(self, host, port, timeout=timeout, context=context)
         self.addr = addr  # (family, sockaddr)
+        self.deadline = deadline
         self.tls = context
 
     def connect(self):
@@ -76,7 +79,11 @@ class PinnedHTTPS(http.client.HTTPSConnection):
         try:
             sock.settimeout(self.timeout)
             sock.connect(sockaddr)
-            self.sock = self.tls.wrap_socket(sock, server_hostname=self.host)  # (the handshake, under the timeout)
+            left = self.deadline - boottime.boottime_ms()
+            if left <= 0:
+                raise Late()  # (the TCP connect used it all: no handshake)
+            sock.settimeout(left / 1000)
+            self.sock = self.tls.wrap_socket(sock, server_hostname=self.host)  # (the handshake, under what is left)
         except BaseException:
             sock.close()
             raise
@@ -180,7 +187,7 @@ def post(url, headers, body, deadline, cap):
         return ms / 1000
 
     addr = resolve(u.hostname, u.port or 443, deadline)
-    conn = HTTPS(u.hostname, u.port or 443, addr, timeout=timeout(), context=tls())
+    conn = HTTPS(u.hostname, u.port or 443, addr, deadline, timeout=timeout(), context=tls())
 
     def bounded(call):
         if conn.sock is None:

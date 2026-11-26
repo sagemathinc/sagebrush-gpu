@@ -3268,5 +3268,23 @@
   "old": "    addr = resolve(u.hostname, u.port or 443, deadline)\n",
   "new": "    addr = (socket.AF_INET, (u.hostname, u.port or 443))\n",
   "note": "PR C: post: no bounded resolution"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            left = self.deadline - boottime.boottime_ms()\n            if left <= 0:\n                raise Late()  # (the TCP connect used it all: no handshake)\n            sock.settimeout(left / 1000)\n",
+  "new": "",
+  "note": "PR C: pinned: no recomputation between TCP and TLS"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            sock.settimeout(left / 1000)\n",
+  "new": "",
+  "note": "PR C: pinned: the handshake keeps the connect's timeout"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            if left <= 0:\n                raise Late()",
+  "new": "            if left < 0:\n                raise Late()",
+  "note": "PR C: pinned: exactly nothing left still handshakes"
  }
 ]
