@@ -521,7 +521,7 @@ export interface AgentAnnounceResponse {
 }
 
 /** Closed list: the machine never sends free text here. */
-export const AGENT_ABORT_REASONS = ["env-not-clean", "extra-process", "key-file", "other"] as const;
+export const AGENT_ABORT_REASONS = ["env-not-clean", "extra-process", "key-file", "ssh-access", "other"] as const;
 export type AgentAbortReason = (typeof AGENT_ABORT_REASONS)[number];
 
 /** Uses up the boot token; control terminates the machine at once. */
