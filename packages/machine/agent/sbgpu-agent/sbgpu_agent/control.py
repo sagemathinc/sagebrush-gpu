@@ -47,14 +47,14 @@ class Control:
         self.transport = transport
         self.token = None  # the agent token, once enrolled
 
-    def post(self, path, payload, auth=True):
+    def post(self, path, payload, auth=True, timeout=TIMEOUT_S):
         headers = {"content-type": "application/json", "accept": "application/json"}
         if auth:
             if not self.token:
                 raise ControlError(None, "no agent token")
             headers["authorization"] = "Bearer " + self.token
         body = json.dumps(payload, separators=(",", ":")).encode()
-        status, data = self.transport("POST", self.base + path, headers, body, TIMEOUT_S)
+        status, data = self.transport("POST", self.base + path, headers, body, timeout)
         if len(data) > RESPONSE_MAX:
             raise ControlError(status, "response too large")
         try:
@@ -69,8 +69,8 @@ class Control:
             raise ControlError(status, "response isn't an object")
         return parsed
 
-    def enroll(self, request):
-        r = self.post("/v1/agent/enroll", request, auth=False)
+    def enroll(self, request, timeout=TIMEOUT_S):
+        r = self.post("/v1/agent/enroll", request, auth=False, timeout=timeout)
         token = r.get("agentToken")
         if not isinstance(token, str) or not token:
             raise ControlError(None, "enroll gave no agent token")

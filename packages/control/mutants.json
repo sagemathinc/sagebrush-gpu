@@ -1532,11 +1532,6 @@
   "new": "FROM sessions WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,\n      [nowMs, PRUNE_BATCH * 2],"
  },
  {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
-  "new": "Object.freeze([pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
- },
- {
   "file": "migrations/0007_sessions.sql",
   "old": "DROP TABLE sign_in_links;",
   "new": ""
@@ -1916,11 +1911,6 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
- },
- {
-  "file": "src/jobs.ts",
   "old": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms LIMIT ?)`,",
   "new": "`DELETE FROM auth_states WHERE nonce_sha256 IN (SELECT nonce_sha256 FROM auth_states WHERE expires_ms <= ? ORDER BY expires_ms DESC LIMIT ?)`,"
  },
@@ -1968,12 +1958,6 @@
   "file": "src/workos.ts",
   "old": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 400;",
   "new": "const isRedirect = (r: Response) => r.status >= 300 && r.status < 307;"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop]);",
-  "note": "the VM watchdog left out of the cron"
  },
  {
   "file": "src/vm.ts",
@@ -3058,12 +3042,6 @@
   "old": "  machine_id TEXT NOT NULL REFERENCES machines (id),\n  incarnation INTEGER NOT NULL CHECK (incarnation BETWEEN 0 AND 9007199254740991),\n  last_ms",
   "new": "  machine_id TEXT NOT NULL,\n  incarnation INTEGER NOT NULL CHECK (incarnation BETWEEN 0 AND 9007199254740991),\n  last_ms",
   "note": "heartbeat for no machine"
- },
- {
-  "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog])",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, containerLifetime, containerHardStop, vmWatchdog])",
-  "note": "heartbeat watchdog not scheduled"
  },
  {
   "file": "src/heartbeat.ts",
@@ -4790,8 +4768,8 @@
  },
  {
   "file": "src/worker.ts",
-  "old": "              installation: config.installation,",
-  "new": "              installation: null,",
+  "old": "            const n = await runContainerWatchdog({\n              db,\n              installation: config.installation,",
+  "new": "            const n = await runContainerWatchdog({\n              db,\n              installation: null,",
   "note": "the scheduled watchdog without the installation"
  },
  {
@@ -5543,6 +5521,142 @@
   "old": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled') AND watchdog_version = ?`,",
   "new": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled')`,",
   "note": "the re-read ignores the version"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.outcome === \"terminate\") return null;\n",
+  "new": "  if (r.outcome === \"terminate\") return \"launch-terminated\";\n",
+  "note": "a pod the watchdog is ending taken as an orphan"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.outcome === \"terminated\") return \"launch-terminated\";\n",
+  "new": "  if (r.outcome === \"terminated\") return null;\n",
+  "note": "a terminated launch's pod kept"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.provider_machine_id === null || r.provider_machine_id === podId) return null;\n",
+  "new": "  if (r.provider_machine_id === podId) return null;\n",
+  "note": "a launch with no id yet loses its pod"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.provider_machine_id === null || r.provider_machine_id === podId) return null;\n",
+  "new": "  if (r.provider_machine_id === null) return null;\n",
+  "note": "a live launch's own pod ended"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (!r) return \"no-launch\";\n",
+  "new": "  if (!r) return null;\n",
+  "note": "a pod with no launch kept"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (n.installation !== env.installation) {\n",
+  "new": "    if (false) {\n",
+  "note": "another installation's pods swept"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (n === null || s.state === \"terminated\") continue;\n",
+  "new": "    if (n === null) continue;\n",
+  "note": "a listed pod already gone ended again"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (list === \"unavailable\") throw new Error(\"the pod list couldn't be read\");\n",
+  "new": "  if (list === \"unavailable\") return 0;\n",
+  "note": "an unread list passes silently"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    } catch {\n      problems.push(`${s.providerMachineId}: its launch couldn't be read`);\n      continue;\n    }\n",
+  "new": "    } catch {\n      why = \"no-launch\";\n    }\n",
+  "note": "a pod whose launch can't be read is ended"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (attempted >= SWEEP_END_BATCH) {\n",
+  "new": "    if (attempted > SWEEP_END_BATCH) {\n",
+  "note": "one more than the batch ended"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "      problems.push(`${s.providerMachineId}: its termination wasn't taken`);\n",
+  "new": "",
+  "note": "a termination not taken passes silently"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (problems.length > 0) throw new Error(problems.join(\"; \"));\n  return ended;\n}\n",
+  "new": "  return ended;\n}\n",
+  "note": "the sweep's problems not reported"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "          return \"deps\" in c ? c.deps : null;\n        })();\n        if (sweepDeps !== null) {",
+  "new": "          return \"deps\" in c ? null : null;\n        })();\n        if (sweepDeps !== null) {",
+  "note": "no sweep without the watchdog's adapter"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            failed.push(\"container sweep\");\n",
+  "new": "",
+  "note": "a failing sweep doesn't fail the run"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            const n = await runContainerSweep({\n              db,\n              installation: config.installation,",
+  "new": "            const n = await runContainerSweep({\n              db,\n              installation: null,",
+  "note": "the sweep without the installation"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (attempted >= SWEEP_END_BATCH) {\n",
+  "new": "    if (ended >= SWEEP_END_BATCH) {\n",
+  "note": "the cap counts confirmed terminations only"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    attempted++; // (before the call: whatever the outcome, it may have ended the pod)\n",
+  "new": "",
+  "note": "attempts never counted"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) {\n",
+  "new": "    if (false) {\n",
+  "note": "the time budget ignored"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) {\n",
+  "new": "    if (env.elapsedMs() > WATCHDOG_BUDGET_MS) {\n",
+  "note": "one terminate at the spent budget"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop]);",
+  "note": "the VM watchdog left out of the cron"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog])",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, containerLifetime, containerHardStop, vmWatchdog])",
+  "note": "heartbeat watchdog not scheduled"
  },
  {
   "file": "src/start.ts",
