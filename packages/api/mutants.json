@@ -1519,5 +1519,17 @@
   "file": "src/objects.ts",
   "old": "return typeof x === \"string\" && (START_FAILURES as readonly string[]).includes(x);",
   "new": "return typeof x === \"string\";"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const AGENT_ERADICATION_CHECKS = [\"env\", \"processes\", \"files\", \"ssh\"] as const;",
+  "new": "export const AGENT_ERADICATION_CHECKS = [\"env\", \"processes\", \"files\"] as const;",
+  "note": "eradication checks: ssh dropped"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "\"key-file\", \"ssh-access\", \"other\"] as const;",
+  "new": "\"key-file\", \"other\"] as const;",
+  "note": "abort reasons: ssh-access dropped"
  }
 ]
