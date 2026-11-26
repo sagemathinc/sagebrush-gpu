@@ -16,8 +16,12 @@ const RATE = { providerCostPerHour: 590_000, marginBps: 3000 };
 class FakeRunPod implements ContainerProvider {
   pods = new Map<string, { name: string; state: ProviderMachineStatus["state"] }>();
   terminated: string[] = [];
+  /** Every terminate call, taken or not. */
+  calls = 0;
   listFails = false;
   terminateFails = new Set<string>();
+  /** Every terminate fails: "reject" (nothing happens) or "lost" (the pod is ended, then the reply is lost). */
+  failAll: "reject" | "lost" | null = null;
   add(id: string, name: string, state: ProviderMachineStatus["state"] = "running") {
     this.pods.set(id, { name, state });
   }
@@ -28,6 +32,9 @@ class FakeRunPod implements ContainerProvider {
     throw new Error(`no status reads here (${id})`);
   }
   async terminate(id: string): Promise<void> {
+    this.calls++;
+    if (this.failAll === "lost") this.pods.delete(id);
+    if (this.failAll !== null) throw new Error("provider down");
     if (this.terminateFails.has(id)) throw new Error("provider down");
     this.terminated.push(id);
     this.pods.delete(id);
@@ -41,11 +48,13 @@ class FakeRunPod implements ContainerProvider {
 let w: World;
 let rp: FakeRunPod;
 let alerts: string[];
+let elapsed = 0;
 let memberId: string;
 let allocationId: string;
 beforeEach(async () => {
   rp = new FakeRunPod();
   alerts = [];
+  elapsed = 0;
   w = await world({});
   memberId = await addMember(w, "m@example.com", "member", { allocation: 0 });
   allocationId = (await w.db.all<{ id: string }>(`SELECT id FROM allocations WHERE holder_id = ?`, [memberId]))[0]!.id;
@@ -58,7 +67,7 @@ const env = (): SweepEnv => ({
   provider: rp,
   expect: { image: "", launcher: [], bootEnv: "SBGPU_BOOT_TOKEN" },
   randomBytes: (n) => new Uint8Array(n),
-  elapsedMs: () => 0,
+  elapsedMs: () => elapsed,
   alert: (line) => alerts.push(line),
 });
 
@@ -161,6 +170,26 @@ test("at most a batch of orphans ended a run; the rest wait for the next, and th
   for (let i = 0; i <= SWEEP_END_BATCH; i++) rp.add(`pod-${i}`, name(newId("machine")));
   await assert.rejects(runContainerSweep(env()), /^Error: more orphans than one run ends$/);
   assert.equal(rp.terminated.length, SWEEP_END_BATCH);
+  assert.equal(await runContainerSweep(env()), 1);
+});
+
+test("the cap counts attempts, not confirmations: terminations that are rejected, or whose reply is lost after the pod ended, still stop at a batch a run", async () => {
+  for (const mode of ["reject", "lost"] as const) {
+    rp = new FakeRunPod();
+    for (let i = 0; i < SWEEP_END_BATCH + 5; i++) rp.add(`pod-${mode}-${i}`, name(newId("machine")));
+    rp.failAll = mode;
+    await assert.rejects(runContainerSweep(env()), /more orphans than one run ends/, mode);
+    assert.equal(rp.calls, SWEEP_END_BATCH, mode);
+    assert.equal(rp.pods.size, mode === "lost" ? 5 : SWEEP_END_BATCH + 5, mode);
+  }
+});
+
+test("no termination once the run's time budget is spent; the orphans left are reported for the next run", async () => {
+  rp.add("pod-a", name(newId("machine")));
+  elapsed = 60_000;
+  await assert.rejects(runContainerSweep(env()), /^Error: the run's time was spent with orphans left$/);
+  assert.equal(rp.calls, 0);
+  elapsed = 59_999;
   assert.equal(await runContainerSweep(env()), 1);
 });
 

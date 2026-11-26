@@ -5600,8 +5600,8 @@
  },
  {
   "file": "src/sweep.ts",
-  "old": "    if (ended >= SWEEP_END_BATCH) {\n",
-  "new": "    if (ended > SWEEP_END_BATCH) {\n",
+  "old": "    if (attempted >= SWEEP_END_BATCH) {\n",
+  "new": "    if (attempted > SWEEP_END_BATCH) {\n",
   "note": "one more than the batch ended"
  },
  {
@@ -5633,5 +5633,29 @@
   "old": "            const n = await runContainerSweep({\n              db,\n              installation: config.installation,",
   "new": "            const n = await runContainerSweep({\n              db,\n              installation: null,",
   "note": "the sweep without the installation"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (attempted >= SWEEP_END_BATCH) {\n",
+  "new": "    if (ended >= SWEEP_END_BATCH) {\n",
+  "note": "the cap counts confirmed terminations only"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    attempted++; // (before the call: whatever the outcome, it may have ended the pod)\n",
+  "new": "",
+  "note": "attempts never counted"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) {\n",
+  "new": "    if (false) {\n",
+  "note": "the time budget ignored"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) {\n",
+  "new": "    if (env.elapsedMs() > WATCHDOG_BUDGET_MS) {\n",
+  "note": "one terminate at the spent budget"
  }
 ]

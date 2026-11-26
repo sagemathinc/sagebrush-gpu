@@ -13,14 +13,16 @@
 // A pod of another installation is reported (one count a run) and never touched. A list that
 // can't be read (or is partial: the adapter throws) proves nothing, so nothing is ended and the
 // run fails by name; so does a launch row that can't be read for a pod (that pod is left). At
-// most SWEEP_END_BATCH pods are ended a run. A pod whose name doesn't parse isn't listed by the
-// adapter, so it is outside this sweep.
+// most SWEEP_END_BATCH terminations are attempted a run, counted before each call whatever its
+// outcome (a rejection or a lost reply doesn't prove the pod wasn't ended), and none once the
+// run's time budget is spent; orphans left over are reported, for the next run. A pod whose name
+// doesn't parse isn't listed by the adapter, so it is outside this sweep.
 
 import type { ProviderMachineStatus } from "@sbgpu/providers";
 import type { ContainerEnv } from "./container.ts";
-import { withDeadline } from "./vm.ts";
+import { WATCHDOG_BUDGET_MS, withDeadline } from "./vm.ts";
 
-/** Pods the sweep ends a run, at most. */
+/** Terminations the sweep attempts a run, at most (attempts, not confirmations). */
 export const SWEEP_END_BATCH = 20;
 
 export interface SweepEnv extends ContainerEnv {
@@ -31,9 +33,10 @@ export interface SweepEnv extends ContainerEnv {
 export type OrphanReason = "no-launch" | "launch-terminated" | "not-the-launch-pod";
 
 /**
- * Sweeps once. Returns how many pods it ended (asked the provider to terminate, and it took the
- * request). Throws, after ending what it could, when the list or a launch row couldn't be read,
- * or a termination wasn't taken; the run then fails by name and the next run tries again.
+ * Sweeps once. Returns how many pods it ended (the provider took the termination). Throws, after
+ * ending what it could, when the list or a launch row couldn't be read, a termination wasn't
+ * taken, or orphans were left (the attempt cap or the time budget); the run then fails by name
+ * and the next run goes on.
  */
 export async function runContainerSweep(env: SweepEnv): Promise<number> {
   const p = env.provider;
@@ -42,6 +45,7 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
   if (list === "unavailable") throw new Error("the pod list couldn't be read");
   const problems: string[] = [];
   let foreign = 0;
+  let attempted = 0;
   let ended = 0;
   for (const s of list) {
     const n = s.parsedName;
@@ -58,10 +62,15 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
       continue;
     }
     if (why === null) continue;
-    if (ended >= SWEEP_END_BATCH) {
+    if (attempted >= SWEEP_END_BATCH) {
       problems.push("more orphans than one run ends");
       break;
     }
+    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) {
+      problems.push("the run's time was spent with orphans left");
+      break;
+    }
+    attempted++; // (before the call: whatever the outcome, it may have ended the pod)
     const took = await withDeadline(() => p.terminate(s.providerMachineId).then(() => true), false);
     if (took) {
       ended++;
