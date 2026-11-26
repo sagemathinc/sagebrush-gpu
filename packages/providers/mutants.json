@@ -4980,14 +4980,14 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "  if (offer.providerCostPerHour > policy.maxProviderCostPerHour) return \"overPrice\";\n",
+  "old": "  if (!(offer.providerCostPerHour <= policy.maxProviderCostPerHour)) return \"overPrice\";\n",
   "new": "",
   "note": "no price cap"
  },
  {
   "file": "src/placement.ts",
-  "old": "offer.providerCostPerHour > policy.maxProviderCostPerHour",
-  "new": "offer.providerCostPerHour >= policy.maxProviderCostPerHour",
+  "old": "!(offer.providerCostPerHour <= policy.maxProviderCostPerHour)",
+  "new": "!(offer.providerCostPerHour < policy.maxProviderCostPerHour)",
   "note": "the cap itself over price"
  },
  {
@@ -5061,5 +5061,59 @@
   "old": "!Number.isSafeInteger(n) || n < 1",
   "new": "n < 1",
   "note": "a fractional n accepted"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  if (!isAmount(offer.providerCostPerHour) || !isAmount(policy.maxProviderCostPerHour)) return \"overPrice\";\n",
+  "new": "",
+  "note": "amounts never validated"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "!isAmount(offer.providerCostPerHour) || !isAmount(policy",
+  "new": "!isAmount(policy",
+  "note": "the offer's price never validated"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "|| !isAmount(policy.maxProviderCostPerHour)) return",
+  "new": "|| false) return",
+  "note": "the policy's cap never validated"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0;",
+  "new": "  return typeof x === \"number\" && x >= 0;",
+  "note": "any number an amount"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0;",
+  "new": "  return typeof x === \"number\" && Number.isSafeInteger(x);",
+  "note": "a negative amount"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0;",
+  "new": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x > 0;",
+  "note": "zero not an amount"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||\n    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
+  "new": "    compare(a.gpuType, b.gpuType) ||\n    STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||\n    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter)\n",
+  "note": "the type promoted right after price"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
+  "new": "    compare(a.gpuType, b.gpuType) ||\n    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter)\n",
+  "note": "the type before provider"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
+  "new": "    compare(a.gpuType, b.gpuType) ||\n    compare(a.dataCenter, b.dataCenter)\n",
+  "note": "the type before data center"
  }
 ]

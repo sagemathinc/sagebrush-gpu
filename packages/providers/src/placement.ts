@@ -91,6 +91,11 @@ function vramGb(gpuType: GpuTypeId): number | null {
   return GPU_TYPES.find((g) => g.id === gpuType)?.vramGb ?? null;
 }
 
+/** A valid amount of micros: a safe non-negative integer. */
+function isAmount(x: unknown): x is Micros {
+  return typeof x === "number" && Number.isSafeInteger(x) && x >= 0;
+}
+
 /** Why `offer` is outside `policy` for a request of `gpuCount` GPUs, or null when it's inside. */
 export function policyMiss(offer: Offer, policy: PlacementPolicy, gpuCount: number): OfferMiss | null {
   if (offer.gpuCount !== gpuCount) return "gpuCount";
@@ -103,7 +108,10 @@ export function policyMiss(offer: Offer, policy: PlacementPolicy, gpuCount: numb
   }
   if (!policy.allowedProviders.includes(offer.provider)) return "providerNotAllowed";
   if (!countryAllowed(policy.locality, offer.country)) return "locality";
-  if (offer.providerCostPerHour > policy.maxProviderCostPerHour) return "overPrice";
+  // (a price or cap that isn't a valid amount (a safe non-negative integer of micros) is over the
+  // price, never inside; and inside only when cost <= cap holds)
+  if (!isAmount(offer.providerCostPerHour) || !isAmount(policy.maxProviderCostPerHour)) return "overPrice";
+  if (!(offer.providerCostPerHour <= policy.maxProviderCostPerHour)) return "overPrice";
   if (offer.stock === "none") return "noStock";
   return null;
 }

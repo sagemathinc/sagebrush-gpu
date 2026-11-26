@@ -443,6 +443,22 @@ test("policyMiss: inside is null; each reason on its own; the GPU type's reason 
   ];
   for (const [o, why] of cases) assert.equal(policyMiss(offer(o), policy, 1), why, JSON.stringify(o));
   assert.equal(policyMiss(offer({ providerCostPerHour: 1_000_000 }), policy, 1), null, "exactly at the cap is inside");
+  assert.equal(policyMiss(offer({ providerCostPerHour: 1_000_001 }), policy, 1), "overPrice", "one over the cap is over");
+  // a price or cap that isn't a valid amount (a safe non-negative integer of micros) is over the
+  // price, never inside: ranked nowhere, never among the best
+  const invalid = [NaN, Infinity, -Infinity, -1, 0.5, 2 ** 53, "100" as unknown as number, null as unknown as number, undefined as unknown as number];
+  for (const bad of invalid) {
+    for (const [o, p] of [[offer({ providerCostPerHour: bad }), policy], [offer({ providerCostPerHour: 1 }), { ...policy, maxProviderCostPerHour: bad }]] as const) {
+      assert.equal(policyMiss(o, p, 1), "overPrice", String(bad));
+      assert.deepEqual([rankOffers([o], p, req), rankAllowed([o], p, 1), quoteOffers([o], p, 1).best], [[], [], []], String(bad));
+    }
+  }
+  // the valid edges: zero, and the largest safe integer, both ways
+  assert.equal(policyMiss(offer({ providerCostPerHour: 0 }), { ...policy, maxProviderCostPerHour: 0 }, 1), null);
+  assert.equal(policyMiss(offer({ providerCostPerHour: 1 }), { ...policy, maxProviderCostPerHour: 0 }, 1), "overPrice");
+  const top = Number.MAX_SAFE_INTEGER;
+  assert.equal(policyMiss(offer({ providerCostPerHour: top }), { ...policy, maxProviderCostPerHour: top }, 1), null);
+  assert.equal(policyMiss(offer({ providerCostPerHour: top - 1 }), { ...policy, maxProviderCostPerHour: top }, 1), null);
   assert.deepEqual([...OFFER_MISSES].sort(), [...new Set(cases.map((c) => c[1]))].sort(), "every reason has a row");
 });
 
@@ -477,6 +493,19 @@ test("rankAllowed: every allowed type's in-policy offers, rankOffers' order, wit
     ["x/L4", "x/RTX-A6000", "a6000/RTX-A6000", "l4/L4"],
   );
   assert.deepEqual(rankAllowed(offers, policy, 2).map((o) => o.dataCenter), ["two"]);
+  // the GPU type is the LAST key: at equal price, the better stock, then provider, then data center
+  // win over the type, even where the type alone would order them the other way
+  const tie = (o: Partial<Offer>) => offer({ providerCostPerHour: 500_000, ...o });
+  const byType = (a: Offer, b: Offer) => rankAllowed([a, b], policy, 1).map((o) => o.gpuType);
+  assert.deepEqual(byType(tie({ gpuType: "L4", stock: "low" }), tie({ gpuType: "RTX-A6000", stock: "high" })), ["RTX-A6000", "L4"], "stock");
+  assert.deepEqual(byType(tie({ gpuType: "L4", provider: "runpod" }), tie({ gpuType: "RTX-A6000", provider: "hyperstack" })), ["RTX-A6000", "L4"], "provider");
+  assert.deepEqual(byType(tie({ gpuType: "L4", dataCenter: "b" }), tie({ gpuType: "RTX-A6000", dataCenter: "a" })), ["RTX-A6000", "L4"], "data center");
+  assert.deepEqual(byType(tie({ gpuType: "RTX-A6000" }), tie({ gpuType: "L4" })), ["L4", "RTX-A6000"], "type, when all else is equal");
+  // the quote's best list keeps that order too
+  const best = (a: Offer, b: Offer) => quoteOffers([a, b], policy, 1).best.map((o) => o.gpuType);
+  assert.deepEqual(best(tie({ gpuType: "L4", stock: "low" }), tie({ gpuType: "RTX-A6000", stock: "high" })), ["RTX-A6000", "L4"], "quote: stock");
+  assert.deepEqual(best(tie({ gpuType: "L4", provider: "runpod" }), tie({ gpuType: "RTX-A6000", provider: "hyperstack" })), ["RTX-A6000", "L4"], "quote: provider");
+  assert.deepEqual(best(tie({ gpuType: "L4", dataCenter: "b" }), tie({ gpuType: "RTX-A6000", dataCenter: "a" })), ["RTX-A6000", "L4"], "quote: data center");
   // rankOffers is rankAllowed for one type
   assert.deepEqual(rankOffers(offers, policy, req), rankAllowed(offers, policy, 1).filter((o) => o.gpuType === "L4"));
 });
@@ -506,5 +535,8 @@ test("quoteOffers: the best few inside, and the cheapest a member could otherwis
   // ties go by the same order as rankAllowed
   const tie = quoteOffers([offer({ dataCenter: "b", country: "US" }), offer({ dataCenter: "a", country: "US" })], policy, 1);
   assert.deepEqual([tie.outside?.offer.dataCenter, tie.outside?.reason], ["a", "locality"]);
+  // and the outside offer's ties put the data center before the type
+  const typeTie = quoteOffers([offer({ dataCenter: "b", gpuType: "L4", country: "US" }), offer({ dataCenter: "a", gpuType: "RTX-A6000", country: "US" })], policy, 1);
+  assert.deepEqual([typeTie.outside?.offer.dataCenter, typeTie.outside?.offer.gpuType], ["a", "RTX-A6000"]);
   for (const n of [0, 21, 1.5]) assert.throws(() => quoteOffers(offers, policy, 1, n), RangeError, String(n));
 });
