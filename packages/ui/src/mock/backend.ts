@@ -100,6 +100,7 @@ import {
   type QuoteRefusal,
   type SpendCsvGrouping,
   type SpendMeter,
+  type StartFailure,
   type StopReason,
   type Team,
   type User,
@@ -515,6 +516,20 @@ export class MockBackend {
 
   releaseRestore(areaKey: string): void {
     this.restoreClaims.delete(areaKey);
+  }
+
+  /**
+   * Test hook: a start that never came up (control's launch ended create-deadline or pod-exited):
+   * the machine fails with the reason, and stops accruing at once.
+   */
+  failStart(machineId: string, reason: StartFailure): void {
+    const rec = this.#machine(machineId);
+    if (rec.m.state !== "starting") throw new Error(`only a starting machine fails to start (this one is ${rec.m.state})`);
+    this.#accrue(rec, this.#now);
+    rec.accruedUntil = null;
+    rec.timerEnd = null;
+    this.#setState(rec, "failed");
+    Object.assign(rec.m, { startFailure: reason, stoppedAt: toIso(this.#now), terminalAvailable: false, jupyterAvailable: false });
   }
 
   /** Test hook: the provider loses the machine. It stops accruing at once. */
@@ -1692,6 +1707,7 @@ export class MockBackend {
           incarnation: 1,
           stopReason: null,
           finalSaveIncomplete: false,
+          startFailure: null,
           save: { state: "idle", lastSavedAt: null, progress: null, error: null, snapshotId: null },
           spent: ZERO,
           createdAt: toIso(this.#now),
@@ -1753,6 +1769,7 @@ export class MockBackend {
         incarnation: rec.m.incarnation + 1,
         stopReason: null,
         finalSaveIncomplete: false,
+        startFailure: null,
         error: null,
         startedAt: null,
         stoppedAt: null,

@@ -9,7 +9,7 @@ import type { BillingMode, Machine, PriceListItem, ProjectLabels, Quote, SignInO
 import { capitalize, GENERIC_LABELS, withArticle } from "../labels.ts";
 import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
-import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, stopReasonText, storageWarning } from "../view.ts";
+import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, startFailureText, stopReasonText, storageWarning } from "../view.ts";
 import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
@@ -254,6 +254,7 @@ export function MachineCard({ store, machine: m, labels, now }: { store: Store; 
       ? html`<p class="small">${stopReasonText(m.stopReason, labels)}</p>`
       : null}
     ${m.finalSaveIncomplete ? html`<p class="warn small">The final save didn't finish; work after the last save was lost.</p>` : null}
+    ${m.startFailure ? html`<p class="warn small">${startFailureText(m, store.billingMode.value)}</p>` : null}
     ${m.error ? html`<p class="warn small">${m.error}</p>` : null}
     <div class="actions">
       ${actions.openTerminal && !terminalOpen ? html`<button onClick=${() => setTerminalOpen(true)}>Open terminal</button>` : null}

@@ -2734,8 +2734,8 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "AND provider_machine_id = ? AND outcome = 'issued' AND watchdog_version = ?`,",
-  "new": "AND provider_machine_id = ? AND outcome = 'issued'`,",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND provider = ? AND provider_machine_id = ? AND outcome = 'issued' AND watchdog_version = ?`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND provider = ? AND provider_machine_id = ? AND outcome = 'issued'`,",
   "note": "launch version unbound"
  },
  {
@@ -2758,8 +2758,8 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S,",
-  "new": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S + 1,",
+  "old": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S, mch: r.machine_id",
+  "new": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S + 1, mch: r.machine_id",
   "note": "token over its lifetime cap"
  },
  {
@@ -2800,14 +2800,14 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "      maxSessionEndsAt: toIso(at + policy.maxSessionMinutes * 60_000),",
-  "new": "      maxSessionEndsAt: toIso(at + DEFAULT_POLICY.maxSessionMinutes * 60_000),",
+  "old": "    maxSessionEndsAt: toIso(at + policy.maxSessionMinutes * 60_000),",
+  "new": "    maxSessionEndsAt: toIso(at + DEFAULT_POLICY.maxSessionMinutes * 60_000),",
   "note": "max session not the project's"
  },
  {
   "file": "src/enroll.ts",
-  "old": "      idle: { minutes: policy.idleStopMinutes,",
-  "new": "      idle: { minutes: DEFAULT_POLICY.idleStopMinutes,",
+  "old": "    idle: { minutes: policy.idleStopMinutes,",
+  "new": "    idle: { minutes: DEFAULT_POLICY.idleStopMinutes,",
   "note": "idle not the project's"
  },
  {
@@ -3118,12 +3118,6 @@
  },
  {
   "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms <= ?",
-  "note": "due inclusive"
- },
- {
-  "file": "src/heartbeat.ts",
   "old": "     ORDER BY v.heartbeat_due_ms, v.machine_id, v.incarnation",
   "new": "     ORDER BY v.machine_id, v.incarnation",
   "note": "not oldest first"
@@ -3418,18 +3412,6 @@
  },
  {
   "file": "migrations/0014_launches.sql",
-  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
-  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
-  "note": "due index across modes"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
-  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation);",
-  "note": "due index not partial"
- },
- {
-  "file": "migrations/0014_launches.sql",
   "old": "CREATE UNIQUE INDEX launches_provider_id ON launches (provider, provider_machine_id) WHERE provider_machine_id IS NOT NULL;",
   "new": "",
   "note": "provider id bound twice"
@@ -3619,12 +3601,6 @@
   "old": "  PRIMARY KEY (machine_id, incarnation),\n  FOREIGN KEY (machine_id, incarnation) REFERENCES launches (machine_id, incarnation)\n",
   "new": "  PRIMARY KEY (machine_id, incarnation)\n",
   "note": "gate report without a launch"
- },
- {
-  "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
-  "note": "heartbeat watchdog across modes"
  },
  {
   "file": "src/vm.ts",
@@ -4514,5 +4490,191 @@
   "file": "migrations/0017_area_restores.sql",
   "old": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN",
   "new": "WHEN NEW.state IN ('starting', 'running', 'saving') AND OLD.state NOT IN"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!env) throw REFUSED();\n",
+  "new": "",
+  "note": "no adapter: on into the provider read"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (ctx.body.mode === \"container\") return containerEnroll(ctx, signer);\n",
+  "new": "",
+  "note": "container requests to the VM path"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (Object.keys(b).sort().join(\",\") !== keys.join(\",\")) return null;\n",
+  "new": "",
+  "note": "extra or missing request fields allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "Object.keys(e).sort().join(\",\") !== \"checks,ok\" || typeof e.ok !== \"boolean\") return null;",
+  "new": "Object.keys(e).sort().join(\",\") !== \"checks,ok\") return null;",
+  "note": "a non-boolean report ok allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!Array.isArray(checks) || checks.length !== ERADICATION_CHECKS.length) return null;",
+  "new": "  if (!Array.isArray(checks)) return null;",
+  "note": "any number of checks"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (c.name !== ERADICATION_CHECKS[i] || typeof c.ok !== \"boolean\") return null;",
+  "new": "    if (typeof c.ok !== \"boolean\") return null;",
+  "note": "any check names, any order"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (c.name !== ERADICATION_CHECKS[i] || typeof c.ok !== \"boolean\") return null;",
+  "new": "    if (c.name !== ERADICATION_CHECKS[i]) return null;",
+  "note": "a non-boolean check ok allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "Array.isArray(c) || Object.keys(c).sort().join(\",\") !== \"name,ok\") return null;",
+  "new": "Array.isArray(c)) return null;",
+  "note": "extra check fields allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  const eradicated = e.ok === true && checks.every((c) => (c as { ok: boolean }).ok === true);",
+  "new": "  const eradicated = checks.every((c) => (c as { ok: boolean }).ok === true);",
+  "note": "the report's own ok ignored"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  const eradicated = e.ok === true && checks.every((c) => (c as { ok: boolean }).ok === true);",
+  "new": "  const eradicated = e.ok === true;",
+  "note": "a failed check under ok: true passes"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (r.used_ms !== null) return containerFailure(ctx, env, r, \"second-enroll\");\n",
+  "new": "",
+  "note": "a used token only refused"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!sameText(req.providerMachineId, r.provider_machine_id as string)) throw REFUSED();\n  if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();\n",
+  "new": "  if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();\n",
+  "note": "another pod's id accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!sameText(req.providerMachineId, r.provider_machine_id as string)) throw REFUSED();\n  if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();\n",
+  "new": "  if (!sameText(req.providerMachineId, r.provider_machine_id as string)) throw REFUSED();\n",
+  "note": "another agent accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!req.eradicated) return containerFailure(ctx, env, r, \"eradication-failed\");\n",
+  "new": "",
+  "note": "a failing eradication report accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (t.used_ms !== null) return containerFailure(ctx, env, t, \"second-enroll\");\n",
+  "new": "",
+  "note": "a token used during the read only refused"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (again && again.used_ms !== null) return containerFailure(ctx, env, again, \"second-enroll\");\n",
+  "new": "",
+  "note": "a lost commit to another holder only refused"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "params: [at + HEARTBEAT_LOST_MS, at + policy.maxSessionMinutes * 60_000,",
+  "new": "params: [at + HEARTBEAT_LOST_MS, at + policy.maxSessionMinutes * 60_000 + 1,",
+  "note": "the hard lifetime a millisecond long"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "params: [at + HEARTBEAT_LOST_MS, at + policy.maxSessionMinutes * 60_000,",
+  "new": "params: [at + HEARTBEAT_LOST_MS + 1, at + policy.maxSessionMinutes * 60_000,",
+  "note": "the first heartbeat due a millisecond late"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome IN ('creating', 'issued', 'enrolled')`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome IN ('creating', 'issued')`,",
+  "note": "an enrolled launch kept on a second use"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (cur && cur.outcome === \"terminate\") deps.waitUntil(terminateContainerAttempt(env, cur, reason));\n",
+  "new": "",
+  "note": "the pod never ended after a definitive failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    return containerFailure(ctx, env, (await read()) ?? t, \"sign-failed\");",
+  "new": "    throw REFUSED();",
+  "note": "a signing failure leaves the launch enrolled"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  deps.alert(`container-enroll: ${reason}`);\n",
+  "new": "",
+  "note": "no alert for a definitive failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    deps.alert(`container-enroll: ${reason} (not recorded)`);\n",
+  "new": "",
+  "note": "no alert for an unrecorded failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (seen !== \"running\") throw REFUSED();\n",
+  "new": "",
+  "note": "enroll from an earlier read's facts"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms <= ?",
+  "note": "due inclusive"
+ },
+ {
+  "file": "migrations/0018_heartbeat_all_modes.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation);",
+  "note": "due index not partial"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "  if (vm) return vm;\n",
+  "new": "",
+  "note": "VM heartbeats looked up as containers only"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "`SELECT b.used_ms AS at_ms FROM launches v",
+  "new": "`SELECT v.created_ms AS at_ms FROM launches v",
+  "note": "the floor at the intent, not the enroll"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
+  "note": "the watchdog VM-only again"
+ },
+ {
+  "file": "migrations/0018_heartbeat_all_modes.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
+  "note": "the due index VM-only again"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "export const ERADICATION_CHECKS = AGENT_ERADICATION_CHECKS;",
+  "new": "export const ERADICATION_CHECKS = [\"env\", \"processes\", \"files\"] as const;",
+  "note": "container enroll: the eradication checks not the contract's (no ssh)"
  }
 ]

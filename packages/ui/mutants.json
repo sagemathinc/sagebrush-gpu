@@ -206,8 +206,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    rec.accruedUntil = null;\n    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");",
-  "new": "    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");"
+  "old": "    rec.accruedUntil = null;\n    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    rec.pendingName",
+  "new": "    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    rec.pendingName"
  },
  {
   "file": "src/mock/backend.ts",
@@ -551,7 +551,7 @@
  },
  {
   "file": "src/view.ts",
-  "old": "stop: m.state === \"starting\" || running || m.state === \"failed\",",
+  "old": "stop: m.state === \"starting\" || running || (m.state === \"failed\" && m.startFailure == null),",
   "new": "stop: m.state === \"starting\" || running,"
  },
  {
@@ -4303,5 +4303,61 @@
   "file": "src/app/store.ts",
   "old": "    this.#savesReads.member++;\n    this.#savesReads.team++;\n  }",
   "new": "    this.#savesReads.member++;\n  }"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "return m.startFailure ? \"Didn't start\" : \"Failed\";",
+  "new": "return \"Failed\";"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  createDeadline: \"the provider didn't have it ready in time\",",
+  "new": "  createDeadline: \"it didn't start\","
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (m.startFailure == null) return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/view.ts",
+  "old": "(m.state === \"failed\" && m.startFailure == null)",
+  "new": "m.state === \"failed\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    ${m.startFailure ? html`<p class=\"warn small\">${startFailureText(m, store.billingMode.value)}</p>` : null}\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    this.#accrue(rec, this.#now);\n    rec.accruedUntil = null;\n    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    Object.assign(rec.m, { startFailure: reason,",
+  "new": "    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    Object.assign(rec.m, { startFailure: reason,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "Object.assign(rec.m, { startFailure: reason, stoppedAt:",
+  "new": "Object.assign(rec.m, { startFailure: null, stoppedAt:"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        startFailure: null,\n        error: null,",
+  "new": "        error: null,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (rec.m.state !== \"starting\") throw new Error(`only a starting machine fails to start",
+  "new": "    if (false) throw new Error(`only a starting machine fails to start"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    mode === \"byok\"\n      ?",
+  "new": "    false\n      ?",
+  "note": "a byok start failure's text as if resold (COPY on the failed-start PR)"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${startFailureText(m, store.billingMode.value)}",
+  "new": "${startFailureText(m, \"resold\")}"
  }
 ]
