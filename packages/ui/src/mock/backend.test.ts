@@ -120,7 +120,8 @@ test("quote: price split, start requirement and each refusal", async () => {
 test("the price list shows the cheapest allowed offer with stock", async () => {
   const d = setup();
   const c = await d.as(d.emails.member);
-  const { items } = await c.call("listGpuTypes", { params: { projectId: d.projectId } });
+  const { items, paused } = await c.call("listGpuTypes", { params: { projectId: d.projectId } });
+  assert.deepEqual(paused, []); // the mock pauses no provider
   const byType = Object.fromEntries(items.map((i) => [i.gpuType, i]));
   assert.equal(byType.L4?.pricePerHour?.total, 624_000);
   assert.equal(byType.L4?.gpuMemoryGb, 24);
@@ -528,6 +529,7 @@ test("unknown routes, agent routes and bad JSON", async () => {
   const c = await d.as(d.emails.owner);
   await rejects(c.call("agentHeartbeat", { body: {} as never }), "forbidden");
   await rejects(c.call("addOrgCredit", { params: { orgId: d.orgId }, body: { amount: 1, reference: "x" } }), "forbidden");
+  await rejects(c.call("getOrphanReport", {}), "forbidden");
 });
 
 test("ids are deterministic and well-formed", () => {

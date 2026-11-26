@@ -26,6 +26,10 @@ async function byokProject(email: string) {
   const t = await controllable(email);
   const b = t.demo.backend;
   const org = b.addOrg("Own keys org", 0, 1_000_000_000, "byok");
+  // (a byok organization launches only where it has a key)
+  for (const provider of ["runpod", "hyperstack"] as const) {
+    b.credentials.set(`${org.id}|${provider}`, { fingerprint: "0badf00d", setBy: EMAILS.owner, setAt: b.now(), lastCheckedAt: b.now(), status: "ok" });
+  }
   const project = b.addProject(org.id, {
     name: "Own keys lab",
     budget: 500_000_000,

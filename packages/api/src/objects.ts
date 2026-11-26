@@ -52,8 +52,9 @@ export interface Me {
   projects: Array<{ projectId: ProjectId; orgId: OrgId; name: string; role: ProjectRole; memberId: MemberId }>;
   /**
    * How long, in milliseconds from when the server answers, the user may still change an
-   * organization's provider keys (an integer from 0 to RECENT_AUTH_WINDOW_MS); null or
-   * missing when they would have to sign in again first. Anything that isn't
+   * organization's provider keys: the remaining life of their newest live, unused assurance
+   * (verifyCredentialAssurance) for it, an integer from 0 to RECENT_AUTH_WINDOW_MS; null or
+   * missing when they would have to sign in again and enter a code first. Anything that isn't
    * isRecentAuthForMs means the same. The page counts it from just before it sent the
    * request, so the window it shows never outlasts the server's.
    */
@@ -281,13 +282,16 @@ export interface PricedOffer {
 /**
  * In precedence order: when several apply, a quote reports the first. "policy" covers a
  * GPU type, provider or locality the project doesn't allow, and chargeTo "team" without a
- * team allocation.
+ * team allocation. "credentialUnusable": offers on a provider whose organization key is
+ * paused (see ProviderPause) are dropped, and every allowed offer was dropped that way; it
+ * comes before "noCapacity" because it says why no offers remain.
  */
 export const QUOTE_REFUSALS = [
   "projectNotStarted",
   "projectEnded",
   "policy",
   "priceCap",
+  "credentialUnusable",
   "noCapacity",
   "concurrencyCap",
   "allocationTooLow",
@@ -313,6 +317,11 @@ export interface Quote {
   canStart: boolean;
   /** Set exactly when canStart is false. */
   reason?: QuoteRefusal;
+  /**
+   * Set exactly when reason is "credentialUnusable": the paused provider, the first in
+   * PROVIDER_IDS order when several are.
+   */
+  reasonProvider?: ProviderId;
 }
 
 // ---------------------------------------------------------------- machines
@@ -430,8 +439,12 @@ export interface AgentEnrollRequest {
   agentVersion: string;
   /** Lowercase hex SHA-256 of the agent; must equal the pin control put in this launch. */
   agentSha256: string;
-  /** What the machine says its provider instance id is; must equal the bound one. */
-  providerMachineId: string | null;
+  /**
+   * VM mode: absent. The VM can't know its provider instance id (its boot script is rendered
+   * before the create), so control uses the id bound to the boot token's launch, and refuses a
+   * request that carries one. Container mode: as the container design says.
+   */
+  providerMachineId?: string | null;
   mode: AgentMode;
   /**
    * The launcher's credential-eradication checks. In container mode, enroll is refused

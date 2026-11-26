@@ -79,7 +79,7 @@ async function enrolled() {
   const a = await post("/v1/agent/announce", { machineId, nonce, bootScriptSha256: SCRIPT }, { "cf-connecting-ip": IP });
   assert.equal(a.status, 200);
   const e = await post("/v1/agent/enroll", {
-    bootToken: a.out.bootToken, agentVersion: "1.0.0", agentSha256: AGENT, providerMachineId: pid, mode: "vm",
+    bootToken: a.out.bootToken, agentVersion: "1.0.0", agentSha256: AGENT, mode: "vm",
     gpu: null, hostname: "vm", gate: { v: 1, pass: true, fail: [] },
   });
   assert.equal(e.status, 200, JSON.stringify(e.out));
@@ -97,7 +97,7 @@ const report = (over: Record<string, unknown> = {}) => ({
 });
 const beat = (token: string, body: unknown = report(), scheme = "Bearer") => post("/v1/agent/heartbeat", body, { authorization: `${scheme} ${token}` });
 const hbRow = async (machineId: string) => (await w.db.all<Record<string, unknown>>(`SELECT * FROM machine_heartbeats WHERE machine_id = ?`, [machineId])).map((r) => ({ ...r }));
-const launch = async (machineId: string) => ({ ...(await w.db.all<Record<string, unknown>>(`SELECT outcome, terminate_reason, next_ms, watchdog_version, heartbeat_due_ms FROM vm_launches WHERE machine_id = ?`, [machineId]))[0] });
+const launch = async (machineId: string) => ({ ...(await w.db.all<Record<string, unknown>>(`SELECT outcome, terminate_reason, next_ms, watchdog_version, heartbeat_due_ms FROM launches WHERE machine_id = ?`, [machineId]))[0] });
 const agentToken = (c: Partial<AgentClaims> & { mch: string }, s: AgentSigner = SIGNER) => {
   const iat = Math.floor(w.clock.t / 1000);
   return signToken({ v: 1, kind: "agent", jti: randomBytes(16).toString("base64url"), iat, exp: iat + 3600, inc: 1, ...c } as AgentClaims, s.privateKey, s.kid);
@@ -140,10 +140,10 @@ test("agent auth: a good Bearer token is accepted; every other way in is the sam
   await w.db.batch([stmt(`UPDATE machines SET state = 'saving' WHERE id = ?`, l.machineId)]);
   assert.equal((await beat(l.token)).status, 200); // (saving is a state its agent may act in)
   await w.db.batch([stmt(`DELETE FROM machine_heartbeats WHERE machine_id = ?`, l.machineId), stmt(`UPDATE machines SET state = 'running' WHERE id = ?`, l.machineId)]);
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'terminate', terminate_reason = 'deadline', next_ms = ? WHERE machine_id = ?`, w.clock.t, l.machineId)]);
+  await w.db.batch([stmt(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'deadline', next_ms = ? WHERE machine_id = ?`, w.clock.t, l.machineId)]);
   await refused(await beat(l.token), "the launch ending");
   // malformed pins: everything refused, with an alert
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', terminate_reason = NULL, next_ms = NULL WHERE machine_id = ?`, l.machineId)]);
+  await w.db.batch([stmt(`UPDATE launches SET outcome = 'enrolled', terminate_reason = NULL, next_ms = NULL WHERE machine_id = ?`, l.machineId)]);
   keys = null;
   await refused(await beat(l.token), "pins not ready");
   assert.deepEqual(w.alerts, ["agent auth: the pinned public keys aren't ready"]);
@@ -297,8 +297,8 @@ test("watchdog race: the machine, its incarnation or the launch changing after t
   const changes: Array<[string, (m: string) => Promise<void>]> = [
     ["machine stopping", (m) => w.db.batch([stmt(`UPDATE machines SET state = 'stopping' WHERE id = ?`, m)])],
     ["another incarnation", (m) => w.db.batch([stmt(`UPDATE machines SET incarnation = 2 WHERE id = ?`, m)])],
-    ["the launch claimed", (m) => w.db.batch([stmt(`UPDATE vm_launches SET watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, m)])],
-    ["a heartbeat moved the due time", (m) => w.db.batch([stmt(`UPDATE vm_launches SET heartbeat_due_ms = heartbeat_due_ms + 1 WHERE machine_id = ?`, m)])],
+    ["the launch claimed", (m) => w.db.batch([stmt(`UPDATE launches SET watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, m)])],
+    ["a heartbeat moved the due time", (m) => w.db.batch([stmt(`UPDATE launches SET heartbeat_due_ms = heartbeat_due_ms + 1 WHERE machine_id = ?`, m)])],
   ];
   for (const [why, change] of changes) {
     const l = await enrolled();
@@ -344,12 +344,12 @@ test("watchdog: both classes merged by age under one bound, so neither starves t
   // the plan: a range search of the due index in its order, the machine by its key; never a
   // scan of a table or an index, never a sort
   const plan = (w.db.raw.prepare(`EXPLAIN QUERY PLAN ${HEARTBEAT_WATCHDOG_SELECT}`).all(w.clock.t, 20) as Array<{ detail: string }>).map((p) => p.detail);
-  assert.ok(plan.some((d) => /^SEARCH v USING INDEX vm_launches_heartbeat_due \(heartbeat_due_ms<\?\)$/.test(d)), JSON.stringify(plan));
+  assert.ok(plan.some((d) => /^SEARCH v USING INDEX launches_heartbeat_due \(heartbeat_due_ms<\?\)$/.test(d)), JSON.stringify(plan));
   assert.ok(plan.some((d) => /^SEARCH m USING INDEX sqlite_autoindex_machines_1 \(id=\?\)$|^SEARCH m USING PRIMARY KEY/.test(d)), JSON.stringify(plan));
   assert.ok(plan.every((d) => !/\bSCAN\b|TEMP B-TREE/.test(d)), JSON.stringify(plan));
   // (and the index holds enrolled launches only: ended ones, which keep their due times, are never examined)
-  const idx = w.db.raw.prepare(`SELECT sql FROM sqlite_master WHERE name = 'vm_launches_heartbeat_due'`).get() as { sql: string };
-  assert.match(idx.sql, / WHERE outcome = 'enrolled'$/);
+  const idx = w.db.raw.prepare(`SELECT sql FROM sqlite_master WHERE name = 'launches_heartbeat_due'`).get() as { sql: string };
+  assert.match(idx.sql, / WHERE outcome = 'enrolled' AND mode = 'vm'$/);
 });
 
 test("heartbeat: crossed requests never regress the report, the save estimate or the due time; no loss until 120 s after the newest", async () => {
@@ -402,7 +402,7 @@ test("schema (0013): the due time only moves later; a report only gives way to a
   const l = await enrolled();
   const due = (await launch(l.machineId)).heartbeat_due_ms as number;
   assert.equal(due, l.enrollMs + HEARTBEAT_LOST_MS);
-  const setDue = (v: number | null) => w.db.batch([stmt(`UPDATE vm_launches SET heartbeat_due_ms = ? WHERE machine_id = ?`, v, l.machineId)]);
+  const setDue = (v: number | null) => w.db.batch([stmt(`UPDATE launches SET heartbeat_due_ms = ? WHERE machine_id = ?`, v, l.machineId)]);
   await assert.rejects(setDue(due - 1), /only moves later/);
   await assert.rejects(setDue(null), /only moves later/);
   await setDue(due);
@@ -415,10 +415,10 @@ test("schema (0013): the due time only moves later; a report only gives way to a
   await setLast(1);
   // an enrolled launch without a due time
   const m = await enrolled();
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'terminate', terminate_reason = 'deadline', next_ms = ? WHERE machine_id = ?`, w.clock.t, m.machineId)]);
-  w.db.raw.exec(`DROP TRIGGER vm_launches_heartbeat_due_later`);
-  await w.db.batch([stmt(`UPDATE vm_launches SET heartbeat_due_ms = NULL WHERE machine_id = ?`, m.machineId)]); // (allowed outside enrolled)
-  await assert.rejects(w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'enrolled', terminate_reason = NULL, next_ms = NULL WHERE machine_id = ?`, m.machineId)]), /CHECK/);
+  await w.db.batch([stmt(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'deadline', next_ms = ? WHERE machine_id = ?`, w.clock.t, m.machineId)]);
+  w.db.raw.exec(`DROP TRIGGER launches_heartbeat_due_later`);
+  await w.db.batch([stmt(`UPDATE launches SET heartbeat_due_ms = NULL WHERE machine_id = ?`, m.machineId)]); // (allowed outside enrolled)
+  await assert.rejects(w.db.batch([stmt(`UPDATE launches SET outcome = 'enrolled', terminate_reason = NULL, next_ms = NULL WHERE machine_id = ?`, m.machineId)]), /CHECK/);
 });
 
 test("schema (0013): heartbeat rows are bounded; the rebuild refuses existing launches", async () => {

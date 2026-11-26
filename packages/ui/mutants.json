@@ -66,8 +66,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "const withStock = underCap.filter((o) => o.stock !== \"none\");",
-  "new": "const withStock = underCap;"
+  "old": "const withStock = live.filter((o) => o.stock !== \"none\");",
+  "new": "const withStock = live;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -276,7 +276,7 @@
  },
  {
   "file": "src/client.ts",
-  "old": "if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message);",
+  "old": "if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message, body.error.provider);",
   "new": ""
  },
  {
@@ -736,8 +736,8 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "? refusalText(quote.reason, labels) : item.stock === \"low\" ? \"Few left\" : \"\"",
-  "new": "? refusalText(quote.reason, labels) : \"\""
+  "old": "? refusalText(quote.reason, labels, quote.reasonProvider) : item.stock === \"low\" ? \"Few left\" : \"\"",
+  "new": "? refusalText(quote.reason, labels, quote.reasonProvider) : \"\""
  },
  {
   "file": "src/app/components.ts",
@@ -826,8 +826,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members",
-  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members"
+  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.paused.value = [];\n      this.members",
+  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.paused.value = [];\n      this.members"
  },
  {
   "file": "src/app/store.ts",
@@ -2717,8 +2717,8 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "meter=${mine} now=${now} mode=${store.billingMode.value} />",
-  "new": "meter=${mine} now=${now} />"
+  "old": "meter=${mine} now=${now} mode=${store.billingMode.value} labels=${labels} />",
+  "new": "meter=${mine} now=${now} labels=${labels} />"
  },
  {
   "file": "src/app/components.ts",
@@ -3035,8 +3035,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      this.#requireRecentAuth();",
-  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");",
+  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      const expected: unknown = (body as { expected?: unknown }).expected;\n      if (!isCredentialExpected(expected)) refuse(\"badExpected\");\n      this.#requireRecentAuth();",
+  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      const expected: unknown = (body as { expected?: unknown }).expected;\n      if (!isCredentialExpected(expected)) refuse(\"badExpected\");",
   "note": "put: reauth before the shape"
  },
  {
@@ -3071,14 +3071,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    deleteCredential: ({ params }) => {\n      this.#requireRecentAuth();",
-  "new": "    deleteCredential: ({ params }) => {",
+  "old": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");\n      this.#requireRecentAuth();",
+  "new": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");",
   "note": "delete: no reauth"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (!this.credentials.delete(`${params.orgId}|${params.provider}`)) refuse(\"noKey\");",
-  "new": "      this.credentials.delete(`${params.orgId}|${params.provider}`);",
+  "old": "      if (current == null) refuse(\"noKey\");",
+  "new": "      if (current == null) return { removed: true };",
   "note": "delete: none is fine"
  },
  {
@@ -3119,7 +3119,7 @@
  },
  {
   "file": "src/credential-request.ts",
-  "old": "  if (!PATH.test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "old": "  if (!(method === \"DELETE\" ? DELETE_PATH : PATH).test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
   "new": "",
   "note": "request: any path"
  },
@@ -3383,8 +3383,8 @@
  },
  {
   "file": "src/app/keys-section.ts",
-  "old": "    const body = JSON.stringify({ key: value });\n    input.value = \"\";",
-  "new": "    const body = JSON.stringify({ key: value });",
+  "old": "    const body = JSON.stringify({ key: value, expected });\n    input.value = \"\";",
+  "new": "    const body = JSON.stringify({ key: value, expected });",
   "note": "save: field kept while sending"
  },
  {
@@ -3542,5 +3542,443 @@
   "old": "    this.#writes++;\n",
   "new": "",
   "note": "list: changes don't make older snapshots stale"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return provider\n        ? `Launches on ${PROVIDER_NAMES[provider]} are paused: the organization's key for it isn't working.`\n        : \"Launches are paused: the organization's provider key isn't working.\";\n    case \"noCapacity\":",
+  "new": "    case \"noCapacity\":",
+  "note": "refusalText: credentialUnusable reads as noCapacity"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };",
+  "new": "      return { items, asOf: toIso(this.#now) } as never;",
+  "note": "mock listGpuTypes: no paused list"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "throw new ApiError(body.error.code, response.status, body.error.message, body.error.provider);",
+  "new": "throw new ApiError(body.error.code, response.status, body.error.message);",
+  "note": "client: the paused provider is dropped from the error"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return provider\n        ? `Launches on ${PROVIDER_NAMES[provider]} are paused: the organization's key for it isn't working.`\n        :",
+  "new": "      return false\n        ? ``\n        :",
+  "note": "refusalText: the provider isn't named"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  return provider ? `Launches on ${PROVIDER_NAMES[provider]} are paused for this organization until its key works again.` : apiMessage;",
+  "new": "  return apiMessage;",
+  "note": "pausedStartText: the provider isn't named"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  const detail = showReason ? pause.detail : undefined;",
+  "new": "  const detail = pause.detail;",
+  "note": "pauseView: a reason that reaches the page is shown to anyone"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  rejected: \"was refused by the provider\",\n  revoked: \"was revoked at the provider\",",
+  "new": "  rejected: \"was revoked at the provider\",\n  revoked: \"was refused by the provider\",",
+  "note": "pauseView: the reasons swapped"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "${detail.lastCheckedAt ? `last checked ${ago(detail.lastCheckedAt, nowMs)}` : \"not checked since\"}",
+  "new": "last checked ${ago(detail.lastCheckedAt ?? pause.since, nowMs)}",
+  "note": "pauseView: a missing last check reads as a check"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    since: `Paused ${ago(pause.since, nowMs)}.`,",
+  "new": "    since: \"\",",
+  "note": "pauseView: no since"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        err instanceof ApiError && err.code === \"credentialUnusable\" ? pausedStartText(err.provider, err.message) : err instanceof Error ? err.message : String(err);",
+  "new": "        err instanceof Error ? err.message : String(err);",
+  "note": "store: a refused start shows the API's words, not the provider"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.paused.value = prices.paused;\n",
+  "new": "",
+  "note": "store: pauses never refresh (nor load)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.quotes.value = {};\n        this.paused.value = [];\n        this.members.value = [];",
+  "new": "        this.quotes.value = {};\n        this.members.value = [];",
+  "note": "store: a project switch keeps the old project's pauses"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.quotes.value = {};\n      this.paused.value = [];\n      this.members.value = [];",
+  "new": "      this.quotes.value = {};\n      this.members.value = [];",
+  "note": "store: sign-out keeps the pauses"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const showReason = store.canManage.value;",
+  "new": "  const showReason = true;",
+  "note": "PauseBanner: the reason and owner text for everyone"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const showReason = store.canManage.value;",
+  "new": "  const showReason = store.isStaff.value;",
+  "note": "PauseBanner: assistants see the reason"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "o.orgId === orgId && o.role === \"owner\"",
+  "new": "o.orgId === orgId",
+  "note": "PauseBanner: any org role gets the owner's link"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${showReason && owner && nav && orgId",
+  "new": "${showReason && nav && orgId",
+  "note": "PauseBanner: a manager gets the owner's link"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "refusalText(quote.reason, labels, quote.reasonProvider)",
+  "new": "refusalText(quote.reason, labels)",
+  "note": "GpuRow: the refusal doesn't name the provider"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    <${PauseBanner} store=${store} nav=${nav} />\n",
+  "new": "",
+  "note": "ProjectPage: no pause banner"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const showReason = role != null && projectRoleAtLeast(role, \"manager\");",
+  "new": "    const showReason = role != null && projectRoleAtLeast(role, \"assistant\");",
+  "note": "mock: assistants get the reason"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#org(orgId).billingMode !== \"byok\") return out;\n    for (const provider of PROVIDER_IDS) {\n      const rec",
+  "new": "    for (const provider of PROVIDER_IDS) {\n      const rec",
+  "note": "mock: a resold organization pauses too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "PROVIDER_IDS.filter((p) => paused.has(p) && project.policy.allowedProviders.includes(p))",
+  "new": "PROVIDER_IDS.filter((p) => paused.has(p))",
+  "note": "mock: other providers' pauses listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (rec && isPausingCredentialStatus(rec.status)) out.add(provider);",
+  "new": "      if (rec && rec.status !== \"ok\") out.add(provider);",
+  "note": "mock: unchecked pauses"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "new": "    else if (underCap.every((o) => o.stock === \"none\")) reason = \"noCapacity\";\n    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "note": "mock: noCapacity before credentialUnusable"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));",
+  "new": "    const live = underCap.filter((o) => !keyless.has(o.provider));",
+  "note": "mock: paused offers kept"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (provider) quote.reasonProvider = provider;",
+  "new": "",
+  "note": "mock: reasonProvider missing"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "PROVIDER_IDS.find((p) => paused.has(p) && underCap.some((o) => o.provider === p))",
+  "new": "[...PROVIDER_IDS].reverse().find((p) => paused.has(p) && underCap.some((o) => o.provider === p))",
+  "note": "mock: reasonProvider not the first in provider order"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (isPausingCredentialStatus(status) && !wasPaused) rec.pausedSince = this.#now;",
+  "new": "    if (isPausingCredentialStatus(status)) rec.pausedSince = this.#now;",
+  "note": "mock: a pause restarts on every pausing status"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (showReason && isPausingCredentialStatus(rec.status)) pause.detail = { status: rec.status, lastCheckedAt: toIso(rec.lastCheckedAt) };",
+  "new": "      if (showReason && isPausingCredentialStatus(rec.status)) pause.detail = { status: rec.status, lastCheckedAt: toIso(rec.setAt) };",
+  "note": "mock: the wrong last check"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`, quote.reasonProvider);\n      }",
+  "new": "throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`);\n      }",
+  "note": "mock: start refusal without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`, quote.reasonProvider);",
+  "new": "      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`);",
+  "note": "mock: restart refusal without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),",
+  "new": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !keyless.has(o.provider),",
+  "note": "mock: price list prices a paused provider's offer"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),",
+  "new": "underCap.length > 0 ? [] : allowed.filter((o) => !keyless.has(o.provider)),",
+  "note": "mock: over the limit, paused offers listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (err instanceof ApiFail && err.code === \"credentialUnusable\" && err.provider) {\n        return { status: ERROR_STATUS.credentialUnusable, contentType: \"application/json\", body: credentialUnusableBody(err.provider) };\n      }\n",
+  "new": "",
+  "note": "mock: credentialUnusable body without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };",
+  "new": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, \"owner\") };",
+  "note": "mock: everyone gets the reason"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    for (const provider of PROVIDER_IDS) if (!this.credentials.has(`${orgId}|${provider}`)) out.add(provider);\n",
+  "new": "",
+  "note": "mock: a byok provider without a key keeps its offers"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "  #keylessProviders(orgId: string): Set<ProviderId> {\n    const out = new Set<ProviderId>();\n    if (this.#org(orgId).billingMode !== \"byok\") return out;",
+  "new": "  #keylessProviders(orgId: string): Set<ProviderId> {\n    const out = new Set<ProviderId>();",
+  "note": "mock: a resold organization needs keys too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";",
+  "new": "    else if (live.length === 0) reason = \"credentialUnusable\";",
+  "note": "mock: a keyless provider counts as a pause"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),",
+  "new": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider),",
+  "note": "mock: price list prices a keyless provider's offer"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),",
+  "new": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider)),",
+  "note": "mock: over the limit, keyless offers listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));",
+  "new": "    const live = underCap.filter((o) => !paused.has(o.provider));",
+  "note": "mock: a keyless provider's offers kept in quotes"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return \"full\";",
+  "new": "  if (usedBytes >= quotaBytes && quotaBytes > 0) return \"full\";",
+  "note": "storageLevel: a quota of 0 isn't full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return \"full\";",
+  "new": "  if (!(quotaBytes > 0) || usedBytes > quotaBytes) return \"full\";",
+  "note": "storageLevel: exactly at the quota isn't full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  return usedBytes >= STORAGE_NEAR_FRACTION * quotaBytes ? \"near\" : \"ok\";",
+  "new": "  return usedBytes > STORAGE_NEAR_FRACTION * quotaBytes ? \"near\" : \"ok\";",
+  "note": "storageLevel: exactly 90% isn't near"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "export const STORAGE_NEAR_FRACTION = 0.9;",
+  "new": "export const STORAGE_NEAR_FRACTION = 0.8;",
+  "note": "storageLevel: near from 80%"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (level === \"near\") return `Storage is nearly full. Delete files you don't need, or ask ${withArticle(labels.manager)} to raise the limit.`;\n",
+  "new": "",
+  "note": "storageWarning: nothing when nearly full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (level === \"full\") return `Storage is full: your workspace can't grow until you delete files or ${withArticle(labels.manager)} raises the limit.`;\n",
+  "new": "",
+  "note": "storageWarning: nothing when full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    storageLevel: storageLevel(meter.storage.usedBytes, meter.storage.quotaBytes),",
+  "new": "    storageLevel: \"ok\",",
+  "note": "meterView: storage always ok"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    ${storageNote ? html`<p class=${`warn storage-${v.storageLevel}`} role=\"status\">${storageNote}</p>` : null}\n",
+  "new": "",
+  "note": "MeterCard: no storage warning"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "mode=${store.billingMode.value} labels=${labels} />` : null}\n      ${team",
+  "new": "mode=${store.billingMode.value} />` : null}\n      ${team",
+  "note": "ProjectPage: the meter's warning in generic words"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        storageQuotaBytes: meter?.storage.quotaBytes ?? null,",
+  "new": "        storageQuotaBytes: meter?.storage.quotaBytes ?? 0,",
+  "note": "memberRows: no meter reads as a quota of 0"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        storageQuotaBytes: meter?.storage.quotaBytes ?? null,",
+  "new": "        storageQuotaBytes: null,",
+  "note": "memberRows: the quota never shown"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  const level = quota == null ? \"ok\" : storageLevel(row.storageBytes, quota);",
+  "new": "  const level = storageLevel(row.storageBytes, quota ?? 0);",
+  "note": "StorageCell: no meter flags full"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "new": "${level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "note": "StorageCell: nearly full not flagged"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "new": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : null}",
+  "note": "StorageCell: full not flagged"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  return html`<td class=${level === \"ok\" ? \"storage\" : `storage storage-${level}`}>",
+  "new": "  return html`<td class=\"storage\">",
+  "note": "StorageCell: no row class"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    ${formatBytes(row.storageBytes)}${quota == null ? null : ` of ${formatBytes(quota)}`}",
+  "new": "    ${formatBytes(row.storageBytes)}",
+  "note": "StorageCell: the quota not shown"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    <${PauseBanner} store=${store} nav=${nav} />\n    <${Summary}",
+  "new": "    <${Summary}",
+  "note": "ManagePage: no pause banner"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (none ? c.id !== null || c.version !== null : !isId(\"credential\", c.id) || !isCredentialVersion(c.version)) return null;\n",
+  "new": "",
+  "note": "readCredential: id and version unchecked"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (none ? c.id !== null || c.version !== null : !isId(\"credential\", c.id) || !isCredentialVersion(c.version)) return null;",
+  "new": "  if (!none && (!isId(\"credential\", c.id) || !isCredentialVersion(c.version))) return null;",
+  "note": "readCredential: a none row with an id accepted"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!(method === \"DELETE\" ? DELETE_PATH : PATH).test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "new": "  if (!(DELETE_PATH.test(path) || PATH.test(path))) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "note": "request: a query on GET/PUT, or a DELETE without one, accepted"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    const query = `?id=${encodeURIComponent(row.id)}&version=${row.version}`;",
+  "new": "    const query = `?id=${encodeURIComponent(row.id)}&version=1`;",
+  "note": "remove: the version not as listed"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (row == null || row.id == null || row.version == null) return Promise.resolve(false);\n",
+  "new": "",
+  "note": "remove: sent with no listed key"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    const expected = row.id != null && row.version != null ? { id: row.id, version: row.version } : null;",
+  "new": "    const expected = null;",
+  "note": "save: never names the key it replaces"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!matches) refuse(\"busy\");\n",
+  "new": "",
+  "note": "mock put: a stale change applied"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        version: current == null ? 1 : (current.version as number) + 1,",
+  "new": "        version: 1,",
+  "note": "mock put: the version never goes up"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (current.id !== query.id || current.version !== version) refuse(\"busy\");\n",
+  "new": "",
+  "note": "mock delete: a stale removal applied"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isCredentialExpected(expected)) refuse(\"badExpected\");\n",
+  "new": "",
+  "note": "mock put: a malformed expected accepted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");\n",
+  "new": "",
+  "note": "mock delete: a malformed query accepted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!this.hasAuthenticator) refuse(\"mfaRequired\");\n",
+  "new": "",
+  "note": "mock assurance: no factor needed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isAuthenticatorCode(code) || code !== this.mockAuthenticatorCode) refuse(\"mfaInvalid\");",
+  "new": "      if (!isAuthenticatorCode(code)) refuse(\"mfaInvalid\");",
+  "note": "mock assurance: any well-formed code"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    verifyCredentialAssurance: ({ body }) => {\n      this.#requireRecentAuth();",
+  "new": "    verifyCredentialAssurance: ({ body }) => {",
+  "note": "mock assurance: no fresh sign-in"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  return html`<td class=${level === \"ok\" ? \"storage\" : `storage storage-${level}`}>",
+  "new": "  return html`<td class=${level === \"ok\" ? undefined : `storage storage-${level}`}>",
+  "note": "StorageCell: no storage class (so no nowrap) on an ok row"
  }
 ]

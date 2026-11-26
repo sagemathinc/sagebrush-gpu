@@ -981,14 +981,14 @@
  },
  {
   "file": "src/routes.ts",
-  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key",
-  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (verifyCredentialAssurance;",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (verifyCredentialAssurance;",
   "note": "put: below owner"
  },
  {
   "file": "src/routes.ts",
-  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes",
-  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (reauthenticate otherwise); the query's",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (reauthenticate otherwise); the query's",
   "note": "delete: below owner"
  },
  {
@@ -1014,5 +1014,209 @@
   "old": "  signedOut: {\n    code: \"unauthenticated\",",
   "new": "  signedOut: {\n    code: \"forbidden\",",
   "note": "refusals: signedOut's code"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  credentialUnusable: 409,",
+  "new": "  credentialUnusable: 503,",
+  "note": "credentialUnusable: the wrong status"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  if (code === \"credentialUnusable\") throw new RangeError(\"credentialUnusable names its provider: use credentialUnusableBody\");\n",
+  "new": "",
+  "note": "errorBody: builds a credentialUnusable body without its provider"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  if (!isProviderId(provider)) throw new RangeError(`not a provider: ${String(provider)}`);\n",
+  "new": "",
+  "note": "credentialUnusableBody: accepts an unknown provider"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "message: CREDENTIAL_UNUSABLE_MESSAGE, provider } };",
+  "new": "message: CREDENTIAL_UNUSABLE_MESSAGE } };",
+  "note": "credentialUnusableBody: drops the provider"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  if (code === \"credentialUnusable\") return isProviderId((e as { provider?: unknown }).provider);",
+  "new": "  if (code === \"credentialUnusable\") return true;",
+  "note": "isApiErrorBody: credentialUnusable without a valid provider"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  return !Object.hasOwn(e, \"provider\");",
+  "new": "  return true;",
+  "note": "isApiErrorBody: a provider on another code"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  return !Object.hasOwn(e, \"provider\");",
+  "new": "  return (e as { provider?: unknown }).provider === undefined;",
+  "note": "isApiErrorBody: an explicit undefined provider on another code"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "  if (!isErrorCode(code) || typeof message !== \"string\") return false;",
+  "new": "  if (!isErrorCode(code)) return false;",
+  "note": "isApiErrorBody: a missing message"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "Object.freeze([\"rejected\", \"revoked\", \"error\"] as const);",
+  "new": "Object.freeze([\"rejected\", \"revoked\"] as const);",
+  "note": "pausing statuses: a failing key doesn't pause"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "Object.freeze([\"rejected\", \"revoked\", \"error\"] as const);",
+  "new": "Object.freeze([\"unchecked\", \"rejected\", \"revoked\", \"error\"] as const);",
+  "note": "pausing statuses: an unchecked key pauses"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "Object.freeze([\"rejected\", \"revoked\", \"error\"] as const);",
+  "new": "([\"rejected\", \"revoked\", \"error\"] as const);",
+  "note": "pausing statuses: not frozen"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  \"credentialUnusable\",\n  \"noCapacity\",",
+  "new": "  \"noCapacity\",\n  \"credentialUnusable\",",
+  "note": "quote refusals: noCapacity before credentialUnusable"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "\"enrolled\", \"terminate\", \"terminated\"] as const);",
+  "new": "\"enrolled\", \"terminated\"] as const);",
+  "note": "launch outcomes: drops terminate (in progress)"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "Object.freeze([\"creating\", \"launched\"",
+  "new": "([\"creating\", \"launched\"",
+  "note": "launch outcomes: not frozen"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "Object.freeze([\"providerId\", \"launchIntent\", \"none\"] as const);",
+  "new": "Object.freeze([\"launchIntent\", \"providerId\", \"none\"] as const);",
+  "note": "bindings: not in first-match order"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "  \"nameMismatch\",\n  \"accountUnproven\",",
+  "new": "  \"accountUnproven\",",
+  "note": "reportOnly: drops nameMismatch"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "Object.freeze([\"staleIncarnation\", \"launchTerminated\"] as const);",
+  "new": "Object.freeze([\"staleIncarnation\", \"launchTerminated\", \"launchActive\"] as const);",
+  "note": "terminate causes: an active launch can be terminated"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "Object.freeze([\"credentialUnusable\", \"providerError\", \"timeout\"] as const);",
+  "new": "Object.freeze([\"credentialUnusable\", \"providerError\", \"timeout\", \"providerText\"] as const);",
+  "note": "failures: an open code"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "    path: \"/v1/system/orphan-report\",\n    access: { auth: \"system\" },",
+  "new": "    path: \"/v1/system/orphan-report\",\n    access: { auth: \"public\" },",
+  "note": "getOrphanReport: not operators-only"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "    path: \"/v1/system/orphan-report\",\n    access: { auth: \"system\" },",
+  "new": "    path: \"/v1/system/orphan-report\",\n    access: { auth: \"session\", scope: \"none\" },",
+  "note": "getOrphanReport: any signed-in user"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "  \"accountUnproven\",\n  \"accountMismatch\",",
+  "new": "  \"accountMismatch\",",
+  "note": "reportOnly: drops accountUnproven"
+ },
+ {
+  "file": "src/orphans.ts",
+  "old": "  \"accountMismatch\",\n  \"unbound\",",
+  "new": "  \"unbound\",",
+  "note": "reportOnly: drops accountMismatch"
+ },
+ {
+  "file": "src/ids.ts",
+  "old": "  credential: \"crd\",",
+  "new": "  credential: \"cre\",",
+  "note": "ids: the credential prefix collides with creditEvent's"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return Number.isSafeInteger(x) && (x as number) >= 1;",
+  "new": "  return Number.isSafeInteger(x) && (x as number) >= 0;",
+  "note": "version: 0 accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return Number.isSafeInteger(x) && (x as number) >= 1;",
+  "new": "  return Number.isInteger(x) && (x as number) >= 1;",
+  "note": "version: unsafe integers accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (keys.length !== 2 || !keys.includes(\"id\") || !keys.includes(\"version\")) return false;",
+  "new": "  if (!keys.includes(\"id\") || !keys.includes(\"version\")) return false;",
+  "note": "expected: extra keys accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return isId(\"credential\", e.id) && isCredentialVersion(e.version);",
+  "new": "  return typeof e.id === \"string\" && isCredentialVersion(e.version);",
+  "note": "expected: any string id"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return isId(\"credential\", e.id) && isCredentialVersion(e.version);",
+  "new": "  return isId(\"credential\", e.id) && typeof e.version === \"number\";",
+  "note": "expected: any number version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "!/^[1-9][0-9]*$/.test(s)) return null;",
+  "new": "!/^[0-9]+$/.test(s)) return null;",
+  "note": "version query: leading zeros and 0 accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return isCredentialVersion(n) ? n : null;",
+  "new": "  return n;",
+  "note": "version query: unsafe integers accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return typeof x === \"string\" && /^[0-9]{6}$/.test(x);",
+  "new": "  return typeof x === \"string\" && /^[0-9]{6,}$/.test(x);",
+  "note": "authenticator code: longer accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  mfaRequired: {\n    code: \"forbidden\",",
+  "new": "  mfaRequired: {\n    code: \"reauthenticate\",",
+  "note": "mfaRequired: wrong code"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  badExpected: {\n    code: \"badRequest\",",
+  "new": "  badExpected: {\n    code: \"conflict\",",
+  "note": "badExpected: reads as busy's code"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },",
+  "note": "assurance: below owner"
  }
 ]

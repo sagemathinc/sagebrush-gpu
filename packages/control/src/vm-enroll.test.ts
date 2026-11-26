@@ -100,7 +100,6 @@ const body = (l: { bootToken: string; pid: string }, over: Record<string, unknow
   bootToken: l.bootToken,
   agentVersion: "1.0.0",
   agentSha256: AGENT,
-  providerMachineId: l.pid,
   mode: "vm",
   gpu: { name: "NVIDIA L4", count: 1, memoryMiB: 23034 },
   hostname: "vm-host",
@@ -119,7 +118,7 @@ async function state(machineId: string) {
   const one = async (sql: string) => ({ ...(await w.db.all<Record<string, unknown>>(sql, [machineId]))[0] });
   return {
     token: await one(`SELECT used_ms FROM boot_tokens WHERE machine_id = ?`),
-    launch: await one(`SELECT outcome, terminate_reason, next_ms, watchdog_version FROM vm_launches WHERE machine_id = ?`),
+    launch: await one(`SELECT outcome, terminate_reason, next_ms, watchdog_version FROM launches WHERE machine_id = ?`),
     machine: await one(`SELECT state FROM machines WHERE id = ?`),
     gate: (await w.db.all<{ words: string }>(`SELECT words FROM gate_reports WHERE machine_id = ?`, [machineId])).map((r) => r.words),
   };
@@ -127,7 +126,7 @@ async function state(machineId: string) {
 
 /** The invariant SEC asked for: a used token is never left on a launch that can still enroll. */
 async function noUsedTokenOnIssued() {
-  const bad = await w.db.all(`SELECT 1 FROM boot_tokens b JOIN vm_launches v USING (machine_id, incarnation) WHERE b.used_ms IS NOT NULL AND v.outcome = 'issued'`);
+  const bad = await w.db.all(`SELECT 1 FROM boot_tokens b JOIN launches v USING (machine_id, incarnation) WHERE b.used_ms IS NOT NULL AND v.outcome = 'issued'`);
   assert.deepEqual(bad, []);
 }
 
@@ -250,9 +249,10 @@ test("refused, nothing changes: every malformed shape, an unknown token, and cla
     { agentSha256: AGENT.toUpperCase() },
     { agentVersion: "" },
     { agentVersion: "1 0" },
-    { providerMachineId: "has space" },
-    { providerMachineId: "vm-\u00e9" },
-    { providerMachineId: "" },
+    // (a VM sends no provider id: present at all is refused, even the launch's own)
+    { providerMachineId: l.pid },
+    { providerMachineId: null },
+    { providerMachineId: "vm-other" },
     { hostname: "" },
     { hostname: "a b" },
     { gpu: { name: "L4", count: 0, memoryMiB: 1 } },
@@ -261,14 +261,12 @@ test("refused, nothing changes: every malformed shape, an unknown token, and cla
     { agentSha256: Array.from({ length: 64 }, () => "a") }, // (not a string, though of the right length)
     { agentSha256: 64 },
   ];
-  shapes.push({ providerMachineId: Array.from({ length: l.pid.length }, () => "v") });
   for (const over of shapes) {
     const b = body(l, over);
     for (const [k, v] of Object.entries(over)) if (v === undefined) delete (b as Record<string, unknown>)[k];
     await refusedUnchanged(l.machineId, before, await enroll(b));
   }
   await refusedUnchanged(l.machineId, before, await enroll(body(l, { bootToken: randomBytes(32).toString("base64url") }))); // (an unknown token: never a termination)
-  await refusedUnchanged(l.machineId, before, await enroll(body(l, { providerMachineId: "vm-other" })));
   await refusedUnchanged(l.machineId, before, await enroll(body(l, { agentSha256: sha("another agent") })));
   assert.deepEqual([w.alerts, vm.terminated], [[], []]);
   assert.equal((await enroll(body(l))).status, 200); // (the token still works)
@@ -289,18 +287,14 @@ test("refused, nothing changes: past the token's window, or the launch or machin
   assert.equal(vm.factsCalls, 0);
   await w.db.batch([stmt(`UPDATE machines SET state = 'starting' WHERE id = ?`, l.machineId)]);
   // the launch no longer issued (the watchdog marked it)
-  await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'terminate', terminate_reason = 'token-expired' WHERE machine_id = ?`, l.machineId)]);
+  await w.db.batch([stmt(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'token-expired' WHERE machine_id = ?`, l.machineId)]);
   const b3 = await state(l.machineId);
   await refusedUnchanged(l.machineId, b3, await enroll(body(l)));
   assert.equal(vm.factsCalls, 0);
   assert.deepEqual(w.alerts, []);
-  // the token bound to another provider id than its launch's (never written so; refused all the same)
+  // a token can't be bound to another provider id than its launch's: the database refuses it
   const m = await issued();
-  await w.db.batch([stmt(`UPDATE boot_tokens SET provider_machine_id = 'vm-elsewhere' WHERE machine_id = ?`, m.machineId)]);
-  const b4 = await state(m.machineId);
-  vm.factsCalls = 0;
-  await refusedUnchanged(m.machineId, b4, await enroll(body(m)));
-  assert.equal(vm.factsCalls, 0);
+  await assert.rejects(w.db.batch([stmt(`UPDATE boot_tokens SET provider_machine_id = 'vm-elsewhere' WHERE machine_id = ?`, m.machineId)]), /FOREIGN KEY/);
 });
 
 test("refused, token untouched: the provider unavailable (no answer, an error, past the deadline); then a retry within the window enrolls", async () => {
@@ -393,7 +387,7 @@ test("race: the token expires during the provider read: refused, nothing committ
 test("race: the watchdog claims the launch during the read: refused, the batch rolled back whole", async () => {
   const l = await issued();
   vm.during = async () => {
-    await w.db.batch([stmt(`UPDATE vm_launches SET watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, l.machineId)]);
+    await w.db.batch([stmt(`UPDATE launches SET watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, l.machineId)]);
   };
   const before = { ...(await state(l.machineId)) };
   const r = await enroll(body(l));
@@ -466,7 +460,7 @@ test("seam: the batch commits but the provider's terminate fails: the launch sta
 });
 
 test("seam: each statement of the enroll batch refused in turn rolls the whole batch back", async () => {
-  for (const cut of ["UPDATE boot_tokens", "UPDATE vm_launches", "UPDATE machines", "INSERT INTO gate_reports", "INSERT INTO enroll_guard"]) {
+  for (const cut of ["UPDATE boot_tokens", "UPDATE launches", "UPDATE machines", "INSERT INTO gate_reports", "INSERT INTO enroll_guard"]) {
     const l = await issued();
     const before = await state(l.machineId);
     const realBatch = w.db.batch;
@@ -495,7 +489,7 @@ test("race: the launch marked to terminate during the read without a claim (a se
   const l = await issued();
   vm.during = async () => {
     // (exactly the announce's mark: outcome and reason, no version change)
-    await w.db.batch([stmt(`UPDATE vm_launches SET outcome = 'terminate', terminate_reason = 'second-announce', next_ms = ? WHERE machine_id = ?`, w.clock.t, l.machineId)]);
+    await w.db.batch([stmt(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'second-announce', next_ms = ? WHERE machine_id = ?`, w.clock.t, l.machineId)]);
   };
   const r = await enroll(body(l));
   assert.equal(r.status, 403);

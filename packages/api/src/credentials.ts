@@ -5,12 +5,14 @@
 // status ever carries it.
 
 import type { ApiErrorBody, ErrorCode } from "./errors.ts";
+import { isId, type CredentialId } from "./ids.ts";
 import type { ProviderId } from "./providers.ts";
 import type { IsoTime } from "./time.ts";
 
 /**
- * How long after a fresh sign-in (WorkOS, with the organization's MFA) an owner may change
- * its keys. GET /v1/me's `recentAuthForMs` is never above it.
+ * How long an owner may change keys after a fresh sign-in followed by a verified
+ * authenticator code (verifyCredentialAssurance): the assurance's life. GET /v1/me's
+ * `recentAuthForMs` is never above it.
  */
 export const RECENT_AUTH_WINDOW_MS = 300_000;
 
@@ -55,6 +57,9 @@ export function isCredentialStatus(x: unknown): x is CredentialStatus {
 export interface ProviderCredential {
   /** One of the providers the server accepts keys for; the server decides which it lists. */
   provider: ProviderId;
+  /** The stored key's id and version (version 1 when set, +1 on each replace); both null exactly when status is "none". */
+  id: CredentialId | null;
+  version: number | null;
   status: CredentialStatus;
   /** A nonsecret fingerprint of the key (a truncated HMAC under a separate secret); null when none is set. */
   fingerprint: string | null;
@@ -66,9 +71,82 @@ export interface ProviderCredential {
   runningMachines: number;
 }
 
-/** PUT /v1/orgs/:orgId/credentials/:provider: set or replace the key, checked before the answer. */
+/**
+ * The statuses that pause new launches on the provider for the organization: offers there
+ * are dropped, and a quote or start with none left refuses with "credentialUnusable". The
+ * key is checked again on a schedule, and the pause ends when a check passes. Running
+ * machines are untouched, and none is assumed terminated.
+ */
+export const PAUSING_CREDENTIAL_STATUSES = Object.freeze(["rejected", "revoked", "error"] as const);
+export type PausingCredentialStatus = (typeof PAUSING_CREDENTIAL_STATUSES)[number];
+
+export function isPausingCredentialStatus(x: unknown): x is PausingCredentialStatus {
+  return (PAUSING_CREDENTIAL_STATUSES as readonly unknown[]).includes(x);
+}
+
+/**
+ * One paused provider, in the GPU-type list every member of the project loads. `detail` is
+ * present only for a caller whose project role is manager or above (an org owner resolves
+ * to owner), chosen by the server from the caller's role, never by a query flag; everyone
+ * else sees that launches are paused, and nothing about the key.
+ */
+export interface ProviderPause {
+  provider: ProviderId;
+  since: IsoTime;
+  detail?: { status: PausingCredentialStatus; lastCheckedAt: IsoTime | null };
+}
+
+/**
+ * PUT /v1/orgs/:orgId/credentials/:provider: set or replace the key, checked before the
+ * answer. `expected` names the key the change replaces, as the list showed it: null to set
+ * one where none is, `{ id, version }` to replace exactly that one. Any other current state
+ * (a key was set, replaced or removed meanwhile) is `busy`, and nothing changes.
+ */
 export interface PutCredentialRequest {
   key: string;
+  expected: CredentialExpected | null;
+}
+
+export interface CredentialExpected {
+  id: CredentialId;
+  version: number;
+}
+
+/** Whether `x` is a credential version: an integer from 1 up. */
+export function isCredentialVersion(x: unknown): x is number {
+  return Number.isSafeInteger(x) && (x as number) >= 1;
+}
+
+/** Whether `x` is a well-formed `expected`: null, or exactly `{ id, version }` with a credential id and a version. */
+export function isCredentialExpected(x: unknown): x is CredentialExpected | null {
+  if (x === null) return true;
+  if (typeof x !== "object") return false; // (an array has no "id" or "version" key, so it fails below)
+  const keys = Object.keys(x);
+  if (keys.length !== 2 || !keys.includes("id") || !keys.includes("version")) return false;
+  const e = x as { id: unknown; version: unknown };
+  return isId("credential", e.id) && isCredentialVersion(e.version);
+}
+
+/**
+ * DELETE /v1/orgs/:orgId/credentials/:provider?id=&version=: the query names the key it
+ * removes, as listed. A version is written in decimal, with no sign and no leading zero;
+ * anything else isn't one (null). A mismatch with the current key is `busy`; no key at all is
+ * `noKey`.
+ */
+export function parseCredentialVersionQuery(s: unknown): number | null {
+  if (typeof s !== "string" || !/^[1-9][0-9]*$/.test(s)) return null; // (too many digits fail the safe-integer check)
+  const n = Number(s);
+  return isCredentialVersion(n) ? n : null;
+}
+
+/** POST /v1/orgs/:orgId/credentials/assurance: the current code from the owner's authenticator app. */
+export interface CredentialAssuranceRequest {
+  code: string;
+}
+
+/** Whether `x` has an authenticator code's shape: exactly six digits. */
+export function isAuthenticatorCode(x: unknown): x is string {
+  return typeof x === "string" && /^[0-9]{6}$/.test(x);
 }
 
 /**
@@ -123,6 +201,18 @@ export const CREDENTIAL_REFUSALS = Object.freeze({
   signedOut: {
     code: "unauthenticated",
     message: "Sign in to see or change provider keys.",
+  },
+  mfaRequired: {
+    code: "forbidden",
+    message: "Changing provider keys needs two-step verification with an authenticator app. Set one up for your account, then try again.",
+  },
+  mfaInvalid: {
+    code: "badRequest",
+    message: "That code didn't work. Enter the current six-digit code from your authenticator app. Nothing was saved.",
+  },
+  badExpected: {
+    code: "badRequest",
+    message: "This change didn't name the key as it was listed. Reload the page and try again. Nothing was saved.",
   },
 } as const satisfies Record<string, { code: ErrorCode; message: string }>);
 export type CredentialRefusal = keyof typeof CREDENTIAL_REFUSALS;

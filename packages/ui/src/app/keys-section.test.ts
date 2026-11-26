@@ -331,8 +331,8 @@ for (const outcome of ["held", "success", "refusal", "network"] as const) {
     k.button("vast", "Remove")!.click();
     await settle();
     assert.equal(field.value, "sk_live_unsaved_replacement", "(only a removal empties it)");
-    const release = outcome === "held" ? k.t.gate(/DELETE .*\/credentials\/vast$/) : null;
-    if (outcome === "refusal") k.t.respondOnce(/DELETE .*\/credentials\/vast$/, refusalResponse("busy"));
+    const release = outcome === "held" ? k.t.gate(/DELETE .*\/credentials\/vast\?id=crd_[0-9a-z]{20}&version=\d+$/) : null;
+    if (outcome === "refusal") k.t.respondOnce(/DELETE .*\/credentials\/vast\?id=crd_[0-9a-z]{20}&version=\d+$/, refusalResponse("busy"));
     if (outcome === "network") k.t.failOnce(new TypeError("offline"));
     k.button("vast", "Remove key")!.click();
     // Synchronously: the request has gone, and the field is already empty.
@@ -524,9 +524,12 @@ test("removal: a confirmation first, which says what happens to machines still r
   assert.equal(k.keysLog().some((l) => l.startsWith("KEYS DELETE")), false);
   k.button("vast", "Remove")!.click();
   await settle();
+  // The removal names the key as listed: its id and version.
+  const listed = k.t.store.keys.rows.value!.find((r) => r.provider === "vast")!;
+  assert.match(listed.id ?? "", /^crd_/);
   k.button("vast", "Remove key")!.click();
   await settle();
-  assert.deepEqual(k.keysLog().filter((l) => l.startsWith("KEYS DELETE")), [`KEYS DELETE /v1/orgs/${k.orgA.id}/credentials/vast`]);
+  assert.deepEqual(k.keysLog().filter((l) => l.startsWith("KEYS DELETE")), [`KEYS DELETE /v1/orgs/${k.orgA.id}/credentials/vast?id=${listed.id}&version=${listed.version}`]);
   assert.match(k.row("vast")!.textContent!, new RegExp(`^Vast\\.ai ?${KEY_STATUS_WORDS.none}`));
   assert.match(k.page.text(), new RegExp(KEY_REMOVED_WORDS));
   assert.equal(k.b.credentials.size, 0);
@@ -580,4 +583,50 @@ test("removal: a confirmation first, which says what happens to machines still r
   await settle();
   assert.equal(k.keysLog().filter((l) => l.startsWith("KEYS DELETE")).length, 2);
   assert.equal(k.b.credentials.size, 0);
+});
+
+test("a replace and a removal name the key as listed: changed meanwhile by another owner, they're busy and change nothing", async () => {
+  const k = await keysPage();
+  k.submit("vast");
+  await settle();
+  // The page replaces the key it lists (id and version), so a replace goes through.
+  k.submit("vast", "sk_live_second_key");
+  await settle();
+  const listed = k.t.store.keys.rows.value!.find((r) => r.provider === "vast")!;
+  assert.equal(listed.version, 2);
+  // Another owner replaces it now; this page still lists version 2.
+  const rec = k.b.credentials.get(`${k.orgA.id}|vast`)!;
+  rec.version = 3;
+  k.submit("vast", "sk_live_third_key");
+  await settle();
+  assert.match(k.row("vast")!.textContent!, new RegExp(KEY_REFUSAL_WORDS.busy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(k.b.credentials.get(`${k.orgA.id}|vast`)!.version, 3, "the stale replace changed nothing");
+  k.button("vast", "Remove")!.click();
+  await settle();
+  k.button("vast", "Remove key")!.click();
+  await settle();
+  assert.equal(k.b.credentials.size, 1, "the stale removal removed nothing");
+  k.noKey("stale changes");
+});
+
+test("removing a provider's key when none is listed sends nothing", async () => {
+  const k = await keysPage();
+  assert.equal(await k.t.store.keys.remove("hyperstack"), false);
+  assert.equal(k.keysLog().some((l) => l.startsWith("KEYS DELETE")), false);
+  assert.equal(k.t.store.keys.notices.value.hyperstack, undefined, "and says nothing");
+  assert.equal(k.t.store.keys.pending.value.has("hyperstack"), false);
+});
+
+test("a removal after a replace names the replaced key's version", async () => {
+  const k = await keysPage();
+  k.submit("vast");
+  await settle();
+  k.submit("vast", "sk_live_second_key");
+  await settle();
+  k.button("vast", "Remove")!.click();
+  await settle();
+  k.button("vast", "Remove key")!.click();
+  await settle();
+  assert.match(k.keysLog().filter((l) => l.startsWith("KEYS DELETE"))[0] ?? "", /&version=2$/);
+  assert.equal(k.b.credentials.size, 0, "removed");
 });

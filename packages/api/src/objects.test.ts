@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ACCRUING_STATES,
+  QUOTE_REFUSALS,
   BILLING_MODES,
   DEFAULT_POLICY,
   MACHINE_STATES,
@@ -107,4 +108,11 @@ test("a gate report is accepted only in its canonical form", () => {
   const r = parseGateReport(input)!;
   input.fail.push("sudo");
   assert.deepEqual(r.fail, ["imds"]);
+});
+
+test("quote refusals in precedence order: credentialUnusable just before noCapacity", () => {
+  assert.deepEqual(
+    [...QUOTE_REFUSALS],
+    ["projectNotStarted", "projectEnded", "policy", "priceCap", "credentialUnusable", "noCapacity", "concurrencyCap", "allocationTooLow"],
+  );
 });

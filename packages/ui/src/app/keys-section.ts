@@ -8,14 +8,9 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { ROUTES, isCredentialKeyShape, type ProviderCredential, type ProviderId } from "@sbgpu/api";
 import { html } from "./html.ts";
 import { KEY_STATUS_WORDS, type ProviderKeys } from "./provider-keys.ts";
+import { PROVIDER_NAMES } from "../providers.ts";
 
-export const PROVIDER_NAMES: Readonly<Record<ProviderId, string>> = Object.freeze({
-  runpod: "RunPod",
-  shadeform: "Shadeform",
-  hyperstack: "Hyperstack",
-  nebius: "Nebius",
-  vast: "Vast.ai",
-});
+export { PROVIDER_NAMES };
 
 /** The sign-in that opens the window: a fresh authentication, then back to this organization. */
 export function reauthHref(orgId: string): string {
@@ -46,7 +41,9 @@ function KeyRow({ keys, orgId, row }: { keys: ProviderKeys; orgId: string; row: 
       keys.refuseLocally(row.provider, "badShape");
       return;
     }
-    const body = JSON.stringify({ key: value });
+    // (the change names the key it replaces, as listed: none, or its id and version)
+    const expected = row.id != null && row.version != null ? { id: row.id, version: row.version } : null;
+    const body = JSON.stringify({ key: value, expected });
     input.value = "";
     void keys.put(row.provider, body).then(() => {
       if (field.current) field.current.value = "";
