@@ -7,6 +7,7 @@ import { stmt } from "./db.ts";
 import {
   CONNECT_WINDOW_MS,
   CONTAINER_WATCHDOG_SELECT,
+  HeldPodsUnknown,
   abandonContainer,
   launchContainer,
   observeContainer,
@@ -569,7 +570,7 @@ test("every claim failing while a renamed pod is held: its id handed over alone,
   assert.deepEqual(await cleanupIds(m), []);
   assert.equal((await launch(m)).outcome, "terminated");
   assert.deepEqual((await accruals(m)).map((a) => [a.start_ms, a.end_ms !== null]), [[T0, true]]);
-  // and with nothing writable at all, the held pod is ended here (no record could keep it), the launch left due
+  // and with nothing writable at all, the held pod is ended here and dropped once its own status reads terminated
   const m2 = await machine();
   rp.terminated = [];
   assert.equal(await launchContainer({ ...env(), db: flakyCleanup(Infinity) }, req(m2)), "abandoned");
@@ -577,6 +578,35 @@ test("every claim failing while a renamed pod is held: its id handed over alone,
   assert.equal(rp.pods.size, 0);
   assert.deepEqual(await cleanupIds(m2), []);
   assert.equal((await launch(m2)).outcome, "creating");
+});
+
+test("nothing writable and the held pod's terminate throws, never answers, or answers before it is gone: its id is never dropped, but thrown to the caller", async () => {
+  for (const fault of ["throw", "hang", "early"] as const) {
+    const m = await machine();
+    rp.mode = "renamed";
+    rp.terminated = [];
+    rp.terminateFaults = [fault];
+    const id = `pod${rp.n + 1}`;
+    await assert.rejects(launchContainer({ ...env(), db: flakyCleanup(Infinity) }, req(m)), (e: unknown) => {
+      assert.ok(e instanceof HeldPodsUnknown, `${fault}: ${String(e)}`);
+      assert.deepEqual([e.machineId, e.incarnation, e.providerMachineIds], [m, 1, [id]], fault);
+      return true;
+    });
+    assert.ok(rp.pods.has(id), `${fault}: the pod is live, and its id was thrown, not dropped`);
+    assert.deepEqual(rp.terminated, [id]);
+    assert.deepEqual(await cleanupIds(m), []);
+  }
+  // a status answering terminated for another id is no proof
+  const m = await machine();
+  rp.mode = "renamed";
+  rp.terminateFaults = ["early"];
+  rp.override = { providerMachineId: "pod999", state: "terminated" };
+  await assert.rejects(launchContainer({ ...env(), db: flakyCleanup(Infinity) }, req(m)), HeldPodsUnknown);
+  rp.override = {};
+  // no adapter to end it with: thrown too
+  const m2 = await machine();
+  await recordContainerIntent(w.db, { machineId: m2, incarnation: 1, agentSha256: AGENT, credentialKind: "ours", rate: RATE, createdMs: T0, tokenSha256: sha(m2) });
+  await assert.rejects(abandonContainer({ ...env(null), db: flakyCleanup(Infinity) }, m2, 1, "create-failed", ["podX"]), (e: unknown) => e instanceof HeldPodsUnknown && e.providerMachineIds.join() === "podX");
 });
 
 test("a held id other than the recorded one: kept until its own status reads terminated; the launch isn't terminated before", async () => {

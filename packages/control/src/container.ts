@@ -353,6 +353,24 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
   return true;
 }
 
+/**
+ * Held pods that could be neither recorded nor confirmed gone (every write failed, and no exact
+ * status read them terminated): the only record of them is this error's ids. The caller must keep
+ * them and retry or report them. The launch's boot token may not be revoked either.
+ */
+export class HeldPodsUnknown extends Error {
+  readonly machineId: string;
+  readonly incarnation: number;
+  readonly providerMachineIds: readonly string[];
+  constructor(machineId: string, incarnation: number, providerMachineIds: readonly string[]) {
+    super(`container launch ${machineId} (incarnation ${incarnation}): ${providerMachineIds.length} held pod(s) neither recorded nor confirmed gone`);
+    this.name = "HeldPodsUnknown";
+    this.machineId = machineId;
+    this.incarnation = incarnation;
+    this.providerMachineIds = providerMachineIds;
+  }
+}
+
 /** How many times abandonContainer tries to claim the launch before it hands its held ids over alone. */
 const ABANDON_CLAIM_TRIES = 2;
 
@@ -361,8 +379,9 @@ const ABANDON_CLAIM_TRIES = 2;
  * The held ids must outlive this call. If the claim isn't won (a failed write, or another
  * caller's claim), they are written to launch_cleanup by themselves, so whoever claims the launch
  * later (the watchdog, at the latest at the create deadline) ends them by id. Only if nothing can
- * be written are they ended here, unrecorded: nothing else could ever find a pod that no list
- * shows by the name.
+ * be written are they ended here, each dropped only once its exact status reads terminated
+ * (nothing else could ever find a pod that no list shows by the name). Throws HeldPodsUnknown
+ * with the ids it could neither record nor confirm gone.
  */
 export async function abandonContainer(env: ContainerEnv, machineId: string, incarnation: number, reason: ContainerReason, heldIds: readonly string[] = []): Promise<void> {
   for (let i = 0; i < ABANDON_CLAIM_TRIES; i++) {
@@ -386,10 +405,16 @@ export async function abandonContainer(env: ContainerEnv, machineId: string, inc
     );
     return;
   } catch {
-    // (nothing durable: the last chance to end them)
+    // (nothing durable: the last chance to end them, each kept until its own status proves it gone)
   }
   const p = env.provider;
-  if (p) for (const id of held) await withDeadline(() => p.terminate(id), undefined);
+  const left: string[] = [];
+  for (const id of held) {
+    if (p) await withDeadline(() => p.terminate(id), undefined);
+    const s = p ? await withDeadline<ProviderMachineStatus | "unavailable">(() => p.status(id), "unavailable") : "unavailable";
+    if (s === "unavailable" || s.providerMachineId !== id || s.state !== "terminated") left.push(id);
+  }
+  if (left.length > 0) throw new HeldPodsUnknown(machineId, incarnation, left);
 }
 
 export interface ContainerLaunch {
@@ -408,7 +433,8 @@ export interface ContainerLaunch {
  * the id and the accrual are recorded. "unknown": the create's outcome is unknown (the row stays
  * creating; at its create deadline the watchdog finds any pod by its name). "abandoned": the
  * create failed, or its pod was refused; the launch is ended (token revoked first), its pod once
- * its accrual is open (the watchdog retries).
+ * its accrual is open (the watchdog retries). Throws HeldPodsUnknown (from abandonContainer) when
+ * a pod it holds could be neither recorded nor confirmed gone.
  */
 export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Promise<"not-started" | "created" | "unknown" | "abandoned"> {
   const token = base64url(env.randomBytes(32));
