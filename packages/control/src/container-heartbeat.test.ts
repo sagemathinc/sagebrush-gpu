@@ -8,6 +8,7 @@ import { stmt } from "./db.ts";
 import { CONNECT_WINDOW_MS, CONTAINER_LIFETIME_SELECT, launchContainer, runContainerLifetime, recordContainerId, recordContainerIntent, recordFirstRunning, runContainerWatchdog, type ContainerEnv, type ContainerProvider } from "./container.ts";
 import { ERADICATION_CHECKS } from "./enroll.ts";
 import { HEARTBEAT_LOST_MS, HEARTBEAT_WATCHDOG_BATCH, HEARTBEAT_WATCHDOG_SELECT, runHeartbeatWatchdog } from "./heartbeat.ts";
+import { containerLifetime } from "./jobs.ts";
 import { loadAgentPublicKeys, loadAgentSigner } from "./signer.ts";
 import { WATCHDOG_BATCH, type JobEnv } from "./vm.ts";
 import { ORIGIN, T0, addMember, world, type World } from "./testing/world.ts";
@@ -301,15 +302,15 @@ test("end to end: launched, enrolled through the endpoint, then heartbeating wit
 
 // ---------------------------------------------------------------- the hard lifetime
 
-test("lifetime: an enrolled container at its max_end_ms (not a millisecond before) is marked max-session with its machine stopping, then revoked and ended", async () => {
+test("lifetime, through the scheduled job: an enrolled container at its max_end_ms (not a millisecond before) is marked max-session with its machine stopping, then revoked and ended", async () => {
   const c = await container();
   const end = T0 + 2000 + LIFE_MS;
   assert.equal((await w.db.all<{ max_end_ms: number }>(`SELECT max_end_ms FROM launches WHERE machine_id = ?`, [c.machineId]))[0]!.max_end_ms, end);
   w.clock.t = end - 1;
-  assert.equal(await runContainerLifetime(jenv()), 0);
+  assert.equal(await containerLifetime.run(jenv()), 0);
   assert.deepEqual([(await launch(c.machineId)).outcome, await machineState(c.machineId)], ["enrolled", "running"]);
   w.clock.t = end;
-  assert.equal(await runContainerLifetime(jenv()), 1);
+  assert.equal(await containerLifetime.run(jenv()), 1);
   const l = await launch(c.machineId);
   assert.deepEqual([l.outcome, l.terminate_reason, l.next_ms, await machineState(c.machineId)], ["terminate", "max-session", end, "stopping"]);
   // its agent is refused at once
@@ -320,7 +321,7 @@ test("lifetime: an enrolled container at its max_end_ms (not a millisecond befor
   assert.deepEqual([(await launch(c.machineId)).outcome, await machineState(c.machineId)], ["terminated", "stopped"]);
   const acc = (await w.db.all<{ end_ms: number | null }>(`SELECT end_ms FROM machine_accruals WHERE machine_id = ?`, [c.machineId]))[0]!;
   assert.equal(acc.end_ms, end, "the accrual closed when the pod was confirmed gone");
-  assert.equal(await runContainerLifetime(jenv()), 0, "nothing left to mark");
+  assert.equal(await containerLifetime.run(jenv()), 0, "nothing left to mark");
 });
 
 test("lifetime: a launch another mark ended first, or one changed after the read, is left as it is; a launch not yet enrolled has no lifetime", async () => {

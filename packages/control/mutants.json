@@ -5411,5 +5411,11 @@
   "old": "CREATE INDEX launches_container_lifetime ON launches (max_end_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'container';",
   "new": "CREATE INDEX launches_container_lifetime ON launches (machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'container';",
   "note": "the lifetime index without max_end_ms"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "export const containerLifetime: ScheduledJob = { name: \"container lifetime\", run: runContainerLifetime };",
+  "new": "export const containerLifetime: ScheduledJob = { name: \"container lifetime\", run: async () => 0 };",
+  "note": "the scheduled lifetime entry runs nothing"
  }
 ]
