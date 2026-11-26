@@ -3394,5 +3394,47 @@
   "old": "            try:\n                sock = socket.socket(family, socket.SOCK_STREAM)\n            except OSError as e:\n                error = e  # (this family can't be used here, e.g. no IPv6: the next address, if any)\n                continue\n",
   "new": "            sock = socket.socket(family, socket.SOCK_STREAM)\n",
   "note": "PR C: connect: socket creation outside the per-address handling"
+ },
+ {
+  "file": "image/Dockerfile",
+  "old": "FROM ubuntu:24.04@sha256:562111b88caa79c71391c0c4d3c2114a7d5c35915c20561fd893cb1e07929e6b",
+  "new": "FROM ubuntu:24.04",
+  "note": "image: base not pinned by digest"
+ },
+ {
+  "file": "image/Dockerfile",
+  "old": " && apt-get install -y --no-install-recommends --snapshot \"$APT_SNAPSHOT\" \\",
+  "new": " && apt-get install -y --no-install-recommends \\",
+  "note": "image: apt install off the snapshot"
+ },
+ {
+  "file": "image/Dockerfile",
+  "old": "pip install --no-cache-dir --no-deps --require-hashes -r",
+  "new": "pip install --no-cache-dir --no-deps -r",
+  "note": "image: uv installed without hashes"
+ },
+ {
+  "file": "image/Dockerfile",
+  "old": "--no-cache --require-hashes --no-deps",
+  "new": "--no-cache --no-deps",
+  "note": "image: the env installed without hashes"
+ },
+ {
+  "file": "image/Dockerfile",
+  "old": "      --index-strategy unsafe-best-match -r /opt/sbgpu/lock/env.txt",
+  "new": "      --index-strategy unsafe-best-match torch sagebrush",
+  "note": "image: the env not from its lock file"
+ },
+ {
+  "file": "image/env.in",
+  "old": "torch==2.14.1+cu126",
+  "new": "torch==2.14.1",
+  "note": "image: torch pin not the CUDA 12.6 build"
+ },
+ {
+  "file": "image/smoke.sh",
+  "old": "for tool in sh python3 curl tar gzip sha256sum wc timeout env sed uv sagebrush; do",
+  "new": "for tool in sh python3 curl tar gzip sha256sum wc env sed uv sagebrush; do",
+  "note": "image: smoke skips timeout"
  }
 ]
