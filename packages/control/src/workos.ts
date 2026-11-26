@@ -352,17 +352,48 @@ async function apiCall(c: WorkosConfig, f: Fetch, path: string, body: unknown): 
 }
 
 /** The user's TOTP factors' ids, as WorkOS lists them now (server-side, with the API key). */
+/** The most pages of factors read; a user with more is refused (the list can't be shown complete). */
+export const MAX_FACTOR_PAGES = 10;
+const FACTOR_PAGE = 100;
+/** A pagination cursor as WorkOS gives it: an object id. */
+const CURSOR = /^[A-Za-z0-9_]{1,128}$/;
+
+/**
+ * Every one of the user's TOTP factors, as WorkOS lists them now (server-side, with the API key):
+ * the whole list, page by page, or a refusal. It is only ever all or nothing: the envelope must be
+ * exactly a list (`data`, `list_metadata.after` a cursor or null), every entry must be a factor of
+ * this user, every TOTP entry must have a well-formed id, a cursor is never seen twice, and more
+ * than MAX_FACTOR_PAGES pages is a refusal. Anything else is "invalid" (never a shorter list), so
+ * "exactly one TOTP factor" is decided on the complete list.
+ */
 export async function listTotpFactors(c: WorkosConfig, userId: string, f: Fetch = defaultFetch): Promise<Factors> {
   if (!SUBJECT.test(userId)) return { ok: false, kind: "invalid" };
-  const r = await apiCall(c, f, `/user_management/users/${userId}/auth_factors?limit=100`, undefined);
-  if (!r.ok) return r;
-  const data = (r.j as { data?: unknown } | null)?.data;
-  if (!Array.isArray(data)) return { ok: false, kind: "unavailable" };
   const totp: string[] = [];
-  for (const x of data as Array<{ id?: unknown; type?: unknown; user_id?: unknown } | null>) {
-    if (x && x.type === "totp" && typeof x.id === "string" && FACTOR_ID.test(x.id) && x.user_id === userId) totp.push(x.id);
+  const seen = new Set<string>();
+  let after: string | null = null;
+  for (let page = 0; page < MAX_FACTOR_PAGES; page++) {
+    const q = `limit=${FACTOR_PAGE}${after === null ? "" : `&after=${after}`}`;
+    const r = await apiCall(c, f, `/user_management/users/${userId}/auth_factors?${q}`, undefined);
+    if (!r.ok) return r;
+    const j = r.j as { data?: unknown; list_metadata?: unknown } | null;
+    if (typeof j !== "object" || j === null || !Array.isArray(j.data) || typeof j.list_metadata !== "object" || j.list_metadata === null) return { ok: false, kind: "invalid" };
+    if (j.data.length > FACTOR_PAGE) return { ok: false, kind: "invalid" };
+    for (const x of j.data as unknown[]) {
+      if (typeof x !== "object" || x === null) return { ok: false, kind: "invalid" };
+      const e = x as { id?: unknown; type?: unknown; user_id?: unknown };
+      if (typeof e.id !== "string" || typeof e.type !== "string" || e.user_id !== userId) return { ok: false, kind: "invalid" };
+      if (e.type === "totp") {
+        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) return { ok: false, kind: "invalid" };
+        totp.push(e.id);
+      }
+    }
+    const next = (j.list_metadata as { after?: unknown }).after;
+    if (next === null) return { ok: true, totp };
+    if (typeof next !== "string" || !CURSOR.test(next) || seen.has(next)) return { ok: false, kind: "invalid" };
+    seen.add(next);
+    after = next;
   }
-  return { ok: true, totp };
+  return { ok: false, kind: "invalid" };
 }
 
 /** `code` checked against `factorId`: a challenge created for it, then verified. valid is true only for WorkOS's own `valid: true`. */

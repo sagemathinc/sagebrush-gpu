@@ -69,6 +69,11 @@ export class FakeWorkos {
   totpCode = "123456";
   challenges = new Map<string, string>();
   factorsStatus = 200;
+  /** Factors listed per page (WorkOS's cursor pagination: after = the page's last id). */
+  factorPageSize = 100;
+  /** A whole factor-list answer of a test's own, instead of the stored factors (a malformed envelope, a cursor loop). */
+  factorListAnswer: ((query: URLSearchParams) => unknown) | null = null;
+  factorQueries: string[] = [];
   challengeStatus = 200;
   verifyStatus = 200;
   factorCalls = 0;
@@ -194,7 +199,14 @@ export class FakeWorkos {
       this.factorCalls++;
       if (!authorized) return Response.json({ error: "unauthorized" }, { status: 401 });
       if (this.factorsStatus !== 200) return new Response("down", { status: this.factorsStatus });
-      return Response.json({ object: "list", data: this.factors.get(factorsOf[1]!) ?? [], list_metadata: { before: null, after: null } });
+      this.factorQueries.push(u.search);
+      if (this.factorListAnswer) return Response.json(this.factorListAnswer(u.searchParams));
+      const all = (this.factors.get(factorsOf[1]!) ?? []) as Array<{ id?: unknown }>;
+      const after = u.searchParams.get("after");
+      const from = after === null ? 0 : all.findIndex((x) => x.id === after) + 1;
+      const page = all.slice(from, from + Math.min(this.factorPageSize, Number(u.searchParams.get("limit") ?? 10)));
+      const more = from + page.length < all.length;
+      return Response.json({ object: "list", data: page, list_metadata: { before: null, after: more ? (page.at(-1)?.id ?? null) : null } });
     }
     const challengeOf = /^\/auth\/factors\/([^/]+)\/challenge$/.exec(u.pathname);
     if (challengeOf && init?.method === "POST") {

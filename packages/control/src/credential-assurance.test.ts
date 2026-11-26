@@ -12,7 +12,7 @@ import { CREDENTIAL_REFUSALS, ERROR_STATUS, credentialRefusalBody, newId, type C
 import { AUTH_COOKIE, VALIDATE_EVERY_MS, type AuthConfig } from "./auth.ts";
 import { stmt, type Db, type SqlValue } from "./db.ts";
 import { SESSION_COOKIE, sha256Hex } from "./http.ts";
-import { clearKeyCache } from "./workos.ts";
+import { MAX_FACTOR_PAGES, clearKeyCache } from "./workos.ts";
 import { ASSURANCE_MS, CHECKS_PER_HOUR, consumeAssurance, liveAssurance, reserveCheck, type AssuranceBinding } from "./credential-assurance.ts";
 import { CLIENT, CONFIG, FakeWorkos } from "./testing/fake-workos.ts";
 import { MIGRATIONS_DIR } from "./testing/sqlite.ts";
@@ -218,7 +218,7 @@ test("assurance: each refusal in its place, writing nothing (the quota only from
   fake.factors.set(p.sub, [{ id: FACTOR, type: "totp", user_id: p.sub }, { id: "auth_factor_02", type: "totp", user_id: p.sub }]);
   refused(await verify(p), "mfaRequired", "two");
   fake.factors.set(p.sub, [{ id: FACTOR, type: "totp", user_id: "user_01SOMEONEELSE" }]);
-  refused(await verify(p), "mfaRequired", "another user's");
+  refused(await verify(p), "checkUnavailable", "another user's (a list we can't trust)");
   fake.factors.set(p.sub, [{ id: FACTOR, type: "totp", user_id: p.sub }]);
   // the wrong code; WorkOS down at each step; a 4xx verify
   refused(await verify(p, { code: "654321" }), "mfaInvalid", "wrong code");
@@ -234,6 +234,81 @@ test("assurance: each refusal in its place, writing nothing (the quota only from
   assert.equal(await quotaUsed(p.orgId), 8);
   // and the request that passes writes one
   assert.equal((await verify(p)).res.status, 200);
+  assert.equal((await assurances()).length, 1);
+});
+
+test("factors (H1): the list is read whole, page by page, and any entry or page we can't trust refuses, before any challenge", async () => {
+  // (each case its own owner and organization: every verification spends a unit of its org's quota)
+  const none = async (why: string, refusal: "checkUnavailable" | "mfaRequired", setUp: (p: Owner, ok: object) => void) => {
+    const p = await owner();
+    const ok = { id: FACTOR, type: "totp", user_id: p.sub };
+    setUp(p, ok);
+    const before = fake.verifyCalls;
+    const challenges = fake.challenges.size;
+    refused(await verify(p), refusal, why);
+    assert.equal(fake.verifyCalls, before, `${why}: no verify`);
+    assert.equal(fake.challenges.size, challenges, `${why}: no challenge`);
+    assert.equal((await w.db.all(`SELECT 1 FROM credential_assurances WHERE org_id = ?`, [p.orgId])).length, 0, `${why}: no assurance`);
+    fake.factorListAnswer = null;
+    fake.factorPageSize = 100;
+    return p;
+  };
+  // a valid factor with a malformed one, or another user's, is never "exactly one"
+  for (const [why, bad] of [
+    ["a TOTP with a malformed id", (p: Owner) => ({ id: "factor_x", type: "totp", user_id: p.sub })],
+    ["a TOTP with no id", (p: Owner) => ({ type: "totp", user_id: p.sub })],
+    ["another user's TOTP", () => ({ id: "auth_factor_01OTHER", type: "totp", user_id: "user_01OTHER" })],
+    ["an entry with no type", (p: Owner) => ({ id: "auth_factor_01NOTYPE", user_id: p.sub })],
+    ["an entry that isn't an object", () => 7],
+    ["the same TOTP twice", (p: Owner) => ({ id: FACTOR, type: "totp", user_id: p.sub })],
+  ] as const) {
+    await none(why, "checkUnavailable", (p, ok) => fake.factors.set(p.sub, [ok, bad(p)] as never));
+  }
+  // a second TOTP on the next page is seen: two factors
+  await none("a second TOTP on page 2", "mfaRequired", (p, ok) => {
+    fake.factorPageSize = 1;
+    fake.factors.set(p.sub, [ok, { id: "auth_factor_02", type: "totp", user_id: p.sub }] as never);
+  });
+  assert.deepEqual(fake.factorQueries.slice(-2), ["?limit=100", `?limit=100&after=${FACTOR}`]);
+  // the envelope and the pagination: malformed, a cursor loop, too many pages, a cursor that isn't one
+  const answers: Array<[string, (ok: object, p: Owner) => (q: URLSearchParams) => unknown]> = [
+    ["no list_metadata", (ok) => () => ({ data: [ok] })],
+    ["list_metadata not an object", (ok) => () => ({ data: [ok], list_metadata: "x" })],
+    ["after not a cursor", (ok) => () => ({ data: [ok], list_metadata: { after: 7 } })],
+    ["after missing", (ok) => () => ({ data: [ok], list_metadata: {} })],
+    ["a malformed cursor", (ok) => () => ({ data: [ok], list_metadata: { after: "a b" } })],
+    ["data not a list", () => () => ({ data: {}, list_metadata: { after: null } })],
+    ["a page past the limit", (_ok, p) => () => ({ data: Array.from({ length: 101 }, (_, i) => ({ id: `auth_factor_01S${i}`, type: "sms", user_id: p.sub })), list_metadata: { after: null } })],
+    ["a cursor loop", (ok) => (q) => ({ data: q.get("after") === null ? [ok] : [], list_metadata: { after: "auth_factor_01LOOP" } })],
+    ["more pages than the bound (each cursor new)", () => { let n = 0; return () => ({ data: [], list_metadata: { after: `auth_factor_01P${n++}` } }); }],
+  ];
+  for (const [why, answer] of answers) {
+    const reads = fake.factorQueries.length;
+    await none(why, "checkUnavailable", (p, ok) => { fake.factorListAnswer = answer(ok, p); });
+    if (why.startsWith("more pages")) assert.equal(fake.factorQueries.length - reads, MAX_FACTOR_PAGES, "the bound: exactly that many pages read");
+  }
+  // the positive control: one TOTP and an SMS factor, across two pages, is exactly one
+  const p = await owner();
+  fake.factorPageSize = 1;
+  fake.factors.set(p.sub, [{ id: "auth_factor_01SMS", type: "sms", user_id: p.sub }, { id: FACTOR, type: "totp", user_id: p.sub }]);
+  assert.equal((await verify(p)).res.status, 200);
+  fake.factorPageSize = 100;
+});
+
+test("assurance: the 256-byte body cap, on a valid body: 256 bytes passes; 257 is refused before parsing, with no quota and no WorkOS call", async () => {
+  const send = (p: Owner, bytes: number) => {
+    const body = JSON.stringify({ code: fake.totpCode });
+    return w.app.fetch(new Request(`${ORIGIN}/v1/orgs/${p.orgId}/credentials/assurance`, {
+      method: "POST", headers: { origin: ORIGIN, cookie: p.cookie, "content-type": "application/json" }, body: body + " ".repeat(bytes - body.length),
+    }));
+  };
+  const p = await owner();
+  const calls = fake.factorCalls + fake.verifyCalls;
+  const over = await send(p, 257);
+  assert.deepEqual([over.status, await over.json()], [ERROR_STATUS[CREDENTIAL_REFUSALS.mfaInvalid.code], credentialRefusalBody("mfaInvalid")]);
+  assert.deepEqual([await quotaUsed(p.orgId), fake.factorCalls + fake.verifyCalls, (await assurances()).length], [0, calls, 0]);
+  const at = await send(p, 256);
+  assert.equal(at.status, 200, "exactly 256 bytes");
   assert.equal((await assurances()).length, 1);
 });
 

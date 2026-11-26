@@ -5762,14 +5762,14 @@
  },
  {
   "file": "src/workos.ts",
-  "old": "if (x && x.type === \"totp\" && typeof x.id === \"string\"",
-  "new": "if (x && typeof x.id === \"string\"",
+  "old": "      if (e.type === \"totp\") {",
+  "new": "      if (true) {",
   "note": "any factor type"
  },
  {
   "file": "src/workos.ts",
-  "old": " && x.user_id === userId) totp.push(x.id);",
-  "new": ") totp.push(x.id);",
+  "old": "      if (typeof e.id !== \"string\" || typeof e.type !== \"string\" || e.user_id !== userId) return { ok: false, kind: \"invalid\" };",
+  "new": "      if (typeof e.id !== \"string\" || typeof e.type !== \"string\") return { ok: false, kind: \"invalid\" };",
   "note": "another user's factor"
  },
  {
@@ -6017,5 +6017,59 @@
   "old": "refresh_claim_ms = NULL, workos_sid = ?,",
   "new": "refresh_claim_ms = NULL, workos_sid = coalesce(workos_sid, ?),",
   "note": "refresh keeps the old sid"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    if (j.data.length > FACTOR_PAGE) return { ok: false, kind: \"invalid\" };\n",
+  "new": "",
+  "note": "a page past the limit accepted"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) return { ok: false, kind: \"invalid\" };",
+  "new": "        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) continue;",
+  "note": "a malformed TOTP skipped"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) return { ok: false, kind: \"invalid\" };",
+  "new": "        if (!FACTOR_ID.test(e.id)) return { ok: false, kind: \"invalid\" };",
+  "note": "a duplicate TOTP counted"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "typeof e.id !== \"string\" || typeof e.type !== \"string\" || e.user_id",
+  "new": "typeof e.id !== \"string\" || e.user_id",
+  "note": "an entry without a type accepted"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    if (next === null) return { ok: true, totp };",
+  "new": "    if (next === null || next === undefined) return { ok: true, totp };",
+  "note": "a missing cursor taken as the end"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    const q = `limit=${FACTOR_PAGE}${after === null ? \"\" : `&after=${after}`}`;",
+  "new": "    const q = `limit=${FACTOR_PAGE}`;",
+  "note": "pages without the cursor"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "export const MAX_FACTOR_PAGES = 10;",
+  "new": "export const MAX_FACTOR_PAGES = 1;",
+  "note": "one page only"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    after = next;\n  }\n  return { ok: false, kind: \"invalid\" };",
+  "new": "    after = next;\n  }\n  return { ok: true, totp };",
+  "note": "past the page bound taken as complete"
+ },
+ {
+  "file": "src/app.ts",
+  "old": ", verifyCredentialAssurance: ASSURANCE_MAX_BODY_BYTES",
+  "new": "",
+  "note": "the assurance route's body cap dropped"
  }
 ]
