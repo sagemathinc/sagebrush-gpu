@@ -47,6 +47,12 @@ export interface ContainerExpect {
   bootEnv: string;
 }
 
+/** What the app holds for container mode: the adapter, and what its pods must show. */
+export interface ContainerDeps {
+  provider: ContainerProvider;
+  expect: ContainerExpect;
+}
+
 export interface ContainerEnv {
   db: Db;
   /** Control's time, read when it's needed (first running is timed after its provider read). */
@@ -202,7 +208,7 @@ export async function recordFirstRunning(db: Db, machineId: string, incarnation:
   }
 }
 
-interface ContainerRow {
+export interface ContainerRow {
   machine_id: string;
   incarnation: number;
   provider_machine_id: string | null;
@@ -211,7 +217,7 @@ interface ContainerRow {
   created_ms: number;
 }
 
-async function containerRow(db: Db, machineId: string, incarnation: number): Promise<ContainerRow | null> {
+export async function containerRow(db: Db, machineId: string, incarnation: number): Promise<ContainerRow | null> {
   const r = await db.all<ContainerRow>(
     `SELECT machine_id, incarnation, provider_machine_id, watchdog_version, outcome, created_ms FROM launches WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,
     [machineId, incarnation],
