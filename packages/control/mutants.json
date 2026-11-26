@@ -5462,14 +5462,14 @@
  },
  {
   "file": "src/hard-stop.ts",
-  "old": "  if (accrued.failed.length > 0) throw new Error(`the accrual failed for ${accrued.failed.length} machine(s)`);\n",
+  "old": "    if (accrued.failed.length > 0) problems.push(`the accrual failed for ${accrued.failed.length} machine(s)`);\n",
   "new": "",
   "note": "an accrual failure not reported"
  },
  {
   "file": "src/hard-stop.ts",
   "old": "  const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);\n",
-  "new": "  if (accrued.failed.length > 0) throw new Error(\"accrual\");\n  const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);\n",
+  "new": "  if (problems.length > 0) throw new Error(\"accrual\");\n  const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);\n",
   "note": "an accrual failure stops the hard stop"
  },
  {
@@ -5483,5 +5483,65 @@
   "old": "export const containerLifetime: ScheduledJob = { name: \"container lifetime\", run: runContainerLifetime };",
   "new": "export const containerLifetime: ScheduledJob = { name: \"container lifetime\", run: async () => 0 };",
   "note": "the scheduled lifetime entry runs nothing"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  } catch {\n    problems.push(\"the accrual failed\");\n  }\n",
+  "new": "  } catch (e) {\n    throw e;\n  }\n",
+  "note": "an accrual that throws stops the hard stop"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  } catch {\n    problems.push(\"the accrual failed\");\n  }\n",
+  "new": "  } catch {\n    // (ignored)\n  }\n",
+  "note": "an accrual that throws is not reported"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  try {\n    const accrued = await accrueAll(env.db, env.now);\n    if (accrued.failed.length > 0) problems.push(`the accrual failed for ${accrued.failed.length} machine(s)`);\n  } catch {\n    problems.push(\"the accrual failed\");\n  }\n  const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);\n",
+  "new": "  const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);\n  try {\n    const accrued = await accrueAll(env.db, env.now);\n    if (accrued.failed.length > 0) problems.push(`the accrual failed for ${accrued.failed.length} machine(s)`);\n  } catch {\n    problems.push(\"the accrual failed\");\n  }\n",
+  "note": "find before accrue"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "AND l.outcome IN ('creating', 'issued', 'enrolled')`",
+  "new": "AND l.outcome IN ('issued', 'enrolled')`",
+  "note": "a creating pod with its accrual open never stopped"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "        if (!(await movedOn(env, machineId, live))) notMarked.push(e instanceof Error ? e.message : String(e));\n",
+  "new": "        void e;\n",
+  "note": "a mark that throws is suppressed without the re-read"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "    return now.length === 0;\n",
+  "new": "    return true;\n",
+  "note": "the re-read's result ignored (always a lost race)"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "    return now.length === 0;\n",
+  "new": "    return false;\n",
+  "note": "a proven lost race reported as a failure"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  } catch {\n    return false;\n  }\n}\n",
+  "new": "  } catch {\n    return true;\n  }\n}\n",
+  "note": "a failed re-read taken as a lost race"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  if (notMarked.length > 0) problems.push(`${notMarked.length} hard stop(s) not marked (${notMarked.join(\"; \")})`);\n",
+  "new": "",
+  "note": "stops not made are not reported"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled') AND watchdog_version = ?`,",
+  "new": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled')`,",
+  "note": "the re-read ignores the version"
  }
 ]

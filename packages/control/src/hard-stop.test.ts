@@ -70,10 +70,10 @@ const cenv = (): ContainerEnv => ({
 let members = 0;
 /**
  * A member with an allocation of `amount`, and a container launch of theirs taken to `upTo`: its
- * intent, id and accrual (from T0), first running at T0 + 1000, and, for "enrolled", the writes
- * container enroll makes at T0 + 2000 (the machine running).
+ * intent, id and accrual (from T0) ("creating" stops there), first running at T0 + 1000, and, for
+ * "enrolled", the writes container enroll makes at T0 + 2000 (the machine running).
  */
-async function container(amount: number, upTo: "issued" | "enrolled" = "enrolled") {
+async function container(amount: number, upTo: "creating" | "issued" | "enrolled" = "enrolled") {
   const memberId = await addMember(w, `m${++members}@example.com`, "member", { allocation: amount });
   const allocationId = (await w.db.all<{ id: string }>(`SELECT id FROM allocations WHERE holder_id = ?`, [memberId]))[0]!.id;
   const machineId = newId("machine");
@@ -89,6 +89,7 @@ async function container(amount: number, upTo: "issued" | "enrolled" = "enrolled
   rp.pods.add(pid);
   rp.owner.set(pid, machineId);
   assert.equal(await recordContainerId(w.db, machineId, 1, pid), "recorded");
+  if (upTo === "creating") return { machineId, pid, allocationId };
   assert.equal(await recordFirstRunning(w.db, machineId, 1, pid, T0 + 1000), "recorded");
   if (upTo === "enrolled") {
     const at = T0 + 2000;
@@ -157,32 +158,73 @@ test("the periods are admission's (check 60 s, safety 60 s): money between the 0
   assert.equal((await launch(kept.machineId)).outcome, "enrolled");
 });
 
-test("a pod accruing before enroll is marked too (its machine stays starting, for the start path); a launch another mark ended first, or one changed after the read, is left as it is", async () => {
+test("a pod accruing before enroll (creating with its accrual open, or issued) is marked too (its machine stays starting, for the start path); a launch another mark ended first, or one changed after the read, is left as it is", async () => {
+  const creating = await container(0, "creating");
+  assert.equal((await launch(creating.machineId)).outcome, "creating");
   const issued = await container(0, "issued");
   // heartbeat-lost first
   const lost = await container(0);
   await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'heartbeat-lost', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [T0, lost.machineId]);
-  // changed between the read and the mark
+  // changed between the read and the mark: ended by another mark; and an issued pod that enrolls
+  // (still live, at a newer version: a lost race too, marked at the next run)
   const raced = await container(0);
+  const enrolling = await container(0, "issued");
   const batch = w.db.batch.bind(w.db);
   let done = false;
+  let enrolled = false;
   w.db.batch = async (ss) => {
     if (!done && ss.some((s) => /terminate_reason = 'hard-stop'/.test(s.sql) && s.params.includes(raced.machineId))) {
       done = true;
       await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'max-session', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [T0, raced.machineId]);
     }
+    if (!enrolled && ss.some((s) => /terminate_reason = 'hard-stop'/.test(s.sql) && s.params.includes(enrolling.machineId))) {
+      enrolled = true;
+      await batch([
+        stmt(`UPDATE boot_tokens SET used_ms = ? WHERE machine_id = ?`, T0 + 2000, enrolling.machineId),
+        stmt(
+          `UPDATE launches SET outcome = 'enrolled', next_ms = NULL, heartbeat_due_ms = ?, max_end_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`,
+          T0 + 2000 + HEARTBEAT_LOST_MS, T0 + 2000 + LIFE_MS, enrolling.machineId,
+        ),
+        stmt(`UPDATE machines SET state = 'running' WHERE id = ?`, enrolling.machineId),
+      ]);
+    }
     return batch(ss);
   };
   w.clock.t = T0 + 5 * MIN + 1000;
   try {
-    assert.equal(await runContainerHardStop(jenv()), 1);
+    assert.equal(await runContainerHardStop(jenv()), 2);
   } finally {
     w.db.batch = batch;
   }
-  assert.ok(done);
+  assert.ok(done && enrolled);
+  assert.deepEqual([(await launch(enrolling.machineId)).outcome, await machineState(enrolling.machineId)], ["enrolled", "running"]);
+  assert.equal(await runContainerHardStop(jenv()), 1, "the next run marks the newly enrolled launch");
+  assert.equal((await launch(enrolling.machineId)).terminate_reason, "hard-stop");
+  assert.deepEqual([(await launch(creating.machineId)).terminate_reason, await machineState(creating.machineId)], ["hard-stop", "starting"]);
   assert.deepEqual([(await launch(issued.machineId)).terminate_reason, await machineState(issued.machineId)], ["hard-stop", "starting"]);
   assert.equal((await launch(lost.machineId)).terminate_reason, "heartbeat-lost");
   assert.deepEqual([(await launch(raced.machineId)).terminate_reason, await machineState(raced.machineId)], ["max-session", "running"], "the failed mark moved nothing");
+});
+
+test("accrue before find: the stop's read of the allocation's spending already sees this run's billing", async () => {
+  const poor = await container(0);
+  const all = w.db.all.bind(w.db);
+  const billedAtStopRead: number[] = [];
+  w.db.all = (async (sql: string, params?: unknown[]) => {
+    if (/SUM\(total\) AS spent FROM ledger_entries/.test(sql)) {
+      billedAtStopRead.push((await all<{ n: number }>(`SELECT COUNT(*) AS n FROM ledger_entries WHERE machine_id = ?`, [poor.machineId]))[0]!.n);
+    }
+    return all(sql, params as never);
+  }) as typeof w.db.all;
+  w.clock.t = T0 + 5 * MIN + 1000;
+  try {
+    assert.equal(await runContainerHardStop(jenv()), 1);
+  } finally {
+    w.db.all = all;
+  }
+  assert.equal(billedAtStopRead.length, 1);
+  assert.ok(billedAtStopRead[0]! > 0, "the minutes were billed before the stop read the spending");
+  assert.equal(billedAtStopRead[0], await entries(poor.machineId), "and none after");
 });
 
 test("an accrual that fails still lets the hard stop run, then fails the job by name", async () => {
@@ -201,6 +243,62 @@ test("an accrual that fails still lets the hard stop run, then fails the job by 
   }
   assert.deepEqual([(await launch(poor.machineId)).terminate_reason, await machineState(poor.machineId)], ["hard-stop", "stopping"]);
   assert.equal(await entries(other.machineId), 0);
+});
+
+test("an accrual that throws outright still lets the hard stop run, then fails the job", async () => {
+  const poor = await container(0);
+  // the accrual's own read of the unbilled machines fails (findHardStops' read after it doesn't)
+  const all = w.db.all.bind(w.db);
+  let thrown = 0;
+  w.db.all = (async (sql: string, params?: unknown[]) => {
+    if (thrown === 0 && /FROM machine_accruals/.test(sql)) {
+      thrown++;
+      throw new Error("D1 down");
+    }
+    return all(sql, params as never);
+  }) as typeof w.db.all;
+  w.clock.t = T0 + 5 * MIN + 1000;
+  try {
+    await assert.rejects(runContainerHardStop(jenv()), /^Error: the accrual failed$/);
+  } finally {
+    w.db.all = all;
+  }
+  assert.equal(thrown, 1);
+  assert.deepEqual([(await launch(poor.machineId)).terminate_reason, await machineState(poor.machineId)], ["hard-stop", "stopping"]);
+  assert.equal(await entries(poor.machineId), 0);
+});
+
+test("a mark batch that fails with the launch still live at its version is a stop not made: the others are marked, then the job fails naming it; so is one whose re-read fails", async () => {
+  for (const readFails of [false, true]) {
+    const failing = await container(0);
+    const other = await container(0);
+    const batch = w.db.batch.bind(w.db);
+    const all = w.db.all.bind(w.db);
+    let failedMark = false;
+    w.db.batch = async (ss) => {
+      if (ss.some((s) => /terminate_reason = 'hard-stop'/.test(s.sql) && s.params.includes(failing.machineId))) {
+        failedMark = true;
+        throw new Error("D1 down");
+      }
+      return batch(ss);
+    };
+    // (the re-read after the failed mark fails too)
+    w.db.all = (async (sql: string, params?: unknown[]) => {
+      if (readFails && failedMark && /SELECT 1 AS one FROM launches/.test(sql)) throw new Error("D1 still down");
+      return all(sql, params as never);
+    }) as typeof w.db.all;
+    w.clock.t += 5 * MIN + 1000;
+    try {
+      await assert.rejects(runContainerHardStop(jenv()), /^Error: 1 hard stop\(s\) not marked \(D1 down\)$/, `readFails ${readFails}`);
+    } finally {
+      w.db.batch = batch;
+      w.db.all = all;
+    }
+    assert.deepEqual([(await launch(failing.machineId)).outcome, await machineState(failing.machineId)], ["enrolled", "running"]);
+    assert.equal((await launch(other.machineId)).terminate_reason, "hard-stop");
+    // (written off for the next case: its stop is made now)
+    assert.equal(await runContainerHardStop(jenv()), 1);
+  }
 });
 
 test("the hard stop is scheduled", () => {

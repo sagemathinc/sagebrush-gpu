@@ -30,15 +30,27 @@ const LIVE_CONTAINER_LAUNCH = `SELECT l.incarnation, l.watchdog_version FROM lau
      WHERE l.machine_id = ? AND l.mode = 'container' AND l.outcome IN ('creating', 'issued', 'enrolled')`;
 
 /**
- * Accrue, find, mark. Each mark is one batch that rechecks what was read (the launch live at its
- * version) and fails whole unless it changed exactly that row: a launch another mark ended first
- * is left as it is. Returns how many it marked. Throws after marking when the accrual failed for
- * any machine, so the run reports it by name (the hard stop itself has already run).
+ * Accrue, find, mark. The stop never depends on the accrual: if it fails (for some machines, or
+ * as a whole), the hard stops are still found (findHardStops counts unbilled time itself) and
+ * marked. Each mark is one batch that rechecks what was read (the launch live at its version) and
+ * fails whole unless it changed exactly that row. A mark that throws is a lost race only when a
+ * fresh read proves it: the launch is no longer live at the version read (another mark or move won,
+ * or this mark committed). If the same live launch at the same version is still there, or that
+ * read fails too, the stop wasn't made: its error is kept, the other marks still run, and the job
+ * then fails naming them. Returns how many it marked. Throws after marking when the accrual
+ * failed or any stop wasn't made, so the run reports it by name.
  */
 export async function runContainerHardStop(env: JobEnv): Promise<number> {
-  const accrued = await accrueAll(env.db, env.now);
+  const problems: string[] = [];
+  try {
+    const accrued = await accrueAll(env.db, env.now);
+    if (accrued.failed.length > 0) problems.push(`the accrual failed for ${accrued.failed.length} machine(s)`);
+  } catch {
+    problems.push("the accrual failed");
+  }
   const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);
   let marked = 0;
+  const notMarked: string[] = [];
   for (const s of stops) {
     for (const machineId of s.machineIds) {
       const live = (await env.db.all<{ incarnation: number; watchdog_version: number }>(LIVE_CONTAINER_LAUNCH, [machineId]))[0];
@@ -54,11 +66,29 @@ export async function runContainerHardStop(env: JobEnv): Promise<number> {
           stopMachineStmt(machineId, live.incarnation),
         ]);
         marked++;
-      } catch {
-        // (it changed meanwhile: another mark came first; nothing written)
+      } catch (e) {
+        if (!(await movedOn(env, machineId, live))) notMarked.push(e instanceof Error ? e.message : String(e));
       }
     }
   }
-  if (accrued.failed.length > 0) throw new Error(`the accrual failed for ${accrued.failed.length} machine(s)`);
+  if (notMarked.length > 0) problems.push(`${notMarked.length} hard stop(s) not marked (${notMarked.join("; ")})`);
+  if (problems.length > 0) throw new Error(problems.join("; "));
   return marked;
+}
+
+/**
+ * Whether a fresh read proves the launch read at `live` is no longer live at that version (a lost
+ * race, or this mark committed). False when it still is, or when the read fails.
+ */
+async function movedOn(env: JobEnv, machineId: string, live: { incarnation: number; watchdog_version: number }): Promise<boolean> {
+  try {
+    const now = await env.db.all<{ one: number }>(
+      `SELECT 1 AS one FROM launches WHERE machine_id = ? AND incarnation = ? AND mode = 'container'
+         AND outcome IN ('creating', 'issued', 'enrolled') AND watchdog_version = ?`,
+      [machineId, live.incarnation, live.watchdog_version],
+    );
+    return now.length === 0;
+  } catch {
+    return false;
+  }
 }
