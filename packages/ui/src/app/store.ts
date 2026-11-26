@@ -27,6 +27,7 @@ import {
 import { ApiError, type Client, type FetchFn } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
 import { jupyterUrl, pausedStartText, startRefusalText } from "../view.ts";
+import { tourPrefKey } from "../tour.ts";
 import { terminalUrl } from "../terminal/session.ts";
 import type { PollTimers } from "./polling.ts";
 import { ProviderKeys, WINDOW_TIMERS } from "./provider-keys.ts";
@@ -47,6 +48,46 @@ export interface StoreOptions {
   monotonic?: () => number;
   /** The reauth window's timer (default the real one). */
   timers?: PollTimers;
+  /** Small preferences kept in the browser (default localStorage, or memory without it). */
+  prefs?: Prefs;
+}
+
+/** A tiny key-value store for preferences that survive a reload. */
+export interface Prefs {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+/** localStorage when the page has it (and it works), else memory for this page's life. */
+export function browserPrefs(): Prefs {
+  const memory = new Map<string, string>();
+  const store = (() => {
+    try {
+      return globalThis.localStorage ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  return {
+    get: (key) => {
+      // (what this page set wins: storage may have refused it, in private mode or when full)
+      const own = memory.get(key);
+      if (own != null) return own;
+      try {
+        return store ? store.getItem(key) : null;
+      } catch {
+        return null;
+      }
+    },
+    set: (key, value) => {
+      memory.set(key, value);
+      try {
+        store?.setItem(key, value);
+      } catch {
+        // (private mode, or storage full: memory only)
+      }
+    },
+  };
 }
 
 /**
@@ -89,6 +130,10 @@ export class Store {
   readonly quotes = signal<Readonly<Record<string, Quote>>>({});
   /** The last start refused in words the page can show (startRefusalText), beside its GPU type. */
   readonly startRefusal = signal<{ gpuType: string; text: string } | null>(null);
+  /** Jupyter was opened from this page in this session (the walkthrough's second step). */
+  readonly jupyterOpened = signal(false);
+  /** The signed-in person hid the first-run walkthrough (kept in prefs, per user). */
+  readonly tourHidden = signal(false);
   /** Providers whose launches are paused for the project's organization (the reason only for manager and above). */
   readonly paused = signal<ProviderPause[]>([]);
   /** Staff only (assistant and up): everyone in the project, its teams, and every machine. */
@@ -124,11 +169,14 @@ export class Store {
   #orgLoad = 0;
   /** Increments when a session starts (sign-in): a 401 answers only the session it was asked in. */
   #sessionGeneration = 0;
+  /** Moves on with every read of /me and every sign-out: only the latest read publishes. */
+  #meRead = 0;
   /** The banner message the last failed poll set, so a later good poll can clear it (and only it). */
   #pollError: string | null = null;
 
   readonly #options: StoreOptions;
   readonly #monotonic: () => number;
+  readonly #prefs: Prefs;
   /** An organization's provider keys (its owners', under byok): on the organization's page. */
   readonly keys: ProviderKeys;
 
@@ -137,6 +185,7 @@ export class Store {
     this.now = now;
     this.#options = options;
     this.#monotonic = options.monotonic ?? (() => performance.now());
+    this.#prefs = options.prefs ?? browserPrefs();
     this.keys = new ProviderKeys(
       options.credentialFetch ?? ((input, init) => fetch(input, init)),
       { monotonic: this.#monotonic, timers: options.timers ?? WINDOW_TIMERS },
@@ -189,8 +238,11 @@ export class Store {
   #endSession(): void {
     this.#generation++;
     this.startRefusal.value = null;
+    this.jupyterOpened.value = false;
+    this.tourHidden.value = false;
     this.#staleSaves(); // (a late answer must not show a signed-out person's saves)
     this.keys.endSession();
+    this.#meRead++;
     batch(() => {
       this.me.value = null;
       this.meLoaded.value = true;
@@ -211,6 +263,13 @@ export class Store {
     });
   }
 
+  /** Hide the first-run walkthrough for the signed-in person, for good (on this browser). */
+  hideTour(): void {
+    const me = this.me.value;
+    this.tourHidden.value = true;
+    if (me) this.#prefs.set(tourPrefKey(me.user.id), "1");
+  }
+
   isBusy(key: string): boolean {
     return this.busy.value.has(key);
   }
@@ -218,12 +277,18 @@ export class Store {
   // ---------------------------------------------------------------- session
 
   async loadMe(): Promise<void> {
+    // (an older read answering after a sign-out or someone else's sign-in would put back the
+    // previous person, and their walkthrough choice, over the new session)
+    const read = ++this.#meRead;
     try {
       const me = await this.client.call("getMe");
+      if (read !== this.#meRead) return;
       this.me.value = me;
+      this.tourHidden.value = this.#prefs.get(tourPrefKey(me.user.id)) === "1";
       // (the window is per organization: the keys' own read, for the one they show)
       await this.keys.refreshWindow();
     } catch (err) {
+      if (read !== this.#meRead) return;
       this.keys.closeWindow();
       if (!(err instanceof ApiError && err.code === "unauthenticated")) {
         this.error.value = err instanceof Error ? err.message : String(err);
@@ -244,6 +309,9 @@ export class Store {
     this.#staleSaves(); // (nor the previous person's to the new one)
     this.startRefusal.value = null;
     this.signInNotice.value = null;
+    // (the walkthrough is the new person's: loadMe reads whether they hid it)
+    this.jupyterOpened.value = false;
+    this.tourHidden.value = false;
     await this.loadMe();
   }
 
@@ -331,6 +399,7 @@ export class Store {
       batch(() => {
         this.projectId.value = projectId;
         this.project.value = null;
+        this.jupyterOpened.value = false; // (the walkthrough ticks what happened in this project)
         this.meters.value = [];
         this.machines.value = [];
         this.gpuTypes.value = [];
@@ -818,6 +887,7 @@ export class Store {
     if (link == null) return null;
     const url = jupyterUrl(link.url, machineId);
     if (url == null) this.error.value = "The server sent a Jupyter link that isn't the machine's own address; it was not opened.";
+    else this.jupyterOpened.value = true;
     return url;
   }
 }

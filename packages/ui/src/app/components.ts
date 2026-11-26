@@ -4,6 +4,7 @@
 import type { ComponentChildren, VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { SavesSection, SaveWithName } from "./saves-section.ts";
+import { tourSteps } from "../tour.ts";
 import { html } from "./html.ts";
 import type { BillingMode, Machine, PriceListItem, ProjectLabels, Quote, SignInOutcome, SpendMeter } from "@sbgpu/api";
 import { capitalize, GENERIC_LABELS, withArticle } from "../labels.ts";
@@ -217,6 +218,26 @@ export function PauseBanner({ store, nav }: { store: Store; nav?: Nav | undefine
   </section>`;
 }
 
+/** The first-run walkthrough: four steps, ticked from what has happened; skippable any time. */
+export function TourCard({ store }: { store: Store }): VNode {
+  const steps = tourSteps({ machines: store.machines.value, memberSaves: store.saves.value.member, jupyterOpened: store.jupyterOpened.value });
+  const finished = steps.every((s) => s.done);
+  const next = steps.find((s) => !s.done);
+  return html`<section class="card tour" aria-label="Getting started">
+    <h2>Getting started</h2>
+    ${finished ? html`<p>You're all set: you've started a machine, used Jupyter, saved your work and stopped it.</p>` : null}
+    <ol>
+      ${steps.map(
+        (s) => html`<li key=${s.id} class=${s.done ? "done" : s === next ? "next" : ""}>
+          <strong>${s.title}</strong>${s.done ? html` <span class="badge">Done</span>` : null}
+          ${s === next ? html`<br /><span class="small">${s.hint}</span>` : null}
+        </li>`,
+      )}
+    </ol>
+    <button class="secondary" onClick=${() => store.hideTour()}>${finished ? "Hide" : "Skip"}</button>
+  </section>`;
+}
+
 export function StartPanel({ store }: { store: Store }): VNode {
   const items = store.gpuTypes.value;
   const labels = store.labels.value;
@@ -337,6 +358,7 @@ export function ProjectPage({ store, projectId, timers, nav }: { store: Store; p
       ${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`} meter=${team} now=${now} mode=${store.billingMode.value} labels=${labels} />` : null}
     </div>
     <${PauseBanner} store=${store} nav=${nav} />
+    ${store.role.value === "member" && !store.tourHidden.value ? html`<${TourCard} store=${store} />` : null}
     <${StartPanel} store=${store} />
     <${MachineList} store=${store} />
     <${SavesSection} store=${store} />

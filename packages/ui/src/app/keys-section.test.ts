@@ -690,3 +690,17 @@ test("a removal after a replace names the replaced key's version", async () => {
   assert.match(k.keysLog().filter((l) => l.startsWith("KEYS DELETE"))[0] ?? "", /&version=2$/);
   assert.equal(k.b.credentials.size, 0, "removed");
 });
+
+test("a failed read of who's signed in closes the window", async () => {
+  const k = await keysPage();
+  await settle();
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  // (with no page, so the closing is the store's own doing, not the page leaving)
+  k.page.unmount();
+  k.t.store.keys.orgId.value = k.orgA.id;
+  await k.t.store.keys.refreshWindow();
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  k.t.respondOnce(/^GET \S*\/v1\/me$/, () => Response.json({ error: { code: "internal", message: "x" } }, { status: 500 }));
+  await k.t.store.loadMe();
+  assert.equal(k.t.store.keys.windowOpen.value, false);
+});
