@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import type { AgentAbortRequest, AgentEnrollRequest, AgentHeartbeatRequest, AgentSaveStatusRequest, SaveStatus } from "@sbgpu/api";
-import { AGENT_ABORT_REASONS } from "@sbgpu/api";
+import { AGENT_ABORT_REASONS, AGENT_ERADICATION_CHECKS } from "@sbgpu/api";
 import { ENV_COPY_ALLOWLIST, ENV_FIXED } from "./boot/boot.ts";
 
 const AGENT_DIR = fileURLToPath(new URL("../agent/sbgpu-agent/", import.meta.url));
@@ -57,8 +57,8 @@ control.token = "x"
 agent = main.Agent(control, {"incarnation": 1, "heartbeatSeconds": 30})
 agent.handle({"id": "cmd_1", "op": "save"})
 print(json.dumps({"enroll": enroll, "heartbeat": agent.heartbeat_request(), "abort": sent[0], "saveStatus": sent[1],
-                  "reasons": list(eradication.REASONS)}))
-`) as { enroll: object; heartbeat: { activity: object; save: object }; abort: object; saveStatus: { save: object }; reasons: string[] };
+                  "reasons": list(eradication.REASONS), "checks": [name for name, _ in eradication.CHECKS]}))
+`) as { enroll: object; heartbeat: { activity: object; save: object }; abort: object; saveStatus: { save: object }; reasons: string[]; checks: string[] };
   assert.deepEqual(keys(got.enroll), keys(ENROLL_FIELDS).filter((k) => k !== "gate")); // (a container's enroll: gate is VM mode's)
   assert.deepEqual(keys(got.heartbeat), keys(HEARTBEAT_FIELDS));
   assert.deepEqual(keys(got.heartbeat.activity), keys(ACTIVITY_FIELDS));
@@ -67,6 +67,7 @@ print(json.dumps({"enroll": enroll, "heartbeat": agent.heartbeat_request(), "abo
   assert.deepEqual(keys(got.saveStatus.save), keys(SAVE_FIELDS));
   assert.deepEqual(keys(got.abort), keys(ABORT_FIELDS));
   assert.deepEqual(got.reasons, [...AGENT_ABORT_REASONS]);
+  assert.deepEqual(got.checks, [...AGENT_ERADICATION_CHECKS]); // (control parses a container's report against this list)
 });
 
 test("the agent checks the same environment lists as the launcher", () => {
