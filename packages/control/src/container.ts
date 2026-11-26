@@ -15,8 +15,9 @@
 //   settings), timed by control's clock after the read. It only moves earlier, and it opens the
 //   token's 120 s window together with the launch's connect deadline.
 // - Every termination revokes the boot token in the batch that claims the launch, before any
-//   provider call. Only the provider confirming the pod gone marks it terminated and closes the
-//   accrual.
+//   provider call. A pod found with no id recorded is ended only once its accrual is open (or
+//   past ACCRUAL_WAIT_MS). Only the provider confirming the pod gone marks it terminated and
+//   closes the accrual.
 
 import type { LaunchSpec, ProviderMachineStatus } from "@sbgpu/providers";
 import { ProviderError } from "@sbgpu/providers";
@@ -60,6 +61,12 @@ export interface ContainerEnv {
 export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS;
 /** How long the create (with the adapter's own recovery by name) may take. */
 export const LAUNCH_CALL_DEADLINE_MS = 60_000;
+/**
+ * How long after the intent a pod with no id recorded waits for its accrual before it is ended
+ * without one (a ledger that refuses it for good): 20 minutes of watchdog retries past the
+ * create deadline.
+ */
+export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 20 * 60_000;
 
 export type ContainerReason = "create-failed" | "create-deadline" | "connect-deadline" | "provider-facts" | "pod-exited" | "duplicate-name";
 
@@ -193,11 +200,12 @@ interface ContainerRow {
   provider_machine_id: string | null;
   watchdog_version: number;
   outcome: string;
+  created_ms: number;
 }
 
 async function containerRow(db: Db, machineId: string, incarnation: number): Promise<ContainerRow | null> {
   const r = await db.all<ContainerRow>(
-    `SELECT machine_id, incarnation, provider_machine_id, watchdog_version, outcome FROM launches WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,
+    `SELECT machine_id, incarnation, provider_machine_id, watchdog_version, outcome, created_ms FROM launches WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,
     [machineId, incarnation],
   );
   return r[0] ?? null;
@@ -213,12 +221,32 @@ async function podsNamed(env: ContainerEnv, machineId: string): Promise<string[]
 }
 
 /**
+ * Whether a launch with no id recorded has its accrual open, opening it from the pinned rate if
+ * not. A write or read that fails is "not open".
+ */
+async function accrualOpen(db: Db, r: ContainerRow): Promise<boolean> {
+  try {
+    await db.batch(openFromRate(r.machine_id, r.incarnation, null));
+    return true;
+  } catch {
+    // (refused when it is open already; otherwise the write failed)
+    try {
+      const a = await db.all<{ ok: number }>(`SELECT 1 AS ok FROM machine_accruals WHERE machine_id = ? AND incarnation = ?`, [r.machine_id, r.incarnation]);
+      return a.length > 0;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
  * One termination attempt, if this caller wins the row's claim: in one batch, the claim (a
  * conditional update from the version it read; the launch moves to terminate) and the boot
  * token's revocation. Only after that commits does it call the provider: terminate every pod of
  * the launch (its id, or every pod with its name when it has none, or others besides), then
- * confirm. Confirmed gone marks it terminated and closes the accrual. Returns whether the claim
- * was won.
+ * confirm. With no id recorded, pods are ended only once the accrual is open (or past
+ * ACCRUAL_WAIT_MS). Confirmed gone marks it terminated and closes the accrual. Returns whether
+ * the claim was won.
  */
 export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerRow, reason: ContainerReason | string, heldIds: readonly string[] = []): Promise<boolean> {
   const now = env.clock();
@@ -247,17 +275,18 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
   let ids = [...new Set([...(r.provider_machine_id !== null ? [r.provider_machine_id] : []), ...held])];
   const byName = r.provider_machine_id === null;
   // (with no id recorded, every pod with the name; a list that wasn't read proves nothing, but the
-  // pods the caller holds are still ended)
+  // pods the caller holds are still ended, once the accrual is open)
   const named = byName ? await podsNamed(env, r.machine_id) : [];
   if (named !== "unavailable") ids = [...new Set([...ids, ...named])];
-  if (byName && ids.length > 0) {
-    // pods exist that no id batch recorded: they bill, so the accrual opens from the pinned rate
-    // (a definitive create failure with no pod opens none)
-    try {
-      await env.db.batch(openFromRate(r.machine_id, r.incarnation, null));
-    } catch {
-      // (already open, or the write failed: the next attempt tries again)
-    }
+  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {
+    // pods exist that no id batch recorded: they bill, and none is ended before its accrual is
+    // durably open (until ACCRUAL_WAIT_MS). The row stays due (next_ms is the claim's now) and
+    // the pods stay up, so the next attempt finds them by name and opens it then. Only a held
+    // pod that a list read without it is ended now: nothing could find it again (the provider
+    // renamed it).
+    const lost = named === "unavailable" ? [] : held.filter((x) => !named.includes(x));
+    for (const id of lost) await withDeadline(() => p.terminate(id), undefined);
+    return true;
   }
   for (const id of ids) await withDeadline(() => p.terminate(id), undefined);
   if (named === "unavailable") return true; // (the row stays due: absence can't be confirmed)
@@ -305,7 +334,8 @@ export interface ContainerLaunch {
  * then the id batch. "not-started": the intent wasn't written (nothing was created). "created":
  * the id and the accrual are recorded. "unknown": the create's outcome is unknown (the row stays
  * creating; at its create deadline the watchdog finds any pod by its name). "abandoned": the
- * create failed, or its pod was refused; the launch is ended (token revoked first).
+ * create failed, or its pod was refused; the launch is ended (token revoked first), its pod once
+ * its accrual is open (the watchdog retries).
  */
 export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Promise<"not-started" | "created" | "unknown" | "abandoned"> {
   const token = base64url(env.randomBytes(32));
@@ -398,7 +428,7 @@ export async function observeContainer(env: ContainerEnv, machineId: string, inc
  * The container watchdog's search (exported for its query-plan test): due container launches,
  * a range scan of the partial index on next_ms in the index's order, stopping at the batch.
  */
-export const CONTAINER_WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.watchdog_version, v.outcome,
+export const CONTAINER_WATCHDOG_SELECT = `SELECT v.machine_id, v.incarnation, v.provider_machine_id, v.watchdog_version, v.outcome, v.created_ms,
        CASE WHEN v.outcome = 'terminate' THEN v.terminate_reason
             WHEN v.outcome = 'creating' THEN 'create-deadline'
             ELSE 'connect-deadline' END AS reason

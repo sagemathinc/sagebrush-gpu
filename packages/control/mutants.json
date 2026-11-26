@@ -3880,7 +3880,7 @@
  },
  {
   "file": "src/container.ts",
-  "old": "  if (byName && ids.length > 0) {",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
   "new": "  if (false) {",
   "note": "pods found by name never billed"
  },
@@ -4063,5 +4063,83 @@
   "old": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nBEGIN",
   "new": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nWHEN 0\nBEGIN",
   "note": "a rate deleted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r).then(() => true)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "note": "a failed accrual write swallowed: the pods ended unbilled"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      return a.length > 0;",
+  "new": "      return true;",
+  "note": "a failed accrual write taken for an open accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      return a.length > 0;",
+  "new": "      return false;",
+  "note": "an accrual already open not recognized"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    } catch {\n      return false;\n    }",
+  "new": "    } catch {\n      return true;\n    }",
+  "note": "a failed read of the accruals taken for an open accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now <= r.created_ms + ACCRUAL_WAIT_MS) {",
+  "note": "the wait one millisecond longer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r))) {",
+  "note": "a pod waits for its accrual forever"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 20 * 60_000;",
+  "new": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 19 * 60_000;",
+  "note": "a shorter wait for the accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 20 * 60_000;",
+  "new": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 21 * 60_000;",
+  "note": "a longer wait for the accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    const lost = named === \"unavailable\" ? [] : held.filter((x) => !named.includes(x));",
+  "new": "    const lost = held;",
+  "note": "held pods ended unbilled when the list wasn't read"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    const lost = named === \"unavailable\" ? [] : held.filter((x) => !named.includes(x));",
+  "new": "    const lost: string[] = [];",
+  "note": "a renamed held pod left up, unfindable"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    for (const id of lost) await withDeadline(() => p.terminate(id), undefined);\n    return true;\n",
+  "new": "    for (const id of lost) await withDeadline(() => p.terminate(id), undefined);\n",
+  "note": "no wait: the pods ended before the accrual is open"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "outcome, created_ms FROM launches WHERE",
+  "new": "outcome FROM launches WHERE",
+  "note": "the row read without its intent time"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "v.watchdog_version, v.outcome, v.created_ms,",
+  "new": "v.watchdog_version, v.outcome,",
+  "note": "the watchdog's rows without their intent time"
  }
 ]

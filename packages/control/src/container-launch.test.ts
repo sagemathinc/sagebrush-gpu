@@ -34,7 +34,7 @@ class FakeRunPod implements ContainerProvider {
   pods = new Map<string, ProviderMachineStatus>();
   n = 0;
   /** What the next create does. */
-  mode: "ok" | "lost" | "definitive" | "rejected" | "duplicate" = "ok";
+  mode: "ok" | "lost" | "definitive" | "rejected" | "renamed" | "duplicate" = "ok";
   specs: LaunchSpec[] = [];
   terminated: string[] = [];
   /** Called at each terminate, before it takes effect (to see what the database held then). */
@@ -83,8 +83,10 @@ class FakeRunPod implements ContainerProvider {
         throw new ProviderError("runpod", "outcome_unknown", "2 pods carry the machine");
       case "definitive":
         throw new ProviderError("runpod", "no_capacity", "no instances available");
-      case "rejected": {
-        const id = this.pod(spec.machineId);
+      case "rejected":
+      case "renamed": {
+        // (renamed: the pod doesn't carry the machine's name, so no list finds it by the name)
+        const id = this.pod(this.mode === "renamed" ? "renamed" : spec.machineId);
         throw new ProviderError("runpod", "spec_mismatch", "drift", null, null, id);
       }
     }
@@ -396,15 +398,25 @@ test("a definitive create failure: abandoned with the token revoked, and zero ac
   assert.equal((await accruals(m2)).length, 0);
 });
 
-test("an id batch refused after the create: the launch is abandoned and the created pod ended by its id", async () => {
+test("an accrual the ledger refuses for good: the pod waits for it 30 minutes from the intent (watchdog retries), then is ended by its id", async () => {
   const m = await machine();
   // (the machine already billed past this launch's intent: the ledger refuses its accrual)
   await w.db.run(`UPDATE machines SET billed_through_ms = ? WHERE id = ?`, [T0 + 60_000, m]);
   const revoked = watchRevocation(m);
   assert.equal(await launchContainer(env(), req(m)), "abandoned");
+  assert.deepEqual(rp.terminated, [], "not ended before its accrual is open");
+  assert.deepEqual([(await launch(m)).outcome, (await launch(m)).next_ms], ["terminate", T0], "due again at once");
+  assert.notEqual((await token(m)).used_ms, null, "the token is revoked meanwhile");
+  w.clock.t = T0 + 30 * 60_000 - 1;
+  assert.equal(await runContainerWatchdog(env()), 1);
+  assert.deepEqual(rp.terminated, []);
+  assert.equal((await launch(m)).outcome, "terminate");
+  w.clock.t = T0 + 30 * 60_000;
+  assert.equal(await runContainerWatchdog(env()), 1);
   assert.deepEqual(rp.terminated, ["pod1"]);
   assert.deepEqual(revoked, [true]);
   assert.equal((await launch(m)).outcome, "terminated", "no pod listed after it was ended");
+  assert.equal((await accruals(m)).length, 0);
 });
 
 test("a pod the adapter refused (it doesn't match the spec): ended by the id held, token revoked first, and billed while it existed", async () => {
@@ -422,6 +434,63 @@ test("a pod the adapter refused (it doesn't match the spec): ended by the id hel
   assert.equal(await launchContainer(env(), req(m2)), "abandoned");
   assert.deepEqual(rp.terminated, ["pod1", "pod2"]);
   assert.equal((await launch(m2)).outcome, "terminate");
+});
+
+/** The world's database, but the next `writes` batches opening an accrual, and the next `reads` reads of the accruals, fail. */
+function flakyAccruals(writes: number, reads = 0): ContainerEnv["db"] {
+  const db = w.db;
+  return {
+    all: (sql, params) => (/FROM machine_accruals/.test(sql) && reads-- > 0 ? Promise.reject(new Error("read lost")) : db.all(sql, params)),
+    run: (sql, params) => db.run(sql, params),
+    batch: (ss) => (ss.some((x) => /^INSERT INTO machine_accruals/.test(x.sql.trim())) && writes-- > 0 ? Promise.reject(new Error("write lost")) : db.batch(ss)),
+  };
+}
+
+test("a held pod whose accrual write fails once: not ended, the launch stays due, and the next attempt bills it from the intent, then ends it", async () => {
+  for (const reads of [0, 1]) {
+    const t0 = w.clock.t;
+    const m = await machine();
+    rp.mode = "rejected";
+    rp.terminated = [];
+    const e = { ...env(), db: flakyAccruals(1, reads) };
+    assert.equal(await launchContainer(e, req(m)), "abandoned");
+    const id = [...rp.pods.keys()].at(-1)!;
+    // (with the read of the accruals failing too, it is still "not open")
+    assert.deepEqual(rp.terminated, [], `held pod ended before its accrual was open (reads failing: ${reads})`);
+    assert.deepEqual([(await launch(m)).outcome, (await launch(m)).next_ms], ["terminate", w.clock.t]);
+    assert.notEqual((await token(m)).used_ms, null);
+    assert.equal((await accruals(m)).length, 0);
+    w.clock.t += 60_000;
+    assert.equal(await runContainerWatchdog(e), 1);
+    const a = await accruals(m);
+    assert.equal(a.length, 1, `terminal launch lost its durable accrual: outcome=${(await launch(m)).outcome}, accruals=${a.length}, remainingPods=${rp.pods.size}`);
+    assert.deepEqual(a.map((x) => [x.provider_cost_per_hour, x.margin_bps, x.start_ms, x.end_ms]), [[590_000, 3000, t0, w.clock.t]]);
+    assert.deepEqual(rp.terminated, [id]);
+    assert.equal((await launch(m)).outcome, "terminated");
+  }
+});
+
+test("an accrual write failing once with the list unreadable: the held pod stays up; with a pod the list doesn't show by the name, that pod is ended now", async () => {
+  const m = await machine();
+  rp.mode = "rejected";
+  rp.listFails = true;
+  const e = { ...env(), db: flakyAccruals(1) };
+  assert.equal(await launchContainer(e, req(m)), "abandoned");
+  assert.deepEqual(rp.terminated, [], "a list that wasn't read doesn't show the pod can't be found again");
+  rp.listFails = false;
+  w.clock.t += 60_000;
+  assert.equal(await runContainerWatchdog(e), 1);
+  assert.deepEqual(rp.terminated, ["pod1"]);
+  assert.deepEqual((await accruals(m)).map((x) => x.start_ms), [T0]);
+  assert.equal((await launch(m)).outcome, "terminated");
+  // the provider renamed the pod: no list will find it again, so it is ended at once, unbilled
+  const m2 = await machine();
+  rp.mode = "renamed";
+  rp.terminated = [];
+  assert.equal(await launchContainer({ ...env(), db: flakyAccruals(1) }, req(m2)), "abandoned");
+  assert.deepEqual(rp.terminated, ["pod2"]);
+  assert.equal((await launch(m2)).outcome, "terminate");
+  assert.equal((await accruals(m2)).length, 0);
 });
 
 test("two pods with the name: both ended (token revoked first), one accrual from the pinned rate, terminated once none is listed", async () => {
@@ -563,7 +632,7 @@ test("a claim is won once: two attempts from the same version call the provider 
   const m = await machine();
   await launchContainer(env(), req(m));
   const l = await launch(m);
-  const r = { machine_id: m, incarnation: 1, provider_machine_id: "pod1", watchdog_version: l.watchdog_version, outcome: "creating" };
+  const r = { machine_id: m, incarnation: 1, provider_machine_id: "pod1", watchdog_version: l.watchdog_version, outcome: "creating", created_ms: T0 };
   const [a, b] = await Promise.all([terminateContainerAttempt(env(), r, "abort"), terminateContainerAttempt(env(), r, "abort")]);
   assert.deepEqual([a, b].sort(), [false, true]);
   assert.deepEqual(rp.terminated, ["pod1"]);
