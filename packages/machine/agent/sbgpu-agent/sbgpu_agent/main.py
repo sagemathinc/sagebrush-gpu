@@ -5,6 +5,12 @@ the terminals are stopped, and in container mode, where the agent is PID 1, ever
 ended too (proctree.stop_everything; SEC ruling, Nov 24).  Workspace sync, idle detection and the setup script come
 next.
 
+In VM mode (`sbgpu-agent vm`, as vm-launcher.sh execs it) the agent reads boot.json and gate.json once through
+/run/sbgpu's fd and removes both, then holds to the enroll deadline D the launcher measured on CLOCK_BOOTTIME (the
+launcher's design, H5 and H7): at least 20 s must be left when it starts, at least 2 s just before the request, whose
+timeouts are what is left minus 1 s, at most 20 s.  It sends no providerMachineId (control has it from the launch) and
+gate 2's report as `gate`.  A VM-mode failure prints one fixed-word line, SBGPU-AGENT {"v":1,"fail":[word]}.
+
 Exit codes: 0 stopped as asked; 3 refused or aborted (the launcher's respawn loop, in VM mode, doesn't retry it)."""
 
 import asyncio
@@ -12,12 +18,15 @@ import json
 import os
 import signal
 import socket
+import re
+import stat
 import subprocess
+import sys
 import threading
 import time
 
-from sbgpu_agent import eradication, proctree
-from sbgpu_agent.control import Control, ControlError
+from sbgpu_agent import boottime, eradication, proctree, vmboot
+from sbgpu_agent.control import RESPONSE_MAX, Control, ControlError, https_transport
 from sbgpu_agent.relayclient import Fatal, RelayClient
 from sbgpu_agent.terminal import Terminals, drain_sessions
 
@@ -27,6 +36,13 @@ EXIT_REFUSED = 3
 BOOT_JSON_MAX = 4096
 HEARTBEAT_MIN_S = 5
 HEARTBEAT_MAX_S = 300
+VM_BOOT_KEYS = ["agentSha256", "bootToken", "controlUrl", "enrollByBoottimeMs", "mode"]
+VM_FILE_MAX = 4096
+START_MIN_MS = 20_000  # left to D when the agent starts
+REQUEST_MIN_MS = 2_000  # left to D just before the enroll request
+ENROLL_TIMEOUT_MAX_S = 20
+TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 class BootError(Exception):
@@ -53,6 +69,88 @@ def read_boot(prefix):
     if boot["mode"] not in ("container", "vm"):
         raise BootError("bad mode")
     return boot
+
+
+def _read_vm_file(d, name, uid):
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=d)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or stat.S_IMODE(st.st_mode) != 0o600:
+            raise BootError(name)
+        chunks, got = [], 0
+        while got <= VM_FILE_MAX:
+            chunk = os.read(fd, VM_FILE_MAX + 1 - got)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            got += len(chunk)
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) > VM_FILE_MAX:
+        raise BootError(name + " too large")
+    return data
+
+
+def _object(data):
+    def no_dups(pairs):
+        if len({k for k, _ in pairs}) != len(pairs):
+            raise BootError("duplicate key")
+        return dict(pairs)
+    obj = json.loads(data.decode("utf-8"), object_pairs_hook=no_dups)
+    if not isinstance(obj, dict):
+        raise BootError("not an object")
+    return obj
+
+
+def read_vm_files(prefix):
+    """VM mode: (boot, gate) from /run/sbgpu's boot.json and gate.json, each opened without following a link through
+    the directory's fd, checked (regular, 0600, the launcher's owner), read once, bounded, and both removed before
+    anything is parsed.  Anything else is a BootError or OSError."""
+    uid = vmboot.owner_uid(prefix)
+    run = os.open(prefix + "/run", vmboot.DIR_FLAGS)
+    try:
+        d = os.open("sbgpu", vmboot.DIR_FLAGS, dir_fd=run)
+    finally:
+        os.close(run)
+    try:
+        st = os.fstat(d)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or stat.S_IMODE(st.st_mode) != 0o700:
+            raise BootError("/run/sbgpu")
+        data = {}
+        try:
+            for name in ("boot.json", "gate.json"):
+                data[name] = _read_vm_file(d, name, uid)
+        finally:
+            for name in ("boot.json", "gate.json"):
+                try:
+                    os.unlink(name, dir_fd=d)
+                except FileNotFoundError:
+                    pass
+    finally:
+        os.close(d)
+    boot = _object(data["boot.json"])
+    if sorted(boot) != VM_BOOT_KEYS or boot["mode"] != "vm":
+        raise BootError("boot.json's keys")  # (a providerMachineId, in any form, included)
+    if (not isinstance(boot["controlUrl"], str) or not boot["controlUrl"].startswith("https://")
+            or not isinstance(boot["bootToken"], str) or not TOKEN_RE.fullmatch(boot["bootToken"])
+            or not isinstance(boot["agentSha256"], str) or not SHA256_RE.fullmatch(boot["agentSha256"])
+            or type(boot["enrollByBoottimeMs"]) is not int or boot["enrollByBoottimeMs"] <= 0):
+        raise BootError("boot.json's values")
+    gate = _object(data["gate.json"])
+    if gate != {"v": 1, "pass": True, "fail": []} or type(gate["v"]) is not int or type(gate["pass"]) is not bool:
+        raise BootError("gate.json")
+    return boot, gate
+
+
+def vm_transport(method, url, headers, body, timeout):
+    """The VM enroll's transport: one https POST bounded as a whole, by CLOCK_BOOTTIME, by `timeout` (vmboot.post sets
+    each socket operation's timeout to what is left of it)."""
+    try:
+        status, data, _ = vmboot.post(url, headers, body, boottime.boottime_ms() + int(timeout * 1000), RESPONSE_MAX)
+    except Exception as e:
+        raise ControlError(None, "network: %s" % type(e).__name__)
+    return status, data
 
 
 def gpu_info(run=subprocess.run):
@@ -236,9 +334,45 @@ async def serve(agent, relay_url, container, stop_everything=proctree.stop_every
     return code
 
 
+def vm_failed(word, err=None):
+    (err or sys.stderr.write)('SBGPU-AGENT {"v":1,"fail":["%s"]}\n' % word)
+    return EXIT_REFUSED
+
+
+def start_vm(prefix, transport=None, run_gpu=subprocess.run, max_beats=None, sleep=None, cwd="/root",
+             relay_sleep=asyncio.sleep, hostname=socket.gethostname, err=None):
+    """VM mode, from the two files to the end.  Returns the exit code."""
+    try:
+        boot, gate = read_vm_files(prefix)
+    except (OSError, ValueError, BootError):
+        return vm_failed("boot-files", err)
+    deadline = boot["enrollByBoottimeMs"]
+    if deadline - boottime.boottime_ms() < START_MIN_MS:
+        return vm_failed("enroll-late", err)
+    request = {"bootToken": boot["bootToken"], "agentVersion": AGENT_VERSION, "agentSha256": boot["agentSha256"],
+               "mode": "vm", "gate": gate, "gpu": gpu_info(run_gpu), "hostname": hostname()[:253]}
+    left = deadline - boottime.boottime_ms()
+    if left < REQUEST_MIN_MS:
+        return vm_failed("enroll-late", err)
+    control = Control(boot["controlUrl"], transport or vm_transport)
+    try:
+        enrolled = control.enroll(request, timeout=min(ENROLL_TIMEOUT_MAX_S, (left - 1000) / 1000))
+    except ControlError:
+        return vm_failed("enroll", err)
+    if not isinstance(enrolled.get("incarnation"), int) or not isinstance(enrolled.get("relayUrl"), str):
+        return vm_failed("enroll", err)
+    control.transport = transport or https_transport
+    wake = threading.Event()
+    agent = Agent(control, enrolled, sleep=sleep or (lambda s: wake.wait(s)))
+    if max_beats is not None:
+        run = agent.run
+        agent.run = lambda: run(max_beats=max_beats)
+    return asyncio.run(serve(agent, enrolled["relayUrl"], False, cwd=cwd, relay_sleep=relay_sleep, heartbeat_wake=wake))
+
+
 def start(prefix, transport=None, proc="/proc", pid=None, run_gpu=subprocess.run, max_beats=None, sleep=None,
           stop_everything=proctree.stop_everything, cwd="/root", relay_sleep=asyncio.sleep):
-    """Everything from boot.json to the end.  Returns the exit code."""
+    """Everything from boot.json to the end, in container mode.  Returns the exit code."""
     try:
         boot = read_boot(prefix)
     except (OSError, ValueError, BootError):
@@ -267,4 +401,7 @@ def start(prefix, transport=None, proc="/proc", pid=None, run_gpu=subprocess.run
 
 
 def main():
-    raise SystemExit(start(os.environ.get("SBGPU_PREFIX", "")))
+    prefix = os.environ.get("SBGPU_PREFIX", "")
+    if sys.argv[1:] == ["vm"]:
+        raise SystemExit(start_vm(prefix))
+    raise SystemExit(start(prefix))
