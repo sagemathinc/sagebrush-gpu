@@ -185,19 +185,65 @@ test("a container silent past its due time is marked heartbeat-lost, then revoke
   w.clock.t += 1;
   assert.equal(await runHeartbeatWatchdog(jenv()), 1);
   assert.deepEqual([(await launch(c.machineId)).outcome, (await launch(c.machineId)).terminate_reason, (await launch(c.machineId)).next_ms], ["terminate", "heartbeat-lost", w.clock.t]);
-  const revokedFirst: boolean[] = [];
-  const terminate = rp.terminate.bind(rp);
-  rp.terminate = async (id) => {
-    const t = (await w.db.all<{ used_ms: number | null }>(`SELECT used_ms FROM boot_tokens WHERE machine_id = ?`, [c.machineId]))[0]!;
-    revokedFirst.push(t.used_ms !== null);
-    return terminate(id);
-  };
+  assert.equal(await machineState(c.machineId), "stopping", "the machine leaves running in the mark's own batch");
+  const revokedFirst = watchRevocation(c.machineId);
   assert.equal(await runContainerWatchdog(cenv()), 1);
   assert.deepEqual(rp.terminated, [c.pid]);
-  assert.deepEqual(revokedFirst, [true]);
+  assert.deepEqual(revokedFirst, [[true, "stopping"]]);
   assert.equal((await launch(c.machineId)).outcome, "terminated");
+  assert.equal(await machineState(c.machineId), "stopped", "stopped once the pod is confirmed gone");
   const acc = (await w.db.all<{ end_ms: number | null }>(`SELECT end_ms FROM machine_accruals WHERE machine_id = ?`, [c.machineId]))[0]!;
   assert.equal(acc.end_ms, w.clock.t, "the accrual closed when the pod was confirmed gone");
+});
+
+const machineState = async (m: string) => (await w.db.all<{ state: string }>(`SELECT state FROM machines WHERE id = ?`, [m]))[0]!.state;
+
+/** Records, at each provider terminate, whether the machine's token was used and its machine's state, as committed. */
+function watchRevocation(m: string): [boolean, string][] {
+  const seen: [boolean, string][] = [];
+  const terminate = rp.terminate.bind(rp);
+  rp.terminate = async (id) => {
+    const t = (await w.db.all<{ used_ms: number | null }>(`SELECT used_ms FROM boot_tokens WHERE machine_id = ?`, [m]))[0]!;
+    seen.push([t.used_ms !== null, await machineState(m)]);
+    return terminate(id);
+  };
+  return seen;
+}
+
+test("revocation in the claim: a running or saving machine whose launch was marked without moving it leaves for stopping before the provider; stopped once gone", async () => {
+  for (const from of ["running", "saving"]) {
+    rp = new FakeRunPod();
+    const c = await container();
+    await w.db.run(`UPDATE machines SET state = ? WHERE id = ?`, [from, c.machineId]);
+    // (a mark that left the machine as it was, as a stop path landing later might)
+    await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'abort', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [w.clock.t, c.machineId]);
+    const seen = watchRevocation(c.machineId);
+    assert.equal(await runContainerWatchdog(cenv()), 1, from);
+    assert.deepEqual(seen, [[true, "stopping"]], from);
+    assert.deepEqual([(await launch(c.machineId)).outcome, await machineState(c.machineId)], ["terminated", "stopped"], from);
+  }
+});
+
+test("revocation leaves a starting machine for the start path (no workspace or page tokens yet), a machine at another incarnation, and a VM's", async () => {
+  // a pod never enrolled: ended at its connect deadline; the machine stays starting throughout
+  const s = await container("issued");
+  w.clock.t = T0 + 1000 + CONNECT_WINDOW_MS + 1;
+  const seen = watchRevocation(s.machineId);
+  assert.equal(await runContainerWatchdog(cenv()), 1);
+  assert.deepEqual(seen, [[true, "starting"]]);
+  assert.deepEqual([(await launch(s.machineId)).outcome, await machineState(s.machineId)], ["terminated", "starting"]);
+  // the machine moved on to another incarnation: the old launch's end leaves it running
+  const o = await container();
+  await w.db.run(`UPDATE machines SET incarnation = 2 WHERE id = ?`, [o.machineId]);
+  await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'abort', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [w.clock.t, o.machineId]);
+  assert.equal(await runContainerWatchdog(cenv()), 1);
+  assert.deepEqual([(await launch(o.machineId)).outcome, await machineState(o.machineId)], ["terminated", "running"]);
+  // the same, with the newer incarnation already stopping: the old launch's end doesn't make it stopped
+  const p = await container();
+  await w.db.run(`UPDATE machines SET incarnation = 2, state = 'stopping' WHERE id = ?`, [p.machineId]);
+  await w.db.run(`UPDATE launches SET outcome = 'terminate', terminate_reason = 'abort', next_ms = ?, watchdog_version = watchdog_version + 1 WHERE machine_id = ?`, [w.clock.t, p.machineId]);
+  assert.equal(await runContainerWatchdog(cenv()), 1);
+  assert.deepEqual([(await launch(p.machineId)).outcome, await machineState(p.machineId)], ["terminated", "stopping"]);
 });
 
 test("a heartbeat landing first keeps the container; a machine not running is deferred, not marked", async () => {

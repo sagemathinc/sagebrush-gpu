@@ -392,13 +392,26 @@ test("definitive: a fresh read that disagrees ends the launch (token revoked fir
   }
 });
 
-test("definitive: a second use of the token, after its enroll, ends the enrolled launch", async () => {
+test("definitive: a second use of the token, after its enroll, ends the enrolled launch; its machine leaves running in the mark's batch, before the claim", async () => {
   const l = await launched();
   assert.equal((await enroll(body(l))).status, 200);
+  assert.equal((await state(l.machineId)).machine.state, "running");
   w.alerts.length = 0;
-  assert.equal((await enroll(body(l))).status, 403);
+  // the machine's state as committed when the termination's claim batch starts
+  const atClaim: unknown[] = [];
+  const batch = w.db.batch.bind(w.db);
+  w.db.batch = async (ss) => {
+    if (ss.some((s) => /outcome = CASE WHEN outcome IN \('creating', 'issued'\) THEN 'terminate'/.test(s.sql))) atClaim.push((await state(l.machineId)).machine.state);
+    return batch(ss);
+  };
+  try {
+    assert.equal((await enroll(body(l))).status, 403);
+  } finally {
+    w.db.batch = batch;
+  }
+  assert.deepEqual(atClaim, ["stopping"]);
   const s = await state(l.machineId);
-  assert.deepEqual([s.launch.outcome, s.launch.terminate_reason], ["terminated", "second-enroll"]);
+  assert.deepEqual([s.launch.outcome, s.launch.terminate_reason, s.machine.state], ["terminated", "second-enroll", "stopped"]);
   assert.deepEqual([w.alerts, rp.terminated], [["container-enroll: second-enroll"], [l.pid]]);
 });
 

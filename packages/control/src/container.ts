@@ -14,8 +14,9 @@
 // - First running is a verified observation (the expected pod, image, entrypoint, env names and
 //   settings), timed by control's clock after the read. It only moves earlier, and it opens the
 //   token's 120 s window together with the launch's connect deadline.
-// - Every termination revokes the boot token in the batch that claims the launch, before any
-//   provider call. A pod found with no id recorded is ended only once its accrual is open (or
+// - Every termination revokes in the batch that claims the launch, before any provider call:
+//   the boot token is used, and a running or saving machine moves to stopping (so its workspace
+//   and page tokens die with the state). A starting machine is left for the terminated batch. A pod found with no id recorded is ended only once its accrual is open (or
 //   past ACCRUAL_WAIT_MS). The ids a caller holds are written (launch_cleanup) in the claim
 //   batch and retried by id until each reads terminated. Only the provider confirming the pods
 //   gone marks the launch terminated and closes the accrual.
@@ -288,6 +289,21 @@ async function endCleanup(env: ContainerEnv, p: ContainerProvider, r: ContainerR
 }
 
 /**
+ * The machine's half of the revocation, for every batch that marks a container launch to
+ * terminate: a running or saving machine moves to stopping at that incarnation, only while its
+ * container launch there is ending (after the mark, in the same batch). A starting machine is
+ * left as it is (the start path's helper fails it when the launch is terminated), and so is a
+ * VM's, or a machine that moved on.
+ */
+export function stopMachineStmt(machineId: string, incarnation: number): Stmt {
+  return {
+    sql: `UPDATE machines SET state = 'stopping' WHERE id = ? AND incarnation = ? AND state IN ('running', 'saving')
+            AND EXISTS (SELECT 1 FROM launches WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'terminate')`,
+    params: [machineId, incarnation, machineId, incarnation],
+  };
+}
+
+/**
  * One termination attempt, if this caller wins the row's claim: in one batch, the claim (a
  * conditional update from the version it read; the launch moves to terminate), the boot token's
  * revocation, and the ids the caller holds (other than the recorded one) as cleanup ids. Only
@@ -314,6 +330,7 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
         sql: `UPDATE boot_tokens SET used_ms = COALESCE(used_ms, ?) WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,
         params: [now, r.machine_id, r.incarnation],
       },
+      stopMachineStmt(r.machine_id, r.incarnation),
       ...held.map((id) => ({
         sql: `INSERT INTO launch_cleanup (machine_id, incarnation, provider_machine_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
         params: [r.machine_id, r.incarnation, id],
@@ -371,6 +388,7 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
         sql: `UPDATE launches SET outcome = 'terminated', terminated_ms = ?, next_ms = NULL WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'terminate'`,
         params: [at, r.machine_id, r.incarnation],
       },
+      { sql: `UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`, params: [r.machine_id, r.incarnation] },
       ...closeAccrual(r.machine_id, r.incarnation, at),
     ]);
   }

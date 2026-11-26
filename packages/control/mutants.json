@@ -3001,8 +3001,8 @@
  },
  {
   "file": "src/heartbeat.ts",
-  "old": "        TOOK,\n      ]);",
-  "new": "      ]);",
+  "old": "        TOOK,\n        stopMachineStmt(r.machine_id, r.incarnation), // (a container's machine leaves running; a VM's is left)\n      ]);",
+  "new": "        stopMachineStmt(r.machine_id, r.incarnation), // (a container's machine leaves running; a VM's is left)\n      ]);",
   "note": "no guard"
  },
  {
@@ -5303,5 +5303,65 @@
   "old": "  if (mode === \"resold\") return { use: \"ours\", provider };",
   "new": "  if (mode === \"byok\") return { use: \"ours\", provider };",
   "note": "byok uses ours"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      stopMachineStmt(r.machine_id, r.incarnation),\n      ...held.map(",
+  "new": "      ...held.map(",
+  "note": "the claim batch leaves the machine running"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  stmts.push(stopMachineStmt(r.machine_id, r.incarnation));\n",
+  "new": "",
+  "note": "a container enroll refusal leaves the machine running"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "        stopMachineStmt(r.machine_id, r.incarnation), // (a container's machine leaves running; a VM's is left)\n",
+  "new": "",
+  "note": "heartbeat-lost leaves the machine running"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "state IN ('running', 'saving')\n",
+  "new": "state IN ('running')\n",
+  "note": "a saving machine left saving"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "state IN ('running', 'saving')\n",
+  "new": "state IN ('running', 'saving', 'starting')\n",
+  "note": "a starting machine moved to stopping"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "`UPDATE machines SET state = 'stopping' WHERE id = ? AND incarnation = ? AND",
+  "new": "`UPDATE machines SET state = 'stopping' WHERE id = ? AND ? > 0 AND",
+  "note": "the move at any incarnation"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND mode = 'container' AND outcome = 'terminate')`",
+  "new": "AND outcome = 'terminate')`",
+  "note": "the move for a VM's machine too"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      { sql: `UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`, params: [r.machine_id, r.incarnation] },\n",
+  "new": "",
+  "note": "the machine never stopped once the pod is gone"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`",
+  "new": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ?`",
+  "note": "a starting machine stopped once the pod is gone"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`, params: [r.machine_id, r.incarnation]",
+  "new": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND ? > 0 AND state = 'stopping'`, params: [r.machine_id, r.incarnation]",
+  "note": "the machine stopped at any incarnation once the pod is gone"
  }
 ]
