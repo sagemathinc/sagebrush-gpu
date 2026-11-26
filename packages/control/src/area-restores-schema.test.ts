@@ -1,4 +1,4 @@
-// Restore's exclusion (0015; the snapshot contract r3.1, section 4): the machines' pinned area
+// Restore's exclusion (0017; the snapshot contract r3.1, section 4): the machines' pinned area
 // keys, and area_restores. These rows pin every check and trigger, and run the contract's two
 // conditional batches as reference statements (the claim's writer guard, 4.1; the start's claim
 // guard, 4.2) against them, for the races of section 5. The batches themselves are control's
@@ -95,7 +95,7 @@ function start(id: string, member: string, team: string | null) {
 test("area keys: exactly m:<prj>:<mbr> and t:<prj>:<team>, as bytes; a team key needs a member key", async () => {
   const good = await machine("stopped");
   assert.deepEqual(await keysOf(good), { m: mine(), t: teamKey(teamA) });
-  await machine("stopped", { member: null, team: null }); // (a machine from before 0015, or never started)
+  await machine("stopped", { member: null, team: null }); // (a machine from before 0017, or never started)
   await machine("stopped", { team: null });
   const prj = w.projectId;
   const bad: Array<[string | null, string | null]> = [
