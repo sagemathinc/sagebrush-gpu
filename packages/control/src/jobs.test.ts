@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PRUNE_BATCH, SCHEDULED_JOBS, pruneAuthStates, pruneSessions, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog } from "./jobs.ts";
+import { PRUNE_BATCH, SCHEDULED_JOBS, pruneAuthStates, pruneSessions, heartbeatWatchdog, staleStarts, containerLifetime, containerHardStop, vmWatchdog } from "./jobs.ts";
 import { stmt } from "./db.ts";
 import { sqliteDb } from "./testing/sqlite.ts";
 
 const T = 1_800_000_000_000;
 
 test("the job list, in order", () => {
-  assert.deepEqual(SCHEDULED_JOBS.map((j) => j.name), [pruneSessions.name, pruneAuthStates.name, heartbeatWatchdog.name, containerLifetime.name, containerHardStop.name, vmWatchdog.name]);
+  assert.deepEqual(SCHEDULED_JOBS.map((j) => j.name), [pruneSessions.name, pruneAuthStates.name, staleStarts.name, heartbeatWatchdog.name, containerLifetime.name, containerHardStop.name, vmWatchdog.name]);
 });
 
 test("prune sign-in states: expired ones only, at most a batch per run, soonest expired first", async () => {

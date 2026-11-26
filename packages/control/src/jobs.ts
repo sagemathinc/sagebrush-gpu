@@ -6,6 +6,7 @@ import { runVmWatchdog, type JobEnv } from "./vm.ts";
 import { runHeartbeatWatchdog } from "./heartbeat.ts";
 import { runContainerLifetime } from "./container.ts";
 import { runContainerHardStop } from "./hard-stop.ts";
+import { failStaleStarts } from "./start.ts";
 
 export type { JobEnv };
 
@@ -54,4 +55,7 @@ export const containerLifetime: ScheduledJob = { name: "container lifetime", run
 /** The ledger's accrual, then the budget hard stop for container machines (hard-stop.ts): marked hard-stop, for the container watchdog to end. */
 export const containerHardStop: ScheduledJob = { name: "accrual and container hard stop", run: runContainerHardStop };
 
-export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);
+/** Admitted starts whose launch intent never came (start.ts): failed after their grace, releasing their liability. */
+export const staleStarts: ScheduledJob = { name: "stale starts", run: ({ db, now }) => failStaleStarts(db, now) };
+
+export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);
