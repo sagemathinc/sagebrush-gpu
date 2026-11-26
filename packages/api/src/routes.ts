@@ -12,7 +12,7 @@ import type { MachineId, MemberId, OrgId, ProjectId, TeamId } from "./ids.ts";
 import type { IsoTime } from "./time.ts";
 import type { OrgRole, ProjectRole } from "./objects.ts";
 import type { ProviderId } from "./providers.ts";
-import type { ProviderCredential, ProviderPause, PutCredentialRequest } from "./credentials.ts";
+import type { CredentialAssuranceRequest, ProviderCredential, ProviderPause, PutCredentialRequest } from "./credentials.ts";
 import type { OrphanReport } from "./orphans.ts";
 import type {
   AgentAbortRequest,
@@ -123,7 +123,8 @@ export interface Endpoints {
   // an organization's own provider keys (byok; see credentials.ts)
   listCredentials: { method: "GET"; path: "/v1/orgs/:orgId/credentials"; params: { orgId: OrgId }; query: {}; body: undefined; response: { items: ProviderCredential[] } };
   putCredential: { method: "PUT"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: {}; body: PutCredentialRequest; response: ProviderCredential };
-  deleteCredential: { method: "DELETE"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: {}; body: undefined; response: { removed: true } };
+  deleteCredential: { method: "DELETE"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: { id: string; version: string }; body: undefined; response: { removed: true } };
+  verifyCredentialAssurance: { method: "POST"; path: "/v1/orgs/:orgId/credentials/assurance"; params: { orgId: OrgId }; query: {}; body: CredentialAssuranceRequest; response: { recentAuthForMs: number } };
 
   // projects
   getProject: { method: "GET"; path: "/v1/projects/:projectId"; params: { projectId: ProjectId }; query: {}; body: undefined; response: Project };
@@ -220,13 +221,19 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
     method: "PUT",
     path: "/v1/orgs/:orgId/credentials/:provider",
     access: { auth: "session", scope: "org", minRole: "owner" },
-    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key is checked with isCredentialKeyShape before anything else, then with the provider, and only then stored`,
+    note: `${CREDENTIALS_NOTE}; consumes one live assurance (verifyCredentialAssurance; reauthenticate otherwise); the key is checked with isCredentialKeyShape before anything else, then with the provider, and only then stored; expected must name the current key (badExpected if malformed, busy if stale)`,
   },
   deleteCredential: {
     method: "DELETE",
     path: "/v1/orgs/:orgId/credentials/:provider",
     access: { auth: "session", scope: "org", minRole: "owner" },
-    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes effect at once`,
+    note: `${CREDENTIALS_NOTE}; consumes one live assurance (reauthenticate otherwise); the query's id and version must name the current key (badExpected if malformed, busy if stale, noKey if none); takes effect at once`,
+  },
+  verifyCredentialAssurance: {
+    method: "POST",
+    path: "/v1/orgs/:orgId/credentials/assurance",
+    access: { auth: "session", scope: "org", minRole: "owner" },
+    note: `${CREDENTIALS_NOTE}; body at most 256 bytes, checked before parsing; needs a fresh sign-in (reauthenticate), then reserves one unit of the organization's hourly check quota (tooManyChecks), then verifies the code against the owner's one authenticator factor (mfaRequired without one, mfaInvalid if wrong); success opens a single-use, session-bound assurance for one key change`,
   },
 
   getProject: { method: "GET", path: "/v1/projects/:projectId", access: member },

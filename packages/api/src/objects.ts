@@ -52,8 +52,9 @@ export interface Me {
   projects: Array<{ projectId: ProjectId; orgId: OrgId; name: string; role: ProjectRole; memberId: MemberId }>;
   /**
    * How long, in milliseconds from when the server answers, the user may still change an
-   * organization's provider keys (an integer from 0 to RECENT_AUTH_WINDOW_MS); null or
-   * missing when they would have to sign in again first. Anything that isn't
+   * organization's provider keys: the remaining life of their newest live, unused assurance
+   * (verifyCredentialAssurance) for it, an integer from 0 to RECENT_AUTH_WINDOW_MS; null or
+   * missing when they would have to sign in again and enter a code first. Anything that isn't
    * isRecentAuthForMs means the same. The page counts it from just before it sent the
    * request, so the window it shows never outlasts the server's.
    */
