@@ -6959,5 +6959,17 @@
   "old": "  const listedAtMs = deps.clock();\n",
   "new": "  const listedAtMs = 0;\n",
   "note": "not stamped with the clock"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "listOffers({ gpuCount })",
+  "new": "listOffers({ gpuCount: 1 })",
+  "note": "providers always asked for one GPU"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  const lists = await Promise.all(\n    providers.map((p) => withDeadline<Offer[] | \"unavailable\">(() => deps.listers[p]!.listOffers({ gpuCount }).then((x) => (Array.isArray(x) ? [...x] : \"unavailable\")), \"unavailable\")),\n  );\n  const listedAtMs = deps.clock();\n",
+  "new": "  const listedAtMs = deps.clock();\n  const lists = await Promise.all(\n    providers.map((p) => withDeadline<Offer[] | \"unavailable\">(() => deps.listers[p]!.listOffers({ gpuCount }).then((x) => (Array.isArray(x) ? [...x] : \"unavailable\")), \"unavailable\")),\n  );\n",
+  "note": "the stamp taken before the reads"
  }
 ]

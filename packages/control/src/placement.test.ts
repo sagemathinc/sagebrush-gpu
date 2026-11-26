@@ -85,3 +85,39 @@ test("listPlacement: offers a provider returns for another provider are dropped;
   );
   assert.deepEqual([both.offers, both.unavailableProviders], [[], ["hyperstack", "runpod"]]);
 });
+
+test("listPlacement: the requested GPU count is what each provider is asked for, and what is ranked", async () => {
+  const calls: OfferQuery[] = [];
+  const echo: OfferLister = {
+    async listOffers(q) {
+      calls.push(q);
+      return [offer({ gpuCount: q.gpuCount })];
+    },
+  };
+  const p = await listPlacement({ listers: { runpod: echo }, clock: () => 0 }, policy, 2, null);
+  assert.deepEqual(calls, [{ gpuCount: 2 }]);
+  assert.deepEqual(p.offers.map((x) => x.offer.gpuCount), [2]);
+});
+
+test("listPlacement: every provider is asked before any answers, and the stamp is the clock after the last answer", async () => {
+  let now = 100;
+  const started: string[] = [];
+  const release: Record<string, (v: Offer[]) => void> = {};
+  const deferred = (p: ProviderId): OfferLister => ({
+    listOffers() {
+      started.push(p);
+      return new Promise<Offer[]>((r) => (release[p] = r));
+    },
+  });
+  const pending = listPlacement({ listers: { runpod: deferred("runpod"), hyperstack: deferred("hyperstack") }, clock: () => now }, policy, 1, null);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(started.sort(), ["hyperstack", "runpod"], "both asked before either answered");
+  now = 500;
+  release.runpod!([offer({ dataCenter: "a" })]);
+  await new Promise((r) => setImmediate(r));
+  now = 700;
+  release.hyperstack!([offer({ provider: "hyperstack", dataCenter: "b" })]);
+  const p = await pending;
+  // (equal price: hyperstack ranks before runpod)
+  assert.deepEqual(p.offers.map((x) => [x.offer.dataCenter, x.listedAtMs]), [["b", 700], ["a", 700]]);
+});
