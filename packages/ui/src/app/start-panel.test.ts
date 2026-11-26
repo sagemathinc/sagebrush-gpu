@@ -131,3 +131,52 @@ test("moving to another project forgets a refusal", async () => {
   await s.t.store.openProject(s.t.otherId);
   assert.equal(s.t.store.startRefusal.value, null);
 });
+
+test("a late answer to a start the page has moved on from does nothing: no retry, no words", async () => {
+  // (the start's answer is held; meanwhile the page moves on; then the answer arrives)
+  const moves: Array<[string, (s: Awaited<ReturnType<typeof open>>) => Promise<void>]> = [
+    ["another project", async (s) => s.t.store.openProject(s.t.otherId)],
+    ["sign-out", async (s) => s.t.store.signOut()],
+    [
+      "someone else signs in",
+      async (s) => {
+        s.t.demo.backend.signInAs(EMAILS.teamMember);
+        await s.t.store.sessionStarted();
+      },
+    ],
+  ];
+  for (const [move, go] of moves) {
+    for (const code of ["conflict", "budgetExhausted", "invalidState"] as const) {
+      const s = await open();
+      s.t.respondOnce(START, refusal(code));
+      const release = s.t.gate(START);
+      const pending = s.t.store.start("L4");
+      await settle();
+      await go(s);
+      release();
+      await pending;
+      await settle();
+      assert.equal(s.starts(), 1, `${move}, ${code}: no second start sent`);
+      assert.equal(s.t.demo.backend.machines.size, 0, `${move}, ${code}: no machine made after the page moved on`);
+      assert.equal(s.t.store.startRefusal.value, null, `${move}, ${code}: no words shown`);
+      s.page.unmount();
+    }
+  }
+});
+
+test("signing out, or someone else signing in, clears a refusal shown", async () => {
+  const s = await open();
+  s.t.respondOnce(START, refusal("budgetExhausted"));
+  await s.start("L4");
+  assert.notEqual(s.t.store.startRefusal.value, null);
+  await s.t.store.signOut();
+  assert.equal(s.t.store.startRefusal.value, null, "sign-out");
+  s.page.unmount();
+  const n = await open();
+  n.t.respondOnce(START, refusal("budgetExhausted"));
+  await n.start("L4");
+  assert.notEqual(n.t.store.startRefusal.value, null);
+  n.t.demo.backend.signInAs(EMAILS.teamMember);
+  await n.t.store.sessionStarted();
+  assert.equal(n.t.store.startRefusal.value, null, "a new sign-in");
+});

@@ -1656,13 +1656,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
-  "new": "    this.#generation++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
-  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -1701,8 +1701,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;\n",
-  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n"
+  "old": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;\n",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n"
  },
  {
   "file": "src/app/store.ts",
@@ -3473,8 +3473,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
-  "new": "    this.#generation++;",
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
+  "new": "    this.#generation++;\n    this.startRefusal.value = null;",
   "note": "endSession: keys kept"
  },
  {
@@ -4437,8 +4437,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.startRefusal.value = null;\n    const m = await this.#act(`start:",
-  "new": "    const m = await this.#act(`start:"
+  "old": "    this.startRefusal.value = null;\n    // (a project switch",
+  "new": "    // (a project switch"
  },
  {
   "file": "src/app/store.ts",
@@ -4464,5 +4464,21 @@
   "file": "src/app/components.ts",
   "old": ".filter((x) => x != null).join(\" · \")",
   "new": ".filter((x) => x != null).join(\" \")"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (generation !== this.#generation) return null;\n          // Two starts at once",
+  "new": "          // Two starts at once",
+  "note": "a late start answer after the page moved on (TESTS on the start panel PR)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n",
+  "new": "    this.#staleSaves(); // (nor the previous person's to the new one)\n"
  }
 ]

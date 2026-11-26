@@ -188,6 +188,7 @@ export class Store {
    */
   #endSession(): void {
     this.#generation++;
+    this.startRefusal.value = null;
     this.#staleSaves(); // (a late answer must not show a signed-out person's saves)
     this.keys.endSession();
     batch(() => {
@@ -241,6 +242,7 @@ export class Store {
     this.#generation++;
     this.#sessionGeneration++;
     this.#staleSaves(); // (nor the previous person's to the new one)
+    this.startRefusal.value = null;
     this.signInNotice.value = null;
     await this.loadMe();
   }
@@ -554,6 +556,9 @@ export class Store {
     const shown = quote?.offers[0]?.pricePerHour.total;
     if (projectId == null || quote == null || shown == null) return false;
     this.startRefusal.value = null;
+    // (a project switch, a sign-out or a new sign-in moves the generation on: an answer after it
+    // is moot, so it neither retries nor shows any words)
+    const generation = this.#generation;
     const m = await this.#act(`start:${gpuType}`, async () => {
       for (let attempt = 0; ; attempt++) {
         try {
@@ -564,6 +569,7 @@ export class Store {
           await this.refresh();
           return machine;
         } catch (err) {
+          if (generation !== this.#generation) return null;
           // Two starts at once: the server admitted the other; one quiet retry reads the money again.
           if (err instanceof ApiError && err.code === "conflict" && attempt < START_CONFLICT_RETRIES) continue;
           // A refusal the page can put in plain words shows beside that GPU; anything else goes to the banner.
