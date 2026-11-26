@@ -7,7 +7,11 @@ import {
   PAUSING_CREDENTIAL_STATUSES,
   RECENT_AUTH_WINDOW_MS,
   credentialRefusalBody,
+  isAuthenticatorCode,
+  isCredentialExpected,
   isCredentialKeyShape,
+  isCredentialVersion,
+  parseCredentialVersionQuery,
   isCredentialStatus,
   isPausingCredentialStatus,
   isRecentAuthForMs,
@@ -82,6 +86,9 @@ test("the refusals: fixed words with their codes, and reauthenticate is a 403", 
       busy: "conflict",
       tooManyChecks: "rateLimited",
       signedOut: "unauthenticated",
+      mfaRequired: "forbidden",
+      mfaInvalid: "badRequest",
+      badExpected: "badRequest",
     },
   );
   const messages = Object.values(CREDENTIAL_REFUSALS).map((r) => r.message);
@@ -98,7 +105,46 @@ test("the credential routes: an organization's owners only, by method and path",
   assert.deepEqual([ROUTES.listCredentials.method, ROUTES.listCredentials.path], ["GET", "/v1/orgs/:orgId/credentials"]);
   assert.deepEqual([ROUTES.putCredential.method, ROUTES.putCredential.path], ["PUT", "/v1/orgs/:orgId/credentials/:provider"]);
   assert.deepEqual([ROUTES.deleteCredential.method, ROUTES.deleteCredential.path], ["DELETE", "/v1/orgs/:orgId/credentials/:provider"]);
-  for (const name of ["listCredentials", "putCredential", "deleteCredential"] as const) assert.deepEqual(ROUTES[name].access, owner, name);
+  assert.deepEqual([ROUTES.verifyCredentialAssurance.method, ROUTES.verifyCredentialAssurance.path], ["POST", "/v1/orgs/:orgId/credentials/assurance"]);
+  for (const name of ["listCredentials", "putCredential", "deleteCredential", "verifyCredentialAssurance"] as const) assert.deepEqual(ROUTES[name].access, owner, name);
+});
+
+const CRD = "crd_0123456789abcdefghjk";
+
+test("a change names the key it replaces: expected is null or exactly { id, version }", () => {
+  for (const ok of [1, 2, 9_007_199_254_740_991]) assert.equal(isCredentialVersion(ok), true, String(ok));
+  for (const bad of [0, -1, 1.5, "1", null, undefined, Number.NaN, Infinity, 9_007_199_254_740_992]) assert.equal(isCredentialVersion(bad), false, String(bad));
+  assert.equal(isCredentialExpected(null), true);
+  assert.equal(isCredentialExpected({ id: CRD, version: 3 }), true);
+  for (const bad of [
+    undefined,
+    {},
+    { id: CRD },
+    { version: 3 },
+    { id: CRD, version: 0 },
+    { id: CRD, version: "3" },
+    { id: "crd_x", version: 3 },
+    { id: "mch_0123456789abcdefghjk", version: 3 },
+    { id: CRD, version: 3, extra: 1 },
+    [CRD, 3],
+    "x",
+  ]) {
+    assert.equal(isCredentialExpected(bad), false, JSON.stringify(bad));
+  }
+});
+
+test("DELETE's version query: decimal, no sign, no leading zero, at most 16 digits, a safe integer", () => {
+  assert.equal(parseCredentialVersionQuery("1"), 1);
+  assert.equal(parseCredentialVersionQuery("907"), 907);
+  assert.equal(parseCredentialVersionQuery("9007199254740991"), 9_007_199_254_740_991);
+  for (const bad of ["", "0", "01", "-1", "+1", "1.0", "1e3", " 1", "1 ", "9007199254740992", "12345678901234567", "x", undefined, 1, null]) {
+    assert.equal(parseCredentialVersionQuery(bad), null, String(bad));
+  }
+});
+
+test("an authenticator code: exactly six digits", () => {
+  for (const ok of ["000000", "123456", "999999"]) assert.equal(isAuthenticatorCode(ok), true, ok);
+  for (const bad of ["12345", "1234567", "12345a", " 123456", "123456 ", "１２３４５６", 123456, null, undefined, ""]) assert.equal(isAuthenticatorCode(bad), false, String(bad));
 });
 
 test("pausing statuses: rejected, revoked and error pause launches; none, unchecked and ok don't", () => {

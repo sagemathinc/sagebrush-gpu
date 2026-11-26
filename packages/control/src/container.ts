@@ -92,9 +92,16 @@ export interface ContainerIntent {
 export async function recordContainerIntent(db: Db, i: ContainerIntent): Promise<void> {
   await db.batch([
     {
-      sql: `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, outcome, next_ms, created_ms)
-            VALUES (?, ?, 'container', 'runpod', ?, ?, 'creating', ?, ?)`,
-      params: [i.machineId, i.incarnation, i.agentSha256, i.credentialKind, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],
+      // (the account: ours is the platform's; an organization's key is that organization's, the
+      // machine's at the intent, read in this same statement)
+      sql: `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, account_kind, account_org_id, outcome, next_ms, created_ms)
+            VALUES (?, ?, 'container', 'runpod', ?, ?, ?,
+              CASE WHEN ? = 'org' THEN (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,
+              'creating', ?, ?)`,
+      params: [
+        i.machineId, i.incarnation, i.agentSha256, i.credentialKind, i.credentialKind === "org" ? "org" : "platform",
+        i.credentialKind, i.machineId, i.createdMs + CREATE_DEADLINE_MS, i.createdMs,
+      ],
     },
     {
       sql: `INSERT INTO launch_rates (machine_id, incarnation, provider_cost_per_hour, margin_bps) VALUES (?, ?, ?, ?)`,

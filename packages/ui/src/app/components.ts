@@ -5,10 +5,10 @@ import type { ComponentChildren, VNode } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { html } from "./html.ts";
 import type { BillingMode, Machine, PriceListItem, ProjectLabels, Quote, SignInOutcome, SpendMeter } from "@sbgpu/api";
-import { capitalize, withArticle } from "../labels.ts";
+import { capitalize, GENERIC_LABELS, withArticle } from "../labels.ts";
 import { BILLING_WORDS } from "../billing.ts";
 import { formatPriceSplit, formatUsd, priceText } from "../money.ts";
-import { ago, machineActions, machineStateLabel, meterView, refusalText, savePercent, stopReasonText } from "../view.ts";
+import { ago, machineActions, machineStateLabel, meterView, pauseView, refusalText, savePercent, stopReasonText, storageWarning } from "../view.ts";
 import type { Store } from "./store.ts";
 import { parseRoute, routePath, type Route } from "./router.ts";
 import { startPolling, type PollTimers } from "./polling.ts";
@@ -124,8 +124,21 @@ export function Home({ store, nav }: { store: Store; nav: Nav }): VNode {
 
 // ---------------------------------------------------------------- spend meter
 
-export function MeterCard({ title, meter, now, mode = "resold" }: { title: string; meter: SpendMeter; now: number; mode?: BillingMode }): VNode {
+export function MeterCard({
+  title,
+  meter,
+  now,
+  mode = "resold",
+  labels = GENERIC_LABELS,
+}: {
+  title: string;
+  meter: SpendMeter;
+  now: number;
+  mode?: BillingMode;
+  labels?: ProjectLabels;
+}): VNode {
   const v = meterView(meter, mode);
+  const storageNote = storageWarning(v.storageLevel, labels);
   return html`<section class=${`card meter band-${v.band}`} aria-label=${title}>
     <h2>${title}</h2>
     <div class="bar" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${v.usedPercent}
@@ -144,6 +157,7 @@ export function MeterCard({ title, meter, now, mode = "resold" }: { title: strin
       : v.band === "critical" || v.band === "low"
         ? html`<p class="warn">Running low.</p>`
         : null}
+    ${storageNote ? html`<p class=${`warn storage-${v.storageLevel}`} role="status">${storageNote}</p>` : null}
     <p class="muted small">Updated ${ago(meter.asOf, now)}.${v.reserved ? " While a machine runs, enough is held back for its final save." : ""}</p>
   </section>`;
 }
@@ -159,11 +173,39 @@ export function GpuRow({ store, item, quote, labels }: { store: Store; item: Pri
     <td>${price
       ? html`<strong>${priceText(price.providerCost, price.margin, store.billingMode.value).total}</strong><br /><span class="small muted">${priceText(price.providerCost, price.margin, store.billingMode.value).parts}</span>`
       : html`<span class="muted">not available</span>`}</td>
-    <td class="small">${quote && !quote.canStart && quote.reason ? refusalText(quote.reason, labels) : item.stock === "low" ? "Few left" : ""}</td>
+    <td class="small">${quote && !quote.canStart && quote.reason ? refusalText(quote.reason, labels, quote.reasonProvider) : item.stock === "low" ? "Few left" : ""}</td>
     <td><button disabled=${!canStart || store.isBusy(key)} onClick=${() => store.start(item.gpuType)}>
       ${store.isBusy(key) ? "Starting…" : "Start"}
     </button></td>
   </tr>`;
+}
+
+/**
+ * Paused providers, above the start panel. Everyone sees which provider is paused and since
+ * when; managers and above also see why (the server sends the reason only to them, and this
+ * shows it only to them too), and an owner of the organization a link to its keys.
+ */
+export function PauseBanner({ store, nav }: { store: Store; nav?: Nav | undefined }): VNode | null {
+  const pauses = store.paused.value;
+  if (pauses.length === 0) return null;
+  const now = store.now();
+  const showReason = store.canManage.value;
+  const orgId = store.project.value?.orgId;
+  const owner = orgId != null && store.me.value?.orgs.some((o) => o.orgId === orgId && o.role === "owner") === true;
+  return html`<section class="banner paused" role="status" aria-label="Paused providers">
+    ${pauses.map((p) => {
+      const v = pauseView(p, showReason, now);
+      return html`<p>
+        <strong>${v.headline}</strong> <span class="small muted">${v.since}</span>
+        ${v.reason ? html`<br /><span class="small">${v.reason}</span>` : null}
+      </p>`;
+    })}
+    ${showReason && owner && nav && orgId
+      ? html`<p class="small"><${Link} nav=${nav} to=${{ name: "org", orgId }}>Replace the key on the organization's page<//></p>`
+      : showReason
+        ? html`<p class="small">An owner of the organization can replace the key.</p>`
+        : null}
+  </section>`;
 }
 
 export function StartPanel({ store }: { store: Store }): VNode {
@@ -280,9 +322,10 @@ export function ProjectPage({ store, projectId, timers, nav }: { store: Store; p
       ${nav && store.isStaff.value ? html`<${Link} nav=${nav} to=${{ name: "manage", projectId }}>Manage this ${labels.project}<//>` : null}
     </header>
     <div class="grid">
-      ${mine ? html`<${MeterCard} title="Your allocation" meter=${mine} now=${now} mode=${store.billingMode.value} />` : null}
-      ${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`} meter=${team} now=${now} mode=${store.billingMode.value} />` : null}
+      ${mine ? html`<${MeterCard} title="Your allocation" meter=${mine} now=${now} mode=${store.billingMode.value} labels=${labels} />` : null}
+      ${team ? html`<${MeterCard} title=${`Your ${labels.team}'s allocation`} meter=${team} now=${now} mode=${store.billingMode.value} labels=${labels} />` : null}
     </div>
+    <${PauseBanner} store=${store} nav=${nav} />
     <${StartPanel} store=${store} />
     <${MachineList} store=${store} />
   </main>`;

@@ -41,6 +41,9 @@ export const KEY_REFUSAL_WORDS: Readonly<Record<CredentialRefusal | "network" | 
   busy: "Another change to this key is in progress. Nothing was saved; try again in a moment.",
   tooManyChecks: "Too many key checks for now. Nothing was saved; try again in a few minutes.",
   signedOut: "Your session has ended. Sign in again to change provider keys.",
+  mfaRequired: "Changing provider keys needs two-step verification with an authenticator app. Set one up for your account, then try again.",
+  mfaInvalid: "That code didn't work. Enter the current six-digit code from your authenticator app. Nothing was saved.",
+  badExpected: "This change didn't match the key as listed. Reload the page and try again. Nothing was saved.",
   network: "The server didn't answer. The list below shows what's set now; paste the key again to retry.",
   badResponse: "The server's answer wasn't one this page understands. Reload the page to see what's set.",
 });
@@ -203,12 +206,19 @@ export class ProviderKeys {
     );
   }
 
-  /** Remove `provider`'s key (after the page's confirmation); the list is then read again. */
+  /**
+   * Remove `provider`'s key (after the page's confirmation), naming it as listed (its id and
+   * version), so a key replaced meanwhile is never removed by mistake; the list is then read
+   * again. False, and nothing is sent, when the row lists no key.
+   */
   remove(provider: ProviderId): Promise<boolean> {
     if (!this.windowOpen.value) return Promise.resolve(false);
+    const row = this.rows.value?.find((r) => r.provider === provider);
+    if (row == null || row.id == null || row.version == null) return Promise.resolve(false);
     const t = this.#begin(provider);
     if (t == null) return Promise.resolve(false);
-    return credentialRequest(this.#fetch, "DELETE", credentialsPath(t.orgId, provider), null, t.controller.signal, readRemoved).then((o) =>
+    const query = `?id=${encodeURIComponent(row.id)}&version=${row.version}`;
+    return credentialRequest(this.#fetch, "DELETE", credentialsPath(t.orgId, provider) + query, null, t.controller.signal, readRemoved).then((o) =>
       this.#settle(t, o, () => KEY_REMOVED_WORDS),
     );
   }

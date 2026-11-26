@@ -3,8 +3,9 @@
 -- - the VM matrix and every VM bound carry over unchanged, now for mode = 'vm' only;
 -- - a container goes creating -> issued -> enrolled (no announce, so never 'launched'), plus
 --   terminate -> terminated, and carries first_running_ms, max_end_ms and credential_kind;
--- - a launch's identity (machine and incarnation), the intent's pins (mode, provider, created_ms
---   and the hashes) and credential_kind are fixed;
+-- - a launch's identity (machine and incarnation), the intent's pins (mode, provider, created_ms,
+--   the hashes, and the account: account_kind and account_org_id, the machine's organization
+--   at the intent) and credential_kind are fixed;
 --   a provider id, the ACTIVE facts and max_end_ms are fixed once set (the ACTIVE facts only by
 --   the ACTIVE transition); a set first_running_ms only ever moves earlier (triggers below);
 -- - boot_tokens carries the launch's mode (a composite key to the launch), and once its
@@ -52,6 +53,12 @@ CREATE TABLE launches (
   first_running_ms INTEGER CHECK (first_running_ms IS NULL OR first_running_ms BETWEEN 0 AND 9007199254740991),
   max_end_ms INTEGER CHECK (max_end_ms IS NULL OR max_end_ms BETWEEN 0 AND 9007199254740991),
   credential_kind TEXT CHECK (credential_kind IS NULL OR credential_kind IN ('ours', 'org')),
+  -- whose provider account the launch is in, pinned at the intent and never derived later
+  -- from ownership (a machine or its project may move): ours ('platform'), or an
+  -- organization's own key ('org', with that organization). A container's follows its
+  -- credential kind; a VM's is ours under today's contract
+  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),
+  account_org_id TEXT REFERENCES orgs (id),
   outcome TEXT NOT NULL CHECK (outcome IN ('creating', 'launched', 'issued', 'enrolled', 'terminate', 'terminated')),
   terminate_reason TEXT CHECK (terminate_reason IS NULL OR terminate_reason IN (
     'second-announce', 'provider-facts', 'provider-unavailable', 'deadline', 'issue-failed', 'watchdog-deadline', 'token-expired',
@@ -97,7 +104,10 @@ CREATE TABLE launches (
   CHECK ((outcome IN ('terminate', 'terminated')) = (terminate_reason IS NOT NULL)),
   CHECK ((outcome = 'terminated') = (terminated_ms IS NOT NULL)),
   CHECK ((outcome IN ('enrolled', 'terminated')) = (next_ms IS NULL)),
-  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL)
+  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL),
+  CHECK ((account_kind = 'org') = (account_org_id IS NOT NULL)),
+  CHECK (mode <> 'container' OR (credential_kind = 'org') = (account_kind = 'org')),
+  CHECK (mode <> 'vm' OR account_kind = 'platform')
 ) STRICT;
 CREATE INDEX launches_next ON launches (next_ms, watchdog_version, machine_id, incarnation) WHERE next_ms IS NOT NULL;
 -- the heartbeat watchdog's candidates: enrolled VM launches, in due order (a range scan, no sort)
@@ -132,8 +142,10 @@ END;
 
 -- the rest of the intent's pins: when it was recorded (a container's accrual starts there) and
 -- the hashes enroll and announce check against
-CREATE TRIGGER launches_intent_fixed BEFORE UPDATE OF created_ms, agent_sha256, nonce_sha256, boot_script_sha256 ON launches
+CREATE TRIGGER launches_intent_fixed BEFORE UPDATE OF created_ms, agent_sha256, nonce_sha256, boot_script_sha256, account_kind, account_org_id ON launches
 WHEN NEW.created_ms IS NOT OLD.created_ms
+  OR NEW.account_kind IS NOT OLD.account_kind
+  OR NEW.account_org_id IS NOT OLD.account_org_id
   OR NEW.agent_sha256 IS NOT OLD.agent_sha256
   OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256
   OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256
@@ -157,6 +169,15 @@ WHEN (OLD.ipv4 IS NOT NULL AND NEW.ipv4 IS NOT OLD.ipv4)
       AND NOT (OLD.outcome = 'creating' AND NEW.outcome = 'launched'))
 BEGIN
   SELECT RAISE(ABORT, 'a launch''s ACTIVE facts are fixed');
+END;
+
+-- the account's organization is the machine's owner at the intent, exactly
+CREATE TRIGGER launches_account_at_intent BEFORE INSERT ON launches
+WHEN NEW.account_org_id IS NOT NULL AND NEW.account_org_id IS NOT (
+  SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = NEW.machine_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'a launch''s account is its machine''s organization at the intent');
 END;
 
 CREATE TRIGGER launches_credential_fixed BEFORE UPDATE OF credential_kind ON launches

@@ -222,6 +222,16 @@ test("intent: the launch (creating, due at the create deadline), its pinned rate
   assert.deepEqual((await w.db.all(`SELECT provider_cost_per_hour, margin_bps FROM launch_rates WHERE machine_id = ?`, [m])).map((r) => ({ ...(r as object) })), [{ provider_cost_per_hour: 590_000, margin_bps: 3000 }]);
 });
 
+test("intent: the launch's account is pinned: ours is the platform's; an organization's key is the machine's organization at the intent", async () => {
+  const m = await machine();
+  assert.equal(await launchContainer(env(), req(m)), "created");
+  const acct = async (x: string) => (await w.db.all<{ credential_kind: string; account_kind: string; account_org_id: string | null }>(`SELECT credential_kind, account_kind, account_org_id FROM launches WHERE machine_id = ?`, [x])).map((r) => [r.credential_kind, r.account_kind, r.account_org_id]);
+  assert.deepEqual(await acct(m), [["ours", "platform", null]]);
+  const m2 = await machine();
+  assert.equal(await launchContainer(env(), req(m2, { credentialKind: "org" })), "created");
+  assert.deepEqual(await acct(m2), [["org", "org", w.orgId]]);
+});
+
 test("intent: all or nothing, and no create without it", async () => {
   const m = await machine();
   // a rate the schema refuses: no launch, no rate, no token, and the provider never called
@@ -333,7 +343,7 @@ test("0015: a container launch accrues exactly its rate from its intent; it move
   await assert.rejects(w.db.run(`INSERT INTO launch_rates (machine_id, incarnation, provider_cost_per_hour, margin_bps) VALUES (?, 1, 1, 0)`, [m2]), /creating launch/);
   // a container launch without a rate (written around the intent): it takes no id and doesn't leave creating, and accrues nothing
   await w.db.run(
-    `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, outcome, next_ms, created_ms) VALUES (?, 1, 'container', 'runpod', ?, 'ours', 'creating', ?, ?)`,
+    `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, account_kind, outcome, next_ms, created_ms) VALUES (?, 1, 'container', 'runpod', ?, 'ours', 'platform', 'creating', ?, ?)`,
     [m2, AGENT, T0, T0],
   );
   await assert.rejects(w.db.run(`UPDATE launches SET provider_machine_id = 'podx' WHERE machine_id = ?`, [m2]), /moves only with its rate/);
@@ -345,7 +355,7 @@ test("0015: a container launch accrues exactly its rate from its intent; it move
   // a launch past creating gets no rate
   const m5 = await machine();
   await w.db.run(
-    `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, outcome, terminate_reason, next_ms, created_ms) VALUES (?, 1, 'container', 'runpod', ?, 'ours', 'terminate', 'abort', ?, ?)`,
+    `INSERT INTO launches (machine_id, incarnation, mode, provider, agent_sha256, credential_kind, account_kind, outcome, terminate_reason, next_ms, created_ms) VALUES (?, 1, 'container', 'runpod', ?, 'ours', 'platform', 'terminate', 'abort', ?, ?)`,
     [m5, AGENT, T0, T0],
   );
   await assert.rejects(w.db.run(`INSERT INTO launch_rates (machine_id, incarnation, provider_cost_per_hour, margin_bps) VALUES (?, 1, 1, 0)`, [m5]), /creating launch/);
@@ -826,8 +836,8 @@ test("the watchdogs keep to their mode; the container search is a range scan of 
       v, w.projectId, allocationId, memberId, T0,
     ),
     stmt(
-      `INSERT INTO launches (machine_id, incarnation, mode, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, terminate_reason, next_ms, created_ms)
-       VALUES (?, 1, 'vm', 'shadeform', ?, ?, ?, 'terminate', 'abort', ?, ?)`,
+      `INSERT INTO launches (machine_id, incarnation, mode, account_kind, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, terminate_reason, next_ms, created_ms)
+       VALUES (?, 1, 'vm', 'platform', 'shadeform', ?, ?, ?, 'terminate', 'abort', ?, ?)`,
       v, AGENT, AGENT, AGENT, T0, T0,
     ),
   ]);
@@ -842,7 +852,7 @@ test("the watchdogs keep to their mode; the container search is a range scan of 
         x, w.projectId, allocationId, memberId, T0,
       ),
       stmt(
-        `INSERT INTO launches (machine_id, incarnation, mode, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, terminate_reason, next_ms, created_ms) VALUES (?, 1, 'vm', 'shadeform', ?, ?, ?, 'terminate', 'abort', ?, ?)`,
+        `INSERT INTO launches (machine_id, incarnation, mode, account_kind, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, terminate_reason, next_ms, created_ms) VALUES (?, 1, 'vm', 'platform', 'shadeform', ?, ?, ?, 'terminate', 'abort', ?, ?)`,
         x, AGENT, AGENT, AGENT, T0, T0,
       ),
     ]);

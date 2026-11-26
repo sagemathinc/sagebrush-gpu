@@ -3178,12 +3178,6 @@
  },
  {
   "file": "migrations/0014_launches.sql",
-  "old": "),\n  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL)\n",
-  "new": ")\n",
-  "note": "enrolled without a due time"
- },
- {
-  "file": "migrations/0014_launches.sql",
   "old": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND (NEW.heartbeat_due_ms IS NULL OR NEW.heartbeat_due_ms < OLD.heartbeat_due_ms)",
   "new": "WHEN OLD.heartbeat_due_ms IS NOT NULL AND NEW.heartbeat_due_ms < OLD.heartbeat_due_ms",
   "note": "due time clearable"
@@ -3639,12 +3633,6 @@
   "note": "VM watchdog across modes"
  },
  {
-  "file": "src/vm.ts",
-  "old": "VALUES (?, ?, 'vm', ?, ?, ?, ?, 'creating', ?, ?)`,",
-  "new": "VALUES (?, ?, 'container', ?, ?, ?, ?, 'creating', ?, ?)`,",
-  "note": "intent recorded as a container"
- },
- {
   "file": "src/projects.ts",
   "old": "      orgId: r.org_id,\n      billingMode: r.billing_mode,\n",
   "new": "      orgId: r.org_id,\n      billingMode: \"resold\",\n",
@@ -3661,12 +3649,6 @@
   "old": "WHEN NEW.provider IS NOT OLD.provider\n",
   "new": "WHEN NEW.provider <> OLD.provider AND OLD.mode = 'container'\n",
   "note": "a VM's provider mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
-  "new": "WHEN 0\n",
-  "note": "intent mutable"
  },
  {
   "file": "migrations/0014_launches.sql",
@@ -3789,6 +3771,78 @@
   "note": "a VM's provider id required again"
  },
  {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL),\n",
+  "new": "",
+  "note": "enrolled without a due time"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "VALUES (?, ?, 'vm', 'platform', ?, ?, ?, ?, 'creating', ?, ?)`,",
+  "new": "VALUES (?, ?, 'container', 'platform', ?, ?, ?, ?, 'creating', ?, ?)`,",
+  "note": "intent recorded as a container"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR NEW.account_kind IS NOT OLD.account_kind\n  OR NEW.account_org_id IS NOT OLD.account_org_id\n  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
+  "new": "WHEN 0\n",
+  "note": "intent mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.account_org_id IS NOT NULL AND NEW.account_org_id IS NOT (\n",
+  "new": "WHEN 0 AND NEW.account_org_id IS NOT (\n",
+  "note": "account not the owner at the intent"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = NEW.machine_id\n",
+  "new": "  SELECT p.org_id FROM projects p WHERE p.org_id = NEW.account_org_id\n",
+  "note": "account any organization"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK ((account_kind = 'org') = (account_org_id IS NOT NULL)),\n",
+  "new": "",
+  "note": "account organization apart from its kind"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR (credential_kind = 'org') = (account_kind = 'org')),\n",
+  "new": "",
+  "note": "container account apart from its credential"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'vm' OR account_kind = 'platform')\n",
+  "new": "  CHECK (1)\n",
+  "note": "a VM in an organization's account"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.account_kind IS NOT OLD.account_kind\n",
+  "new": "",
+  "note": "account kind mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.account_org_id IS NOT OLD.account_org_id\n",
+  "new": "",
+  "note": "account organization mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
+  "new": "  account_kind TEXT NOT NULL,",
+  "note": "account kind open"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
+  "new": "  account_kind TEXT NOT NULL DEFAULT 'platform' CHECK (account_kind IN ('platform', 'org')),",
+  "note": "account kind defaulted"
+ },
+ {
   "file": "src/container.ts",
   "old": "params: [i.machineId, i.incarnation, i.rate.providerCostPerHour, i.rate.marginBps],",
   "new": "params: [i.machineId, i.incarnation, i.rate.marginBps, i.rate.providerCostPerHour],",
@@ -3796,8 +3850,8 @@
  },
  {
   "file": "src/container.ts",
-  "old": "i.createdMs + CREATE_DEADLINE_MS, i.createdMs],",
-  "new": "i.createdMs + CREATE_DEADLINE_MS + 1, i.createdMs],",
+  "old": "i.credentialKind, i.machineId, i.createdMs + CREATE_DEADLINE_MS, i.createdMs,",
+  "new": "i.credentialKind, i.machineId, i.createdMs + CREATE_DEADLINE_MS + 1, i.createdMs,",
   "note": "the create deadline a millisecond late"
  },
  {
@@ -4279,5 +4333,17 @@
   "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
   "new": "    if (s === \"unavailable\" && s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
   "note": "a held id dropped unless the status read fails"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "i.credentialKind === \"org\" ? \"org\" : \"platform\",",
+  "new": "\"platform\",",
+  "note": "an organization's key recorded as the platform's account"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "CASE WHEN ? = 'org' THEN (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
+  "new": "CASE WHEN ? = 'org' THEN NULL ELSE (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
+  "note": "the account's organization on the wrong kind"
  }
 ]
