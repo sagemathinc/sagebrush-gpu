@@ -33,10 +33,18 @@ export const START_FAILURE_WORDS: { readonly [K in StartFailure]: string } = {
   podExited: "it stopped on its own before it was ready",
 };
 
-/** What the card says about a start that never came up; null for any other machine. */
-export function startFailureText(m: Machine): string | null {
+/**
+ * What the card says about a start that never came up; null for any other machine. Resold: what
+ * we charged for this machine. byok: its metered use only (the provider bills the organization).
+ */
+export function startFailureText(m: Machine, mode: BillingMode): string | null {
   if (m.startFailure == null) return null;
-  return `The machine didn't start: ${START_FAILURE_WORDS[m.startFailure]}. It cost ${formatUsd(m.spent.total)} while it was starting, and nothing after that. You can start a new one.`;
+  const why = `The machine didn't start: ${START_FAILURE_WORDS[m.startFailure]}.`;
+  const cost =
+    mode === "byok"
+      ? `Metered use while starting: ${formatUsd(m.spent.total)}. No further use is being metered for this machine. Your provider bills your organization separately.`
+      : `This machine was charged ${formatUsd(m.spent.total)} while it was starting, and nothing after that.`;
+  return `${why} ${cost} You can start a new one.`;
 }
 
 export function stopReasonText(reason: StopReason, labels: ProjectLabels): string {

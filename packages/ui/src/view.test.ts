@@ -261,10 +261,18 @@ test("a start that never came up: its own label, why in plain words, what it cos
   assert.equal(machineStateLabel(deadline), "Didn't start");
   assert.equal(machineStateLabel(exited), "Didn't start");
   assert.equal(machineStateLabel(lost), "Failed");
-  assert.equal(startFailureText(deadline), "The machine didn't start: the provider didn't have it ready in time. It cost $0.01 while it was starting, and nothing after that. You can start a new one.");
-  assert.equal(startFailureText(exited), "The machine didn't start: it stopped on its own before it was ready. It cost $0.01 while it was starting, and nothing after that. You can start a new one.");
-  assert.equal(startFailureText(lost), null);
-  assert.equal(startFailureText(machine()), null);
+  assert.equal(startFailureText(deadline, "resold"), "The machine didn't start: the provider didn't have it ready in time. This machine was charged $0.01 while it was starting, and nothing after that. You can start a new one.");
+  assert.equal(startFailureText(exited, "resold"), "The machine didn't start: it stopped on its own before it was ready. This machine was charged $0.01 while it was starting, and nothing after that. You can start a new one.");
+  // byok: metered use only; the provider bills the organization
+  assert.equal(
+    startFailureText(exited, "byok"),
+    "The machine didn't start: it stopped on its own before it was ready. Metered use while starting: $0.01. No further use is being metered for this machine. Your provider bills your organization separately. You can start a new one.",
+  );
+  assert.doesNotMatch(startFailureText(deadline, "byok")!, /charged/);
+  for (const mode of ["resold", "byok"] as const) {
+    assert.equal(startFailureText(lost, mode), null, mode);
+    assert.equal(startFailureText(machine(), mode), null, mode);
+  }
   assert.deepEqual(START_FAILURE_WORDS, { createDeadline: "the provider didn't have it ready in time", podExited: "it stopped on its own before it was ready" });
   assert.deepEqual([machineActions(deadline).stop, machineActions(deadline).delete, machineActions(deadline).restart], [false, true, false]);
   assert.deepEqual([machineActions(lost).stop, machineActions(lost).delete], [true, true], "a machine that failed later may still need stopping");

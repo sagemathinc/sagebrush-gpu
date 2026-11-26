@@ -4146,7 +4146,7 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "    ${m.startFailure ? html`<p class=\"warn small\">${startFailureText(m)}</p>` : null}\n",
+  "old": "    ${m.startFailure ? html`<p class=\"warn small\">${startFailureText(m, store.billingMode.value)}</p>` : null}\n",
   "new": ""
  },
  {
@@ -4168,5 +4168,16 @@
   "file": "src/mock/backend.ts",
   "old": "    if (rec.m.state !== \"starting\") throw new Error(`only a starting machine fails to start",
   "new": "    if (false) throw new Error(`only a starting machine fails to start"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    mode === \"byok\"\n      ?",
+  "new": "    false\n      ?",
+  "note": "a byok start failure's text as if resold (COPY on the failed-start PR)"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${startFailureText(m, store.billingMode.value)}",
+  "new": "${startFailureText(m, \"resold\")}"
  }
 ]

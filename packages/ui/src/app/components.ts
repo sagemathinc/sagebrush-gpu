@@ -253,7 +253,7 @@ export function MachineCard({ store, machine: m, labels, now }: { store: Store; 
       ? html`<p class="small">${stopReasonText(m.stopReason, labels)}</p>`
       : null}
     ${m.finalSaveIncomplete ? html`<p class="warn small">The final save didn't finish; work after the last save was lost.</p>` : null}
-    ${m.startFailure ? html`<p class="warn small">${startFailureText(m)}</p>` : null}
+    ${m.startFailure ? html`<p class="warn small">${startFailureText(m, store.billingMode.value)}</p>` : null}
     ${m.error ? html`<p class="warn small">${m.error}</p>` : null}
     <div class="actions">
       ${actions.openTerminal && !terminalOpen ? html`<button onClick=${() => setTerminalOpen(true)}>Open terminal</button>` : null}

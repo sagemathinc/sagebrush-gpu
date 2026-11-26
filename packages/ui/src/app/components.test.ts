@@ -269,7 +269,7 @@ test("a start that never came up says so on its card, with what it cost, and off
   await store.refresh();
   const t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
   assert.match(t, /1× L4 Didn't start/);
-  assert.match(t, /The machine didn't start: it stopped on its own before it was ready\. It cost \$0\.01 while it was starting, and nothing after that\. You can start a new one\./);
+  assert.match(t, /The machine didn't start: it stopped on its own before it was ready\. This machine was charged \$0\.01 while it was starting, and nothing after that\. You can start a new one\./);
   assert.match(t, /Delete/);
   assert.doesNotMatch(t, /Stop\b|Start again/);
   // stopped through the API anyway, then started again: the new start has no start failure
@@ -278,4 +278,21 @@ test("a start that never came up says so on its card, with what it cost, and off
   assert.equal(demo.backend.machines.get(id)!.m.state, "stopped");
   demo.backend.request("POST", `/v1/machines/${id}/start`, {}, {});
   assert.deepEqual([demo.backend.machines.get(id)!.m.state, demo.backend.machines.get(id)!.m.startFailure], ["starting", null]);
+});
+
+test("under byok the failed start shows its metered use, and says the provider bills the organization", async () => {
+  const demo = seedDemo({ billingMode: "byok" });
+  for (const provider of ["runpod", "hyperstack", "nebius"] as const) {
+    demo.backend.credentials.set(`${demo.orgId}|${provider}`, { fingerprint: "0badf00d", setBy: demo.emails.owner, setAt: demo.backend.now(), lastCheckedAt: demo.backend.now(), status: "ok" });
+  }
+  const store = new Store(createClient({ fetch: mockFetch(demo.backend) }), () => demo.backend.now());
+  await signInAs(store, demo.backend, demo.emails.member);
+  await store.openProject(demo.projectId);
+  assert.equal(await store.start("L4"), true);
+  demo.backend.advance(30_000);
+  demo.backend.failStart(store.machines.value[0]!.id, "createDeadline");
+  await store.refresh();
+  const t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
+  assert.match(t, /The machine didn't start: the provider didn't have it ready in time\. Metered use while starting: \$0\.\d\d\. No further use is being metered for this machine\. Your provider bills your organization separately\./);
+  assert.doesNotMatch(t, /was charged/);
 });
