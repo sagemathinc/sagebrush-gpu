@@ -612,6 +612,42 @@ export interface AgentWorkspaceTokenResponse {
   gatewayUrl: string;
 }
 
+/**
+ * Provisioning the machine's one member (classroom GPU; enrollment design r11, remote-compute's PROVISIONED r2).
+ * After enroll, the agent asks for the member's single-use `sagebrush remote --provisioned` token, hands it to the
+ * daemon through a pipe (never argv, env, a file or a log), and reports how that went on the same route.
+ *
+ * - `report: null` asks for the first token.
+ * - `{outcome: "enrolled", remoteId}` acks the daemon's remote id: once, and idempotent (the same id again is
+ *   accepted; another id is refused). The answer then has no token.
+ * - `{outcome: "refused" | "unknown" | "token-used"}` says the last handoff's token didn't enroll (the daemon's exit
+ *   10, 11 or 13). The token is never re-sent; the answer carries a fresh one through a fresh handoff, at most
+ *   AGENT_PROVISION_HANDOFFS in all. Past that, or with the machine terminating, control refuses and replaces or ends
+ *   the machine.
+ *
+ * Control mints a token only for a machine whose enroll passed its eradication checks or gate, and which isn't
+ * terminating; the provisioning record binds the token, the machine and the member before it is answered.
+ */
+export interface AgentProvisionRequest {
+  incarnation: number;
+  report: null | { outcome: "enrolled"; remoteId: string } | { outcome: AgentProvisionFailure };
+}
+export const AGENT_PROVISION_FAILURES = ["refused", "unknown", "token-used"] as const;
+export type AgentProvisionFailure = (typeof AGENT_PROVISION_FAILURES)[number];
+/** Token handoffs per machine, the first included. */
+export const AGENT_PROVISION_HANDOFFS = 3;
+/** A remote id as the daemon prints it. */
+export const REMOTE_ID_PATTERN = /^r[A-Za-z0-9_-]{1,127}$/;
+/** The longest provisioned token the agent hands over (the daemon refuses more). */
+export const PROVISION_TOKEN_MAX_BYTES = 4096;
+
+export interface AgentProvisionResponse {
+  /** The single-use token for this handoff (absent once enrolled). */
+  token?: string;
+  /** Which handoff this is, 1..AGENT_PROVISION_HANDOFFS. */
+  handoff?: number;
+}
+
 export interface AgentSaveStatusRequest {
   incarnation: number;
   /** The command this answers, or null for a periodic save. */

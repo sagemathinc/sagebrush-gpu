@@ -19,6 +19,10 @@ import {
   isStartFailure,
   AGENT_ERADICATION_CHECKS,
   AGENT_ABORT_REASONS,
+  AGENT_PROVISION_FAILURES,
+  AGENT_PROVISION_HANDOFFS,
+  PROVISION_TOKEN_MAX_BYTES,
+  REMOTE_ID_PATTERN,
 } from "./objects.ts";
 
 test("project role order", () => {
@@ -133,4 +137,12 @@ test("the container agent's eradication checks and abort reasons are exactly the
   // own lists are pinned to these by the machine package's agent test)
   assert.deepEqual([...AGENT_ERADICATION_CHECKS], ["env", "processes", "files", "ssh"]);
   assert.deepEqual([...AGENT_ABORT_REASONS], ["env-not-clean", "extra-process", "key-file", "ssh-access", "other"]);
+});
+
+test("provisioning: the failure outcomes, the handoff cap and the remote id's shape", () => {
+  assert.deepEqual([...AGENT_PROVISION_FAILURES], ["refused", "unknown", "token-used"]);
+  assert.equal(AGENT_PROVISION_HANDOFFS, 3);
+  assert.equal(PROVISION_TOKEN_MAX_BYTES, 4096);
+  for (const ok of ["r1", "rABC_9-x", "r" + "a".repeat(127)]) assert.ok(REMOTE_ID_PATTERN.test(ok), ok);
+  for (const bad of ["", "r", "x1", "r1 2", "r" + "a".repeat(128), "r1\n", "R1"]) assert.ok(!REMOTE_ID_PATTERN.test(bad), bad);
 });

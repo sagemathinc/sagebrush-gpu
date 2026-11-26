@@ -23,6 +23,8 @@ import type {
   AgentEnrollResponse,
   AgentHeartbeatRequest,
   AgentHeartbeatResponse,
+  AgentProvisionRequest,
+  AgentProvisionResponse,
   AgentSaveStatusRequest,
   AgentWorkspaceTokenResponse,
   Allocation,
@@ -174,6 +176,7 @@ export interface Endpoints {
   agentHeartbeat: { method: "POST"; path: "/v1/agent/heartbeat"; params: {}; query: {}; body: AgentHeartbeatRequest; response: AgentHeartbeatResponse };
   agentWorkspaceToken: { method: "POST"; path: "/v1/agent/workspace-token"; params: {}; query: {}; body: { incarnation: number }; response: AgentWorkspaceTokenResponse };
   agentSaveStatus: { method: "POST"; path: "/v1/agent/save-status"; params: {}; query: {}; body: AgentSaveStatusRequest; response: Ok };
+  agentProvision: { method: "POST"; path: "/v1/agent/provision"; params: {}; query: {}; body: AgentProvisionRequest; response: AgentProvisionResponse };
   agentAbort: { method: "POST"; path: "/v1/agent/abort"; params: {}; query: {}; body: AgentAbortRequest; response: {} };
 
   // operators
@@ -305,6 +308,7 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   agentHeartbeat: { method: "POST", path: "/v1/agent/heartbeat", access: { auth: "agent" } },
   agentWorkspaceToken: { method: "POST", path: "/v1/agent/workspace-token", access: { auth: "agent" } },
   agentSaveStatus: { method: "POST", path: "/v1/agent/save-status", access: { auth: "agent" } },
+  agentProvision: { method: "POST", path: "/v1/agent/provision", access: { auth: "agent" }, note: "the member's single-use provisioned token, and the agent's reports on it (AgentProvisionRequest)" },
   agentAbort: { method: "POST", path: "/v1/agent/abort", access: { auth: "public" }, note: "authenticated by the boot token in the body; uses it up and terminates the machine" },
 
   getOrphanReport: {

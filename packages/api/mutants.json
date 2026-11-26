@@ -1531,5 +1531,35 @@
   "old": "\"key-file\", \"ssh-access\", \"other\"] as const;",
   "new": "\"key-file\", \"other\"] as const;",
   "note": "abort reasons: ssh-access dropped"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const AGENT_PROVISION_HANDOFFS = 3;",
+  "new": "export const AGENT_PROVISION_HANDOFFS = 4;",
+  "note": "provision: a fourth handoff"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const AGENT_PROVISION_FAILURES = [\"refused\", \"unknown\", \"token-used\"] as const;",
+  "new": "export const AGENT_PROVISION_FAILURES = [\"refused\", \"unknown\"] as const;",
+  "note": "provision: token-used not a failure outcome"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const REMOTE_ID_PATTERN = /^r[A-Za-z0-9_-]{1,127}$/;",
+  "new": "export const REMOTE_ID_PATTERN = /^r[A-Za-z0-9_-]{1,128}$/;",
+  "note": "provision: a 129-byte remote id"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const REMOTE_ID_PATTERN = /^r[A-Za-z0-9_-]{1,127}$/;",
+  "new": "export const REMOTE_ID_PATTERN = /r[A-Za-z0-9_-]{1,127}/;",
+  "note": "provision: the remote id unanchored"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const PROVISION_TOKEN_MAX_BYTES = 4096;",
+  "new": "export const PROVISION_TOKEN_MAX_BYTES = 4097;",
+  "note": "provision: the token cap"
  }
 ]
