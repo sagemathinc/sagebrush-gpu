@@ -36,15 +36,21 @@ const TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde";
 /** One reply; `textThrows` makes reading its body fail, as a cut-off stream does. */
 type Reply = { status: number; body?: unknown; headers?: Record<string, string>; textThrows?: boolean } | Error;
 
-/** A fetch that answers from a list of replies, in order, and records every request and body read. */
-function mockFetch(replies: Reply[]) {
+/**
+ * A fetch that answers from a list of replies, in order, and records every request and body read.
+ * The account-key read (every launch's first request) is answered apart, from `keys` (an empty
+ * list unless a test says otherwise), and recorded in `keyCalls`.
+ */
+function mockFetch(replies: Reply[], keys: Reply[] = []) {
   const calls: Array<{ url: string; init: HttpRequest }> = [];
+  const keyCalls: Array<{ url: string; init: HttpRequest }> = [];
   const reads = { n: 0 };
   const fetch: Fetch = async (url, init) => {
-    calls.push({ url, init });
+    const isKeys = url.endsWith("/api/v0/ssh/");
+    (isKeys ? keyCalls : calls).push({ url, init });
     // Every request, in every test: a redirect is never followed.
     if (init.redirect !== "manual") throw new Error(`request without redirect: "manual": ${init.method} ${url}`);
-    const r = replies.shift();
+    const r = isKeys ? (keys.shift() ?? { status: 200, body: [] }) : replies.shift();
     if (r === undefined) throw new Error(`unexpected request ${init.method} ${url}`);
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? "" : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
@@ -69,12 +75,12 @@ function mockFetch(replies: Reply[]) {
       }, { highWaterMark: 0 }),
     };
   };
-  return { fetch, calls, reads };
+  return { fetch, calls, keyCalls, reads };
 }
 
-function adapter(replies: Reply[]) {
-  const m = mockFetch(replies);
-  return { a: new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls, reads: m.reads };
+function adapter(replies: Reply[], keys: Reply[] = []) {
+  const m = mockFetch(replies, keys);
+  return { a: new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls, keyCalls: m.keyCalls, reads: m.reads };
 }
 
 /** An offer as Vast's search reference describes it. */
@@ -482,16 +488,16 @@ test("launch: a stop before any request sends nothing; a stop after the create k
   }
   {
     let n = 0;
-    // false before the search, its request, the create check and the create request; true after
+    // false before the key read, its request, the search's request, the create check and the create request; true after
     const { a, calls } = adapter([ok({ offers: [offer()] }), ok({ success: true, new_contract: 31337 })]);
-    await assert.rejects(a.launch(SPEC, { shouldStop: () => ++n > 4 }), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === "31337");
+    await assert.rejects(a.launch(SPEC, { shouldStop: () => ++n > 5 }), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === "31337");
     assert.equal(calls.length, 2);
   }
   {
     // stopped between the search and the create: no create
     let n = 0;
     const { a, calls } = adapter([ok({ offers: [offer()] })]);
-    await assert.rejects(a.launch(SPEC, { shouldStop: () => ++n > 2 }), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
+    await assert.rejects(a.launch(SPEC, { shouldStop: () => ++n > 3 }), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
     assert.equal(calls.length, 1);
   }
 });
@@ -788,7 +794,7 @@ test("the fixed request set: each route's exact method, path and query shape; an
     }
   }
   // SSH and other paths
-  for (const p of ["/api/v0/instances/31337/ssh/", "/api/v0/instances/31337/ssh", "/api/v0/ssh/", "/api/v0/users/current/", "/api/v0/instances/31337/attach/", "/api/v0/instances/", "/api/v0/instances/x/", "/api/v0/bundles/../ssh", "/API/v0/bundles", "/api/v0/instances/31337?ssh=1"]) {
+  for (const p of ["/api/v0/instances/31337/ssh/", "/api/v0/instances/31337/ssh", "/api/v0/users/current/", "/api/v0/instances/31337/attach/", "/api/v0/instances/", "/api/v0/instances/x/", "/api/v0/bundles/../ssh", "/API/v0/bundles", "/api/v0/instances/31337?ssh=1"]) {
     for (const m of ["GET", "POST", "PUT", "DELETE"]) assert.equal(allowedRequest(m, p, m === "POST" || m === "PUT" ? B : undefined), false, `${m} ${p}`);
   }
   // the list's query: exactly its keys, decoded, each once, each in its shape
@@ -813,6 +819,63 @@ test("the fixed request set: each route's exact method, path and query shape; an
   assert.equal(allowedRequest("GET", "/api/v0/instances/31337/", {}), false);
   for (const body of [{ ssh_key: "ssh-ed25519 AAAA" }, { image: "x", SSH_KEY: "k" }, { a: { b: [{ sshKey: 1 }] } }, { runtype: "args", extra: { ssh: true } }]) {
     assert.equal(allowedRequest("PUT", "/api/v0/asks/9001/", body), false, JSON.stringify(body));
+  }
+});
+
+test("the account-key read: exactly GET /api/v0/ssh/, no query, no body; every other method or form under ssh/ is refused", () => {
+  assert.ok(allowedRequest("GET", "/api/v0/ssh/", undefined));
+  for (const m of ["POST", "PUT", "DELETE", "PATCH", "HEAD", "get"]) {
+    assert.equal(allowedRequest(m, "/api/v0/ssh/", undefined), false, m);
+    assert.equal(allowedRequest(m, "/api/v0/ssh/", { ssh_key: "ssh-ed25519 AAAA" }), false, `${m} with a key`);
+  }
+  for (const p of ["/api/v0/ssh", "/api/v0/ssh/?limit=1", "/api/v0/ssh/?", "/api/v0/ssh/1/", "/api/v0/ssh/1", "/api/v0/ssh//", "/api/v1/ssh/", "/api/v0/instances/31337/ssh/"]) {
+    assert.equal(allowedRequest("GET", p, undefined), false, p);
+  }
+  assert.equal(allowedRequest("GET", "/api/v0/ssh/", {}), false, "a body");
+});
+
+test("launch: the account-key read comes first; an empty list goes on to the search", async () => {
+  for (const body of [[], { ssh_keys: [] }, { success: true, ssh_keys: [] }]) {
+    const { a, calls, keyCalls } = adapter([ok({ offers: [offer()] }), ok({ success: true, new_contract: 31337 }), ok({ instances: inst() })], [ok(body)]);
+    assert.equal((await a.launch(SPEC)).providerMachineId, "31337", JSON.stringify(body));
+    assert.equal(keyCalls.length, 1);
+    assert.deepEqual([keyCalls[0]!.init.method, keyCalls[0]!.url, keyCalls[0]!.init.body], ["GET", "https://console.vast.ai/api/v0/ssh/", undefined]);
+    assert.equal(calls.length, 3);
+  }
+});
+
+test("launch: an account with any SSH key refuses before any spend (auth: the account can't launch); no key text anywhere", async () => {
+  const LINE = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMaD3upKeYmAtErIaLkEyForTesTs0nLy01 owner@laptop";
+  const FP = "SHA256:k3yF1ngerpr1ntF0rTest5OnlyXXXXXXXXXXXXXXXXX";
+  for (const body of [[{ id: 7, public_key: LINE, fingerprint: FP }], { ssh_keys: [{ id: 7, ssh_key: LINE }] }, [LINE], [{}]]) {
+    const { a, calls, keyCalls } = adapter([], [ok(body)]);
+    let err: unknown = null;
+    await a.launch(SPEC).catch((e: unknown) => {
+      err = e;
+    });
+    assert.ok(err instanceof ProviderError && err.kind === "auth", JSON.stringify(body));
+    assert.deepEqual([keyCalls.length, calls.length], [1, 0], "no search, no create");
+    const shown = inspect(err, { depth: null, showHidden: true });
+    assert.ok(!shown.includes("AAAAC3Nz") && !shown.includes("k3yF1nger") && !shown.includes("owner@laptop"), shown.slice(0, 200));
+  }
+});
+
+test("launch: a key list that can't be read refuses before any spend; a lost reply is a plain failure (nothing was created)", async () => {
+  const cases: Array<[Reply, string]> = [
+    [ok({}), "unknown"],
+    [ok({ ssh_keys: "none" }), "unknown"],
+    [ok(null), "unknown"],
+    [{ status: 200, body: '"[]"' }, "unknown"], // (a JSON string, not a list)
+    [{ status: 200, body: "{}" }, "unknown"],
+    [{ status: 200, body: "not json" }, "unknown"],
+    [{ status: 401 }, "auth"],
+    [{ status: 500 }, "transient"],
+    [new TypeError("fetch failed"), "unknown"],
+  ];
+  for (const [reply, kind] of cases) {
+    const { a, calls } = adapter([], [reply]);
+    await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === kind && e.providerMachineId === null, String(kind));
+    assert.equal(calls.length, 0, `no search, no create: ${JSON.stringify(reply instanceof Error ? "error" : reply)}`);
   }
 });
 
@@ -917,6 +980,8 @@ function slashedVast() {
     let reply: Reply;
     if (!u.pathname.endsWith("/")) {
       reply = { status: 301, headers: { Location: `${u.origin}${u.pathname}/${u.search}` } };
+    } else if (init.method === "GET" && u.pathname === "/api/v0/ssh/") {
+      reply = ok([]);
     } else if (init.method === "POST" && u.pathname === "/api/v0/bundles/") {
       reply = ok({ offers: [offer({ id: 9100 })] });
     } else if (init.method === "PUT" && u.pathname === "/api/v0/asks/9100/") {
@@ -944,6 +1009,7 @@ test("paths: every call uses the canonical slashed path, so a Vast that redirect
   await a.terminate("31337");
   assert.deepEqual(seen, [
     "POST /api/v0/bundles/",
+    "GET /api/v0/ssh/",
     "POST /api/v0/bundles/",
     "PUT /api/v0/asks/9100/",
     "GET /api/v0/instances/31337/",
