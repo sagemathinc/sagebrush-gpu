@@ -353,11 +353,43 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
   return true;
 }
 
-/** Ends a container launch now (revoking its token first), with the pod ids the caller holds. */
+/** How many times abandonContainer tries to claim the launch before it hands its held ids over alone. */
+const ABANDON_CLAIM_TRIES = 2;
+
+/**
+ * Ends a container launch now (revoking its token first), with the pod ids the caller holds.
+ * The held ids must outlive this call. If the claim isn't won (a failed write, or another
+ * caller's claim), they are written to launch_cleanup by themselves, so whoever claims the launch
+ * later (the watchdog, at the latest at the create deadline) ends them by id. Only if nothing can
+ * be written are they ended here, unrecorded: nothing else could ever find a pod that no list
+ * shows by the name.
+ */
 export async function abandonContainer(env: ContainerEnv, machineId: string, incarnation: number, reason: ContainerReason, heldIds: readonly string[] = []): Promise<void> {
-  const r = await containerRow(env.db, machineId, incarnation);
-  if (!r) return;
-  await terminateContainerAttempt(env, r, reason, heldIds);
+  for (let i = 0; i < ABANDON_CLAIM_TRIES; i++) {
+    let r: ContainerRow | null;
+    try {
+      r = await containerRow(env.db, machineId, incarnation);
+    } catch {
+      continue;
+    }
+    if (!r) return;
+    if (await terminateContainerAttempt(env, r, reason, heldIds)) return;
+  }
+  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x)))];
+  if (held.length === 0) return;
+  try {
+    await env.db.batch(
+      held.map((id) => ({
+        sql: `INSERT INTO launch_cleanup (machine_id, incarnation, provider_machine_id) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+        params: [machineId, incarnation, id],
+      })),
+    );
+    return;
+  } catch {
+    // (nothing durable: the last chance to end them)
+  }
+  const p = env.provider;
+  if (p) for (const id of held) await withDeadline(() => p.terminate(id), undefined);
 }
 
 export interface ContainerLaunch {

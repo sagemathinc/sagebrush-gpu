@@ -524,6 +524,61 @@ test("a renamed held pod whose terminate throws, never answers, or answers befor
   }
 });
 
+/** The world's database, but the next `n` batches writing a cleanup id fail (the claim's, or a handoff's). */
+function flakyCleanup(n: number): ContainerEnv["db"] {
+  const db = w.db;
+  return {
+    all: (sql, params) => db.all(sql, params),
+    run: (sql, params) => db.run(sql, params),
+    batch: (ss) => (ss.some((x) => x.sql.includes("INSERT INTO launch_cleanup")) && n-- > 0 ? Promise.reject(new Error("write lost")) : db.batch(ss)),
+  };
+}
+
+test("a claim that fails once while a renamed pod is held: tried again at once; the token revoked, the pod ended by its id, billed, terminated", async () => {
+  const m = await machine();
+  rp.mode = "renamed";
+  rp.terminated = [];
+  assert.equal(await launchContainer({ ...env(), db: flakyCleanup(1) }, req(m)), "abandoned");
+  assert.notEqual((await token(m)).used_ms, null);
+  assert.deepEqual(rp.terminated, ["pod1"]);
+  assert.equal(rp.pods.size, 0);
+  assert.equal((await launch(m)).outcome, "terminated");
+  assert.deepEqual((await accruals(m)).map((a) => a.start_ms), [T0]);
+  assert.deepEqual(await cleanupIds(m), []);
+});
+
+test("every claim failing while a renamed pod is held: its id handed over alone, the pod kept up; a restarted watchdog ends it by id, and terminates the launch only once it reads gone", async () => {
+  const m = await machine();
+  rp.mode = "renamed";
+  rp.terminated = [];
+  assert.equal(await launchContainer({ ...env(), db: flakyCleanup(2) }, req(m)), "abandoned");
+  assert.deepEqual(await cleanupIds(m), ["pod1"], "the held id is durable though no claim was won");
+  assert.deepEqual(rp.terminated, [], "not ended unrecorded while its id could be kept");
+  assert.equal((await launch(m)).outcome, "creating");
+  // a restarted watchdog (nothing in memory) at the create deadline; the first terminate answers before the pod is gone
+  w.clock.t = T0 + CREATE_DEADLINE_MS;
+  rp.terminateFaults = ["early"];
+  assert.equal(await runContainerWatchdog(env()), 1);
+  assert.deepEqual(rp.terminated, ["pod1"]);
+  assert.ok(rp.pods.has("pod1"));
+  assert.equal((await launch(m)).outcome, "terminate", "not terminated while the held pod is live");
+  assert.notEqual((await token(m)).used_ms, null);
+  w.clock.t += 60_000;
+  assert.equal(await runContainerWatchdog(env()), 1);
+  assert.equal(rp.pods.size, 0);
+  assert.deepEqual(await cleanupIds(m), []);
+  assert.equal((await launch(m)).outcome, "terminated");
+  assert.deepEqual((await accruals(m)).map((a) => [a.start_ms, a.end_ms !== null]), [[T0, true]]);
+  // and with nothing writable at all, the held pod is ended here (no record could keep it), the launch left due
+  const m2 = await machine();
+  rp.terminated = [];
+  assert.equal(await launchContainer({ ...env(), db: flakyCleanup(Infinity) }, req(m2)), "abandoned");
+  assert.deepEqual(rp.terminated, ["pod2"]);
+  assert.equal(rp.pods.size, 0);
+  assert.deepEqual(await cleanupIds(m2), []);
+  assert.equal((await launch(m2)).outcome, "creating");
+});
+
 test("a held id other than the recorded one: kept until its own status reads terminated; the launch isn't terminated before", async () => {
   const m = await machine();
   assert.equal(await launchContainer(env(), req(m)), "created");

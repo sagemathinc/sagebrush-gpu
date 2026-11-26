@@ -4225,5 +4225,35 @@
   "old": "AND provider_machine_id NOT GLOB '*[^!-~]*'),",
   "new": "),",
   "note": "cleanup ids outside printable ASCII"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "const ABANDON_CLAIM_TRIES = 2;",
+  "new": "const ABANDON_CLAIM_TRIES = 1;",
+  "note": "no second claim after a failed one"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (held.length === 0) return;\n  try {",
+  "new": "  return;\n  try {",
+  "note": "held ids dropped when no claim is won"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    );\n    return;\n  } catch {\n    // (nothing durable",
+  "new": "    );\n  } catch {\n    // (nothing durable",
+  "note": "a handed-over pod also ended unrecorded"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (p) for (const id of held) await withDeadline(() => p.terminate(id), undefined);\n}",
+  "new": "}",
+  "note": "a held pod left up when nothing is writable"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (await terminateContainerAttempt(env, r, reason, heldIds)) return;\n  }",
+  "new": "    await terminateContainerAttempt(env, r, reason, heldIds);\n    return;\n  }",
+  "note": "a failed claim taken for a won one"
  }
 ]
