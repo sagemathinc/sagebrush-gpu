@@ -298,14 +298,15 @@ def _keys_state(root, home, mounts, pinned, seen=None):
             os.close(f)
 
 
-def check_ssh(root, procs, proc="/proc", pinned=(), sentinels=()):
+def sshd_running(procs):
+    """Whether any process ({pid: {"comm", "exe", ...}}) is an sshd, by its name or its executable's."""
+    return any(p["comm"] in SSHD_NAMES or os.path.basename(p["exe"]) in SSHD_NAMES for p in procs.values())
+
+
+def check_keys(root, proc="/proc", pinned=(), sentinels=()):
+    """Every passwd home's authorized_keys and authorized_keys2, through _keys_state's walk: the words found,
+    "authorized-keys" and "mount-crossing".  (The container check in eradication.py uses this too.)"""
     out = set()
-    for unit in SSH_UNITS:
-        if unit_state(root, unit) == "present":
-            out.add("ssh-unit")
-    for p in procs.values():
-        if p["comm"] in SSHD_NAMES or os.path.basename(p["exe"]) in SSHD_NAMES:
-            out.add("ssh-running")
     mounts = mount_points(proc)
     seen = {}
     for home in _homes(root, sentinels):
@@ -315,6 +316,16 @@ def check_ssh(root, procs, proc="/proc", pinned=(), sentinels=()):
         elif state == "mount":
             out.add("mount-crossing")
     return out
+
+
+def check_ssh(root, procs, proc="/proc", pinned=(), sentinels=()):
+    out = set()
+    for unit in SSH_UNITS:
+        if unit_state(root, unit) == "present":
+            out.add("ssh-unit")
+    if sshd_running(procs):
+        out.add("ssh-running")
+    return out | check_keys(root, proc, pinned, sentinels)
 
 
 # ---- the gate's work budget: every count is charged before the work it pays for, and running out fails the gate

@@ -133,7 +133,7 @@ test("rankOffers orders by price, then stock, then provider and data center", ()
 
 function fakeStatus(id: string, state: ProviderMachineStatus["state"] = "provisioning"): ProviderMachineStatus {
   return {
-    provider: "runpod", providerMachineId: id, machineId: "mch_a", state, rawStatus: state.toUpperCase(),
+    provider: "runpod", providerMachineId: id, machineId: "mch_a", parsedName: null, state, rawStatus: state.toUpperCase(),
     gpuType: "L4", gpuCount: 1, dataCenter: null, image: "img", diskGb: 40, volumeGb: 0, envNames: [],
     exposedPorts: [], unexpectedSettings: [], command: [], providerCostPerHour: 690_000, observedAt: "",
   };
@@ -196,7 +196,7 @@ function run(
     offers,
     adapters: { runpod: scripted("runpod", script, log) },
     spec: (o) => ({
-      machineId: "mch_a", gpuType: o.gpuType, gpuCount: o.gpuCount, dataCenter: o.dataCenter, image: "img",
+      machineId: "mch_a", incarnation: 1, name: "sbg-test-a-1", gpuType: o.gpuType, gpuCount: o.gpuCount, dataCenter: o.dataCenter, image: "img",
       diskGb: 40, bootToken: `t${++n}`, launcher: ["/bin/sh"], maxProviderCostPerHour: 1_000_000,
     }),
     revokeBootToken: async (spec) => { log.push(`revoke:${spec.bootToken}`); },

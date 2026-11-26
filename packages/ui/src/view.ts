@@ -1,7 +1,7 @@
 // What the screens show and allow, as pure functions of API objects, so the decisions
 // are tested without a DOM. Components only lay these out.
 
-import type { BillingMode, Machine, ProjectLabels, ProviderId, ProviderPause, QuoteRefusal, SpendMeter, StopReason } from "@sbgpu/api";
+import type { BillingMode, ErrorCode, Machine, Micros, ProjectLabels, ProviderId, ProviderPause, QuoteRefusal, SpendMeter, StartFailure, StopReason } from "@sbgpu/api";
 import { MACHINE_DOMAIN } from "./config.ts";
 import { withArticle } from "./labels.ts";
 import { computeMeter, formatDuration, type MeterBand } from "./meter.ts";
@@ -21,10 +21,30 @@ export function machineStateLabel(m: Machine): string {
     case "stopped":
       return "Stopped";
     case "failed":
-      return "Failed";
+      return m.startFailure ? "Didn't start" : "Failed";
     case "deleted":
       return "Deleted";
   }
+}
+
+/** Why a machine never started, in plain words. */
+export const START_FAILURE_WORDS: { readonly [K in StartFailure]: string } = {
+  createDeadline: "the provider didn't have it ready in time",
+  podExited: "it stopped on its own before it was ready",
+};
+
+/**
+ * What the card says about a start that never came up; null for any other machine. Resold: what
+ * we charged for this machine. byok: its metered use only (the provider bills the organization).
+ */
+export function startFailureText(m: Machine, mode: BillingMode): string | null {
+  if (m.startFailure == null) return null;
+  const why = `The machine didn't start: ${START_FAILURE_WORDS[m.startFailure]}.`;
+  const cost =
+    mode === "byok"
+      ? `Metered use while starting: ${formatUsd(m.spent.total)}. No further use is being metered for this machine. Your provider bills your organization separately.`
+      : `This machine was charged ${formatUsd(m.spent.total)} while it was starting, and nothing after that.`;
+  return `${why} ${cost} You can start a new one.`;
 }
 
 export function stopReasonText(reason: StopReason, labels: ProjectLabels): string {
@@ -72,6 +92,46 @@ export function refusalText(reason: QuoteRefusal, labels: ProjectLabels, provide
   }
 }
 
+/**
+ * A refused start in plain words, chosen by the error's code alone (the server's own words may
+ * change): what happened and what the student can do. Null when the code has nothing better to say
+ * than the server's message (and for credentialUnusable, which has its own words, pausedStartText).
+ */
+export function startRefusalText(code: ErrorCode, labels: ProjectLabels): string | null {
+  switch (code) {
+    case "priceCap":
+      return `The price is now higher than the one you saw, or above the ${labels.project}'s limit. Check the price and try again.`;
+    case "allocationTooLow":
+      return `Your allocation doesn't have enough left for this GPU's shortest run. Try a cheaper one, or ask ${withArticle(labels.manager)} for more.`;
+    case "budgetExhausted":
+      return `Your allocation is used up. Ask ${withArticle(labels.manager)} for more.`;
+    case "projectNotStarted":
+    case "projectEnded":
+    case "noCapacity":
+    case "policy":
+    case "concurrencyCap":
+      return refusalText(code, labels);
+    case "invalidState":
+      return "It can't start right now, perhaps while a restore of your workspace finishes. Try again in a moment.";
+    case "conflict":
+      return "Several starts happened at once. Try again.";
+    default:
+      return null;
+  }
+}
+
+/**
+ * About how long the remaining allocation lasts at an offer's all-in price, for the row before
+ * Start: whole hours from 10 up, tenths below, and "less than an hour" under one. Null when
+ * there's nothing to say (no price, or nothing left).
+ */
+export function hoursOnAllocation(remaining: Micros, pricePerHour: Micros, mode: BillingMode): string | null {
+  if (!(pricePerHour > 0) || !(remaining > 0)) return null;
+  const hours = remaining / pricePerHour;
+  const amount = hours < 1 ? "less than an hour" : hours < 10 ? `about ${(Math.floor(hours * 10) / 10).toFixed(1)} h` : `about ${Math.floor(hours)} h`;
+  return mode === "byok" ? `Your allocation covers ${amount} of metered use at this price.` : `Your allocation buys ${amount} at this price.`;
+}
+
 /** A refused start or restart for a paused provider: its name, or the API's own words without one. */
 export function pausedStartText(provider: ProviderId | undefined, apiMessage: string): string {
   return provider ? `Launches on ${PROVIDER_NAMES[provider]} are paused for this organization until its key works again.` : apiMessage;
@@ -117,7 +177,8 @@ export function machineActions(m: Machine): MachineActions {
     openTerminal: running && m.terminalAvailable,
     openJupyter: running && m.jupyterAvailable,
     save: running && m.save.state !== "saving",
-    stop: m.state === "starting" || running || m.state === "failed",
+    // (a start that never came up has already been ended: nothing to stop)
+    stop: m.state === "starting" || running || (m.state === "failed" && m.startFailure == null),
     restart: m.state === "stopped",
     delete: m.state === "stopped" || m.state === "failed",
   };

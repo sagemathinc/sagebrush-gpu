@@ -10,6 +10,9 @@
 //   between the two. A snapshot outside that area is notFound, as one that doesn't exist.
 // - A restore deletes nothing: it writes a new `restore` snapshot (now current) whose files are
 //   the target's, so another restore undoes it. It needs no recent reauthentication.
+// - The storage gateway's rule that keeps it so: no restore commit path (the commit itself, a
+//   replay, or a crash-recovery retry) invokes retention or deletes any snapshot or version.
+//   Retention resumes only through the next ordinary save, after the restore commit is durable.
 // - A restore claims its area (one live claim per area, in control's area_restores) only while
 //   no machine writes there, and a machine can't start into an area with a live claim. The
 //   writers of an area are the machines whose area keys, pinned at `starting`, name it.

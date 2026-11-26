@@ -13,7 +13,7 @@
 // the eradication report in place of the gate's, and its fresh read comes before the window: a
 // token still pending (no window yet) gets it from that read, when the pod is seen running.
 
-import { DEFAULT_POLICY, isBootTokenShape, mergePolicy, parseGateReport, signToken, toIso, type AgentClaims, type AgentEnrollResponse, type ProjectPolicy, type VmGateReport } from "@sbgpu/api";
+import { AGENT_ERADICATION_CHECKS, DEFAULT_POLICY, isBootTokenShape, mergePolicy, parseGateReport, signToken, toIso, type AgentClaims, type AgentEnrollResponse, type ProjectPolicy, type VmGateReport } from "@sbgpu/api";
 import type { Ctx, Handlers } from "./app.ts";
 import type { Stmt } from "./db.ts";
 import { HEARTBEAT_LOST_MS } from "./heartbeat.ts";
@@ -261,8 +261,8 @@ function enrolledBody(ctx: Ctx, r: { machine_id: string; incarnation: number; po
 
 // ---------------------------------------------------------------- container mode
 
-/** The agent's eradication checks, by name, in its order (sbgpu_agent/eradication.py CHECKS). */
-export const ERADICATION_CHECKS = ["env", "processes", "files"] as const;
+/** The agent's eradication checks, by name, in its order: the contract's list. */
+export const ERADICATION_CHECKS = AGENT_ERADICATION_CHECKS;
 
 interface ContainerEnroll {
   bootToken: string;
@@ -327,7 +327,7 @@ function containerEnv(ctx: Ctx): ContainerEnv | null {
   const c = ctx.deps.container;
   if (!c) return null;
   const { deps } = ctx;
-  return { db: deps.db, clock: deps.now, provider: c.provider, expect: c.expect, randomBytes: deps.randomBytes, elapsedMs: () => 0 };
+  return { db: deps.db, installation: deps.config.installation, clock: deps.now, provider: c.provider, expect: c.expect, randomBytes: deps.randomBytes, elapsedMs: () => 0 };
 }
 
 /**

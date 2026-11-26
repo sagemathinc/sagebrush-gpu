@@ -1,8 +1,12 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { newId } from "@sbgpu/api";
+import { isId, newId } from "@sbgpu/api";
 import { ProviderError, type LaunchSpec, type ProviderMachineStatus } from "@sbgpu/providers";
+import { machineName, nameFields } from "@sbgpu/providers";
+/** A pod name as control builds it here (installation "test", incarnation 1); anything else is kept as given (a name that is not ours). */
+const podName = (machineId: string) => (isId("machine", machineId) ? machineName("test", machineId, 1) : machineId);
+
 import { stmt } from "./db.ts";
 import {
   CONNECT_WINDOW_MS,
@@ -49,12 +53,12 @@ class FakeRunPod implements ContainerProvider {
   duringStatus: (() => void) | null = null;
   override: Partial<ProviderMachineStatus> = {};
 
-  pod(machineId: string, state: ProviderMachineStatus["state"] = "provisioning"): string {
+  pod(machineId: string, state: ProviderMachineStatus["state"] = "provisioning", name: string = podName(machineId)): string {
     const id = `pod${++this.n}`;
     this.pods.set(id, {
       provider: "runpod",
       providerMachineId: id,
-      machineId: machineId as ProviderMachineStatus["machineId"],
+      ...nameFields(name),
       state,
       rawStatus: state,
       gpuType: "A40",
@@ -76,13 +80,13 @@ class FakeRunPod implements ContainerProvider {
     this.specs.push(spec);
     switch (this.mode) {
       case "ok":
-        return { providerMachineId: this.pod(spec.machineId) };
+        return { providerMachineId: this.pod(spec.machineId, "provisioning", spec.name) };
       case "lost":
-        this.pod(spec.machineId);
+        this.pod(spec.machineId, "provisioning", spec.name);
         throw new ProviderError("runpod", "outcome_unknown", "no response");
       case "duplicate":
-        this.pod(spec.machineId);
-        this.pod(spec.machineId);
+        this.pod(spec.machineId, "provisioning", spec.name);
+        this.pod(spec.machineId, "provisioning", spec.name);
         throw new ProviderError("runpod", "outcome_unknown", "2 pods carry the machine");
       case "definitive":
         throw new ProviderError("runpod", "no_capacity", "no instances available");
@@ -102,7 +106,7 @@ class FakeRunPod implements ContainerProvider {
     return { ...p, ...this.override };
   }
   blank(id: string): ProviderMachineStatus {
-    return { provider: "runpod", providerMachineId: id, machineId: null, state: "terminated", rawStatus: "", gpuType: null, gpuCount: 0, dataCenter: null, image: "", diskGb: 0, volumeGb: 0, exposedPorts: [], command: [], envNames: [], unexpectedSettings: [], providerCostPerHour: null, observedAt: new Date(T0).toISOString() } as ProviderMachineStatus;
+    return { provider: "runpod", providerMachineId: id, machineId: null, parsedName: null, state: "terminated", rawStatus: "", gpuType: null, gpuCount: 0, dataCenter: null, image: "", diskGb: 0, volumeGb: 0, exposedPorts: [], command: [], envNames: [], unexpectedSettings: [], providerCostPerHour: null, observedAt: new Date(T0).toISOString() } as ProviderMachineStatus;
   }
   async terminate(id: string): Promise<void> {
     this.onTerminate?.(id);
@@ -141,6 +145,7 @@ beforeEach(async () => {
 
 function env(provider: ContainerProvider | null = rp, elapsed = 0): ContainerEnv {
   return {
+    installation: "test",
     db: w.db,
     clock: () => w.clock.t,
     provider,
@@ -368,6 +373,57 @@ test("0015: a container launch accrues exactly its rate from its intent; it move
 });
 
 // ================================================================ recovery after a lost reply
+
+// ================================================================ names
+
+test("names: the create carries this installation's name for this launch; a name that can't be built is not started, nothing written", async () => {
+  const m = await machine();
+  assert.equal(await launchContainer(env(), req(m)), "created");
+  assert.deepEqual([rp.specs[0]!.name, rp.specs[0]!.incarnation], [machineName("test", m, 1), 1]);
+  const nothing = async (x: string) => {
+    for (const t of ["launches", "launch_rates", "boot_tokens"]) assert.deepEqual(await w.db.all(`SELECT 1 FROM ${t} WHERE machine_id = ?`, [x]), [], t);
+  };
+  // no installation configured
+  const m2 = await machine();
+  assert.equal(await launchContainer({ ...env(), installation: null }, req(m2)), "not-started");
+  await nothing(m2);
+  // an incarnation past the name's bound
+  const m3 = await machine();
+  assert.equal(await launchContainer(env(), req(m3, { incarnation: 1_000_000_000_000 })), "not-started");
+  await nothing(m3);
+  assert.equal(rp.specs.length, 1, "no create for either");
+});
+
+test("names: recovery by name takes only this installation's pod for this incarnation; others are never touched", async () => {
+  const m = await machine();
+  rp.mode = "lost";
+  assert.equal(await launchContainer(env(), req(m)), "unknown");
+  const theirs = [
+    rp.pod(m, "running", machineName("othr", m, 1)), // another installation's
+    rp.pod(m, "running", machineName("test", m, 2)), // another incarnation of this machine
+    rp.pod(m, "running", `sbg-${m}`), // the old form: not a name of ours
+    rp.pod(m, "running", machineName("test", newId("machine"), 1)), // another machine of this installation
+  ];
+  w.clock.t = T0 + CREATE_DEADLINE_MS;
+  assert.equal(await runContainerWatchdog(env()), 1);
+  const l = await launch(m);
+  assert.deepEqual([l.provider_machine_id, l.outcome], ["pod1", "terminated"]);
+  assert.deepEqual(rp.terminated, ["pod1"]);
+  for (const id of theirs) assert.ok(rp.pods.has(id), id);
+});
+
+test("names: with no installation, a search by name proves nothing: the launch stays due, no pod ended", async () => {
+  const m = await machine();
+  rp.mode = "lost";
+  assert.equal(await launchContainer(env(), req(m)), "unknown");
+  w.clock.t = T0 + CREATE_DEADLINE_MS;
+  assert.equal(await runContainerWatchdog({ ...env(), installation: null }), 1);
+  assert.deepEqual([(await launch(m)).outcome, rp.terminated], ["terminate", []]);
+  // configured again: found and ended
+  w.clock.t += 60_000;
+  assert.equal(await runContainerWatchdog(env()), 1);
+  assert.deepEqual([(await launch(m)).outcome, rp.terminated], ["terminated", ["pod1"]]);
+});
 
 test("lost reply: at the create deadline the watchdog finds the pod by name, opens its accrual at the OLD rate from the intent, revokes, then ends it", async () => {
   const m = await machine();

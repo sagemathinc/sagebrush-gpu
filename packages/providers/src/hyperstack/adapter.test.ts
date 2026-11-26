@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { machineName } from "../machine-name.ts";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
@@ -20,6 +21,7 @@ import { gpuFromHyperstack, gpuToHyperstack, HYPERSTACK_GPUS, hyperstackCountry 
 
 const KEY = "test-key-not-a-real-key";
 const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
+const NAME = machineName("test", MID, 1);
 const NOW = new Date("2026-11-25T12:00:00.000Z");
 const T = NOW.toISOString();
 
@@ -72,7 +74,7 @@ function adapter(replies: Reply[]) {
 function vm(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 4242,
-    name: `sbg-${MID}`,
+    name: NAME,
     status: "ACTIVE",
     power_state: "RUNNING",
     vm_state: "active",
@@ -94,7 +96,7 @@ function vm(over: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 const WANT = {
-  name: `sbg-${MID}`,
+  name: NAME,
   environmentName: "sbg-canada",
   flavorName: "n3-RTX-A6000x1",
   imageName: "Ubuntu Server 22.04 LTS",
@@ -273,6 +275,7 @@ test("vmStatus: the launch-shape VM reads clean, with no env, no ports, the VM m
     provider: "hyperstack",
     providerMachineId: "4242",
     machineId: MID,
+    parsedName: { installation: "test", machineId: MID, incarnation: 1 },
     state: "running",
     rawStatus: "ACTIVE",
     gpuType: "RTX-A6000",
@@ -650,7 +653,7 @@ test("status: reads one VM; 404 is gone; another VM's answer or a bad reply fail
   assert.equal((await adapter([{ status: 200, body: { instance: vm() } }]).a.status("4242")).state, "running");
   const gone = await adapter([{ status: 404 }]).a.status("4242");
   assert.deepEqual(gone, {
-    provider: "hyperstack", providerMachineId: "4242", machineId: null, state: "terminated", rawStatus: "NOT_FOUND", gpuType: null, gpuCount: 0,
+    provider: "hyperstack", providerMachineId: "4242", machineId: null, parsedName: null, state: "terminated", rawStatus: "NOT_FOUND", gpuType: null, gpuCount: 0,
     dataCenter: null, image: "", diskGb: 0, volumeGb: 0, envNames: [], exposedPorts: [], unexpectedSettings: [], command: [], providerCostPerHour: null, observedAt: T,
   });
   await rejects(adapter([{ status: 200, body: { instance: vm({ id: 4243 }) } }]).a.status("4242"), "unknown");
@@ -757,7 +760,7 @@ function page(rows: unknown[], count: number, n = 1) {
 }
 
 function vms(from: number, n: number, named = true) {
-  return Array.from({ length: n }, (_, i) => vm({ id: from + i, name: named ? `sbg-mch_${String(from + i).padStart(20, "0")}` : "someone-else" }));
+  return Array.from({ length: n }, (_, i) => vm({ id: from + i, name: named ? `sbg-test-${String(from + i).padStart(20, "0")}-1` : "someone-else" }));
 }
 
 test("listMachines: ours only, foreign VMs skipped, pages by number", async () => {

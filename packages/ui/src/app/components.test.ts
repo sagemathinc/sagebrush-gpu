@@ -98,8 +98,8 @@ test("project page: meters, prices with their split, and why a type can't start"
   assert.match(t, /Fine-tuning lab Course · you are a student/);
   assert.match(t, /Your allocation Remaining \$25\.00 Used \$0\.00 of \$25\.00/);
   assert.match(t, /Your team's allocation Remaining \$50\.00/);
-  assert.match(t, /1× L4 24 GB \$0\.62\/h provider \$0\.48 \+ service \$0\.14 Start/);
-  assert.match(t, /1× A6000 48 GB \$1\.03\/h provider \$0\.79 \+ service \$0\.24 Few left Start/);
+  assert.match(t, /1× L4 24 GB \$0\.62\/h provider \$0\.48 \+ service \$0\.14 Your allocation buys about 40 h at this price\. Start/);
+  assert.match(t, /1× A6000 48 GB \$1\.03\/h provider \$0\.79 \+ service \$0\.24 Your allocation buys about 24 h at this price\. · Few left Start/);
   assert.match(t, /Over the course's price limit\./);
   assert.match(t, /No capacity right now\./);
   assert.match(t, /None yet\. Start one above\./);
@@ -115,7 +115,7 @@ test("a running machine: actions, cost, and the reserve on the meter", async () 
   const t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
   assert.match(t, /1× L4 Running runpod · EU-SE-1 · provider \$0\.48\/h \+ service \$0\.14\/h = \$0\.62\/h/);
   assert.match(t, /Cost so far: \$0\.31 · started 28 min ago/);
-  assert.match(t, /Open Jupyter Save now Stop/);
+  assert.match(t, /Open Jupyter Save now Save with a name… Stop/);
   assert.match(t, /Held for the final save \$0\.11/); // reserveCharge: 11 ledger minutes
   assert.match(t, /Now: provider \$0\.48\/h \+ service \$0\.14\/h = \$0\.62\/h\. About 1 d 15 h left at \$0\.62\/h\./);
   assert.match(t, /Too many machines running\. Stop one first\./); // one machine per member
@@ -182,10 +182,10 @@ test("meter card: an empty allocation", () => {
 
 test("an error banner shows the last failure", async () => {
   const { store } = await memberStore();
-  await store.start("A10");
+  await store.save("mch_00000000000000000099"); // (no such machine: an action's failure with no words of its own)
   const out = renderToString(html`<${App} store=${store} nav=${nav("/")} />`);
   assert.match(out, /role="alert"/);
-  assert.match(text(out), /cannot start: noCapacity Dismiss/);
+  assert.match(text(out), /no such machine Dismiss/);
 });
 
 test("a stop without a save and a provider failure are both shown", async () => {
@@ -254,4 +254,45 @@ test("meter card: a low allocation says so", () => {
   );
   assert.match(out, /Remaining \$1\.50 .* Running low\./);
   assert.doesNotMatch(out, /used up/);
+});
+
+test("a start that never came up says so on its card, with what it cost, and offers no stop", async () => {
+  const { demo, store } = await memberStore();
+  await store.start("L4");
+  demo.backend.advance(30_000);
+  const id = store.machines.value[0]!.id;
+  demo.backend.failStart(id, "podExited");
+  assert.throws(() => demo.backend.failStart(id, "createDeadline"), /only a starting machine fails to start \(this one is failed\)/);
+  const spent = demo.backend.machines.get(id)!.m.spent.total;
+  demo.backend.advance(10 * MIN); // (nothing more is charged)
+  assert.equal(demo.backend.machines.get(id)!.m.spent.total, spent);
+  await store.refresh();
+  const t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
+  assert.match(t, /1× L4 Didn't start/);
+  assert.match(t, /The machine didn't start: it stopped on its own before it was ready\. This machine was charged \$0\.01 while it was starting, and nothing after that\. You can start a new one\./);
+  assert.match(t, /Delete/);
+  assert.doesNotMatch(t, /Stop\b|Start again/);
+  // stopped through the API anyway, then started again: the new start has no start failure
+  demo.backend.request("POST", `/v1/machines/${id}/stop`, {}, {});
+  demo.backend.advance(MIN);
+  assert.equal(demo.backend.machines.get(id)!.m.state, "stopped");
+  demo.backend.request("POST", `/v1/machines/${id}/start`, {}, {});
+  assert.deepEqual([demo.backend.machines.get(id)!.m.state, demo.backend.machines.get(id)!.m.startFailure], ["starting", null]);
+});
+
+test("under byok the failed start shows its metered use, and says the provider bills the organization", async () => {
+  const demo = seedDemo({ billingMode: "byok" });
+  for (const provider of ["runpod", "hyperstack", "nebius"] as const) {
+    demo.backend.credentials.set(`${demo.orgId}|${provider}`, { fingerprint: "0badf00d", setBy: demo.emails.owner, setAt: demo.backend.now(), lastCheckedAt: demo.backend.now(), status: "ok" });
+  }
+  const store = new Store(createClient({ fetch: mockFetch(demo.backend) }), () => demo.backend.now());
+  await signInAs(store, demo.backend, demo.emails.member);
+  await store.openProject(demo.projectId);
+  assert.equal(await store.start("L4"), true);
+  demo.backend.advance(30_000);
+  demo.backend.failStart(store.machines.value[0]!.id, "createDeadline");
+  await store.refresh();
+  const t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
+  assert.match(t, /The machine didn't start: the provider didn't have it ready in time\. Metered use while starting: \$0\.\d\d\. No further use is being metered for this machine\. Your provider bills your organization separately\./);
+  assert.doesNotMatch(t, /was charged/);
 });

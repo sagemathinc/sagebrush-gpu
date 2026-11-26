@@ -1,8 +1,12 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { DEFAULT_POLICY, newId, verifyToken, type Key } from "@sbgpu/api";
+import { DEFAULT_POLICY, isId, newId, verifyToken, type Key } from "@sbgpu/api";
 import { ProviderError, type LaunchSpec, type ProviderMachineStatus } from "@sbgpu/providers";
+import { machineName, nameFields } from "@sbgpu/providers";
+/** A pod name as control builds it here (installation "test", incarnation 1); anything else is kept as given (a name that is not ours). */
+const podName = (machineId: string) => (isId("machine", machineId) ? machineName("test", machineId, 1) : machineId);
+
 import { stmt } from "./db.ts";
 import { CONNECT_WINDOW_MS, launchContainer, type ContainerEnv, type ContainerProvider } from "./container.ts";
 import { ERADICATION_CHECKS, HEARTBEAT_SECONDS } from "./enroll.ts";
@@ -32,7 +36,7 @@ class FakeRunPod implements ContainerProvider {
     this.pods.set(id, {
       provider: "runpod",
       providerMachineId: id,
-      machineId: machineId as ProviderMachineStatus["machineId"],
+      ...nameFields(podName(machineId)),
       state: "provisioning",
       rawStatus: "CREATED",
       gpuType: "A40",
@@ -62,7 +66,7 @@ class FakeRunPod implements ContainerProvider {
     }
     if (this.statusFails) throw new ProviderError("runpod", "transient", "down");
     const p = this.pods.get(id);
-    if (!p) return { ...p!, provider: "runpod", providerMachineId: id, machineId: null, state: "terminated" } as ProviderMachineStatus;
+    if (!p) return { provider: "runpod", providerMachineId: id, machineId: null, parsedName: null, state: "terminated" } as ProviderMachineStatus;
     return { ...p, ...this.override };
   }
   async terminate(id: string): Promise<void> {
@@ -109,6 +113,7 @@ beforeEach(async () => {
 
 function env(): ContainerEnv {
   return {
+    installation: "test",
     db: w.db,
     clock: () => w.clock.t,
     provider: rp,
@@ -322,11 +327,12 @@ test("refused, nothing changed: every request outside the container shape", asyn
     ["no report", { eradication: undefined }],
     ["a report with no checks", { eradication: { ok: true, checks: [] } }],
     ["two checks", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }] } }],
+    ["three checks (no ssh)", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: true }] } }],
     ["a fourth check", { eradication: { ok: true, checks: [...passing().checks, { name: "more", ok: true }] } }],
-    ["checks out of order", { eradication: { ok: true, checks: [{ name: "processes", ok: true }, { name: "env", ok: true }, { name: "files", ok: true }] } }],
-    ["a renamed check", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "procs", ok: true }, { name: "files", ok: true }] } }],
-    ["a check's ok not boolean", { eradication: { ok: true, checks: [{ name: "env", ok: 1 }, { name: "processes", ok: true }, { name: "files", ok: true }] } }],
-    ["a check with more fields", { eradication: { ok: true, checks: [{ name: "env", ok: true, why: "x" }, { name: "processes", ok: true }, { name: "files", ok: true }] } }],
+    ["checks out of order", { eradication: { ok: true, checks: [{ name: "processes", ok: true }, { name: "env", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
+    ["a renamed check", { eradication: { ok: true, checks: [{ name: "env", ok: true }, { name: "procs", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
+    ["a check's ok not boolean", { eradication: { ok: true, checks: [{ name: "env", ok: 1 }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
+    ["a check with more fields", { eradication: { ok: true, checks: [{ name: "env", ok: true, why: "x" }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] } }],
     ["the report's ok not boolean", { eradication: { ok: "yes", checks: passing().checks } }],
     ["a report with more fields", { eradication: { ...passing(), extra: 1 } }],
     ["a report as a list", { eradication: [] }],
@@ -352,8 +358,9 @@ test("refused, nothing changed: every request outside the container shape", asyn
 
 test("definitive: an eradication report that doesn't pass uses the token, marks the launch to terminate, then ends the pod", async () => {
   const failing = [
-    { ok: false, checks: [{ name: "env", ok: false }, { name: "processes", ok: true }, { name: "files", ok: true }] },
-    { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: false }] },
+    { ok: false, checks: [{ name: "env", ok: false }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: true }] },
+    { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: false }, { name: "ssh", ok: true }] },
+    { ok: true, checks: [{ name: "env", ok: true }, { name: "processes", ok: true }, { name: "files", ok: true }, { name: "ssh", ok: false }] },
     { ok: false, checks: passing().checks },
   ];
   for (const eradication of failing) {

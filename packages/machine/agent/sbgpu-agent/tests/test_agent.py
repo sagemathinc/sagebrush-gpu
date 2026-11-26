@@ -12,6 +12,13 @@ from sbgpu_agent import eradication, main
 from sbgpu_agent.control import Control, ControlError
 
 TOKEN = "A" * 20 + "b-_" + "9" * 20
+PASSWD = b"root:x:0:0:root:/root:/bin/bash\nnobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\nu:x:1000:1000::/home/u:/bin/bash\n"
+NET_HEAD = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+
+
+def net_row(port, state, ip="00000000"):
+    return "   0: %s:%04X %s:0000 %s 00000000:00000000 00:00000000 00000000     0        0 1 1 0 100 0 0 10 0\n" % (
+        ip, port, "0" * len(ip), state)
 
 
 def clean_environ(extra=()):
@@ -32,6 +39,26 @@ class Fs:
                 f.write(clean_environ() if environ is None else environ)
         os.makedirs(self.root + "/run/sbgpu")
         os.makedirs(self.proc + "/sys")  # a non-numeric entry, as in a real /proc
+        # (what the ssh check reads: a passwd, the mount table, and empty socket tables)
+        self.write("/etc/passwd", PASSWD)
+        os.makedirs(self.proc + "/self/net")
+        with open(self.proc + "/self/mountinfo", "w") as f:
+            f.write("22 1 8:1 / / rw,relatime shared:1 - overlay overlay rw\n")
+        os.makedirs(self.proc + "/net")
+        for table in ("tcp", "tcp6", "udp", "udp6"):
+            with open(self.proc + "/net/" + table, "w") as f:
+                f.write(NET_HEAD)
+
+    def net(self, table, row):
+        with open(self.proc + "/net/" + table, "a") as f:
+            f.write(row)
+
+    def process(self, pid, comm, exe=None):
+        os.makedirs("%s/%d" % (self.proc, pid), exist_ok=True)
+        with open("%s/%d/comm" % (self.proc, pid), "wb") as f:
+            f.write(comm + b"\n")
+        if exe:
+            os.symlink(exe, "%s/%d/exe" % (self.proc, pid))
 
     def write(self, path, data):
         os.makedirs(os.path.dirname(self.root + path), exist_ok=True)
@@ -63,7 +90,8 @@ class EradicationTest(unittest.TestCase):
     def test_clean(self):
         report, reason = self.checks(Fs(environ=clean_environ(["CUDA_VERSION", "TZ"])))
         self.assertIsNone(reason)
-        self.assertEqual(report, {"ok": True, "checks": [{"name": "env", "ok": True}, {"name": "processes", "ok": True}, {"name": "files", "ok": True}]})
+        self.assertEqual(report, {"ok": True, "checks": [{"name": "env", "ok": True}, {"name": "processes", "ok": True}, {"name": "files", "ok": True},
+                                                         {"name": "ssh", "ok": True}]})
 
     def test_env_extra_name(self):
         for extra in (["RUNPOD_API_KEY"], ["SBGPU_BOOT_TOKEN"], ["PUBLIC_KEY"], ["PATH"]):  # (PATH twice: a duplicate)
@@ -122,7 +150,117 @@ class EradicationTest(unittest.TestCase):
         fs.write("/etc/rp_environment", b"")
         report, reason = self.checks(fs)
         self.assertEqual(reason, "env-not-clean")
-        self.assertEqual([c["ok"] for c in report["checks"]], [False, False, False])
+        self.assertEqual([c["ok"] for c in report["checks"]], [False, False, False, True])
+
+
+class SshTest(unittest.TestCase):
+    """The container's ssh check (SEC's ruling for Vast): no sshd, no socket on local port 22, no authorized keys."""
+
+    def setUp(self):
+        self.fs = Fs()
+
+    def tearDown(self):
+        self.fs.close()
+
+    def ssh(self):
+        return eradication.check_ssh(self.fs.proc, self.fs.root, 1)
+
+    def reason(self):
+        report, reason = eradication.run_checks(proc=self.fs.proc, root=self.fs.root, pid=1)
+        return reason, report["checks"][3]
+
+    def keys(self, home, name, data, mode=0o600):
+        self.fs.write(home + "/.ssh/" + name, data)
+        os.chmod(self.fs.root + home + "/.ssh/" + name, mode)
+
+    def test_clean(self):
+        self.assertIs(self.ssh(), True)
+        self.assertEqual(self.reason(), (None, {"name": "ssh", "ok": True}))
+
+    def test_a_key_under_any_home_aborts_with_ssh_access(self):
+        for home in ("/root", "/home/u"):
+            for name in ("authorized_keys", "authorized_keys2"):
+                self.fs.close()
+                self.fs = Fs()
+                self.keys(home, name, b"ssh-ed25519 AAAA provider\n")
+                self.assertEqual(self.reason(), ("ssh-access", {"name": "ssh", "ok": False}), (home, name))
+
+    def test_empty_key_files_and_missing_homes_pass(self):
+        self.keys("/root", "authorized_keys", b"")
+        self.keys("/home/u", "authorized_keys2", b"")
+        self.assertIs(self.ssh(), True)  # (/nonexistent and its .ssh are absent)
+
+    def test_the_walk_follows_no_link(self):
+        os.makedirs(self.fs.root + "/elsewhere/.ssh")
+        with open(self.fs.root + "/elsewhere/.ssh/authorized_keys", "wb") as f:
+            f.write(b"")
+        os.makedirs(self.fs.root + "/root/.ssh")
+        os.symlink(self.fs.root + "/elsewhere/.ssh/authorized_keys", self.fs.root + "/root/.ssh/authorized_keys")
+        self.assertIs(self.ssh(), False)  # (an empty file, but reached through a link)
+        self.fs.close()
+        self.fs = Fs()
+        os.makedirs(self.fs.root + "/elsewhere/.ssh")
+        os.makedirs(self.fs.root + "/root")
+        os.symlink(self.fs.root + "/elsewhere/.ssh", self.fs.root + "/root/.ssh")
+        self.assertIs(self.ssh(), False)
+
+    def test_a_home_that_is_a_mount_point(self):
+        with open(self.fs.proc + "/self/mountinfo", "a") as f:
+            f.write("40 22 8:2 / /home/u rw - ext4 /dev/sdb rw\n")
+        os.makedirs(self.fs.root + "/home/u")
+        self.assertIs(self.ssh(), False)
+
+    def test_sshd_by_name_or_executable(self):
+        for comm, exe in ((b"sshd", None), (b"sshd-session", None), (b"sshd-auth", None), (b"x", "/usr/sbin/sshd"),
+                          (b"x", "/usr/lib/openssh/sshd-session"), (b"x", "/usr/lib/openssh/sshd-auth")):
+            self.fs.close()
+            self.fs = Fs()
+            self.fs.process(7, comm, exe)
+            self.assertIs(self.ssh(), False, (comm, exe))
+            self.assertEqual(self.reason()[1], {"name": "ssh", "ok": False})
+        self.fs.close()
+        self.fs = Fs()
+        self.fs.process(7, b"python3", "/usr/bin/python3")
+        self.assertIs(self.ssh(), True)  # (another process is the processes check's business)
+        self.fs.process(1, b"sshd")
+        self.assertIs(self.ssh(), True)  # (the agent itself, pid 1, isn't looked at)
+
+    def test_a_process_that_exits_while_read_is_skipped(self):
+        os.makedirs(self.fs.proc + "/9")  # (no comm: gone)
+        self.assertIs(self.ssh(), True)
+
+    def test_an_oversized_comm_fails_closed(self):
+        self.fs.process(7, b"x" * eradication.COMM_MAX)  # (with its newline, one byte over)
+        self.assertEqual(self.reason()[1], {"name": "ssh", "ok": False})  # (the processes check names the reason)
+        self.fs.close()
+        self.fs = Fs()
+        self.fs.process(7, b"x" * (eradication.COMM_MAX - 1))
+        self.assertIs(self.ssh(), True)
+
+    def test_any_socket_on_port_22(self):
+        for table, state in (("tcp", "0A"), ("tcp6", "0A"), ("udp", "07"), ("udp6", "07"), ("tcp", "01"), ("tcp", "06")):
+            self.fs.close()
+            self.fs = Fs()
+            self.fs.net(table, net_row(22, state, "0" * (32 if table.endswith("6") else 8)))
+            self.assertEqual(self.reason(), ("ssh-access", {"name": "ssh", "ok": False}), (table, state))
+        self.fs.close()
+        self.fs = Fs()
+        self.fs.net("tcp", net_row(2222, "0A"))
+        self.assertIs(self.ssh(), True)  # (another port is not ssh's)
+
+    def test_unreadable_fails_closed(self):
+        for why, act in (("no passwd", lambda: os.unlink(self.fs.root + "/etc/passwd")),
+                         ("a malformed passwd row", lambda: self.fs.write("/etc/passwd", b"root:x:0:0\n")),
+                         ("no socket table", lambda: os.unlink(self.fs.proc + "/net/tcp6")),
+                         ("no mount table", lambda: os.unlink(self.fs.proc + "/self/mountinfo"))):
+            self.fs.close()
+            self.fs = Fs()
+            act()
+            self.assertEqual(self.reason(), ("ssh-access", {"name": "ssh", "ok": False}), why)
+
+    def test_the_reason_is_in_the_contract_list(self):
+        self.assertIn("ssh-access", eradication.REASONS)
+        self.assertEqual(dict(eradication.CHECKS)["ssh"], "ssh-access")
 
 
 class FakeControl:

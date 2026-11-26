@@ -3,9 +3,15 @@ reached anything the member will run.  The launcher replaced the environment; th
 agent itself, before enroll.  Any failed or uncertain check means abort: no relay, terminal, Jupyter or setup.
 
 The agent never sees the key's value (the launcher's exec dropped it), so it checks names and places only.  Searching
-for the value itself is the paid probe's job (section 1.5)."""
+for the value itself is the paid probe's job (section 1.5).
+
+It also checks that nobody can get in over ssh (SEC's ruling for the container path): no sshd process, no socket on
+local port 22, and no authorized_keys or authorized_keys2 with anything in it under any passwd home, walked as the VM
+gate walks them (vmgate.check_keys: no link followed, no mount crossed)."""
 
 import os
+
+from sbgpu_agent import vmgate
 
 # The agent's environment is exactly ENV_FIXED plus any of ENV_COPY_ALLOWLIST (bootstrap.sh; boot.ts has the same
 # lists, and a test checks all three agree).
@@ -30,7 +36,8 @@ SCANNED_DIRS = ("/etc/profile.d",)
 SCAN_MAX = 1024 * 1024  # bytes read per file; a bigger file is a failed check (doubt)
 
 # Reasons the control plane accepts at abort: a fixed list, never free text from the machine.
-REASONS = ("env-not-clean", "extra-process", "key-file", "other")
+REASONS = ("env-not-clean", "extra-process", "key-file", "ssh-access", "other")
+COMM_MAX = 64  # (a comm is at most 16 bytes; more is a malformed /proc)
 
 
 def _env_names(environ_bytes):
@@ -90,10 +97,43 @@ def check_files(root):
     return True
 
 
+def _named(proc, pid):
+    """Every other process's name and executable, {pid: {"comm", "exe"}}.  A process that exits while it is read is
+    skipped; anything else unreadable raises (the check fails closed)."""
+    out = {}
+    for d in sorted(os.listdir(proc)):
+        if not d.isdigit() or int(d) == pid:
+            continue
+        try:
+            with open("%s/%s/comm" % (proc, d), "rb") as f:
+                comm = f.read(COMM_MAX + 1)
+        except FileNotFoundError:
+            continue  # (it exited)
+        if len(comm) > COMM_MAX:
+            raise ValueError("comm")
+        try:
+            exe = os.readlink("%s/%s/exe" % (proc, d))
+        except FileNotFoundError:
+            exe = ""  # (exited, or a process without an executable)
+        out[int(d)] = {"comm": comm.decode("utf-8", "replace").rstrip("\n"), "exe": exe}
+    return out
+
+
+def check_ssh(proc, root, pid):
+    """No way in over ssh: no sshd (sshd, sshd-session or sshd-auth, by name or executable), no socket of any kind on
+    local port 22, and every passwd home's authorized_keys and authorized_keys2 absent or an empty regular file."""
+    if vmgate.sshd_running(_named(proc, pid)):
+        return False
+    if any(port == 22 for _, _, port, _ in vmgate.sockets(proc)):
+        return False
+    return not vmgate.check_keys(root or "/", proc)
+
+
 CHECKS = (
     ("env", "env-not-clean"),
     ("processes", "extra-process"),
     ("files", "key-file"),
+    ("ssh", "ssh-access"),
 )
 
 
@@ -105,6 +145,7 @@ def run_checks(proc="/proc", root="", pid=None, container=True):
         "env": lambda: check_env(proc, pid),
         "processes": lambda: check_processes(proc, pid, container),
         "files": lambda: check_files(root),
+        "ssh": lambda: check_ssh(proc, root, pid),
     }
     results = []
     reason = None

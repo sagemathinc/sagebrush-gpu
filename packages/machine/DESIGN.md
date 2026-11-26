@@ -69,7 +69,8 @@ RunPod injects a pod-scoped `RUNPOD_API_KEY` into the container's initial enviro
 2. **Check before any access.** Before it enrolls or opens anything, the agent checks:
    - `/proc/1/environ` (itself) has exactly the allowlisted names;
    - no other process exists in the container (every `/proc/<pid>` other than 1 is refused, since the launcher started nothing in the background);
-   - none of a fixed set of files exists or contains a `RUNPOD_API_KEY=` line: `/etc/rp_environment`, `/etc/environment`, `/root/.bashrc`, `/root/.profile`, `/etc/profile.d/*`.
+   - none of a fixed set of files exists or contains a `RUNPOD_API_KEY=` line: `/etc/rp_environment`, `/etc/environment`, `/root/.bashrc`, `/root/.profile`, `/etc/profile.d/*`;
+   - nobody can get in over ssh (SEC, for Vast): no `sshd`, `sshd-session` or `sshd-auth` process (by name or executable); no socket of any kind on local port 22; and under every `/etc/passwd` home (and `/root`), `.ssh/authorized_keys` and `.ssh/authorized_keys2` absent or empty regular files, walked as the VM gate walks them (no link followed, no mount crossed). A failure aborts with `ssh-access`.
    (It can't look for the key's value, which it never sees. Searching the files for the value is the probe's job, below.)
 3. **Abort on any doubt.** A failed check means `POST /v1/agent/abort {bootToken, reason}`, which uses up the boot token and makes the control plane terminate the pod through the provider API, then exit 3. There's no relay, terminal, Jupyter or setup script before the check passes and enroll succeeds. Enroll also reports `eradication: {checks: [...], ok: true}`, and the control plane refuses an enroll without it in container mode.
 
