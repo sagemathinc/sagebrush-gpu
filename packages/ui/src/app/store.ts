@@ -20,6 +20,8 @@ import {
   type SpendMeter,
   type UpdateProjectRequest,
   type ProviderPause,
+  type ListSnapshotsResponse,
+  type SnapshotArea,
 } from "@sbgpu/api";
 import { ApiError, type Client, type FetchFn } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
@@ -87,6 +89,8 @@ export class Store {
   readonly members = signal<Member[]>([]);
   readonly teams = signal<Team[]>([]);
   readonly allMachines = signal<Machine[]>([]);
+  /** The caller's saves (workspace snapshots), per area; null when there is no such area (no team, say) or not yet read. */
+  readonly saves = signal<Readonly<Record<SnapshotArea, ListSnapshotsResponse | null>>>({ member: null, team: null });
   /** Lists cut at MAX_LIST_PAGES: "members", "machines" and "allMachines". */
   readonly truncated = signal<ReadonlySet<string>>(new Set());
 
@@ -178,6 +182,7 @@ export class Store {
    */
   #endSession(): void {
     this.#generation++;
+    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)
     this.keys.endSession();
     batch(() => {
       this.me.value = null;
@@ -192,6 +197,7 @@ export class Store {
       this.members.value = [];
       this.teams.value = [];
       this.allMachines.value = [];
+      this.saves.value = { member: null, team: null };
       this.orgId.value = null;
       this.org.value = null;
       this.orgProjects.value = [];
@@ -228,6 +234,7 @@ export class Store {
   async sessionStarted(): Promise<void> {
     this.#generation++;
     this.#sessionGeneration++;
+    this.#staleSaves(); // (nor the previous person's to the new one)
     this.signInNotice.value = null;
     await this.loadMe();
   }
@@ -324,6 +331,9 @@ export class Store {
         this.members.value = [];
         this.teams.value = [];
         this.allMachines.value = [];
+        this.saves.value = { member: null, team: null };
+        // reads for the project left are older than anything the new one asks: none will show
+        this.#staleSaves();
       });
     }
     const generation = ++this.#generation;
@@ -410,12 +420,14 @@ export class Store {
     const params = { projectId };
     const gpuTypes = this.gpuTypes.value;
     const staff = this.isStaff.value;
-    const [spend, machines, quotes, prices, managed] = await Promise.all([
+    const [spend, machines, quotes, prices, memberSaves, teamSaves, managed] = await Promise.all([
       this.client.call("getSpend", { params }),
       this.#allPages((cursor) => this.client.call("listMachines", { params, query: cursor === undefined ? {} : { cursor } })),
       Promise.all(gpuTypes.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
       // (for the paused providers: a pause can begin or end while the page is open)
       this.client.call("listGpuTypes", { params }),
+      this.#readSaves(projectId, "member"),
+      this.#readSaves(projectId, "team"),
       staff
         ? Promise.all([
             this.client.call("getProject", { params }),
@@ -433,6 +445,8 @@ export class Store {
       if (machines.truncated) cut.add("machines");
       this.quotes.value = Object.fromEntries(quotes.map((q) => [q.gpuType, q]));
       this.paused.value = prices.paused;
+      this.#publishSaves(memberSaves);
+      this.#publishSaves(teamSaves);
       if (managed) {
         const [project, members, teams, all] = managed;
         this.project.value = project;
@@ -444,6 +458,84 @@ export class Store {
       }
       this.truncated.value = cut;
     });
+  }
+
+  // ---------------------------------------------------------------- saves
+
+  /** Saves reads asked so far, per area (by #refresh and #reloadSaves alike): only the latest one asked may publish. */
+  readonly #savesReads: Record<SnapshotArea, number> = { member: 0, team: 0 };
+
+  /** Every saves read asked so far is stale: none of their answers will show. */
+  #staleSaves(): void {
+    this.#savesReads.member++;
+    this.#savesReads.team++;
+  }
+
+  /** Read one area's saves, numbered when asked. */
+  async #readSaves(projectId: string, area: SnapshotArea): Promise<{ area: SnapshotArea; read: number; list: ListSnapshotsResponse | null }> {
+    const read = ++this.#savesReads[area];
+    return { area, read, list: await this.#savesOf(projectId, area) };
+  }
+
+  /** Show a read's list, unless a later read of the same area was asked meanwhile. */
+  #publishSaves(r: { area: SnapshotArea; read: number; list: ListSnapshotsResponse | null }): void {
+    if (r.read !== this.#savesReads[r.area]) return;
+    this.saves.value = { ...this.saves.value, [r.area]: r.list };
+  }
+
+  /** One area's saves; null when the caller has no such area (the server's notFound: no team, or no member record). */
+  async #savesOf(projectId: string, area: SnapshotArea): Promise<ListSnapshotsResponse | null> {
+    try {
+      return await this.client.call("listSnapshots", { params: { projectId }, query: { area } });
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "notFound") return null;
+      throw err;
+    }
+  }
+
+  /** Read one area's saves again, unless the page has moved on meanwhile. */
+  async #reloadSaves(area: SnapshotArea): Promise<void> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return;
+    // (a move to another project counts as a later read: see openProject)
+    this.#publishSaves(await this.#readSaves(projectId, area));
+  }
+
+  /** Name a save, or remove its name (null). */
+  async nameSave(area: SnapshotArea, snapshotId: string, name: string | null): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`save-name:${snapshotId}`, async () => {
+      await this.client.call("nameSnapshot", { params: { projectId, snapshotId }, body: { area, name } });
+      await this.#reloadSaves(area);
+      return true;
+    });
+    return done === true;
+  }
+
+  /**
+   * Restore a save: the server writes a new save from it, which becomes the current one. The
+   * page offers it only while none of the caller's machines writes the area (saves.ts).
+   */
+  async restoreSave(area: SnapshotArea, snapshotId: string): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`restore:${area}`, async () => {
+      await this.client.call("restoreSnapshot", { params: { projectId, snapshotId }, body: { area } });
+      await this.#reloadSaves(area);
+      return true;
+    });
+    return done === true;
+  }
+
+  /** Save a running machine now, naming the save it makes. */
+  async saveNamed(machineId: string, name: string): Promise<boolean> {
+    const done = await this.#act(`save:${machineId}`, async () => {
+      await this.client.call("saveMachine", { params: { machineId }, body: { name } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
   }
 
   // ---------------------------------------------------------------- machines

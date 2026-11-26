@@ -115,7 +115,7 @@ test("a running machine: actions, cost, and the reserve on the meter", async () 
   const t = text(renderToString(html`<${ProjectPage} store=${store} projectId=${store.projectId.value} />`));
   assert.match(t, /1× L4 Running runpod · EU-SE-1 · provider \$0\.48\/h \+ service \$0\.14\/h = \$0\.62\/h/);
   assert.match(t, /Cost so far: \$0\.31 · started 28 min ago/);
-  assert.match(t, /Open Jupyter Save now Stop/);
+  assert.match(t, /Open Jupyter Save now Save with a name… Stop/);
   assert.match(t, /Held for the final save \$0\.11/); // reserveCharge: 11 ledger minutes
   assert.match(t, /Now: provider \$0\.48\/h \+ service \$0\.14\/h = \$0\.62\/h\. About 1 d 15 h left at \$0\.62\/h\./);
   assert.match(t, /Too many machines running\. Stop one first\./); // one machine per member

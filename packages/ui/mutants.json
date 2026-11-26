@@ -1056,8 +1056,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n      });\n    }\n    const generation",
-  "new": "      });\n    }\n    const generation"
+  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n      });\n    }\n    const generation",
+  "new": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n      });\n    }\n    const generation"
  },
  {
   "file": "src/app/store.ts",
@@ -1656,13 +1656,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
-  "new": "    this.#generation++;\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
-  "new": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -1701,8 +1701,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;\n",
-  "new": "    this.#sessionGeneration++;\n"
+  "old": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.signInNotice.value = null;\n",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n"
  },
  {
   "file": "src/app/store.ts",
@@ -2391,8 +2391,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n      this.orgId.value = null;",
-  "new": "      this.orgId.value = null;"
+  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n      this.saves.value = { member: null, team: null };\n      this.orgId.value = null;",
+  "new": "      this.saves.value = { member: null, team: null };\n      this.orgId.value = null;"
  },
  {
   "file": "src/app/router.ts",
@@ -3473,7 +3473,7 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.keys.endSession();",
+  "old": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
   "new": "    this.#generation++;",
   "note": "endSession: keys kept"
  },
@@ -4013,14 +4013,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "unnamed.length - policy.snapshotKeepLast)",
-  "new": "unnamed.length - (policy.snapshotKeepLast - 1))"
+  "old": "unnamed.length - keepLast)",
+  "new": "unnamed.length - (keepLast - 1))"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "const unnamed = list.filter((x) => x.name == null);\n    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - policy.snapshotKeepLast))",
-  "new": "const unnamed = list.filter((x) => x.name == null && x.id !== rec.id);\n    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - (policy.snapshotKeepLast - 1)))",
-  "note": "the reported bug (TESTS hold on #86): a named commit dropping one unnamed save too many"
+  "old": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast);",
+  "new": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast - 1);",
+  "note": "the reported bug (TESTS on #86): one unnamed save too many dropped"
  },
  {
   "file": "src/mock/backend.ts",
@@ -4064,8 +4064,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "Math.max(0, unnamed.length - policy.snapshotKeepLast)",
-  "new": "unnamed.length - policy.snapshotKeepLast"
+  "old": "Math.max(0, unnamed.length - keepLast)",
+  "new": "unnamed.length - keepLast"
  },
  {
   "file": "src/mock/backend.ts",
@@ -4123,6 +4123,186 @@
   "old": " || this.orgId.value !== orgId) return;",
   "new": ") return;",
   "note": "an answer for an organization since left"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  periodic: \"Saved automatically\",",
+  "new": "  periodic: \"Saved\","
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "kind: s.kind === \"restore\" && from ?",
+  "new": "kind: s.kind === \"restore\" ?"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const WRITING: ReadonlySet<Machine[\"state\"]> = new Set([\"starting\", \"running\", \"saving\", \"stopping\"]);",
+  "new": "const WRITING: ReadonlySet<Machine[\"state\"]> = new Set([\"starting\", \"running\", \"saving\"]);"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  return !machines.some((m) => WRITING.has(m.state));",
+  "new": "  return !machines.some((m) => m.state === \"running\");"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  const name = text.trim();",
+  "new": "  const name = text;"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "list.items.filter((s) => s.id !== selfId && s.name != null)",
+  "new": "list.items.filter((s) => s.name != null)"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  if (self?.name == null && others.length >= list.namedMax) {",
+  "new": "  if (others.length >= list.namedMax) {"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  if (self?.name == null && others.length >= list.namedMax) {",
+  "new": "  if (self?.name == null && others.length > list.namedMax) {"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const which = row.name ? `\"${row.name}\" (saved ${row.when})` : `the save from ${row.when}`;",
+  "new": "const which = `the save from ${row.when}`;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"notFound\") return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { area } });\n      await this.#reloadSaves(area);",
+  "new": "body: { area } });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { area, name } });\n      await this.#reloadSaves(area);",
+  "new": "body: { area, name } });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n",
+  "new": "        this.saves.value = { member: null, team: null };\n",
+  "note": "a read for the project left, answering before the new one reads"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "\"saveMachine\", { params: { machineId }, body: { name } });",
+  "new": "\"saveMachine\", { params: { machineId }, body: {} });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.saves.value = { member: null, team: null };\n        // reads for the project left",
+  "new": "        // reads for the project left"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.#publishSaves(teamSaves);\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "${row.current || !restorable",
+  "new": "${!restorable"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "${row.current || !restorable",
+  "new": "${row.current"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    ${restoring ? html`<p class=\"small\" role=\"status\">",
+  "new": "    ${false ? html`<p class=\"small\" role=\"status\">"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    if (window.confirm(restoreConfirmText(row, area, labels, list.keepLast))) void store.restoreSave(area, row.id);",
+  "new": "    void store.restoreSave(area, row.id);"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "disabled=${restoring} aria-label=",
+  "new": "aria-label="
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    <button disabled=${!check.ok || busy} onClick=${save}>Save name</button>",
+  "new": "    <button disabled=${busy} onClick=${save}>Save name</button>"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    ${team ? html`<${SavesCard} store=${store} area=\"team\"",
+  "new": "    ${false ? html`<${SavesCard} store=${store} area=\"team\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "      ${actions.save ? html`<${SaveWithName} store=${store} machineId=${m.id} />` : null}\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (r.read !== this.#savesReads[r.area]) return;\n",
+  "new": "",
+  "note": "an older saves read publishing over a newer one (TESTS on #92)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const read = ++this.#savesReads[area];",
+  "new": "    const read = this.#savesReads[area];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.#publishSaves(memberSaves);\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast);",
+  "new": "    if (true) this.#prune(areaKey, policy.snapshotKeepLast);",
+  "note": "retention at the restore's commit (ruling (a))"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;\n    return id;",
+  "new": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;\n    this.#prune(areaKey, 1);\n    return id;",
+  "note": "retention at a restore commit's retry"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;",
+  "new": "    if (id == null) return null;"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const where = area === \"team\" ? `your ${labels.team}'s shared workspace` : \"your workspace\";",
+  "new": "const where = \"your workspace\";"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "It becomes the current save. Nothing is deleted now: the save that's current stays in the list, so you can restore it again. ",
+  "new": "It becomes the current save. "
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n",
+  "new": "",
+  "note": "a held saves answer after sign-out (TESTS on #92)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#savesReads.member++;\n    this.#savesReads.team++;\n  }",
+  "new": "    this.#savesReads.member++;\n  }"
  },
  {
   "file": "src/view.ts",
