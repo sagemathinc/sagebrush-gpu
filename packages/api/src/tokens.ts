@@ -4,12 +4,13 @@
 //   stored only as its SHA-256 in a control-plane row bound to the provider instance.
 //   It becomes exchangeable when the provider first reports the instance running and
 //   expires 120 s later; the first exchange wins, and any reuse is refused and alerted.
-// - SIGNED tokens (agent, workspace, page, jupyter-link) carry the claims below. Every
-//   verifier runs validateClaims, a closed validator: exact key sets, version, kind,
-//   ids, times and per-kind lifetime caps; then compares the machine-scoped claims with
-//   the machine's current state (machineTokenStateOk), so a copied token dies when its
-//   machine stops or restarts. Encoding and signatures (Ed25519) belong to the control
-//   plane.
+// - SIGNED tokens (agent, workspace, page, jupyter-link, restore) carry the claims below.
+//   Every verifier runs validateClaims, a closed validator: exact key sets, version, kind,
+//   ids, times and per-kind lifetime caps. The machine-scoped kinds are then compared
+//   with the machine's current state (machineTokenStateOk), so a copied token dies when
+//   its machine stops or restarts. A restore token is scoped to one restore operation
+//   instead (single use, by its jti, at the storage gateway). Encoding and signatures
+//   (Ed25519) belong to the control plane.
 //
 // Browser sessions and email sign-in links are not tokens here: they are random values
 // the control plane stores (hashed) in D1, so they can be revoked.
@@ -77,7 +78,7 @@ export function bootExchange(
 
 // ---------------------------------------------------------------- signed tokens
 
-export const TOKEN_KINDS = ["agent", "workspace", "page", "jupyter-link"] as const;
+export const TOKEN_KINDS = ["agent", "workspace", "page", "jupyter-link", "restore"] as const;
 export type TokenKind = (typeof TOKEN_KINDS)[number];
 
 /** Lifetime caps, in seconds: a token with exp - iat above its cap is invalid. */
@@ -86,6 +87,8 @@ export const TOKEN_TTL_SECONDS = {
   workspace: 15 * 60,
   page: 60,
   "jupyter-link": 60,
+  /** And control mints it to end at least the clock skew before its claim's lease does (snapshots r3.1, 4.3). */
+  restore: 60,
 } as const satisfies Record<TokenKind, number>;
 
 /** Allowed clock skew for iat in the future. */
@@ -94,7 +97,7 @@ export const TOKEN_CLOCK_SKEW_SECONDS = 30;
 /** 16 random bytes, base64url. */
 export const JTI_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
-interface BaseClaims {
+interface CommonClaims {
   v: 1;
   kind: TokenKind;
   /** Unique token id; single-use tokens are refused (and alerted on) when seen twice. */
@@ -102,6 +105,10 @@ interface BaseClaims {
   /** Unix seconds. */
   iat: number;
   exp: number;
+}
+
+/** The machine-scoped kinds' claims. */
+interface BaseClaims extends CommonClaims {
   mch: MachineId;
   /** The machine's incarnation when issued; a stop or restart makes the token dead. */
   inc: number;
@@ -149,19 +156,63 @@ export interface JupyterLinkClaims extends BaseClaims {
   mbr: MemberId;
 }
 
-export type TokenClaims = AgentClaims | WorkspaceClaims | PageClaims | JupyterLinkClaims;
+/** The deployment a restore token is for: a gateway refuses one minted for another. */
+export const DEPLOY_ENVS = ["production", "staging", "local"] as const;
+export type DeployEnv = (typeof DEPLOY_ENVS)[number];
+
+export function isDeployEnv(x: unknown): x is DeployEnv {
+  return typeof x === "string" && (DEPLOY_ENVS as readonly string[]).includes(x);
+}
+
+/** A restore operation's id: 16 random bytes, base64url (as control's area_restores.op_id). */
+export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+
+/** The one area a restore token may write: a member's own, or a team's. */
+export type RestoreArea = { kind: "member"; mbr: MemberId } | { kind: "team"; team: TeamId };
+
+/**
+ * For the storage gateway's restore mode (snapshots r3.1, 4.3 and 4.4): one restore of one
+ * snapshot into one area of one project, by one member, onto the HEAD control read after its
+ * claim. Single use (the gateway consumes the jti before anything else), and not machine-scoped.
+ * A member area's restore is its own member's (actor = mbr); a team area's actor is a member of
+ * that team, which control checks when it mints.
+ */
+export interface RestoreClaims extends CommonClaims {
+  kind: "restore";
+  env: DeployEnv;
+  prj: ProjectId;
+  area: RestoreArea;
+  /** The operation, carried into the restore manifest so reconciliation can recognise it. */
+  op: string;
+  actor: MemberId;
+  /** The snapshot restored. */
+  snap: SnapshotId;
+  /** HEAD as control read it after the claim; the gateway's compare-and-swap expects exactly this. */
+  expectedHead: SnapshotId;
+}
+
+/** The gateway's key prefix for a restore token's area: prj/<prj>/m/<mbr> or prj/<prj>/t/<team>, from the claims only. */
+export function restoreAreaPrefix(c: RestoreClaims): string {
+  return c.area.kind === "member" ? `prj/${c.prj}/m/${c.area.mbr}` : `prj/${c.prj}/t/${c.area.team}`;
+}
+
+export type TokenClaims = AgentClaims | WorkspaceClaims | PageClaims | JupyterLinkClaims | RestoreClaims;
+/** The kinds machineTokenStateOk judges. */
+export type MachineTokenClaims = Exclude<TokenClaims, RestoreClaims>;
 export type ClaimsOf<K extends TokenKind> = Extract<TokenClaims, { kind: K }>;
 
 export function isTokenKind(x: unknown): x is TokenKind {
   return typeof x === "string" && (TOKEN_KINDS as readonly string[]).includes(x);
 }
 
-const BASE_KEYS = ["v", "kind", "jti", "iat", "exp", "mch", "inc"];
+const COMMON_KEYS = ["v", "kind", "jti", "iat", "exp"];
+const BASE_KEYS = [...COMMON_KEYS, "mch", "inc"];
 const KEYS: Record<TokenKind, string[]> = {
   agent: BASE_KEYS,
   workspace: [...BASE_KEYS, "mbr", "prj", "team", "grants", "mode"],
   page: [...BASE_KEYS, "mbr"],
   "jupyter-link": [...BASE_KEYS, "mbr"],
+  restore: [...COMMON_KEYS, "env", "prj", "area", "op", "actor", "snap", "expectedHead"],
 };
 
 function isPlainObject(x: unknown): x is Record<string, unknown> {
@@ -221,6 +272,26 @@ function workspaceError(o: Record<string, unknown>): string | null {
   return null;
 }
 
+function restoreError(o: Record<string, unknown>): string | null {
+  if (!isDeployEnv(o.env)) return "env";
+  if (!isId("project", o.prj)) return "prj";
+  const area = o.area;
+  if (!isPlainObject(area)) return "area";
+  if (area.kind === "member") {
+    if (!hasExactKeys(area, ["kind", "mbr"]) || !isId("member", area.mbr)) return "area";
+  } else if (area.kind === "team") {
+    if (!hasExactKeys(area, ["kind", "team"]) || !isId("team", area.team)) return "area";
+  } else {
+    return "area";
+  }
+  if (typeof o.op !== "string" || !RESTORE_OP_PATTERN.test(o.op)) return "op";
+  if (!isId("member", o.actor)) return "actor";
+  if (area.kind === "member" && o.actor !== area.mbr) return "another member's area";
+  if (!isId("snapshot", o.snap)) return "snap";
+  if (!isId("snapshot", o.expectedHead)) return "expectedHead";
+  return null;
+}
+
 export type ClaimsCheck<K extends TokenKind> = { ok: true; claims: ClaimsOf<K> } | { ok: false; reason: string };
 
 /**
@@ -241,6 +312,10 @@ export function validateClaims<K extends TokenKind>(x: unknown, kind: K, nowSeco
   if (x.exp - x.iat > TOKEN_TTL_SECONDS[kind]) return fail("lifetime over the cap");
   if (x.iat > nowSeconds + TOKEN_CLOCK_SKEW_SECONDS) return fail("issued in the future");
   if (!(nowSeconds < x.exp)) return fail("expired");
+  if (kind === "restore") {
+    const e = restoreError(x);
+    return e ? fail(e) : { ok: true, claims: x as unknown as ClaimsOf<K> };
+  }
   if (!isId("machine", x.mch)) return fail("mch");
   if (!isCount(x.inc)) return fail("inc");
   if (kind === "page" || kind === "jupyter-link") {
@@ -258,7 +333,7 @@ export function validateClaims<K extends TokenKind>(x: unknown, kind: K, nowSeco
  * in which this kind of token may act. Ordinary workspace tokens stop working the moment
  * the final save begins; final-save tokens work only during it.
  */
-export function machineTokenStateOk(claims: TokenClaims, machine: { id: MachineId; state: MachineState; incarnation: number }): boolean {
+export function machineTokenStateOk(claims: MachineTokenClaims, machine: { id: MachineId; state: MachineState; incarnation: number }): boolean {
   if (claims.mch !== machine.id || claims.inc !== machine.incarnation) return false;
   switch (claims.kind) {
     case "agent":

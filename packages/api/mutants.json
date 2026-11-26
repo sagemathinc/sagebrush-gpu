@@ -1218,5 +1218,115 @@
   "old": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },",
   "new": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },",
   "note": "assurance: below owner"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isDeployEnv(o.env)) return \"env\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "return typeof x === \"string\" && (DEPLOY_ENVS as readonly string[]).includes(x);",
+  "new": "return typeof x === \"string\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const DEPLOY_ENVS = [\"production\", \"staging\", \"local\"] as const;",
+  "new": "export const DEPLOY_ENVS = [\"production\", \"staging\"] as const;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"project\", o.prj)) return \"prj\";\n  const area",
+  "new": "  const area"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isPlainObject(area)) return \"area\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"mbr\"]) || !isId(\"member\", area.mbr)) return \"area\";",
+  "new": "if (!isId(\"member\", area.mbr)) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"mbr\"]) || !isId(\"member\", area.mbr)) return \"area\";",
+  "new": "if (!hasExactKeys(area, [\"kind\", \"mbr\"])) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"team\"]) || !isId(\"team\", area.team)) return \"area\";",
+  "new": "if (!isId(\"team\", area.team)) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "if (!hasExactKeys(area, [\"kind\", \"team\"]) || !isId(\"team\", area.team)) return \"area\";",
+  "new": "if (!hasExactKeys(area, [\"kind\", \"team\"])) return \"area\";"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  } else {\n    return \"area\";\n  }\n  if (typeof o.op",
+  "new": "  }\n  if (typeof o.op"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;",
+  "new": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22,23}$/;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;",
+  "new": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_+=-]{22}$/;"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"member\", o.actor)) return \"actor\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (area.kind === \"member\" && o.actor !== area.mbr) return \"another member's area\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"snapshot\", o.snap)) return \"snap\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (!isId(\"snapshot\", o.expectedHead)) return \"expectedHead\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  restore: 60,\n",
+  "new": "  restore: 61,\n"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  restore: [...COMMON_KEYS, \"env\", \"prj\", \"area\", \"op\", \"actor\", \"snap\", \"expectedHead\"],",
+  "new": "  restore: [...BASE_KEYS, \"env\", \"prj\", \"area\", \"op\", \"actor\", \"snap\", \"expectedHead\"],"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "  if (kind === \"restore\") {\n    const e = restoreError(x);",
+  "new": "  if (kind === \"restore\" && false) {\n    const e = restoreError(x);"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "return e ? fail(e) : { ok: true, claims: x as unknown as ClaimsOf<K> };",
+  "new": "return { ok: true, claims: x as unknown as ClaimsOf<K> };"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "`prj/${c.prj}/m/${c.area.mbr}`",
+  "new": "`prj/${c.prj}/t/${c.area.mbr}`"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "`prj/${c.prj}/t/${c.area.team}`",
+  "new": "`prj/${c.prj}/${c.area.team}`"
  }
 ]
