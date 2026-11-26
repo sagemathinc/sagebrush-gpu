@@ -9,8 +9,11 @@
 // (101) is passed on as is. Nothing here logs a URL (a sign-in callback's carries a
 // one-time code).
 
+import { BOOT_TOKEN_ENV, renderBootCommand } from "@sbgpu/machine";
 import { relayRoute, type RelayRouteEnv } from "@sbgpu/machine/relay/routes";
+import { RunPodAdapter } from "@sbgpu/providers";
 import { configFromEnv, createApp, withSecurityHeaders, type AppConfig } from "./app.ts";
+import { runContainerWatchdog, type ContainerDeps } from "./container.ts";
 import { d1Db, type D1Like, type Db } from "./db.ts";
 import { json } from "./http.ts";
 import { SCHEDULED_JOBS, type ScheduledJob } from "./jobs.ts";
@@ -27,6 +30,32 @@ export interface WorkerEnv extends RelayRouteEnv {
   AGENT_SIGNING_JWK?: unknown;
   AGENT_SIGNING_KID?: unknown;
   AGENT_PUBLIC_KEYS?: unknown;
+  /** Container launches: "on" or "off" (the default), and the release they pin (see configFromEnv). */
+  SBGPU_CONTAINER_LAUNCH?: unknown;
+  SBGPU_INSTALLATION?: unknown;
+  /** Our RunPod API key (a secret): only ever given to the RunPod adapter, never logged, returned or put in a pod. */
+  RUNPOD_API_KEY?: unknown;
+}
+
+/**
+ * Container mode's dependencies, or why there are none: off (the flag), or on but unusable
+ * (no installation slug, or no RunPod key; launches then aren't started). The adapter holds our
+ * key and is built per request or run; the pods must show the release's image and the launcher
+ * rendered for this origin.
+ */
+export function containerDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { off: true } | { unusable: string } {
+  const c = config.containerLaunch;
+  if (c === null) return { off: true };
+  if (config.installation === null) return { unusable: "SBGPU_INSTALLATION is unset" };
+  if (typeof apiKey !== "string" || apiKey === "") return { unusable: "RUNPOD_API_KEY is unset" };
+  const boot = renderBootCommand({ agentUrl: c.agentUrl, agentSha256: c.agentSha256, controlUrl: config.appOrigin, mode: "container" });
+  if (!("argv" in boot)) return { unusable: "the launcher has no argv" };
+  return {
+    deps: {
+      provider: new RunPodAdapter({ apiKey, fetch: (input, init) => f(input, init) }),
+      expect: { image: c.image, launcher: boot.argv, bootEnv: BOOT_TOKEN_ENV },
+    },
+  };
 }
 
 export interface WorkerContext {
@@ -70,7 +99,10 @@ export function createWorker(o: WorkerOptions = {}) {
         config,
         fetch: (input, init) => fetch(input, init),
         vm: null,
-        container: null,
+        container: (() => {
+          const d = containerDeps(config, env.RUNPOD_API_KEY, fetch);
+          return "deps" in d ? d.deps : null;
+        })(),
         waitUntil: guardedWaitUntil(ctx, log),
         agentSigner: () => loadAgentSigner(env.AGENT_SIGNING_JWK, env.AGENT_SIGNING_KID, env.AGENT_PUBLIC_KEYS),
         agentPublicKeys: () => loadAgentPublicKeys(env.AGENT_PUBLIC_KEYS),
@@ -120,6 +152,37 @@ export function createWorker(o: WorkerOptions = {}) {
         } catch (e) {
           failed.push(job.name);
           log(`control: scheduled job ${job.name} failed (${e instanceof Error ? e.name : typeof e})`);
+        }
+      }
+      // Container mode's watchdog, when container launches are on and usable. On but unusable: one
+      // alert line a run (why nothing launches), and no watchdog.
+      let config: AppConfig | null = null;
+      try {
+        config = configFromEnv(env as unknown as Record<string, unknown>);
+      } catch {
+        // (the fetch path logs a bad config per request; here only when container launch was asked for)
+        if (env.SBGPU_CONTAINER_LAUNCH === "on") log("control: the deploy config is invalid; no container watchdog");
+      }
+      if (config !== null) {
+        const d = containerDeps(config, env.RUNPOD_API_KEY, fetch);
+        if ("unusable" in d) {
+          log(`control: alert: container launch is on but ${d.unusable}: launches not started`);
+        } else if ("deps" in d) {
+          try {
+            const n = await runContainerWatchdog({
+              db,
+              installation: config.installation,
+              clock: now,
+              provider: d.deps.provider,
+              expect: d.deps.expect,
+              randomBytes: (k) => crypto.getRandomValues(new Uint8Array(k)),
+              elapsedMs: () => Date.now() - began,
+            });
+            if (n > 0) log(`control: container watchdog: ${n}`);
+          } catch (e) {
+            failed.push("container watchdog");
+            log(`control: scheduled job container watchdog failed (${e instanceof Error ? e.name : typeof e})`);
+          }
         }
       }
       if (failed.length) throw new Error(`scheduled jobs failed: ${failed.join(", ")}`);

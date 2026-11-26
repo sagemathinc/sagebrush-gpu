@@ -48,7 +48,7 @@ export async function world(
       for (let i = 0; i < n; i++) b[i] = (counter * 31 + i * 7 + (counter >> 8)) & 255;
       return b;
     },
-    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: o.auth ?? null, installation: "test" },
+    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: o.auth ?? null, installation: "test", containerLaunch: null },
     vm: o.vm ?? null,
     container: o.container ?? null,
     fetch:

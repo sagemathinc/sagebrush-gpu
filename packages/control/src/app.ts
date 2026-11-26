@@ -6,6 +6,7 @@
 // (the sign-in landing page has a one-time token in its URL). Errors are always the
 // contract's { error: { code, message } }.
 
+import { renderBootCommand } from "@sbgpu/machine";
 import { isInstallation } from "@sbgpu/providers";
 import {
   ERROR_STATUS,
@@ -57,9 +58,47 @@ export interface AppConfig {
    * written. Changing it later orphans every live launch by design (none parses as ours).
    */
   installation: string | null;
+  /**
+   * Container launches (RunPod), on only with SBGPU_CONTAINER_LAUNCH=on: the release every pod
+   * runs. Null when off (the default).
+   */
+  containerLaunch: ContainerLaunchConfig | null;
 }
 
-export const DEFAULT_CONFIG: Omit<AppConfig, "appOrigin" | "machineDomain" | "auth" | "installation"> = {
+/** What every container launch pins: the release's image, and its agent tarball with that tarball's sha256. */
+export interface ContainerLaunchConfig {
+  /** SBGPU_CONTAINER_IMAGE: a provider stock image name. */
+  image: string;
+  /** SBGPU_AGENT_URL: a plain https URL. */
+  agentUrl: string;
+  /** SBGPU_AGENT_SHA256: 64 lowercase hex. */
+  agentSha256: string;
+}
+
+/** A container image name (registry, path, tag or digest), nothing a provider's API would read otherwise. */
+const IMAGE_NAME = /^[a-z0-9][a-z0-9._\/:@-]{0,255}$/;
+
+/**
+ * The container-launch config: null when SBGPU_CONTAINER_LAUNCH is unset or "off"; with "on", the
+ * release's image, agent URL and agent sha256, each checked (the launcher is rendered once here,
+ * so a value it would refuse is refused at startup). Anything else throws.
+ */
+function containerLaunchFromEnv(env: Record<string, unknown>, appOrigin: string): ContainerLaunchConfig | null {
+  const flag = env.SBGPU_CONTAINER_LAUNCH;
+  if (flag === undefined || flag === "off") return null;
+  if (flag !== "on") throw new Error("SBGPU_CONTAINER_LAUNCH must be on or off");
+  const { SBGPU_CONTAINER_IMAGE: image, SBGPU_AGENT_URL: agentUrl, SBGPU_AGENT_SHA256: agentSha256 } = env;
+  if (typeof image !== "string" || !IMAGE_NAME.test(image)) throw new Error("SBGPU_CONTAINER_IMAGE must be an image name");
+  if (typeof agentUrl !== "string" || typeof agentSha256 !== "string") throw new Error("SBGPU_AGENT_URL and SBGPU_AGENT_SHA256 must be set");
+  try {
+    renderBootCommand({ agentUrl, agentSha256, controlUrl: appOrigin, mode: "container" });
+  } catch {
+    throw new Error("SBGPU_AGENT_URL must be a plain https URL and SBGPU_AGENT_SHA256 64 lowercase hex");
+  }
+  return { image, agentUrl, agentSha256 };
+}
+
+export const DEFAULT_CONFIG: Omit<AppConfig, "appOrigin" | "machineDomain" | "auth" | "installation" | "containerLaunch"> = {
   sessionTtlMs: 30 * 24 * 60 * 60_000,
 };
 
@@ -78,7 +117,14 @@ export function configFromEnv(env: Record<string, unknown>): AppConfig {
   if (typeof machineDomain !== "string" || !HOSTNAME.test(machineDomain)) throw new Error("MACHINE_DOMAIN must be a lowercase hostname");
   const installation = env.SBGPU_INSTALLATION;
   if (installation !== undefined && !isInstallation(installation)) throw new Error("SBGPU_INSTALLATION must be 4 to 8 of [a-z0-9]");
-  return { ...DEFAULT_CONFIG, appOrigin, machineDomain, auth: authConfigFromEnv(env), installation: installation ?? null };
+  return {
+    ...DEFAULT_CONFIG,
+    appOrigin,
+    machineDomain,
+    auth: authConfigFromEnv(env),
+    installation: installation ?? null,
+    containerLaunch: containerLaunchFromEnv(env, appOrigin),
+  };
 }
 
 // ---------------------------------------------------------------- deps

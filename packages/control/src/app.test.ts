@@ -62,7 +62,7 @@ async function world(handlers?: Handlers): Promise<World> {
     waitUntil: (p) => {
       pending.push(p);
     },
-    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: null, installation: "test" },
+    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: null, installation: "test", containerLaunch: null },
     fetch: async () => {
       throw new Error("no network in tests");
     },
@@ -577,6 +577,44 @@ test("configFromEnv takes the deploy config's MACHINE_DOMAIN and APP_ORIGIN, str
     { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "-m.example.com" },
   ]) {
     assert.throws(() => configFromEnv(env), Error, JSON.stringify(env));
+  }
+});
+
+test("configFromEnv: container launch is off unless SBGPU_CONTAINER_LAUNCH=on, and then needs the release it pins, strictly", () => {
+  const base = { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" };
+  const release = {
+    SBGPU_CONTAINER_IMAGE: "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
+    SBGPU_AGENT_URL: "https://cdn.example.com/agent/sbgpu-agent.tar.gz",
+    SBGPU_AGENT_SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  };
+  // off: unset, or "off", whatever else is set
+  assert.equal(configFromEnv(base).containerLaunch, null);
+  assert.equal(configFromEnv({ ...base, ...release, SBGPU_CONTAINER_LAUNCH: "off" }).containerLaunch, null);
+  // on, with the release
+  assert.deepEqual(configFromEnv({ ...base, ...release, SBGPU_CONTAINER_LAUNCH: "on" }).containerLaunch, {
+    image: release.SBGPU_CONTAINER_IMAGE,
+    agentUrl: release.SBGPU_AGENT_URL,
+    agentSha256: release.SBGPU_AGENT_SHA256,
+  });
+  // anything else refused at startup
+  const bad: Array<[Record<string, unknown>, RegExp]> = [
+    [{ SBGPU_CONTAINER_LAUNCH: "yes" }, /SBGPU_CONTAINER_LAUNCH/],
+    [{ SBGPU_CONTAINER_LAUNCH: "ON" }, /SBGPU_CONTAINER_LAUNCH/],
+    [{ SBGPU_CONTAINER_LAUNCH: true }, /SBGPU_CONTAINER_LAUNCH/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_CONTAINER_IMAGE: undefined }, /SBGPU_CONTAINER_IMAGE/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_CONTAINER_IMAGE: "Upper/Case" }, /SBGPU_CONTAINER_IMAGE/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_CONTAINER_IMAGE: "img with space" }, /SBGPU_CONTAINER_IMAGE/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_URL: undefined }, /SBGPU_AGENT_URL/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_SHA256: undefined }, /SBGPU_AGENT_SHA256/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_URL: "http://cdn.example.com/a.tgz" }, /SBGPU_AGENT_URL/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_URL: "https://cdn.example.com/a b.tgz" }, /SBGPU_AGENT_URL/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_SHA256: "0123" }, /SBGPU_AGENT_SHA256/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_SHA256: release.SBGPU_AGENT_SHA256.toUpperCase() }, /SBGPU_AGENT_SHA256/],
+  ];
+  for (const [over, why] of bad) {
+    const env: Record<string, unknown> = { ...base, ...release, ...over };
+    for (const k of Object.keys(over)) if (over[k] === undefined) delete env[k];
+    assert.throws(() => configFromEnv(env), why, JSON.stringify(over));
   }
 });
 

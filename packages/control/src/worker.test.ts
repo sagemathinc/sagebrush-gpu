@@ -4,7 +4,12 @@ import { readFileSync } from "node:fs";
 import { newId } from "@sbgpu/api";
 import { startWorker, type StartedWorker } from "@sbgpu/testing/worker";
 import { SECURITY_HEADERS } from "./http.ts";
-import { backgroundFailureLine, createWorker, guardedWaitUntil } from "./worker.ts";
+import { inspect } from "node:util";
+import { renderBootCommand } from "@sbgpu/machine";
+import { RunPodAdapter } from "@sbgpu/providers";
+import { configFromEnv } from "./app.ts";
+import { CONTAINER_WATCHDOG_SELECT } from "./container.ts";
+import { backgroundFailureLine, containerDeps, createWorker, guardedWaitUntil } from "./worker.ts";
 import { PRUNE_BATCH } from "./jobs.ts";
 import { d1Db, type D1Like } from "./db.ts";
 
@@ -223,6 +228,83 @@ test("scheduled: every job runs even if one fails; then the run fails, naming it
   assert.deepEqual(logs, ["control: one: 2", "control: scheduled job two failed (Error)"]);
   // all well: no error
   await createWorker({ log: () => {}, jobs: [{ name: "ok", run: async () => 0 }] }).scheduled({ scheduledTime: 0, cron: "" }, env, { waitUntil() {} });
+});
+
+// ---- container launch (off by default): the Worker's wiring
+
+const BASE_VARS = { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" };
+const RELEASE = {
+  SBGPU_CONTAINER_IMAGE: "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
+  SBGPU_AGENT_URL: "https://cdn.example.com/agent/sbgpu-agent.tar.gz",
+  SBGPU_AGENT_SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+};
+
+test("containerDeps: off by default; on but unusable without the installation or the key; usable: our RunPod adapter, the release's image and launcher", () => {
+  assert.deepEqual(containerDeps(configFromEnv(BASE_VARS), "k", fetch), { off: true });
+  const on = configFromEnv({ ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on" });
+  assert.deepEqual(containerDeps(on, "k", fetch), { unusable: "SBGPU_INSTALLATION is unset" });
+  const full = configFromEnv({ ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod" });
+  for (const key of [undefined, "", 5]) assert.deepEqual(containerDeps(full, key, fetch), { unusable: "RUNPOD_API_KEY is unset" }, String(key));
+  const d = containerDeps(full, "rpa_SECRETKEYVALUE0000", fetch);
+  assert.ok("deps" in d);
+  assert.ok(d.deps.provider instanceof RunPodAdapter);
+  const boot = renderBootCommand({ agentUrl: RELEASE.SBGPU_AGENT_URL, agentSha256: RELEASE.SBGPU_AGENT_SHA256, controlUrl: "https://gpu.example.com", mode: "container" });
+  assert.ok("argv" in boot);
+  assert.deepEqual(d.deps.expect, { image: RELEASE.SBGPU_CONTAINER_IMAGE, launcher: boot.argv, bootEnv: "SBGPU_BOOT_TOKEN" });
+  assert.ok(!inspect(d, { depth: null, showHidden: true }).includes("SECRETKEYVALUE"), "the key isn't visible in the deps");
+});
+
+/** A D1 that answers every read with no rows and records each statement's SQL. */
+function recordingD1(failReads = false) {
+  const sqls: string[] = [];
+  const stmt = (sql: string) => ({
+    bind: () => ({
+      all: async () => {
+        sqls.push(sql);
+        if (failReads) throw new Error("d1 down");
+        return { results: [] };
+      },
+      run: async () => (sqls.push(sql), { meta: { changes: 0 } }),
+    }),
+  });
+  return { sqls, d1: { prepare: (sql: string) => stmt(sql), batch: async () => [] } };
+}
+
+test("scheduled: the container watchdog runs only when container launch is on and usable; on but unusable is one alert line a run", async () => {
+  const cases: Array<[Record<string, string>, boolean, string[]]> = [
+    [{}, false, []],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "off" }, false, []],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on" }, false, ["control: alert: container launch is on but SBGPU_INSTALLATION is unset: launches not started"]],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod" }, false, ["control: alert: container launch is on but RUNPOD_API_KEY is unset: launches not started"]],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" }, true, []],
+  ];
+  for (const [vars, ran, lines] of cases) {
+    const logs: string[] = [];
+    const r = recordingD1();
+    const other: string[] = [];
+    await createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [{ name: "other", run: async () => (other.push("ran"), 0) }] }).scheduled(
+      { scheduledTime: 0, cron: "" },
+      { DB: r.d1, ...BASE_VARS, ...vars } as never,
+      { waitUntil() {} },
+    );
+    assert.equal(r.sqls.includes(CONTAINER_WATCHDOG_SELECT), ran, JSON.stringify(vars));
+    assert.deepEqual([logs, other], [lines, ["ran"]], JSON.stringify(vars));
+  }
+  // a failing container watchdog fails the run by name, after the other jobs; a bad deploy config only skips it
+  const logs: string[] = [];
+  const failing = recordingD1(true);
+  await assert.rejects(
+    createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled(
+      { scheduledTime: 0, cron: "" },
+      { DB: failing.d1, ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" } as never,
+      { waitUntil() {} },
+    ),
+    /scheduled jobs failed: container watchdog$/,
+  );
+  assert.deepEqual(logs, ["control: scheduled job container watchdog failed (Error)"]);
+  const bad: string[] = [];
+  await createWorker({ now: () => 123, log: (l) => bad.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, { DB: recordingD1().d1, MACHINE_DOMAIN: "m.example.com", SBGPU_CONTAINER_LAUNCH: "on" } as never, { waitUntil() {} });
+  assert.deepEqual(bad, ["control: the deploy config is invalid; no container watchdog"]);
 });
 
 // ---- the enroll batch's guard on D1 itself (SEC): the all-or-nothing proof rests on D1
