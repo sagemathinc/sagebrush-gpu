@@ -159,8 +159,13 @@ test("browser prefs: localStorage when it works, memory when it's missing or thr
     };
     put({ getItem: boom, setItem: boom });
     const c = browserPrefs();
+    assert.equal(c.get("other"), null, "a read storage refuses is nothing");
     assert.doesNotThrow(() => c.set("k", "1"));
     assert.equal(c.get("k"), "1", "memory when storage throws");
+    put({ getItem: () => null, setItem: boom }); // (full: reads work, writes don't)
+    const full = browserPrefs();
+    full.set("k", "1");
+    assert.equal(full.get("k"), "1", "what this page set, when storage refused to keep it");
     Object.defineProperty(globalThis, "localStorage", { get: boom, configurable: true });
     const d = browserPrefs();
     d.set("k", "1");
@@ -196,4 +201,45 @@ test("a Jupyter link the page refuses doesn't tick the step", async () => {
     name === "openJupyterLink" ? { url: "https://evil.example/", expiresAt: "2027-02-01T09:02:30.000Z" } : real(name as never, args as never)) as typeof real;
   assert.equal(await s.t.store.jupyterLink(s.t.store.machines.value[0]!.id), null);
   assert.equal(s.t.store.jupyterOpened.value, false);
+});
+
+test("an older read of who's signed in, answering after someone else signs in, changes nothing", async () => {
+  const s = await open();
+  s.page.button("Skip")!.click();
+  await settle();
+  const release = s.t.gate(/^GET \S*\/v1\/me$/);
+  const old = s.t.store.loadMe(); // (still the first person's)
+  await signInAs(s.t.store, s.t.demo.backend, EMAILS.lowMember);
+  assert.equal(s.t.store.me.value?.user.email, EMAILS.lowMember);
+  release();
+  await old;
+  await settle();
+  assert.equal(s.t.store.me.value?.user.email, EMAILS.lowMember, "not put back");
+  assert.equal(s.t.store.tourHidden.value, false, "nor the first person's choice");
+});
+
+test("an older read of who's signed in, answering after sign-out, changes nothing", async () => {
+  const s = await open();
+  s.page.button("Skip")!.click();
+  await settle();
+  const release = s.t.gate(/^GET \S*\/v1\/me$/);
+  const old = s.t.store.loadMe();
+  await s.t.store.signOut();
+  release();
+  await old;
+  assert.equal(s.t.store.me.value, null);
+  assert.equal(s.t.store.tourHidden.value, false);
+  assert.equal(s.t.store.meLoaded.value, true);
+});
+
+test("an older read that fails, answering after someone else signs in, changes nothing", async () => {
+  const s = await open();
+  s.t.respondOnce(/^GET \S*\/v1\/me$/, () => Response.json({ error: { code: "internal", message: "x" } }, { status: 500 }));
+  const release = s.t.gate(/^GET \S*\/v1\/me$/);
+  const old = s.t.store.loadMe();
+  await signInAs(s.t.store, s.t.demo.backend, EMAILS.lowMember);
+  release();
+  await old;
+  assert.equal(s.t.store.me.value?.user.email, EMAILS.lowMember);
+  assert.equal(s.t.store.error.value, null);
 });

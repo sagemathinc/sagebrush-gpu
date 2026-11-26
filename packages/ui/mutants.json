@@ -3467,8 +3467,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    } catch (err) {\n      this.keys.closeWindow();",
-  "new": "    } catch (err) {",
+  "old": "      this.keys.closeWindow();\n      if (!(err instanceof ApiError && err.code === \"unauthenticated\")) {",
+  "new": "      if (!(err instanceof ApiError && err.code === \"unauthenticated\")) {",
   "note": "loadMe: a failure keeps the window"
  },
  {
@@ -4533,13 +4533,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        return store ? store.getItem(key) : (memory.get(key) ?? null);",
-  "new": "        return memory.get(key) ?? null;"
+  "old": "        return store ? store.getItem(key) : null;",
+  "new": "        return null;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "        return memory.get(key) ?? null;\n      }\n    },",
-  "new": "        return null;\n      }\n    },"
+  "old": "      try {\n        return store ? store.getItem(key) : null;\n      } catch {\n        return null;\n      }",
+  "new": "      return store ? store.getItem(key) : null;"
  },
  {
   "file": "src/app/store.ts",
@@ -4640,5 +4640,35 @@
   "file": "src/app/components.ts",
   "old": "onClick=${() => store.hideTour()}>",
   "new": "onClick=${() => undefined}>"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (read !== this.#meRead) return;\n      this.me.value = me;",
+  "new": "      this.me.value = me;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (read !== this.#meRead) return;\n      this.keys.closeWindow();",
+  "new": "      this.keys.closeWindow();"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const read = ++this.#meRead;",
+  "new": "    const read = this.#meRead;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.keys.endSession();\n    this.#meRead++;\n",
+  "new": "    this.keys.endSession();\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (own != null) return own;\n",
+  "new": "\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      const own = memory.get(key);",
+  "new": "      const own = undefined as string | undefined;"
  }
 ]

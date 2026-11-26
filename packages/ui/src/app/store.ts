@@ -70,10 +70,13 @@ export function browserPrefs(): Prefs {
   })();
   return {
     get: (key) => {
+      // (what this page set wins: storage may have refused it, in private mode or when full)
+      const own = memory.get(key);
+      if (own != null) return own;
       try {
-        return store ? store.getItem(key) : (memory.get(key) ?? null);
+        return store ? store.getItem(key) : null;
       } catch {
-        return memory.get(key) ?? null;
+        return null;
       }
     },
     set: (key, value) => {
@@ -166,6 +169,8 @@ export class Store {
   #orgLoad = 0;
   /** Increments when a session starts (sign-in): a 401 answers only the session it was asked in. */
   #sessionGeneration = 0;
+  /** Moves on with every read of /me and every sign-out: only the latest read publishes. */
+  #meRead = 0;
   /** The banner message the last failed poll set, so a later good poll can clear it (and only it). */
   #pollError: string | null = null;
 
@@ -237,6 +242,7 @@ export class Store {
     this.tourHidden.value = false;
     this.#staleSaves(); // (a late answer must not show a signed-out person's saves)
     this.keys.endSession();
+    this.#meRead++;
     batch(() => {
       this.me.value = null;
       this.meLoaded.value = true;
@@ -271,13 +277,18 @@ export class Store {
   // ---------------------------------------------------------------- session
 
   async loadMe(): Promise<void> {
+    // (an older read answering after a sign-out or someone else's sign-in would put back the
+    // previous person, and their walkthrough choice, over the new session)
+    const read = ++this.#meRead;
     try {
       const me = await this.client.call("getMe");
+      if (read !== this.#meRead) return;
       this.me.value = me;
       this.tourHidden.value = this.#prefs.get(tourPrefKey(me.user.id)) === "1";
       // (the window is per organization: the keys' own read, for the one they show)
       await this.keys.refreshWindow();
     } catch (err) {
+      if (read !== this.#meRead) return;
       this.keys.closeWindow();
       if (!(err instanceof ApiError && err.code === "unauthenticated")) {
         this.error.value = err instanceof Error ? err.message : String(err);
