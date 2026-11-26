@@ -4475,5 +4475,44 @@
   "file": "migrations/0017_area_restores.sql",
   "old": "NOT (OLD.state = 'claimed' AND",
   "new": "NOT (OLD.state IN ('claimed', 'done') AND"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  expected_head TEXT CHECK (expected_head IS NULL OR length(CAST(expected_head AS BLOB)) = 24 AND expected_head GLOB 'snp_[0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z]'),",
+  "new": "  expected_head TEXT,",
+  "note": "T2: the expected head's whole shape check removed"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(expected_head AS BLOB)) = 24 AND expected_head GLOB",
+  "new": "expected_head GLOB"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND 0",
+  "note": "SEC H1: a keyless machine inserted live"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping')",
+  "new": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND 0",
+  "note": "SEC H1: a keyless machine moved into a live state"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "AND NEW.member_area_key IS NULL",
+  "note": "a migrated live machine kept from saving and stopping"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN",
+  "new": "WHEN NEW.state IN ('starting', 'running', 'saving') AND OLD.state NOT IN"
  }
 ]

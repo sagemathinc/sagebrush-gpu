@@ -247,8 +247,8 @@ async function startMachine(s: Seed, allocationId: string, rate: number, bps: nu
   const id = newId("machine");
   await s.db.batch([
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, save_estimate_seconds, created_ms)
-       VALUES (?, ?, ?, ?, 'runpod', 'L4', 1, 'EU-SE-1', 'starting', ?, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, save_estimate_seconds, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'runpod', 'L4', 1, 'EU-SE-1', 'starting', ?, ?)`,
       id, s.projectId, allocationId, newId("member"), saveEstimate, startMs,
     ),
     ...openAccrual(id, { incarnation: 0, provider: "runpod", providerCostPerHour: rate, marginBps: bps, startMs }),
@@ -387,8 +387,8 @@ test("schema: tenant integrity of the whole tuple", async () => {
   await assert.rejects(
     s.db.batch([
       stmt(
-        `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms)
-         VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`,
+        `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms)
+         VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`,
         newId("machine"), s.projectId, allocB, T0,
       ),
     ]),

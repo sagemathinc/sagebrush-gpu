@@ -41,8 +41,8 @@ async function machine(provider = "runpod") {
   const id = newId("machine");
   await w.db.batch([
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, ?, 'L4', 1, 'X', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, ?, 'L4', 1, 'X', 'starting', 1, ?)`,
       id, w.projectId, allocationId, memberId, provider, T0,
     ),
   ]);
@@ -196,8 +196,8 @@ test("launches: the account is pinned at the intent (the machine's organization 
     stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'P3', ?, ?, 0, ?)`, p3, w.orgId, T0, T0 + 86_400_000, T0),
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', ?, 0, ?)`, a3, p3, memberId, T0),
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, 'runpod', 'L4', 1, 'X', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'runpod', 'L4', 1, 'X', 'starting', 1, ?)`,
       d, p3, a3, memberId, T0,
     ),
   ]);

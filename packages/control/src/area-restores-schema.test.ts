@@ -64,14 +64,18 @@ const setRestore = (opId: string, set: string, ...p: SqlValue[]) => w.db.batch([
 const restore = async (opId: string) => (await w.db.all<Record<string, SqlValue>>(`SELECT * FROM area_restores WHERE op_id = ?`, [opId]))[0]!;
 const liveClaims = async () => (await w.db.all<{ n: number }>(`SELECT count(*) AS n FROM area_restores WHERE state = 'claimed'`))[0]!.n;
 
-/** 4.1 step 3: the claim, only while no machine writes the area; then its changes() = 1 guard. */
-function claim(areaKey: string, opId = op(), createdMs = T0) {
-  return w.db.batch([
+/**
+ * 4.1 step 3: the claim, only while no machine writes the area (by its pinned keys) and no live
+ * machine of the area's project lacks its keys (one from before 0017); then its changes() = 1 guard.
+ */
+function claim(areaKey: string, opId = op(), createdMs = T0, db = w.db) {
+  return db.batch([
     stmt(
       `INSERT INTO area_restores (op_id, area_key, actor_member_id, target_snapshot_id, jti, state, lease_ms, created_ms)
        SELECT ?, ?, ?, ?, ?, 'claimed', 120000, ?
-       WHERE NOT EXISTS (SELECT 1 FROM machines WHERE state IN ${LIVE} AND (member_area_key = ? OR team_area_key = ?))`,
-      opId, areaKey, memberId, newId("snapshot"), jti(), createdMs, areaKey, areaKey,
+       WHERE NOT EXISTS (SELECT 1 FROM machines WHERE state IN ${LIVE}
+         AND (member_area_key = ? OR team_area_key = ? OR (member_area_key IS NULL AND project_id = ?)))`,
+      opId, areaKey, memberId, newId("snapshot"), jti(), createdMs, areaKey, areaKey, areaKey.split(":")[1]!,
     ),
     TOOK,
   ]);
@@ -215,6 +219,11 @@ test("area_restores: the head is read once, after the claim; the token is minted
   const r = claimRow();
   await insert(r);
   await assert.rejects(setRestore(r.op_id, `token_exp_ms = ?`, T0 + 60_000), /CHECK/); // (no head yet)
+  // the head is a snapshot id, exactly: prefix, alphabet, length and bytes
+  for (const bad of [newId("machine"), head.slice(0, -1), head + "0", head.toUpperCase(), head.slice(0, -1) + "i", head.slice(0, -1) + NUL, head + NUL, `snp-${head.slice(4)}`]) {
+    await assert.rejects(setRestore(r.op_id, `expected_head = ?`, bad), /CHECK/, JSON.stringify(bad));
+  }
+  assert.equal((await restore(r.op_id)).expected_head, null);
   await setRestore(r.op_id, `expected_head = ?`, head);
   await assert.rejects(setRestore(r.op_id, `expected_head = ?`, newId("snapshot")), /set once, while claimed/);
   await assert.rejects(setRestore(r.op_id, `expected_head = NULL`), /set once, while claimed/);
@@ -307,4 +316,69 @@ test("team move and removal while running (C1): the machine stays a writer of it
   await claim(teamKey(teamA));
   await claim(mine());
   assert.equal(await liveClaims(), 3);
+});
+
+// ---------------------------------------------------------------- keyless live machines (SEC H1)
+
+test("no machine becomes live without its member area key: inserted live, or moved into a live state", async () => {
+  for (const state of ["starting", "running", "saving", "stopping"]) {
+    await assert.rejects(machine(state, { member: null, team: null }), /becomes live only with its area keys pinned/, state);
+  }
+  await machine("running", { team: null }); // (a member key without a team key is fine)
+  for (const state of ["stopped", "failed", "deleted"]) await machine(state, { member: null, team: null });
+  const id = await machine("stopped", { member: null, team: null });
+  for (const state of ["starting", "running", "saving", "stopping"]) {
+    await assert.rejects(setMachine(id, `state = ?`, state), /becomes live only with its area keys pinned/, state);
+  }
+  await start(id, mine(), null); // pinned in the move
+  assert.deepEqual(await keysOf(id), { m: mine(), t: null });
+});
+
+test("a machine live before 0017 (no keys) blocks every restore claim in its project, member and team, until it stops", async () => {
+  const P = newId("project");
+  const M = newId("member");
+  const TM = newId("team");
+  const old = newId("machine");
+  const u = await world({
+    upgrade: {
+      at: "0017",
+      seed(raw) {
+        raw.exec("PRAGMA foreign_keys = OFF");
+        raw.prepare(
+          `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+           VALUES (?, ?, 'alc_x', ?, 'runpod', 'L4', 1, 'X', 'running', 1, 0)`,
+        ).run(old, P, M);
+        raw.exec("PRAGMA foreign_keys = ON");
+      },
+    },
+  });
+  const actor = await addMember(u, "a@example.com");
+  const claimIn = (area: string) =>
+    u.db.batch([
+      stmt(
+        `INSERT INTO area_restores (op_id, area_key, actor_member_id, target_snapshot_id, jti, state, lease_ms, created_ms)
+         SELECT ?, ?, ?, ?, ?, 'claimed', 120000, ?
+         WHERE NOT EXISTS (SELECT 1 FROM machines WHERE state IN ${LIVE}
+           AND (member_area_key = ? OR team_area_key = ? OR (member_area_key IS NULL AND project_id = ?)))`,
+        op(), area, actor, newId("snapshot"), jti(), T0, area, area, area.split(":")[1]!,
+      ),
+      TOOK,
+    ]);
+  const keyless = await u.db.all<{ m: string | null; t: string | null; state: string }>(`SELECT member_area_key AS m, team_area_key AS t, state FROM machines WHERE id = ?`, [old]);
+  assert.deepEqual(keyless.map((r) => ({ ...r })), [{ m: null, t: null, state: "running" }]);
+  const theirs = [memberAreaKey(P, M), teamAreaKey(P, TM), memberAreaKey(P, actor)];
+  // (r3.1's guard alone, by keys, would let these claims through: the keyless clause is what stops them)
+  const byKeysAlone = async (area: string) =>
+    ({ ...(await u.db.all<{ ok: number }>(`SELECT NOT EXISTS (SELECT 1 FROM machines WHERE state IN ${LIVE} AND (member_area_key = ? OR team_area_key = ?)) AS ok`, [area, area]))[0]! }).ok;
+  for (const area of theirs) assert.equal(await byKeysAlone(area), 1, area);
+  for (const area of theirs) await assert.rejects(claimIn(area), /CHECK/, area); // its own areas, and anyone's in its project
+  await claimIn(memberAreaKey(u.projectId, actor)); // another project's area is not blocked
+  // it may still save and stop (moves between live states, then out), but never start again keyless
+  for (const state of ["saving", "stopping"]) {
+    await u.db.batch([stmt(`UPDATE machines SET state = ? WHERE id = ?`, state, old)]);
+    for (const area of theirs) await assert.rejects(claimIn(area), /CHECK/, `${state}: ${area}`);
+  }
+  await u.db.batch([stmt(`UPDATE machines SET state = 'stopped' WHERE id = ?`, old)]);
+  await assert.rejects(u.db.batch([stmt(`UPDATE machines SET state = 'starting' WHERE id = ?`, old)]), /becomes live only with its area keys pinned/);
+  for (const area of theirs) await claimIn(area);
 });

@@ -13,6 +13,14 @@
 --    guard (C2). expected_head is set once, after the claim (4.3), then the token's exp, which
 --    with the 30 s skew allowed is never past the 120 s lease (N2).
 --
+-- A machine live before this migration (or never pinned) has null keys, and would be invisible to
+-- a guard that matches keys only. So the claim's writer guard (4.1, control's statement) also
+-- blocks on ANY live machine of the same project whose member_area_key is null:
+--   NOT EXISTS (SELECT 1 FROM machines WHERE state IN ('starting', 'running', 'saving', 'stopping')
+--     AND (member_area_key = :area OR team_area_key = :area OR (member_area_key IS NULL AND project_id = :project)))
+-- and the triggers below keep any machine from becoming live without its member key, so such rows
+-- only ever drain away (a live machine may still move between live states, and stop).
+--
 -- The conditional batches (the claim's writer guard, the start's claim guard), the HEAD read,
 -- the token and reconciliation are control's code; this is their schema. Ids are checked to
 -- their exact shapes (Crockford base 32, as ids.ts) and byte lengths (GLOB stops at a NUL, as in
@@ -33,6 +41,22 @@ WHEN (NEW.member_area_key IS NOT OLD.member_area_key OR NEW.team_area_key IS NOT
 BEGIN
   SELECT RAISE(ABORT, 'a machine''s area keys change only through a final state');
 END;
+
+-- a machine becomes live (starting, running, saving or stopping) only with its member area key
+-- pinned, whether inserted live or moved into a live state; its team key may be null (no team at
+-- its start: its workspace token, minted from these columns, then has no team grant)
+CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines
+WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'a machine becomes live only with its area keys pinned');
+END;
+CREATE TRIGGER machines_live_keys_update BEFORE UPDATE OF state ON machines
+WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'a machine becomes live only with its area keys pinned');
+END;
+-- (the claim guard's keyless live machines of a project)
+CREATE INDEX machines_live_keyless ON machines (project_id) WHERE member_area_key IS NULL AND state IN ('starting', 'running', 'saving', 'stopping');
 
 CREATE TABLE area_restores (
   -- the operation (16 random bytes, base64url), carried in the restore manifest as `op`

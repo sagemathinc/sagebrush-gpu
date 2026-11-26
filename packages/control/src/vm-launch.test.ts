@@ -50,8 +50,8 @@ async function intent(db: Db = w.db) {
   const nonce = randomBytes(16).toString("base64url");
   await w.db.batch([
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
       machineId, w.projectId, allocationId, memberId, T0,
     ),
   ]);
