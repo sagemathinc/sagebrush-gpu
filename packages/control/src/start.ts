@@ -157,6 +157,7 @@ interface MoneyRow {
   amount: number | null;
   start_version: number | null;
   spent: number | null;
+  adjusted: number | null;
   machine_id: string | null;
   billed_through_ms: number | null;
   incarnation: number | null;
@@ -178,16 +179,17 @@ function moneyQuery(projectId: string, holderKind: "member" | "team", holderId: 
   return {
     sql: `SELECT 'alloc' AS kind, al.id AS allocation_id, al.amount, al.start_version,
          (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = al.id) AS spent,
+         (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = al.id AND e.kind <> 'compute') AS adjusted,
          NULL AS machine_id, NULL AS billed_through_ms, NULL AS incarnation, NULL AS provider, NULL AS provider_cost_per_hour,
          NULL AS margin_bps, NULL AS start_ms, NULL AS end_ms, NULL AS save_estimate_seconds
        FROM allocations al WHERE ${who}
      UNION ALL
-     SELECT 'interval', m.allocation_id, NULL, NULL, NULL, a.machine_id, m.billed_through_ms, a.incarnation, a.provider,
+     SELECT 'interval', m.allocation_id, NULL, NULL, NULL, NULL, a.machine_id, m.billed_through_ms, a.incarnation, a.provider,
          a.provider_cost_per_hour, a.margin_bps, a.start_ms, a.end_ms, m.save_estimate_seconds
        FROM machine_accruals a JOIN machines m ON m.id = a.machine_id JOIN allocations al ON al.id = m.allocation_id
        WHERE ${who} AND m.billed_through_ms IS NOT NULL AND (a.end_ms IS NULL OR a.end_ms > m.billed_through_ms)
      UNION ALL
-     SELECT 'pending', m.allocation_id, NULL, NULL, NULL, m.id, NULL, m.incarnation, m.provider,
+     SELECT 'pending', m.allocation_id, NULL, NULL, NULL, NULL, m.id, NULL, m.incarnation, m.provider,
          m.admitted_cost_per_hour, m.admitted_margin_bps, NULL, NULL, NULL
        FROM machines m JOIN allocations al ON al.id = m.allocation_id
        WHERE ${who} AND m.state = 'starting' AND m.admitted_cost_per_hour IS NOT NULL
@@ -199,6 +201,9 @@ function moneyQuery(projectId: string, holderKind: "member" | "team", holderId: 
 interface Money {
   allocationId: string;
   startVersion: number;
+  /** As read, for the write's guard: the allocation's amount and its non-compute ledger total (adjustments). */
+  amount: number;
+  adjusted: number;
   unspent: number;
   /** Every commitment: accruing machines (at their highest unbilled rate) and pending starts (at their admitted rate). */
   commitments: MeteredMachine[];
@@ -210,7 +215,9 @@ interface Money {
 function money(rows: MoneyRow[], nowMs: number): Money | null {
   const alloc = rows.find((r) => r.kind === "alloc");
   if (!alloc) return null;
-  if (!isCount(alloc.amount) || !isCount(alloc.start_version) || typeof alloc.spent !== "number" || !Number.isSafeInteger(alloc.spent)) throw new RangeError("allocation figures");
+  if (!isCount(alloc.amount) || !isCount(alloc.start_version) || typeof alloc.spent !== "number" || !Number.isSafeInteger(alloc.spent) || typeof alloc.adjusted !== "number" || !Number.isSafeInteger(alloc.adjusted)) {
+    throw new RangeError("allocation figures");
+  }
   const machines = new Map<string, LedgerMachine & { saveEstimate: number }>();
   for (const r of rows.filter((x) => x.kind === "interval")) {
     let m = machines.get(r.machine_id!);
@@ -242,7 +249,7 @@ function money(rows: MoneyRow[], nowMs: number): Money | null {
   for (const r of rows.filter((x) => x.kind === "pending")) commitments.push({ providerCostPerHour: r.provider_cost_per_hour!, marginBps: r.margin_bps! });
   const unspent = alloc.amount - alloc.spent - pending;
   if (!Number.isSafeInteger(unspent)) throw new RangeError("unspent");
-  return { allocationId: alloc.allocation_id, startVersion: alloc.start_version, unspent, commitments, unbilledSeconds: Math.ceil((nowMs - w0) / 1000), saveEstimateSeconds };
+  return { allocationId: alloc.allocation_id, startVersion: alloc.start_version, amount: alloc.amount, adjusted: alloc.adjusted, unspent, commitments, unbilledSeconds: Math.ceil((nowMs - w0) / 1000), saveEstimateSeconds };
 }
 
 /** The member's area key, and their team's: as 0017 pins them on a live machine. */
@@ -326,28 +333,40 @@ export async function admitStart(db: Db, nowMs: number, req: StartRequest): Prom
   const guard = stmt(`INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`);
   try {
     await db.batch([
-      stmt(`UPDATE allocations SET start_version = start_version + 1 WHERE id = ? AND start_version = ?`, mn.allocationId, mn.startVersion),
+      // (the CAS binds every input of the money decision that can change under it: the version
+      // (another admission), the amount (an allocation change) and the non-compute ledger total (an
+      // adjustment). Accrual's compute entries only move money the read already counted.)
+      stmt(
+        `UPDATE allocations SET start_version = start_version + 1 WHERE id = ? AND start_version = ? AND amount = ?
+           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,
+        mn.allocationId, mn.startVersion, mn.amount, mn.adjusted,
+      ),
       guard,
       stmt(
         `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms,
                                member_area_key, team_area_key, admitted_cost_per_hour, admitted_margin_bps)
          SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'starting', 1, ?, ?, ?, ?, ?
          WHERE NOT EXISTS (SELECT 1 FROM area_restores r WHERE r.state = 'claimed' AND r.area_key IN (?, ?))
-           AND EXISTS (SELECT 1 FROM members x WHERE x.id = ? AND x.project_id = ? AND x.user_id = ? AND x.status = 'active' AND x.team_id IS ?)`,
+           AND EXISTS (SELECT 1 FROM members x WHERE x.id = ? AND x.project_id = ? AND x.user_id = ? AND x.status = 'active' AND x.team_id IS ?)
+           AND EXISTS (SELECT 1 FROM projects p JOIN orgs o ON o.id = p.org_id WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?
+             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,
         machineId, projectId, mn.allocationId, ctx.member_id, o.provider, o.gpuType, o.gpuCount, o.dataCenter, nowMs,
         mKey, tKey, o.providerCostPerHour, marginBps,
         mKey, tKey ?? mKey,
         ctx.member_id, projectId, userId, ctx.team_id,
+        projectId, ctx.starts_ms, ctx.ends_ms, ctx.policy_json, ctx.final_save_reserve_minutes, ctx.margin_bps_override, ctx.org_margin_bps,
       ),
       guard,
     ]);
   } catch (e) {
     if (!(e instanceof Error && /CHECK constraint failed: ok = 1/.test(e.message))) throw e;
-    // (which guard: the CAS lost to another admission, or a claim or membership change)
-    const v = await db.all<{ start_version: number }>(`SELECT start_version FROM allocations WHERE id = ?`, [mn.allocationId]);
-    if (v[0]?.start_version !== mn.startVersion) return refuse("busy");
+    // (which guard: a restore claim, or the member gone; anything else read has changed (another
+    // admission, the allocation, an adjustment, the project or its organization): busy, and a retry
+    // decides again on what is current)
     const claimed = await db.all(`SELECT 1 FROM area_restores WHERE state = 'claimed' AND area_key IN (?, ?)`, [mKey, tKey ?? mKey]);
-    return refuse(claimed.length > 0 ? "restoreInProgress" : "notMember");
+    if (claimed.length > 0) return refuse("restoreInProgress");
+    const still = await db.all(`SELECT 1 FROM members WHERE id = ? AND project_id = ? AND user_id = ? AND status = 'active' AND team_id IS ?`, [ctx.member_id, projectId, userId, ctx.team_id]);
+    return refuse(still.length === 1 ? "busy" : "notMember");
   }
   return {
     ok: true,

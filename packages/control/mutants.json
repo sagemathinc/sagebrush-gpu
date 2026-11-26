@@ -5822,20 +5822,20 @@
  },
  {
   "file": "src/start.ts",
-  "old": "  if (!isCount(alloc.amount) || !isCount(alloc.start_version) || typeof alloc.spent !== \"number\" || !Number.isSafeInteger(alloc.spent)) throw new RangeError(\"allocation figures\");",
-  "new": "  if (false) throw new RangeError(\"allocation figures\");",
+  "old": "  if (!isCount(alloc.amount) || !isCount(alloc.start_version) || typeof alloc.spent !== \"number\" || !Number.isSafeInteger(alloc.spent) || typeof alloc.adjusted !== \"number\" || !Number.isSafeInteger(alloc.adjusted)) {\n    throw new RangeError(\"allocation figures\");",
+  "new": "  if (false) {\n    throw new RangeError(\"allocation figures\");",
   "note": "untrusted figures accepted"
  },
  {
   "file": "src/start.ts",
-  "old": "      stmt(`UPDATE allocations SET start_version = start_version + 1 WHERE id = ? AND start_version = ?`, mn.allocationId, mn.startVersion),\n      guard,",
-  "new": "      stmt(`UPDATE allocations SET start_version = start_version + 1 WHERE id = ? AND ? IS NOT NULL`, mn.allocationId, mn.startVersion),\n      guard,",
+  "old": "WHERE id = ? AND start_version = ? AND amount = ?\n",
+  "new": "WHERE id = ? AND ? IS NOT NULL AND amount = ?\n",
   "note": "the CAS dropped"
  },
  {
   "file": "src/start.ts",
-  "old": "        ctx.member_id, projectId, userId, ctx.team_id,\n      ),\n      guard,\n    ]);",
-  "new": "        ctx.member_id, projectId, userId, ctx.team_id,\n      ),\n    ]);",
+  "old": "ctx.margin_bps_override, ctx.org_margin_bps,\n      ),\n      guard,\n    ]);",
+  "new": "ctx.margin_bps_override, ctx.org_margin_bps,\n      ),\n    ]);",
   "note": "the guard after the machine dropped"
  },
  {
@@ -5846,21 +5846,21 @@
  },
  {
   "file": "src/start.ts",
-  "old": "x.status = 'active' AND x.team_id IS ?)`,",
-  "new": "x.status = 'active' AND (? IS NOT NULL OR 1))`,",
+  "old": "x.status = 'active' AND x.team_id IS ?)\n           AND EXISTS (SELECT 1 FROM projects p",
+  "new": "x.status = 'active' AND (? IS NOT NULL OR 1))\n           AND EXISTS (SELECT 1 FROM projects p",
   "note": "the team change ignored"
  },
  {
   "file": "src/start.ts",
-  "old": "           AND EXISTS (SELECT 1 FROM members x WHERE x.id = ? AND x.project_id = ? AND x.user_id = ? AND x.status = 'active' AND x.team_id IS ?)`,",
-  "new": "           AND (? IS NOT NULL OR ? OR ? OR ? OR 1)`,",
+  "old": "           AND EXISTS (SELECT 1 FROM members x WHERE x.id = ? AND x.project_id = ? AND x.user_id = ? AND x.status = 'active' AND x.team_id IS ?)\n",
+  "new": "           AND (? IS NOT NULL OR ? OR ? OR ? OR 1)\n",
   "note": "membership not re-checked at the write"
  },
  {
   "file": "src/start.ts",
-  "old": "    if (v[0]?.start_version !== mn.startVersion) return refuse(\"busy\");",
-  "new": "    if (false) return refuse(\"busy\");",
-  "note": "a lost CAS reported as something else"
+  "old": "    if (claimed.length > 0) return refuse(\"restoreInProgress\");\n",
+  "new": "",
+  "note": "a claim mid-way reported as busy"
  },
  {
   "file": "src/start.ts",
@@ -5963,5 +5963,83 @@
   "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
   "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
   "note": "stale starts not scheduled"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,",
+  "new": "WHERE id = ? AND start_version = ? AND ? IS NOT NULL\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,",
+  "note": "the CAS doesn't bind the amount (start_version only)"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id AND e.kind <> 'compute') = ?`,",
+  "new": "WHERE id = ? AND start_version = ? AND amount = ?\n           AND ? IS NOT NULL`,",
+  "note": "the CAS doesn't bind adjustments"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "new": "WHERE p.id = ? AND ? IS NOT NULL AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "note": "the write doesn't re-check the project's start"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "new": "WHERE p.id = ? AND p.starts_ms = ? AND ? IS NOT NULL AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "note": "the write doesn't re-check the project's end"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "new": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND ? IS NOT NULL\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "note": "the write doesn't re-check the policy"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "new": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND ? IS NOT NULL AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "note": "the write doesn't re-check the reserve"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "new": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND (? IS NULL OR 1) AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "note": "the write doesn't re-check the margin override"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND o.margin_bps = ? AND o.billing_mode = 'resold')`,",
+  "new": "WHERE p.id = ? AND p.starts_ms = ? AND p.ends_ms = ? AND p.policy_json = ?\n             AND p.final_save_reserve_minutes = ? AND p.margin_bps_override IS ? AND ? IS NOT NULL AND o.billing_mode = 'resold')`,",
+  "note": "the write doesn't re-check the org's margin"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "           AND EXISTS (SELECT 1 FROM projects p JOIN orgs o ON o.id = p.org_id WHERE p.id = ?",
+  "new": "           AND (? IS NOT NULL OR EXISTS (SELECT 1 FROM projects p JOIN orgs o ON o.id = p.org_id WHERE p.id = ?",
+  "note": "the project re-check dropped"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "(SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = al.id AND e.kind <> 'compute') AS adjusted,",
+  "new": "(SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = al.id AND e.kind = 'compute') AS adjusted,",
+  "note": "adjustments read as compute"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "    return refuse(still.length === 1 ? \"busy\" : \"notMember\");",
+  "new": "    return refuse(\"notMember\");",
+  "note": "a changed input reported as a membership change"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "export const staleStarts: ScheduledJob = { name: \"stale starts\", run: ({ db, now }) => failStaleStarts(db, now) };",
+  "new": "export const staleStarts: ScheduledJob = { name: \"stale starts\", run: async () => 0 };",
+  "note": "the scheduled stale-starts entry a no-op"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "export const STALE_START_BATCH = 100;",
+  "new": "export const STALE_START_BATCH = 101;",
+  "note": "the stale batch one more"
  }
 ]

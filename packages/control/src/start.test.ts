@@ -10,11 +10,13 @@ import { DEFAULT_POLICY, minuteCharge, newId, requiredToStart, reserveSeconds, t
 import { stmt, type Db, type SqlValue, type Stmt } from "./db.ts";
 import { closeAccrual, openAccrual } from "./ledger.ts";
 import { MIGRATIONS_DIR } from "./testing/sqlite.ts";
+import { SCHEDULED_JOBS, staleStarts } from "./jobs.ts";
 import { T0, addMember, signIn, world, type World } from "./testing/world.ts";
 import {
   HARD_STOP_PERIODS,
   OFFER_FRESH_MS,
   START_INTENT_GRACE_MS,
+  STALE_START_BATCH,
   abandonStart,
   abandonStartStmts,
   admitStart,
@@ -471,6 +473,81 @@ test("restore: a live claim on the member's key, or the team's, refuses with not
   assert.equal(await version(await allocOf(q.memberId)), 0, "the CAS rolled back with it");
 });
 
+/** `db`, with `change` run once right after admission's money read (between its decision and its write). */
+function midway(change: () => Promise<unknown>): Db {
+  const real = w.db;
+  let done = false;
+  return {
+    ...real,
+    async all<T>(sql: string, p?: SqlValue[]) {
+      const out = await real.all<T>(sql, p);
+      if (!done && sql.includes("'alloc' AS kind")) {
+        done = true;
+        await change();
+      }
+      return out;
+    },
+  };
+}
+
+test("H1: any decision input changed between the read and the write: busy, nothing written; the retry decides on what is current", async () => {
+  const cases: Array<[string, (m: { memberId: string; userId: string }) => Promise<unknown>, string, number?]> = [
+    ["the allocation lowered to 0", async (m) => w.db.batch([stmt(`UPDATE allocations SET amount = 0 WHERE holder_id = ?`, m.memberId)]), "allocationTooLow"],
+    ["the allocation raised", async (m) => w.db.batch([stmt(`UPDATE allocations SET amount = amount + 1 WHERE holder_id = ?`, m.memberId)]), "ok"],
+    ["an adjustment charged", async (m) => w.db.batch([stmt(
+      `INSERT INTO ledger_entries (id, org_id, project_id, allocation_id, kind, period_start_ms, seconds, margin_bps, provider_cost, margin, total, created_ms) VALUES (?, ?, ?, ?, 'adjustment', ?, 0, 0, 1, 0, 1, ?)`,
+      newId("ledgerEntry"), w.orgId, w.projectId, await allocOf(m.memberId), T0, T0,
+    )]), "allocationTooLow"],
+    ["the policy's price cap lowered", async () => w.db.batch([stmt(`UPDATE projects SET policy_json = ? WHERE id = ?`, JSON.stringify({ maxPricePerHour: 1 }), w.projectId)]), "overPolicyPrice"],
+    ["the project's margin override set", async () => w.db.batch([stmt(`UPDATE projects SET margin_bps_override = 9000 WHERE id = ?`, w.projectId)]), "allocationTooLow"],
+    ["the org's margin raised", async () => w.db.batch([stmt(`UPDATE orgs SET margin_bps = 9000 WHERE id = ?`, w.orgId)]), "allocationTooLow"],
+    ["the project's end moved to the next millisecond", async () => w.db.batch([stmt(`UPDATE projects SET ends_ms = ? WHERE id = ?`, w.clock.t + 1, w.projectId)]), "projectEnded", 1],
+    ["the final-save reserve raised", async () => w.db.batch([stmt(`UPDATE projects SET final_save_reserve_minutes = 60 WHERE id = ?`, w.projectId)]), "allocationTooLow"],
+    ["the project's start moved later", async () => w.db.batch([stmt(`UPDATE projects SET starts_ms = ? WHERE id = ?`, w.clock.t + 1, w.projectId)]), "projectNotStarted"],
+  ];
+  for (const [why, change, retry, later = 0] of cases) {
+    w = await world();
+    const m = await member(ONE());
+    const alloc = await allocOf(m.memberId);
+    refused(await admitStart(midway(() => change(m)), w.clock.t, req(m.userId)), "busy", why);
+    assert.equal((await machines()).length, 0, `${why}: nothing written`);
+    assert.equal(await version(alloc), 0, `${why}: the version unchanged`);
+    const at = w.clock.t + later;
+    const again = await admitStart(w.db, at, req(m.userId, { listed: { offer: offer(), listedAtMs: at } }));
+    if (retry === "ok") assert.equal(again.ok, true, `${why}: the retry`);
+    else refused(again, retry, `${why}: the retry`);
+  }
+  // a team's allocation changed under a team-paid start
+  w = await world();
+  const m = await member(0);
+  const team = newId("team");
+  await w.db.batch([
+    stmt(`INSERT INTO teams (id, project_id, name, created_ms) VALUES (?, ?, 'T', ?)`, team, w.projectId, T0),
+    stmt(`UPDATE members SET team_id = ? WHERE id = ?`, team, m.memberId),
+    stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'team', ?, ?, ?)`, newId("allocation"), w.projectId, team, ONE(), T0),
+  ]);
+  refused(await admitStart(midway(() => w.db.batch([stmt(`UPDATE allocations SET amount = 0 WHERE holder_id = ?`, team)])), w.clock.t, req(m.userId, { payer: "team" })), "busy", "the team's allocation lowered");
+  assert.equal((await machines()).length, 0);
+});
+
+test("H1 control: the ledger's own billing between the read and the write doesn't refuse (it only moves money already counted)", async () => {
+  const m = await member(TWO());
+  const a = await admitStart(w.db, w.clock.t, req(m.userId));
+  assert.ok(a.ok);
+  if (!a.ok) return;
+  await w.db.batch(openAccrual(a.machineId, { incarnation: 1, provider: "runpod", providerCostPerHour: COST, marginBps: MARGIN, startMs: w.clock.t }));
+  w.clock.t += 120_000;
+  const bill = async () => w.db.batch([stmt(
+    `INSERT INTO ledger_entries (id, org_id, project_id, allocation_id, kind, machine_id, provider, period_start_ms, seconds, provider_cost_per_hour, margin_bps, provider_cost, margin, total, created_ms)
+     VALUES (?, ?, ?, ?, 'compute', ?, 'runpod', ?, 60, ?, ?, ?, ?, ?, ?)`,
+    newId("ledgerEntry"), w.orgId, w.projectId, await allocOf(m.memberId), a.machineId, T0, COST, MARGIN,
+    Math.floor((COST * 60 * 2 + 3600) / 7200), Math.floor((Math.floor((COST * 60 * 2 + 3600) / 7200) * MARGIN * 2 + 10000) / 20000),
+    Math.floor((COST * 60 * 2 + 3600) / 7200) + Math.floor((Math.floor((COST * 60 * 2 + 3600) / 7200) * MARGIN * 2 + 10000) / 20000), w.clock.t,
+  )]);
+  const b = await admitStart(midway(bill), w.clock.t, req(m.userId, { listed: { offer: offer({ providerCostPerHour: 1 }), listedAtMs: w.clock.t } }));
+  assert.equal(b.ok, true, JSON.stringify(b));
+});
+
 test("membership: a team change between the read and the write writes nothing", async () => {
   const m = await member(ONE());
   const team = newId("team");
@@ -501,6 +578,43 @@ test("membership: a member removed between the read and the write writes nothing
   };
   refused(await admitStart(mid, w.clock.t, req(m.userId)), "notMember");
   assert.equal((await machines()).length, 0);
+});
+
+// ---------------------------------------------------------------- the scheduled stale-starts job
+
+test("stale starts (scheduled): through the cron's own entry, at 119999 ms nothing moves and the start is still counted; at 120000 it fails and the money is released", async () => {
+  assert.ok(SCHEDULED_JOBS.includes(staleStarts));
+  const m = await member(ONE());
+  const a = await admitStart(w.db, w.clock.t, req(m.userId));
+  assert.ok(a.ok);
+  if (!a.ok) return;
+  const env = (now: number) => ({ db: w.db, now, vm: null, elapsedMs: () => 0 });
+  assert.equal(await staleStarts.run(env(T0 + START_INTENT_GRACE_MS - 1)), 0);
+  refused(await admitStart(w.db, w.clock.t, req(m.userId)), "allocationTooLow", "still counted");
+  assert.equal(await staleStarts.run(env(T0 + START_INTENT_GRACE_MS)), 1);
+  assert.equal((await w.db.all<{ state: string }>(`SELECT state FROM machines WHERE id = ?`, [a.machineId]))[0]!.state, "failed");
+  assert.equal((await admitStart(w.db, w.clock.t, req(m.userId))).ok, true, "released");
+});
+
+test("stale starts (scheduled): at most 100 a run, oldest first; the rest the next run", async () => {
+  assert.equal(STALE_START_BATCH, 100);
+  const m = await member(0);
+  const alloc = await allocOf(m.memberId);
+  const ids: string[] = [];
+  for (let i = 0; i <= 100; i++) {
+    const id = newId("machine");
+    ids.push(id);
+    await w.db.batch([stmt(
+      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms, member_area_key, admitted_cost_per_hour, admitted_margin_bps)
+       VALUES (?, ?, ?, ?, 'runpod', 'L4', 1, 'X', 'starting', 1, ?, ?, ?, ?)`,
+      id, w.projectId, alloc, m.memberId, T0 + (100 - i), memberAreaKey(w.projectId, m.memberId), COST, MARGIN,
+    )]);
+  }
+  const env = { db: w.db, now: T0 + 100 + START_INTENT_GRACE_MS, vm: null, elapsedMs: () => 0 };
+  assert.equal(await staleStarts.run(env), 100);
+  assert.equal((await w.db.all<{ state: string }>(`SELECT state FROM machines WHERE id = ?`, [ids[0]!]))[0]!.state, "starting", "the newest waits");
+  assert.equal(await staleStarts.run(env), 1);
+  assert.equal(await staleStarts.run(env), 0);
 });
 
 // ---------------------------------------------------------------- H4: the intent against the stale cleanup
