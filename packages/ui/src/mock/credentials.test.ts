@@ -44,8 +44,10 @@ async function refused(p: Promise<unknown>, refusal: CredentialRefusal): Promise
   });
 }
 
-const put = (c: Client, orgId: string, provider: string, key: unknown) =>
-  c.call("putCredential", { params: { orgId, provider: provider as never }, body: { key } as never });
+const put = (c: Client, orgId: string, provider: string, key: unknown, expected: unknown = null) =>
+  c.call("putCredential", { params: { orgId, provider: provider as never }, body: { key, expected } as never });
+const del = (c: Client, orgId: string, provider: string, id: string, version: number | string) =>
+  c.call("deleteCredential", { params: { orgId, provider: provider as never }, query: { id, version: String(version) } });
 
 test("access: no session, someone not an owner, a stranger, a resold organization and a provider not taken each get their fixed refusal", async () => {
   const s = setup();
@@ -76,7 +78,7 @@ test("the list: one row per provider taken (RunPod only behind the test flag), n
   assert.deepEqual(items.map((i) => i.provider), ["shadeform", "hyperstack", "vast"]);
   assert.deepEqual([...MOCK_KEY_PROVIDERS], ["shadeform", "hyperstack", "vast"]);
   for (const i of items) {
-    assert.deepEqual(i, { provider: i.provider, status: "none", fingerprint: null, setBy: null, setAt: null, lastCheckedAt: null, runningMachines: 0 });
+    assert.deepEqual(i, { provider: i.provider, id: null, version: null, status: "none", fingerprint: null, setBy: null, setAt: null, lastCheckedAt: null, runningMachines: 0 });
   }
   s.b.runpodKeys = true;
   const listed = await owner.call("listCredentials", { params: { orgId: s.org.id } });
@@ -92,11 +94,11 @@ test("the reauth window: /me says what's left from a sign-in, to the millisecond
   assert.equal((await owner.call("getMe")).recentAuthForMs, RECENT_AUTH_WINDOW_MS - 1000);
   s.b.advance(RECENT_AUTH_WINDOW_MS - 2000);
   assert.equal((await owner.call("getMe")).recentAuthForMs, 1000);
-  await put(owner, s.org.id, "shadeform", KEY); // (still open)
+  const kept = await put(owner, s.org.id, "shadeform", KEY); // (still open)
   s.b.advance(1000);
   assert.equal((await owner.call("getMe")).recentAuthForMs, null);
   await refused(put(owner, s.org.id, "hyperstack", KEY), "reauthenticate");
-  await refused(owner.call("deleteCredential", { params: { orgId: s.org.id, provider: "shadeform" } }), "reauthenticate");
+  await refused(del(owner, s.org.id, "shadeform", kept.id!, kept.version!), "reauthenticate");
   assert.equal(s.b.credentials.size, 1, "a refused delete removes nothing");
   // Signing in again opens it again; signing out closes it.
   s.as(s.demo.emails.owner);
@@ -127,8 +129,11 @@ test("set, replace and remove: only a fingerprint and facts are kept; a refused 
   s.b.keyCheck = (key, provider) => (seen.push(`${provider}:${key === KEY ? "KEY" : "other"}`), "ok");
   s.b.advance(2000);
   const set = await put(owner, orgId, "shadeform", KEY);
+  assert.match(set.id ?? "", /^crd_[0-9a-z]{20}$/);
   assert.deepEqual(set, {
     provider: "shadeform",
+    id: set.id,
+    version: 1,
     status: "ok",
     fingerprint: mockFingerprint(KEY),
     setBy: s.demo.emails.owner,
@@ -148,9 +153,10 @@ test("set, replace and remove: only a fingerprint and facts are kept; a refused 
 
   // A replace the provider refuses, or can't check, changes nothing.
   s.b.keyCheck = () => "rejected";
-  await refused(put(owner, orgId, "shadeform", "other_key"), "rejected");
+  const current = { id: set.id, version: 1 };
+  await refused(put(owner, orgId, "shadeform", "other_key", current), "rejected");
   s.b.keyCheck = () => "unavailable";
-  await refused(put(owner, orgId, "shadeform", "other_key"), "checkUnavailable");
+  await refused(put(owner, orgId, "shadeform", "other_key", current), "checkUnavailable");
   await refused(put(owner, orgId, "hyperstack", "other_key"), "checkUnavailable");
   assert.deepEqual((await owner.call("listCredentials", { params: { orgId } })).items.map((i) => [i.provider, i.fingerprint]), [
     ["shadeform", mockFingerprint(KEY)],
@@ -159,11 +165,11 @@ test("set, replace and remove: only a fingerprint and facts are kept; a refused 
   ]);
   s.b.keyCheck = () => "ok";
   s.b.advance(1000);
-  const replaced = await put(owner, orgId, "shadeform", "other_key");
-  assert.deepEqual([replaced.fingerprint, replaced.setAt], [mockFingerprint("other_key"), "2027-02-01T09:00:03.000Z"]);
+  const replaced = await put(owner, orgId, "shadeform", "other_key", current);
+  assert.deepEqual([replaced.fingerprint, replaced.setAt, replaced.id, replaced.version], [mockFingerprint("other_key"), "2027-02-01T09:00:03.000Z", set.id, 2]);
 
-  assert.deepEqual(await owner.call("deleteCredential", { params: { orgId, provider: "shadeform" } }), { removed: true });
-  await refused(owner.call("deleteCredential", { params: { orgId, provider: "shadeform" } }), "noKey");
+  assert.deepEqual(await del(owner, orgId, "shadeform", set.id!, 2), { removed: true });
+  await refused(del(owner, orgId, "shadeform", set.id!, 2), "noKey");
   assert.equal((await owner.call("listCredentials", { params: { orgId } })).items[0]!.status, "none");
   assert.equal(s.b.credentials.size, 0);
 });
@@ -199,4 +205,58 @@ test("runningMachines counts the organization's machines on that provider that s
   b.currentUserId = ownerId;
   b.advance(120_000);
   assert.deepEqual(await rows(), { shadeform: 0, hyperstack: 0, vast: 0 });
+});
+
+test("every change names the key as listed: a stale or crossed one is busy and changes nothing; a malformed one is badExpected", async () => {
+  const s = setup();
+  const owner = s.as(s.demo.emails.owner);
+  const orgId = s.org.id;
+  let checks = 0;
+  s.b.keyCheck = () => (checks++, "ok");
+  // Replacing where nothing is set, or removing it: busy and noKey.
+  await refused(put(owner, orgId, "shadeform", KEY, { id: "crd_0123456789abcdefghjk", version: 1 }), "busy");
+  await refused(del(owner, orgId, "shadeform", "crd_0123456789abcdefghjk", 1), "noKey");
+  const v1 = await put(owner, orgId, "shadeform", KEY);
+  // A second set where one now is (another owner set it meanwhile): busy.
+  await refused(put(owner, orgId, "shadeform", KEY), "busy");
+  const v2 = await put(owner, orgId, "shadeform", "second", { id: v1.id, version: 1 });
+  // The old version, another id, or another provider's id: busy, with nothing changed.
+  await refused(put(owner, orgId, "shadeform", "third", { id: v1.id, version: 1 }), "busy");
+  await refused(del(owner, orgId, "shadeform", v1.id!, 1), "busy");
+  await refused(put(owner, orgId, "shadeform", "third", { id: "crd_0123456789abcdefghjk", version: 2 }), "busy");
+  const other = await put(owner, orgId, "vast", KEY);
+  await refused(put(owner, orgId, "shadeform", "third", { id: other.id, version: 1 }), "busy");
+  await refused(del(owner, orgId, "shadeform", other.id!, 1), "busy");
+  const now = (await owner.call("listCredentials", { params: { orgId } })).items.find((i) => i.provider === "shadeform")!;
+  assert.deepEqual([now.id, now.version, now.fingerprint], [v1.id, 2, v2.fingerprint]);
+  assert.equal(checks, 3, "a stale change never reaches the provider's check");
+  // Malformed: refused before anything else is looked at.
+  await refused(owner.call("putCredential", { params: { orgId, provider: "shadeform" }, body: { key: "third" } as never }), "badExpected"); // (no expected at all)
+  for (const bad of [{ id: v1.id }, { version: 2 }, { id: v1.id, version: "2" }, { id: v1.id, version: 0 }, { id: v1.id, version: 2, x: 1 }, { id: "mch_0123456789abcdefghjk", version: 2 }, [v1.id, 2]]) {
+    await refused(put(owner, orgId, "shadeform", "third", bad), "badExpected");
+  }
+  for (const [id, version] of [[v1.id!, "0"], [v1.id!, "02"], [v1.id!, "2.0"], [v1.id!, ""], ["crd_x", "2"], [v1.id!, "-2"]] as const) {
+    await refused(del(owner, orgId, "shadeform", id, version), "badExpected");
+  }
+  await refused(owner.call("deleteCredential", { params: { orgId, provider: "shadeform" } }), "badExpected");
+  assert.equal(s.b.credentials.size, 2);
+  assert.deepEqual(await del(owner, orgId, "shadeform", v1.id!, 2), { removed: true });
+});
+
+test("the assurance route: a fresh sign-in, then the authenticator's code; owners of byok organizations only", async () => {
+  const s = setup();
+  const orgId = s.org.id;
+  const verify = (c: Client, code: unknown, org = orgId) => c.call("verifyCredentialAssurance", { params: { orgId: org }, body: { code } as never });
+  await refused(verify(s.client, "246810"), "signedOut");
+  await refused(verify(s.as(s.demo.emails.manager), "246810"), "notOwner");
+  const owner = s.as(s.demo.emails.owner);
+  await refused(verify(owner, "246810", s.demo.orgId), "notByok");
+  s.b.advance(1000);
+  assert.deepEqual(await verify(owner, "246810"), { recentAuthForMs: RECENT_AUTH_WINDOW_MS - 1000 });
+  for (const bad of ["135791", "24681", "2468100", 246810, null, "24681a"]) await refused(verify(owner, bad), "mfaInvalid");
+  s.b.hasAuthenticator = false;
+  await refused(verify(owner, "246810"), "mfaRequired");
+  s.b.hasAuthenticator = true;
+  s.b.advance(RECENT_AUTH_WINDOW_MS);
+  await refused(verify(owner, "246810"), "reauthenticate");
 });

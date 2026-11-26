@@ -7,6 +7,8 @@
 import {
   CREDENTIAL_REFUSALS,
   isCredentialStatus,
+  isCredentialVersion,
+  isId,
   isProviderId,
   type CredentialRefusal,
   type ProviderCredential,
@@ -21,12 +23,15 @@ import type { FetchFn } from "./client.ts";
 export type CredentialOutcome<T> = { ok: true; value: T } | { ok: false; refusal: CredentialRefusal | "network" | "badResponse" };
 
 const PATH = /^\/v1\/orgs\/[A-Za-z0-9._-]+\/credentials(\/[a-z]+)?$/;
+/** A DELETE names the key it removes: its id and version, and nothing else. */
+const DELETE_PATH = /^\/v1\/orgs\/[A-Za-z0-9._-]+\/credentials\/[a-z]+\?id=crd_[0-9a-z]{20}&version=[1-9][0-9]{0,15}$/;
 
 /**
  * Send one credential request: GET or DELETE with no body (null), PUT with `body` (the JSON
- * text the caller built from the key). Not an async function: fetch is called before it returns,
- * and nothing here holds `body` after that (the browser's network stack has it while it
- * sends). The answer is read only as far as the contract shapes it.
+ * text the caller built from the key). A DELETE's path carries exactly ?id=&version=, and
+ * only a DELETE's does. Not an async function: fetch is called before it returns, and nothing
+ * here holds `body` after that (the browser's network stack has it while it sends). The
+ * answer is read only as far as the contract shapes it.
  */
 export function credentialRequest<T>(
   fetchFn: FetchFn,
@@ -36,7 +41,7 @@ export function credentialRequest<T>(
   signal: AbortSignal,
   read: (x: unknown) => T | null,
 ): Promise<CredentialOutcome<T>> {
-  if (!PATH.test(path)) return Promise.resolve({ ok: false, refusal: "badResponse" });
+  if (!(method === "DELETE" ? DELETE_PATH : PATH).test(path)) return Promise.resolve({ ok: false, refusal: "badResponse" });
   const init: RequestInit = { method, credentials: "same-origin", headers: { accept: "application/json" }, signal, redirect: "error" };
   if (body !== null) {
     init.headers = { accept: "application/json", "content-type": "application/json" };
@@ -86,8 +91,13 @@ export function readCredential(x: unknown): ProviderCredential | null {
   if (!isProviderId(c.provider) || !isCredentialStatus(c.status)) return null;
   if (!str(c.fingerprint) || !str(c.setBy) || !str(c.setAt) || !str(c.lastCheckedAt)) return null;
   if (!Number.isSafeInteger(c.runningMachines) || (c.runningMachines as number) < 0) return null;
+  // id and version: both null exactly when no key is set, else a credential id and a version.
+  const none = c.status === "none";
+  if (none ? c.id !== null || c.version !== null : !isId("credential", c.id) || !isCredentialVersion(c.version)) return null;
   return {
     provider: c.provider,
+    id: c.id as string | null,
+    version: c.version as number | null,
     status: c.status,
     fingerprint: c.fingerprint as string | null,
     setBy: c.setBy as string | null,

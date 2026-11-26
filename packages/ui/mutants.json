@@ -3035,8 +3035,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      this.#requireRecentAuth();",
-  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");",
+  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      const expected: unknown = (body as { expected?: unknown }).expected;\n      if (!isCredentialExpected(expected)) refuse(\"badExpected\");\n      this.#requireRecentAuth();",
+  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      const expected: unknown = (body as { expected?: unknown }).expected;\n      if (!isCredentialExpected(expected)) refuse(\"badExpected\");",
   "note": "put: reauth before the shape"
  },
  {
@@ -3071,14 +3071,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    deleteCredential: ({ params }) => {\n      this.#requireRecentAuth();",
-  "new": "    deleteCredential: ({ params }) => {",
+  "old": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");\n      this.#requireRecentAuth();",
+  "new": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");",
   "note": "delete: no reauth"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (!this.credentials.delete(`${params.orgId}|${params.provider}`)) refuse(\"noKey\");",
-  "new": "      this.credentials.delete(`${params.orgId}|${params.provider}`);",
+  "old": "      if (current == null) refuse(\"noKey\");",
+  "new": "      if (current == null) return { removed: true };",
   "note": "delete: none is fine"
  },
  {
@@ -3119,7 +3119,7 @@
  },
  {
   "file": "src/credential-request.ts",
-  "old": "  if (!PATH.test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "old": "  if (!(method === \"DELETE\" ? DELETE_PATH : PATH).test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
   "new": "",
   "note": "request: any path"
  },
@@ -3383,8 +3383,8 @@
  },
  {
   "file": "src/app/keys-section.ts",
-  "old": "    const body = JSON.stringify({ key: value });\n    input.value = \"\";",
-  "new": "    const body = JSON.stringify({ key: value });",
+  "old": "    const body = JSON.stringify({ key: value, expected });\n    input.value = \"\";",
+  "new": "    const body = JSON.stringify({ key: value, expected });",
   "note": "save: field kept while sending"
  },
  {
@@ -3890,5 +3890,89 @@
   "old": "    <${PauseBanner} store=${store} nav=${nav} />\n    <${Summary}",
   "new": "    <${Summary}",
   "note": "ManagePage: no pause banner"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (none ? c.id !== null || c.version !== null : !isId(\"credential\", c.id) || !isCredentialVersion(c.version)) return null;\n",
+  "new": "",
+  "note": "readCredential: id and version unchecked"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (none ? c.id !== null || c.version !== null : !isId(\"credential\", c.id) || !isCredentialVersion(c.version)) return null;",
+  "new": "  if (!none && (!isId(\"credential\", c.id) || !isCredentialVersion(c.version))) return null;",
+  "note": "readCredential: a none row with an id accepted"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!(method === \"DELETE\" ? DELETE_PATH : PATH).test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "new": "  if (!(DELETE_PATH.test(path) || PATH.test(path))) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "note": "request: a query on GET/PUT, or a DELETE without one, accepted"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    const query = `?id=${encodeURIComponent(row.id)}&version=${row.version}`;",
+  "new": "    const query = `?id=${encodeURIComponent(row.id)}&version=1`;",
+  "note": "remove: the version not as listed"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (row == null || row.id == null || row.version == null) return Promise.resolve(false);\n",
+  "new": "",
+  "note": "remove: sent with no listed key"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    const expected = row.id != null && row.version != null ? { id: row.id, version: row.version } : null;",
+  "new": "    const expected = null;",
+  "note": "save: never names the key it replaces"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!matches) refuse(\"busy\");\n",
+  "new": "",
+  "note": "mock put: a stale change applied"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        version: current == null ? 1 : (current.version as number) + 1,",
+  "new": "        version: 1,",
+  "note": "mock put: the version never goes up"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (current.id !== query.id || current.version !== version) refuse(\"busy\");\n",
+  "new": "",
+  "note": "mock delete: a stale removal applied"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isCredentialExpected(expected)) refuse(\"badExpected\");\n",
+  "new": "",
+  "note": "mock put: a malformed expected accepted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");\n",
+  "new": "",
+  "note": "mock delete: a malformed query accepted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!this.hasAuthenticator) refuse(\"mfaRequired\");\n",
+  "new": "",
+  "note": "mock assurance: no factor needed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isAuthenticatorCode(code) || code !== this.mockAuthenticatorCode) refuse(\"mfaInvalid\");",
+  "new": "      if (!isAuthenticatorCode(code)) refuse(\"mfaInvalid\");",
+  "note": "mock assurance: any well-formed code"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    verifyCredentialAssurance: ({ body }) => {\n      this.#requireRecentAuth();",
+  "new": "    verifyCredentialAssurance: ({ body }) => {",
+  "note": "mock assurance: no fresh sign-in"
  }
 ]

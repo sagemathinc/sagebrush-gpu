@@ -41,7 +41,9 @@ function KeyRow({ keys, orgId, row }: { keys: ProviderKeys; orgId: string; row: 
       keys.refuseLocally(row.provider, "badShape");
       return;
     }
-    const body = JSON.stringify({ key: value });
+    // (the change names the key it replaces, as listed: none, or its id and version)
+    const expected = row.id != null && row.version != null ? { id: row.id, version: row.version } : null;
+    const body = JSON.stringify({ key: value, expected });
     input.value = "";
     void keys.put(row.provider, body).then(() => {
       if (field.current) field.current.value = "";

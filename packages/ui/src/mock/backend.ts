@@ -31,7 +31,11 @@ import {
   entrySplit,
   credentialUnusableBody,
   errorBody,
+  isAuthenticatorCode,
+  isCredentialExpected,
   isCredentialKeyShape,
+  isId,
+  parseCredentialVersionQuery,
   isPausingCredentialStatus,
   isGpuTypeId,
   isIsoTime,
@@ -139,7 +143,7 @@ function refuse(refusal: CredentialRefusal): never {
   throw new ApiFail(code, message);
 }
 
-const CREDENTIAL_ROUTES: ReadonlySet<EndpointName> = new Set<EndpointName>(["listCredentials", "putCredential", "deleteCredential"]);
+const CREDENTIAL_ROUTES: ReadonlySet<EndpointName> = new Set<EndpointName>(["listCredentials", "putCredential", "deleteCredential", "verifyCredentialAssurance"]);
 
 /** Mock-only country sets for the locality presets; the real table is @sbgpu/providers' localityFor. */
 const EU = ["AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE"];
@@ -209,6 +213,9 @@ interface MachineRec {
 
 /** An organization's key for one provider: what's kept is facts about it, never the key. */
 interface CredentialRec {
+  /** The stored key's id and version: given on set (and +1 version on replace); a record a test stored without them gets them when first read. */
+  id?: string;
+  version?: number;
   fingerprint: string;
   setBy: string;
   setAt: number;
@@ -263,6 +270,9 @@ export class MockBackend {
   readonly credentials = new Map<string, CredentialRec>();
   /** The provider's key check, as the mock plays it; tests replace it. It must not keep the key. */
   keyCheck: (key: string, provider: ProviderId) => MockKeyCheck = () => "ok";
+  /** The signed-in owner has an authenticator factor (verifyCredentialAssurance), and the code it currently shows. */
+  hasAuthenticator = true;
+  mockAuthenticatorCode = "246810";
   /** Take keys for RunPod too: a test flag only, until RunPod's own launch gate (the injected-key probe) is decided. */
   runpodKeys = false;
 
@@ -541,15 +551,27 @@ export class MockBackend {
     return left > 0 ? left : null;
   }
 
-  #credentialView(orgId: string, provider: ProviderId): ProviderCredential {
+  /** The stored record, with its id and version filled in if a test stored it without them. */
+  #credentialRec(orgId: string, provider: ProviderId): CredentialRec | undefined {
     const rec = this.credentials.get(`${orgId}|${provider}`);
+    if (rec != null) {
+      rec.id ??= this.newId("credential");
+      rec.version ??= 1;
+    }
+    return rec;
+  }
+
+  #credentialView(orgId: string, provider: ProviderId): ProviderCredential {
+    const rec = this.#credentialRec(orgId, provider);
     let runningMachines = 0;
     for (const { m } of this.machines.values()) {
       if (m.provider === provider && PROVIDER_LIVE_STATES.has(m.state) && this.projects.get(m.projectId)?.orgId === orgId) runningMachines++;
     }
-    if (rec == null) return { provider, status: "none", fingerprint: null, setBy: null, setAt: null, lastCheckedAt: null, runningMachines };
+    if (rec == null) return { provider, id: null, version: null, status: "none", fingerprint: null, setBy: null, setAt: null, lastCheckedAt: null, runningMachines };
     return {
       provider,
+      id: rec.id as string,
+      version: rec.version as number,
       status: rec.status,
       fingerprint: rec.fingerprint,
       setBy: rec.setBy,
@@ -1146,11 +1168,19 @@ export class MockBackend {
       // A refused replace leaves the previous key as it was.
       const key: unknown = (body as { key?: unknown }).key;
       if (!isCredentialKeyShape(key)) refuse("badShape");
+      const expected: unknown = (body as { expected?: unknown }).expected;
+      if (!isCredentialExpected(expected)) refuse("badExpected");
       this.#requireRecentAuth();
+      // The change must name the current key exactly: none for a set, its id and version for a replace.
+      const current = this.#credentialRec(params.orgId, params.provider);
+      const matches = expected === null ? current == null : current != null && current.id === expected.id && current.version === expected.version;
+      if (!matches) refuse("busy");
       const check = this.keyCheck(key, params.provider);
       if (check === "rejected") refuse("rejected");
       if (check !== "ok") refuse("checkUnavailable");
       this.credentials.set(`${params.orgId}|${params.provider}`, {
+        id: current?.id ?? this.newId("credential"),
+        version: current == null ? 1 : (current.version as number) + 1,
         fingerprint: mockFingerprint(key),
         setBy: (user as User).email,
         setAt: this.#now,
@@ -1160,10 +1190,25 @@ export class MockBackend {
       return this.#credentialView(params.orgId, params.provider);
     },
 
-    deleteCredential: ({ params }) => {
+    deleteCredential: ({ params, query }) => {
+      const version = parseCredentialVersionQuery(query.version);
+      if (!isId("credential", query.id) || version == null) refuse("badExpected");
       this.#requireRecentAuth();
-      if (!this.credentials.delete(`${params.orgId}|${params.provider}`)) refuse("noKey");
+      const current = this.#credentialRec(params.orgId, params.provider);
+      if (current == null) refuse("noKey");
+      if (current.id !== query.id || current.version !== version) refuse("busy");
+      this.credentials.delete(`${params.orgId}|${params.provider}`);
       return { removed: true };
+    },
+
+    // An authenticator code opens the window (the mock's one factor answers mockAuthenticatorCode).
+    // Mock only, for now: key changes here still need just the recent sign-in, not a consumed assurance.
+    verifyCredentialAssurance: ({ body }) => {
+      this.#requireRecentAuth();
+      if (!this.hasAuthenticator) refuse("mfaRequired");
+      const code: unknown = (body as { code?: unknown }).code;
+      if (!isAuthenticatorCode(code) || code !== this.mockAuthenticatorCode) refuse("mfaInvalid");
+      return { recentAuthForMs: this.#recentAuthForMs() as number };
     },
 
     getMe: ({ user }) => this.#me(user as User),

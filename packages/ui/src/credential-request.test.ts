@@ -12,7 +12,8 @@ import {
   refusalOf,
 } from "./credential-request.ts";
 
-const ROW = { provider: "shadeform", status: "ok", fingerprint: "0a1b2c3d", setBy: "o@example.org", setAt: "2027-02-01T09:00:00.000Z", lastCheckedAt: "2027-02-01T09:00:00.000Z", runningMachines: 2 };
+const CRD = "crd_0123456789abcdefghjk";
+const ROW = { provider: "shadeform", id: CRD, version: 3, status: "ok", fingerprint: "0a1b2c3d", setBy: "o@example.org", setAt: "2027-02-01T09:00:00.000Z", lastCheckedAt: "2027-02-01T09:00:00.000Z", runningMachines: 2 };
 const KEY = "sk_live_Q7f!x~K3";
 
 function recorder(respond: () => Promise<Response> | Response) {
@@ -38,9 +39,9 @@ test("PUT sends the one body as JSON, same-origin, no redirects, with the signal
     { method: "PUT", credentials: "same-origin", redirect: "error", headers: { accept: "application/json", "content-type": "application/json" }, body },
   );
   assert.equal(init.signal, signal);
-  for (const method of ["GET", "DELETE"] as const) {
+  for (const [method, path] of [["GET", credentialsPath("org_1")], ["DELETE", `${credentialsPath("org_1", "vast")}?id=${CRD}&version=3`]] as const) {
     const g = recorder(() => Response.json({ items: [] }));
-    await credentialRequest(g.fetchFn, method, credentialsPath("org_1"), null, signal, readCredentialList);
+    await credentialRequest(g.fetchFn, method, path, null, signal, readCredentialList);
     assert.equal(g.calls[0]!.init.body, undefined, method);
     assert.deepEqual(g.calls[0]!.init.headers, { accept: "application/json" }, method);
     assert.equal(g.calls[0]!.init.method, method);
@@ -87,9 +88,23 @@ test("no answer, a thrown fetch, or one that isn't JSON: fixed outcomes with not
   assert.deepEqual(await credentialRequest(odd.fetchFn, "PUT", path, KEY, signal, readCredential), { ok: false, refusal: "badResponse" });
 });
 
+test("a DELETE names the key: exactly ?id=&version=, and only a DELETE carries a query", async () => {
+  const r = recorder(() => Response.json({ removed: true }));
+  const signal = new AbortController().signal;
+  const base = credentialsPath("org_1", "vast");
+  assert.deepEqual(await credentialRequest(r.fetchFn, "DELETE", `${base}?id=${CRD}&version=12`, null, signal, readRemoved), { ok: true, value: true });
+  for (const path of [base, `${base}?id=${CRD}`, `${base}?version=1`, `${base}?id=${CRD}&version=0`, `${base}?id=${CRD}&version=01`, `${base}?id=crd_x&version=1`, `${base}?version=1&id=${CRD}`, `${base}?id=${CRD}&version=1&x=1`, `${credentialsPath("org_1")}?id=${CRD}&version=1`]) {
+    assert.deepEqual(await credentialRequest(r.fetchFn, "DELETE", path, null, signal, readRemoved), { ok: false, refusal: "badResponse" }, path);
+  }
+  for (const method of ["GET", "PUT"] as const) {
+    assert.deepEqual(await credentialRequest(r.fetchFn, method, `${base}?id=${CRD}&version=1`, method === "PUT" ? "{}" : null, signal, readCredential), { ok: false, refusal: "badResponse" }, method);
+  }
+  assert.equal(r.calls.length, 1, "only the well-formed DELETE was sent");
+});
+
 test("answers are read as the contract has them, field by field", () => {
   assert.deepEqual(readCredential(ROW), ROW);
-  const none = { provider: "vast", status: "none", fingerprint: null, setBy: null, setAt: null, lastCheckedAt: null, runningMachines: 0 };
+  const none = { provider: "vast", id: null, version: null, status: "none", fingerprint: null, setBy: null, setAt: null, lastCheckedAt: null, runningMachines: 0 };
   assert.deepEqual(readCredential(none), none);
   assert.deepEqual(readCredential({ ...ROW, extra: KEY }), ROW, "only the contract's fields are kept");
   for (const bad of [
@@ -104,6 +119,16 @@ test("answers are read as the contract has them, field by field", () => {
     { ...ROW, runningMachines: -1 },
     { ...ROW, runningMachines: 1.5 },
     { ...ROW, runningMachines: "2" },
+    // id and version: both set for a stored key, both null exactly when none is
+    { ...ROW, id: null },
+    { ...ROW, version: null },
+    { ...ROW, id: "crd_x" },
+    { ...ROW, id: "mch_0123456789abcdefghjk" },
+    { ...ROW, version: 0 },
+    { ...ROW, version: 1.5 },
+    { ...ROW, version: "3" },
+    { ...none, id: CRD },
+    { ...none, version: 1 },
   ]) {
     assert.equal(readCredential(bad), null, JSON.stringify(bad));
   }

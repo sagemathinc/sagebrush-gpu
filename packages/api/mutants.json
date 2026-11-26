@@ -981,14 +981,14 @@
  },
  {
   "file": "src/routes.ts",
-  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key",
-  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (verifyCredentialAssurance;",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (verifyCredentialAssurance;",
   "note": "put: below owner"
  },
  {
   "file": "src/routes.ts",
-  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes",
-  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (reauthenticate otherwise); the query's",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/:provider\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },\n    note: `${CREDENTIALS_NOTE}; consumes one live assurance (reauthenticate otherwise); the query's",
   "note": "delete: below owner"
  },
  {
@@ -1146,5 +1146,77 @@
   "old": "  \"accountMismatch\",\n  \"unbound\",",
   "new": "  \"unbound\",",
   "note": "reportOnly: drops accountMismatch"
+ },
+ {
+  "file": "src/ids.ts",
+  "old": "  credential: \"crd\",",
+  "new": "  credential: \"cre\",",
+  "note": "ids: the credential prefix collides with creditEvent's"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return Number.isSafeInteger(x) && (x as number) >= 1;",
+  "new": "  return Number.isSafeInteger(x) && (x as number) >= 0;",
+  "note": "version: 0 accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return Number.isSafeInteger(x) && (x as number) >= 1;",
+  "new": "  return Number.isInteger(x) && (x as number) >= 1;",
+  "note": "version: unsafe integers accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (keys.length !== 2 || !keys.includes(\"id\") || !keys.includes(\"version\")) return false;",
+  "new": "  if (!keys.includes(\"id\") || !keys.includes(\"version\")) return false;",
+  "note": "expected: extra keys accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return isId(\"credential\", e.id) && isCredentialVersion(e.version);",
+  "new": "  return typeof e.id === \"string\" && isCredentialVersion(e.version);",
+  "note": "expected: any string id"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return isId(\"credential\", e.id) && isCredentialVersion(e.version);",
+  "new": "  return isId(\"credential\", e.id) && typeof e.version === \"number\";",
+  "note": "expected: any number version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "!/^[1-9][0-9]*$/.test(s)) return null;",
+  "new": "!/^[0-9]+$/.test(s)) return null;",
+  "note": "version query: leading zeros and 0 accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return isCredentialVersion(n) ? n : null;",
+  "new": "  return n;",
+  "note": "version query: unsafe integers accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return typeof x === \"string\" && /^[0-9]{6}$/.test(x);",
+  "new": "  return typeof x === \"string\" && /^[0-9]{6,}$/.test(x);",
+  "note": "authenticator code: longer accepted"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  mfaRequired: {\n    code: \"forbidden\",",
+  "new": "  mfaRequired: {\n    code: \"reauthenticate\",",
+  "note": "mfaRequired: wrong code"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  badExpected: {\n    code: \"badRequest\",",
+  "new": "  badExpected: {\n    code: \"conflict\",",
+  "note": "badExpected: reads as busy's code"
+ },
+ {
+  "file": "src/routes.ts",
+  "old": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"owner\" },",
+  "new": "    path: \"/v1/orgs/:orgId/credentials/assurance\",\n    access: { auth: \"session\", scope: \"org\", minRole: \"viewer\" },",
+  "note": "assurance: below owner"
  }
 ]
