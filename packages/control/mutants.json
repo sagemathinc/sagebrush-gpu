@@ -5876,18 +5876,6 @@
  },
  {
   "file": "src/workos.ts",
-  "old": "      if (e.type === \"totp\") {",
-  "new": "      if (true) {",
-  "note": "any factor type"
- },
- {
-  "file": "src/workos.ts",
-  "old": "      if (typeof e.id !== \"string\" || typeof e.type !== \"string\" || e.user_id !== userId) return { ok: false, kind: \"invalid\" };",
-  "new": "      if (typeof e.id !== \"string\" || typeof e.type !== \"string\") return { ok: false, kind: \"invalid\" };",
-  "note": "another user's factor"
- },
- {
-  "file": "src/workos.ts",
   "old": "return { ok: true, valid: (v.j as { valid?: unknown } | null)?.valid === true };",
   "new": "return { ok: true, valid: true };",
   "note": "code never checked"
@@ -6140,24 +6128,6 @@
  },
  {
   "file": "src/workos.ts",
-  "old": "        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) return { ok: false, kind: \"invalid\" };",
-  "new": "        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) continue;",
-  "note": "a malformed TOTP skipped"
- },
- {
-  "file": "src/workos.ts",
-  "old": "        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) return { ok: false, kind: \"invalid\" };",
-  "new": "        if (!FACTOR_ID.test(e.id)) return { ok: false, kind: \"invalid\" };",
-  "note": "a duplicate TOTP counted"
- },
- {
-  "file": "src/workos.ts",
-  "old": "typeof e.id !== \"string\" || typeof e.type !== \"string\" || e.user_id",
-  "new": "typeof e.id !== \"string\" || e.user_id",
-  "note": "an entry without a type accepted"
- },
- {
-  "file": "src/workos.ts",
   "old": "    if (next === null) return { ok: true, totp };",
   "new": "    if (next === null || next === undefined) return { ok: true, totp };",
   "note": "a missing cursor taken as the end"
@@ -6185,5 +6155,47 @@
   "old": ", verifyCredentialAssurance: ASSURANCE_MAX_BODY_BYTES",
   "new": "",
   "note": "the assurance route's body cap dropped"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "      if (e.object !== \"authentication_factor\" || typeof e.id !== \"string\" || !FACTOR_ID.test(e.id) || ids.has(e.id)) return { ok: false, kind: \"invalid\" };",
+  "new": "      if (typeof e.id !== \"string\" || !FACTOR_ID.test(e.id) || ids.has(e.id)) return { ok: false, kind: \"invalid\" };",
+  "note": "an entry that isn't a factor object accepted"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "      if (e.object !== \"authentication_factor\" || typeof e.id !== \"string\" || !FACTOR_ID.test(e.id) || ids.has(e.id)) return { ok: false, kind: \"invalid\" };",
+  "new": "      if (e.object !== \"authentication_factor\" || typeof e.id !== \"string\" || ids.has(e.id)) return { ok: false, kind: \"invalid\" };",
+  "note": "a malformed factor id accepted"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "      if (e.object !== \"authentication_factor\" || typeof e.id !== \"string\" || !FACTOR_ID.test(e.id) || ids.has(e.id)) return { ok: false, kind: \"invalid\" };",
+  "new": "      if (e.object !== \"authentication_factor\" || typeof e.id !== \"string\" || !FACTOR_ID.test(e.id)) return { ok: false, kind: \"invalid\" };",
+  "note": "a repeated factor id accepted"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "      if (typeof e.type !== \"string\" || !FACTOR_TYPES.includes(e.type) || e.user_id !== userId) return { ok: false, kind: \"invalid\" };",
+  "new": "      if (typeof e.type !== \"string\" || e.user_id !== userId) return { ok: false, kind: \"invalid\" };",
+  "note": "an unknown factor type accepted"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "      if (typeof e.type !== \"string\" || !FACTOR_TYPES.includes(e.type) || e.user_id !== userId) return { ok: false, kind: \"invalid\" };",
+  "new": "      if (typeof e.type !== \"string\" || !FACTOR_TYPES.includes(e.type)) return { ok: false, kind: \"invalid\" };",
+  "note": "another user's factor"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "      if (e.type === \"totp\") totp.push(e.id);",
+  "new": "      totp.push(e.id);",
+  "note": "any factor type"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "j.object !== \"list\" || ",
+  "new": "",
+  "note": "no list marker accepted"
  }
 ]

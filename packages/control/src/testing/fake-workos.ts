@@ -206,7 +206,8 @@ export class FakeWorkos {
       const from = after === null ? 0 : all.findIndex((x) => x.id === after) + 1;
       const page = all.slice(from, from + Math.min(this.factorPageSize, Number(u.searchParams.get("limit") ?? 10)));
       const more = from + page.length < all.length;
-      return Response.json({ object: "list", data: page, list_metadata: { before: null, after: more ? (page.at(-1)?.id ?? null) : null } });
+      const data = page.map((x) => (typeof x === "object" && x !== null && !("object" in x) ? { object: "authentication_factor", ...x } : x));
+      return Response.json({ object: "list", data, list_metadata: { before: null, after: more ? (page.at(-1)?.id ?? null) : null } });
     }
     const challengeOf = /^\/auth\/factors\/([^/]+)\/challenge$/.exec(u.pathname);
     if (challengeOf && init?.method === "POST") {

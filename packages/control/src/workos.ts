@@ -357,35 +357,40 @@ export const MAX_FACTOR_PAGES = 10;
 const FACTOR_PAGE = 100;
 /** A pagination cursor as WorkOS gives it: an object id. */
 const CURSOR = /^[A-Za-z0-9_]{1,128}$/;
+/** The factor types WorkOS lists; any other is a list we can't trust. */
+const FACTOR_TYPES: readonly string[] = ["totp", "sms", "generic_otp"];
 
 /**
  * Every one of the user's TOTP factors, as WorkOS lists them now (server-side, with the API key):
  * the whole list, page by page, or a refusal. It is only ever all or nothing: the envelope must be
- * exactly a list (`data`, `list_metadata.after` a cursor or null), every entry must be a factor of
- * this user, every TOTP entry must have a well-formed id, a cursor is never seen twice, and more
+ * exactly a list (`object: "list"`, `data`, `list_metadata.after` a cursor or null), every entry must
+ * be a recognised factor of this user (`object: "authentication_factor"`, a well-formed factor id,
+ * a known type), no id appears twice, a cursor is never seen twice, and more
  * than MAX_FACTOR_PAGES pages is a refusal. Anything else is "invalid" (never a shorter list), so
  * "exactly one TOTP factor" is decided on the complete list.
  */
 export async function listTotpFactors(c: WorkosConfig, userId: string, f: Fetch = defaultFetch): Promise<Factors> {
   if (!SUBJECT.test(userId)) return { ok: false, kind: "invalid" };
   const totp: string[] = [];
+  const ids = new Set<string>();
   const seen = new Set<string>();
   let after: string | null = null;
   for (let page = 0; page < MAX_FACTOR_PAGES; page++) {
     const q = `limit=${FACTOR_PAGE}${after === null ? "" : `&after=${after}`}`;
     const r = await apiCall(c, f, `/user_management/users/${userId}/auth_factors?${q}`, undefined);
     if (!r.ok) return r;
-    const j = r.j as { data?: unknown; list_metadata?: unknown } | null;
-    if (typeof j !== "object" || j === null || !Array.isArray(j.data) || typeof j.list_metadata !== "object" || j.list_metadata === null) return { ok: false, kind: "invalid" };
+    const j = r.j as { object?: unknown; data?: unknown; list_metadata?: unknown } | null;
+    if (typeof j !== "object" || j === null || j.object !== "list" || !Array.isArray(j.data) || typeof j.list_metadata !== "object" || j.list_metadata === null) {
+      return { ok: false, kind: "invalid" };
+    }
     if (j.data.length > FACTOR_PAGE) return { ok: false, kind: "invalid" };
     for (const x of j.data as unknown[]) {
       if (typeof x !== "object" || x === null) return { ok: false, kind: "invalid" };
-      const e = x as { id?: unknown; type?: unknown; user_id?: unknown };
-      if (typeof e.id !== "string" || typeof e.type !== "string" || e.user_id !== userId) return { ok: false, kind: "invalid" };
-      if (e.type === "totp") {
-        if (!FACTOR_ID.test(e.id) || totp.includes(e.id)) return { ok: false, kind: "invalid" };
-        totp.push(e.id);
-      }
+      const e = x as { object?: unknown; id?: unknown; type?: unknown; user_id?: unknown };
+      if (e.object !== "authentication_factor" || typeof e.id !== "string" || !FACTOR_ID.test(e.id) || ids.has(e.id)) return { ok: false, kind: "invalid" };
+      if (typeof e.type !== "string" || !FACTOR_TYPES.includes(e.type) || e.user_id !== userId) return { ok: false, kind: "invalid" };
+      ids.add(e.id);
+      if (e.type === "totp") totp.push(e.id);
     }
     const next = (j.list_metadata as { after?: unknown }).after;
     if (next === null) return { ok: true, totp };

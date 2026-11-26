@@ -241,7 +241,7 @@ test("factors (H1): the list is read whole, page by page, and any entry or page 
   // (each case its own owner and organization: every verification spends a unit of its org's quota)
   const none = async (why: string, refusal: "checkUnavailable" | "mfaRequired", setUp: (p: Owner, ok: object) => void) => {
     const p = await owner();
-    const ok = { id: FACTOR, type: "totp", user_id: p.sub };
+    const ok = { object: "authentication_factor", id: FACTOR, type: "totp", user_id: p.sub };
     setUp(p, ok);
     const before = fake.verifyCalls;
     const challenges = fake.challenges.size;
@@ -261,6 +261,11 @@ test("factors (H1): the list is read whole, page by page, and any entry or page 
     ["an entry with no type", (p: Owner) => ({ id: "auth_factor_01NOTYPE", user_id: p.sub })],
     ["an entry that isn't an object", () => 7],
     ["the same TOTP twice", (p: Owner) => ({ id: FACTOR, type: "totp", user_id: p.sub })],
+    ["an SMS factor with a malformed id", (p: Owner) => ({ id: "x", type: "sms", user_id: p.sub })],
+    ["an entry with an empty type", (p: Owner) => ({ id: "auth_factor_01EMPTY", type: "", user_id: p.sub })],
+    ["an entry with an unknown type", (p: Owner) => ({ id: "auth_factor_01UNKNOWN", type: "u2f", user_id: p.sub })],
+    ["an entry that isn't a factor object", (p: Owner) => ({ object: "user", id: "auth_factor_01OBJ", type: "sms", user_id: p.sub })],
+    ["the same id twice, once as SMS", (p: Owner) => ({ id: FACTOR, type: "sms", user_id: p.sub })],
   ] as const) {
     await none(why, "checkUnavailable", (p, ok) => fake.factors.set(p.sub, [ok, bad(p)] as never));
   }
@@ -272,15 +277,17 @@ test("factors (H1): the list is read whole, page by page, and any entry or page 
   assert.deepEqual(fake.factorQueries.slice(-2), ["?limit=100", `?limit=100&after=${FACTOR}`]);
   // the envelope and the pagination: malformed, a cursor loop, too many pages, a cursor that isn't one
   const answers: Array<[string, (ok: object, p: Owner) => (q: URLSearchParams) => unknown]> = [
-    ["no list_metadata", (ok) => () => ({ data: [ok] })],
-    ["list_metadata not an object", (ok) => () => ({ data: [ok], list_metadata: "x" })],
-    ["after not a cursor", (ok) => () => ({ data: [ok], list_metadata: { after: 7 } })],
-    ["after missing", (ok) => () => ({ data: [ok], list_metadata: {} })],
-    ["a malformed cursor", (ok) => () => ({ data: [ok], list_metadata: { after: "a b" } })],
-    ["data not a list", () => () => ({ data: {}, list_metadata: { after: null } })],
-    ["a page past the limit", (_ok, p) => () => ({ data: Array.from({ length: 101 }, (_, i) => ({ id: `auth_factor_01S${i}`, type: "sms", user_id: p.sub })), list_metadata: { after: null } })],
-    ["a cursor loop", (ok) => (q) => ({ data: q.get("after") === null ? [ok] : [], list_metadata: { after: "auth_factor_01LOOP" } })],
-    ["more pages than the bound (each cursor new)", () => { let n = 0; return () => ({ data: [], list_metadata: { after: `auth_factor_01P${n++}` } }); }],
+    ["no list_metadata", (ok) => () => ({ object: "list", data: [ok] })],
+    ["list_metadata not an object", (ok) => () => ({ object: "list", data: [ok], list_metadata: "x" })],
+    ["after not a cursor", (ok) => () => ({ object: "list", data: [ok], list_metadata: { after: 7 } })],
+    ["after missing", (ok) => () => ({ object: "list", data: [ok], list_metadata: {} })],
+    ["a malformed cursor", (ok) => () => ({ object: "list", data: [ok], list_metadata: { after: "a b" } })],
+    ["data not a list", () => () => ({ object: "list", data: {}, list_metadata: { after: null } })],
+    ["a page past the limit", (_ok, p) => () => ({ object: "list", data: Array.from({ length: 101 }, (_, i) => ({ object: "authentication_factor", id: `auth_factor_01S${i}`, type: "sms", user_id: p.sub })), list_metadata: { after: null } })],
+    ["a cursor loop", (ok) => (q) => ({ object: "list", data: q.get("after") === null ? [ok] : [], list_metadata: { after: "auth_factor_01LOOP" } })],
+    ["more pages than the bound (each cursor new)", () => { let n = 0; return () => ({ object: "list", data: [], list_metadata: { after: `auth_factor_01P${n++}` } }); }],
+    ["no list marker (object)", (ok) => () => ({ data: [ok], list_metadata: { after: null } })],
+    ["another list marker", (ok) => () => ({ object: "page", data: [ok], list_metadata: { after: null } })],
   ];
   for (const [why, answer] of answers) {
     const reads = fake.factorQueries.length;
