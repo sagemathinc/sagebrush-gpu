@@ -19,6 +19,8 @@ export interface MemberRow {
   band: MeterBand;
   running: number;
   storageBytes: number;
+  /** Their storage quota, from their meter; null when they have no meter yet. */
+  storageQuotaBytes: number | null;
 }
 
 /** One row per member who hasn't been removed, joined with their meter, team and machines. */
@@ -50,6 +52,7 @@ export function memberRows(members: readonly Member[], meters: readonly SpendMet
         band: view.band,
         running: running.get(m.id) ?? 0,
         storageBytes: meter?.storage.usedBytes ?? 0,
+        storageQuotaBytes: meter?.storage.quotaBytes ?? null,
       };
     });
 }

@@ -2,7 +2,7 @@
 // role, two teams and a price list with each kind of refusal reachable. All names are made
 // up; prices are illustrative, not any provider's.
 
-import type { Offer } from "@sbgpu/api";
+import type { BillingMode, Offer } from "@sbgpu/api";
 import { toIso } from "@sbgpu/api";
 import { MockBackend } from "./backend.ts";
 
@@ -38,9 +38,10 @@ export function demoOffers(observedAt: string): Offer[] {
   ];
 }
 
-export function seedDemo(): Demo {
+/** billingMode "byok": the organization uses its own provider keys (at margin 0). */
+export function seedDemo(options: { billingMode?: BillingMode } = {}): Demo {
   const b = new MockBackend({ startMs: DEMO_START });
-  const org = b.addOrg("Example Org", 3000, 5_000_000_000);
+  const org = options.billingMode === "byok" ? b.addOrg("Example Org", 0, 5_000_000_000, "byok") : b.addOrg("Example Org", 3000, 5_000_000_000);
   const emails = {
     owner: "owner@example.org",
     manager: "manager@example.org",

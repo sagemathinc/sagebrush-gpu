@@ -2425,21 +2425,6 @@
   "new": ""
  },
  {
-  "file": "src/billing.ts",
-  "old": "  return { use: \"none\", reason: \"byok-unavailable\" };",
-  "new": "  return { use: \"ours\", provider: provider as ProviderId };"
- },
- {
-  "file": "src/billing.ts",
-  "old": "FROM orgs WHERE id = ?`, [orgId]",
-  "new": "FROM orgs LIMIT 1`, []"
- },
- {
-  "file": "src/billing.ts",
-  "old": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ?`",
-  "new": "JOIN orgs o ON o.id = p.org_id WHERE m.id = ? OR 1 ORDER BY o.billing_mode DESC`"
- },
- {
   "file": "src/projects.ts",
   "old": "    name: r.name,\n    billingMode: r.billing_mode,\n",
   "new": "    name: r.name,\n    billingMode: \"resold\",\n"
@@ -2734,8 +2719,8 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "AND provider_machine_id = ? AND outcome = 'issued' AND watchdog_version = ?`,",
-  "new": "AND provider_machine_id = ? AND outcome = 'issued'`,",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND provider = ? AND provider_machine_id = ? AND outcome = 'issued' AND watchdog_version = ?`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND provider = ? AND provider_machine_id = ? AND outcome = 'issued'`,",
   "note": "launch version unbound"
  },
  {
@@ -2758,8 +2743,8 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S,",
-  "new": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S + 1,",
+  "old": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S, mch: r.machine_id",
+  "new": "jti: base64url(deps.randomBytes(16)), iat, exp: iat + AGENT_TOKEN_TTL_S + 1, mch: r.machine_id",
   "note": "token over its lifetime cap"
  },
  {
@@ -2800,14 +2785,14 @@
  },
  {
   "file": "src/enroll.ts",
-  "old": "      maxSessionEndsAt: toIso(at + policy.maxSessionMinutes * 60_000),",
-  "new": "      maxSessionEndsAt: toIso(at + DEFAULT_POLICY.maxSessionMinutes * 60_000),",
+  "old": "    maxSessionEndsAt: toIso(at + policy.maxSessionMinutes * 60_000),",
+  "new": "    maxSessionEndsAt: toIso(at + DEFAULT_POLICY.maxSessionMinutes * 60_000),",
   "note": "max session not the project's"
  },
  {
   "file": "src/enroll.ts",
-  "old": "      idle: { minutes: policy.idleStopMinutes,",
-  "new": "      idle: { minutes: DEFAULT_POLICY.idleStopMinutes,",
+  "old": "    idle: { minutes: policy.idleStopMinutes,",
+  "new": "    idle: { minutes: DEFAULT_POLICY.idleStopMinutes,",
   "note": "idle not the project's"
  },
  {
@@ -3118,12 +3103,6 @@
  },
  {
   "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms <= ?",
-  "note": "due inclusive"
- },
- {
-  "file": "src/heartbeat.ts",
   "old": "     ORDER BY v.heartbeat_due_ms, v.machine_id, v.incarnation",
   "new": "     ORDER BY v.machine_id, v.incarnation",
   "note": "not oldest first"
@@ -3175,12 +3154,6 @@
   "old": "params: [at + HEARTBEAT_LOST_MS, r.machine_id,",
   "new": "params: [at, r.machine_id,",
   "note": "enroll due time without the 120 s"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "),\n  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL)\n",
-  "new": ")\n",
-  "note": "enrolled without a due time"
  },
  {
   "file": "migrations/0014_launches.sql",
@@ -3424,18 +3397,6 @@
  },
  {
   "file": "migrations/0014_launches.sql",
-  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
-  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
-  "note": "due index across modes"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
-  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation);",
-  "note": "due index not partial"
- },
- {
-  "file": "migrations/0014_launches.sql",
   "old": "CREATE UNIQUE INDEX launches_provider_id ON launches (provider, provider_machine_id) WHERE provider_machine_id IS NOT NULL;",
   "new": "",
   "note": "provider id bound twice"
@@ -3627,22 +3588,10 @@
   "note": "gate report without a launch"
  },
  {
-  "file": "src/heartbeat.ts",
-  "old": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
-  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
-  "note": "heartbeat watchdog across modes"
- },
- {
   "file": "src/vm.ts",
   "old": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'vm'",
   "new": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
   "note": "VM watchdog across modes"
- },
- {
-  "file": "src/vm.ts",
-  "old": "VALUES (?, ?, 'vm', ?, ?, ?, ?, 'creating', ?, ?)`,",
-  "new": "VALUES (?, ?, 'container', ?, ?, ?, ?, 'creating', ?, ?)`,",
-  "note": "intent recorded as a container"
  },
  {
   "file": "src/projects.ts",
@@ -3661,12 +3610,6 @@
   "old": "WHEN NEW.provider IS NOT OLD.provider\n",
   "new": "WHEN NEW.provider <> OLD.provider AND OLD.mode = 'container'\n",
   "note": "a VM's provider mutable"
- },
- {
-  "file": "migrations/0014_launches.sql",
-  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
-  "new": "WHEN 0\n",
-  "note": "intent mutable"
  },
  {
   "file": "migrations/0014_launches.sql",
@@ -3787,5 +3730,1578 @@
   "old": "  const base = [\"agentSha256\", \"agentVersion\", \"bootToken\", \"gate\", \"gpu\", \"hostname\", \"mode\"];",
   "new": "  const base = [\"agentSha256\", \"agentVersion\", \"bootToken\", \"gate\", \"gpu\", \"hostname\", \"mode\", \"providerMachineId\"];",
   "note": "a VM's provider id required again"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (outcome <> 'enrolled' OR heartbeat_due_ms IS NOT NULL),\n",
+  "new": "",
+  "note": "enrolled without a due time"
+ },
+ {
+  "file": "src/vm.ts",
+  "old": "VALUES (?, ?, 'vm', 'platform', ?, ?, ?, ?, 'creating', ?, ?)`,",
+  "new": "VALUES (?, ?, 'container', 'platform', ?, ?, ?, ?, 'creating', ?, ?)`,",
+  "note": "intent recorded as a container"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.created_ms IS NOT OLD.created_ms\n  OR NEW.account_kind IS NOT OLD.account_kind\n  OR NEW.account_org_id IS NOT OLD.account_org_id\n  OR NEW.agent_sha256 IS NOT OLD.agent_sha256\n  OR NEW.nonce_sha256 IS NOT OLD.nonce_sha256\n  OR NEW.boot_script_sha256 IS NOT OLD.boot_script_sha256\n",
+  "new": "WHEN 0\n",
+  "note": "intent mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "WHEN NEW.account_org_id IS NOT NULL AND NEW.account_org_id IS NOT (\n",
+  "new": "WHEN 0 AND NEW.account_org_id IS NOT (\n",
+  "note": "account not the owner at the intent"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = NEW.machine_id\n",
+  "new": "  SELECT p.org_id FROM projects p WHERE p.org_id = NEW.account_org_id\n",
+  "note": "account any organization"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK ((account_kind = 'org') = (account_org_id IS NOT NULL)),\n",
+  "new": "",
+  "note": "account organization apart from its kind"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'container' OR (credential_kind = 'org') = (account_kind = 'org')),\n",
+  "new": "",
+  "note": "container account apart from its credential"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  CHECK (mode <> 'vm' OR account_kind = 'platform')\n",
+  "new": "  CHECK (1)\n",
+  "note": "a VM in an organization's account"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.account_kind IS NOT OLD.account_kind\n",
+  "new": "",
+  "note": "account kind mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  OR NEW.account_org_id IS NOT OLD.account_org_id\n",
+  "new": "",
+  "note": "account organization mutable"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
+  "new": "  account_kind TEXT NOT NULL,",
+  "note": "account kind open"
+ },
+ {
+  "file": "migrations/0014_launches.sql",
+  "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
+  "new": "  account_kind TEXT NOT NULL DEFAULT 'platform' CHECK (account_kind IN ('platform', 'org')),",
+  "note": "account kind defaulted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [i.machineId, i.incarnation, i.rate.providerCostPerHour, i.rate.marginBps],",
+  "new": "params: [i.machineId, i.incarnation, i.rate.marginBps, i.rate.providerCostPerHour],",
+  "note": "the rate's cost and margin swapped at intent"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "i.credentialKind, i.machineId, i.createdMs + CREATE_DEADLINE_MS, i.createdMs,",
+  "new": "i.credentialKind, i.machineId, i.createdMs + CREATE_DEADLINE_MS + 1, i.createdMs,",
+  "note": "the create deadline a millisecond late"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "SELECT 0 WHERE changes() <> 1`",
+  "new": "SELECT 0 WHERE changes() < 0`",
+  "note": "every changes() guard disabled"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating' AND provider_machine_id IS NULL`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND provider_machine_id IS NULL`,",
+  "note": "the id recorded past creating"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND provider_machine_id IS NULL AND used_ms IS NULL`,",
+  "new": "AND provider_machine_id IS NULL`,",
+  "note": "a revoked token takes the id"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "SELECT l.machine_id, l.incarnation, l.provider, r.provider_cost_per_hour, r.margin_bps, l.created_ms",
+  "new": "SELECT l.machine_id, l.incarnation, l.provider, r.provider_cost_per_hour, r.margin_bps, l.created_ms + 60000",
+  "note": "the accrual starts after the intent"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "(SELECT (l.created_ms / 60000) * 60000 FROM launches l",
+  "new": "(SELECT l.created_ms + 60000 FROM launches l",
+  "note": "billed-through not the intent's minute"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    return r.length === 1 ? \"recorded\" : \"refused\";",
+  "new": "    return \"refused\";",
+  "note": "a replay reported refused"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND (first_running_ms IS NULL OR first_running_ms > ?)`,",
+  "new": "AND (first_running_ms IS NULL OR first_running_ms >= ?)`,",
+  "note": "an equal sample re-recorded"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [atMs, atMs + CONNECT_WINDOW_MS, machineId,",
+  "new": "params: [atMs, atMs + CONNECT_WINDOW_MS + 1, machineId,",
+  "note": "the connect deadline a millisecond late"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [atMs, atMs + BOOT_TOKEN_TTL_MS, machineId,",
+  "new": "params: [atMs + 1, atMs + 1 + BOOT_TOKEN_TTL_MS, machineId,",
+  "note": "the token's window not first running"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND mode = 'container' AND provider_machine_id = ? AND used_ms IS NULL`,\n        params: [atMs",
+  "new": "AND mode = 'container' AND provider_machine_id = ?`,\n        params: [atMs",
+  "note": "a revoked token gets a window"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND mode = 'container' AND watchdog_version = ? AND outcome IN ('creating', 'issued', 'terminate')`,",
+  "new": "AND mode = 'container' AND outcome IN ('creating', 'issued', 'terminate')`,",
+  "note": "the claim ignores the version"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "sql: `UPDATE boot_tokens SET used_ms = COALESCE(used_ms, ?) WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,",
+  "new": "sql: `UPDATE boot_tokens SET used_ms = used_ms WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND ? IS NOT NULL`,",
+  "note": "no revocation before terminate"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (false) {",
+  "note": "pods found by name never billed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "gone = s !== \"unavailable\" && s.providerMachineId === r.provider_machine_id && s.state === \"terminated\";",
+  "new": "gone = s !== \"unavailable\";",
+  "note": "terminated without the provider confirming"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "gone = left !== \"unavailable\" && left.length === 0;",
+  "new": "gone = left !== \"unavailable\";",
+  "note": "terminated while pods are still listed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      ...closeAccrual(r.machine_id, r.incarnation, at),\n",
+  "new": "",
+  "note": "the accrual never closed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (e instanceof ProviderError && e.kind === \"outcome_unknown\") return \"unknown\";\n",
+  "new": "",
+  "note": "a lost reply treated as a definitive failure"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "await abandonContainer(env, l.machineId, l.incarnation, \"create-failed\", [e.providerMachineId]);",
+  "new": "await abandonContainer(env, l.machineId, l.incarnation, \"create-failed\");",
+  "note": "a refused pod not ended by its id"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if ((await recordContainerId(env.db, l.machineId, l.incarnation, created.id)) === \"recorded\") return \"created\";",
+  "new": "await recordContainerId(env.db, l.machineId, l.incarnation, created.id); if (Math.random() < 2) return \"created\";",
+  "note": "a refused id batch reported created"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const s = await withDeadline<ProviderMachineStatus | \"unavailable\">(() => p.status(id), \"unavailable\");\n  if (s === \"unavailable\") return \"unavailable\";\n  const at = env.clock(); // (control time, after the read)",
+  "new": "  const at = env.clock();\n  const s = await withDeadline<ProviderMachineStatus | \"unavailable\">(() => p.status(id), \"unavailable\");\n  if (s === \"unavailable\") return \"unavailable\";",
+  "note": "first running timed before the read"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (s.providerMachineId !== id || s.machineId !== machineId) {",
+  "new": "  if (s.machineId !== machineId) {",
+  "note": "another pod's answer accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (s.providerMachineId !== id || s.machineId !== machineId) {",
+  "new": "  if (s.providerMachineId !== id) {",
+  "note": "another machine's pod accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.image === e.image &&",
+  "new": "    true &&",
+  "note": "image drift accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    sameList(s.command, e.launcher) &&",
+  "new": "    true &&",
+  "note": "entrypoint drift accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    sameList(s.envNames, [e.bootEnv]) &&",
+  "new": "    true &&",
+  "note": "extra env names accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.exposedPorts.length === 0 &&",
+  "new": "    true &&",
+  "note": "exposed ports accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.unexpectedSettings.length === 0;",
+  "new": "    true;",
+  "note": "unexpected settings accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if (s.state === \"terminated\" || s.state === \"failed\" || s.state === \"stopping\") {",
+  "new": "if (s.state === \"terminated\" || s.state === \"stopping\") {",
+  "note": "a failed pod not ended"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'container'",
+  "new": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
+  "note": "the container watchdog takes VM launches"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "            WHEN v.outcome = 'creating' THEN 'create-deadline'",
+  "new": "            WHEN v.outcome = 'creating' THEN 'connect-deadline'",
+  "note": "the create deadline misnamed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) break;",
+  "new": "    if (env.elapsedMs() > WATCHDOG_BUDGET_MS) break;",
+  "note": "a claim at the budget's end"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if (named !== \"unavailable\" && named.length === 1) {",
+  "new": "if (named !== \"unavailable\" && named.length >= 1) {",
+  "note": "one of two pods recorded as the launch's"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "        reason = \"duplicate-name\";",
+  "new": "        reason = reason;",
+  "note": "duplicates not named"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS;",
+  "new": "export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS + 1000;",
+  "note": "a longer connect window"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "  WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation AND l.outcome = 'creating'\n)",
+  "new": "  WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation\n)",
+  "note": "a rate added past creating"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "WHEN NEW.mode = 'container'\n  AND (NEW.provider_machine_id",
+  "new": "WHEN NEW.mode = 'vm'\n  AND (NEW.provider_machine_id",
+  "note": "a container launch moves without its rate"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour AND r.margin_bps = NEW.margin_bps",
+  "new": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour",
+  "note": "an accrual at another margin"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour AND r.margin_bps = NEW.margin_bps",
+  "new": "      AND r.margin_bps = NEW.margin_bps",
+  "note": "an accrual at another cost"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND l.provider = NEW.provider\n",
+  "new": "",
+  "note": "an accrual of another provider"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND (l.mode <> 'container' OR l.created_ms = NEW.start_ms)",
+  "new": "      AND 1",
+  "note": "an accrual from another start"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "    OR EXISTS (SELECT 1 FROM launches l WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation AND l.mode = 'container')\n",
+  "new": "",
+  "note": "a container launch without a rate accrues"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_rates_kept BEFORE UPDATE ON launch_rates\n",
+  "new": "CREATE TRIGGER launch_rates_kept BEFORE UPDATE OF incarnation ON launch_rates\n",
+  "note": "a rate changed"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nBEGIN",
+  "new": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nWHEN 0\nBEGIN",
+  "note": "a rate deleted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r).then(() => true)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "note": "a failed accrual write swallowed: the pods ended unbilled"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      return a.length > 0;",
+  "new": "      return true;",
+  "note": "a failed accrual write taken for an open accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      return a.length > 0;",
+  "new": "      return false;",
+  "note": "an accrual already open not recognized"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    } catch {\n      return false;\n    }",
+  "new": "    } catch {\n      return true;\n    }",
+  "note": "a failed read of the accruals taken for an open accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now <= r.created_ms + ACCRUAL_WAIT_MS) {",
+  "note": "the wait one millisecond longer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r))) {",
+  "note": "a pod waits for its accrual forever"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 20 * 60_000;",
+  "new": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 19 * 60_000;",
+  "note": "a shorter wait for the accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 20 * 60_000;",
+  "new": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 21 * 60_000;",
+  "note": "a longer wait for the accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "outcome, created_ms FROM launches WHERE",
+  "new": "outcome FROM launches WHERE",
+  "note": "the row read without its intent time"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "v.watchdog_version, v.outcome, v.created_ms,",
+  "new": "v.watchdog_version, v.outcome,",
+  "note": "the watchdog's rows without their intent time"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup);",
+  "note": "cleanup ids a list shows by the name ended before the accrual is open"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "    await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "note": "cleanup ids ended when the list wasn't read"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "",
+  "note": "a renamed held pod left up while the accrual waits"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held: string[] = [];",
+  "note": "held ids never written as cleanup ids"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x)))];",
+  "note": "the recorded id written as a cleanup id too"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held = [...new Set(heldIds.filter((x) => x !== r.provider_machine_id))];",
+  "note": "an invalid held id fails the claim"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") {",
+  "new": "    if (s === \"unavailable\" || s.providerMachineId !== id) {",
+  "note": "a cleanup id forgotten when its status isn't terminated"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") {",
+  "new": "    if (s === \"unavailable\" || s.state !== \"terminated\") {",
+  "note": "a cleanup id forgotten on another id's status"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      all = false;\n      continue;",
+  "new": "      continue;",
+  "note": "an unconfirmed cleanup id doesn't hold the launch back"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  for (const id of ids) if (!cleanup.includes(id)) await withDeadline(() => p.terminate(id), undefined);",
+  "new": "  for (const id of ids) await withDeadline(() => p.terminate(id), undefined);",
+  "note": "cleanup ids terminated twice an attempt"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const cleaned = await endCleanup(env, p, r, cleanup);",
+  "new": "  const cleaned = true;",
+  "note": "cleanup ids never ended or confirmed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (gone && cleaned) {",
+  "new": "  if (gone) {",
+  "note": "terminated with cleanup ids left"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "ORDER BY provider_machine_id`,\n      [r.machine_id, r.incarnation],\n    )).map((c) => c.provider_machine_id);",
+  "new": "ORDER BY provider_machine_id`,\n      [r.machine_id, r.incarnation],\n    )).map((c) => c.provider_machine_id).filter((x) => heldIds.includes(x));",
+  "note": "earlier attempts' cleanup ids not retried"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "WHEN NEW.outcome = 'terminated' AND OLD.outcome <> 'terminated'\n  AND EXISTS (SELECT 1 FROM launch_cleanup",
+  "new": "WHEN NEW.outcome = 'terminatedX' AND OLD.outcome <> 'terminated'\n  AND EXISTS (SELECT 1 FROM launch_cleanup",
+  "note": "a launch terminated with cleanup left"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_cleanup_fixed BEFORE UPDATE ON launch_cleanup\nBEGIN",
+  "new": "CREATE TRIGGER launch_cleanup_fixed BEFORE UPDATE ON launch_cleanup WHEN 0\nBEGIN",
+  "note": "cleanup ids rewritable"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "l.mode = 'container' AND l.outcome <> 'terminated'\n)",
+  "new": "l.mode = 'container'\n)",
+  "note": "cleanup for a terminated launch"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "AND provider_machine_id NOT GLOB '*[^!-~]*'),",
+  "new": "),",
+  "note": "cleanup ids outside printable ASCII"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "const ABANDON_CLAIM_TRIES = 2;",
+  "new": "const ABANDON_CLAIM_TRIES = 1;",
+  "note": "no second claim after a failed one"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (held.length === 0) return;\n  try {",
+  "new": "  return;\n  try {",
+  "note": "held ids dropped when no claim is won"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    );\n    return;\n  } catch {\n    // (nothing durable",
+  "new": "    );\n  } catch {\n    // (nothing durable",
+  "note": "a handed-over pod also ended unrecorded"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (await terminateContainerAttempt(env, r, reason, heldIds)) return;\n  }",
+  "new": "    await terminateContainerAttempt(env, r, reason, heldIds);\n    return;\n  }",
+  "note": "a failed claim taken for a won one"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (p) await withDeadline(() => p.terminate(id), undefined);\n    const s = p ?",
+  "new": "    const s = p ?",
+  "note": "a held pod left up when nothing is writable"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (left.length > 0) throw new HeldPodsUnknown(machineId, incarnation, left);\n",
+  "new": "",
+  "note": "unconfirmed held ids dropped silently"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "new": "    if (s === \"unavailable\" || s.providerMachineId !== id) left.push(id);",
+  "note": "a held id dropped on a status that isn't terminated"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "new": "    if (s === \"unavailable\" || s.state !== \"terminated\") left.push(id);",
+  "note": "a held id dropped on another id's status"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "new": "    if (s === \"unavailable\" && s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "note": "a held id dropped unless the status read fails"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "i.credentialKind === \"org\" ? \"org\" : \"platform\",",
+  "new": "\"platform\",",
+  "note": "an organization's key recorded as the platform's account"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "CASE WHEN ? = 'org' THEN (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
+  "new": "CASE WHEN ? = 'org' THEN NULL ELSE (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
+  "note": "the account's organization on the wrong kind"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted')",
+  "new": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted', 'running')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted')",
+  "new": "AND OLD.state NOT IN ('stopped', 'failed')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(member_area_key AS BLOB)) = 51",
+  "new": "length(CAST(member_area_key AS BLOB)) >= 51"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(team_area_key AS BLOB)) = 52",
+  "new": "length(CAST(team_area_key AS BLOB)) >= 52"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": " AND (team_area_key IS NULL OR member_area_key IS NOT NULL)",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "ON area_restores (area_key) WHERE state = 'claimed'",
+  "new": "ON area_restores (area_key)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state <> 'claimed' OR NEW.expected_head",
+  "new": "WHEN NEW.expected_head"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  OR NEW.jti IS NOT OLD.jti\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  OR NEW.created_ms IS NOT OLD.created_ms\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  OR NEW.target_snapshot_id IS NOT OLD.target_snapshot_id\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.expected_head IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.expected_head IS NOT NULL)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.expected_head IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.state <> 'claimed')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.token_exp_ms IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.state <> 'claimed')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(OLD.token_exp_ms IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.token_exp_ms IS NOT NULL)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "token_exp_ms + 30000 <= created_ms + lease_ms",
+  "new": "token_exp_ms <= created_ms + lease_ms"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "token_exp_ms > created_ms AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  CHECK (token_exp_ms IS NULL OR expected_head IS NOT NULL),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CHECK (lease_ms = 120000)",
+  "new": "CHECK (lease_ms BETWEEN 1 AND 120000)"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "instr(op_id, char(0)) = 0 AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "instr(jti, char(0)) = 0 AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  SELECT RAISE(ABORT, 'restore records are kept');",
+  "new": "  SELECT 1;"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "actor_member_id TEXT NOT NULL REFERENCES members (id),",
+  "new": "actor_member_id TEXT NOT NULL,"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "(length(CAST(area_key AS BLOB)) = 51 AND",
+  "new": "(length(CAST(area_key AS BLOB)) >= 51 AND"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(target_snapshot_id AS BLOB)) = 24",
+  "new": "length(CAST(target_snapshot_id AS BLOB)) >= 24"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "jti TEXT NOT NULL UNIQUE CHECK",
+  "new": "jti TEXT NOT NULL CHECK"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "NOT (OLD.state = 'claimed' AND",
+  "new": "NOT (OLD.state IN ('claimed', 'done') AND"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "  expected_head TEXT CHECK (expected_head IS NULL OR length(CAST(expected_head AS BLOB)) = 24 AND expected_head GLOB 'snp_[0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z][0-9a-hjkmnp-tv-z]'),",
+  "new": "  expected_head TEXT,",
+  "note": "T2: the expected head's whole shape check removed"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "length(CAST(expected_head AS BLOB)) = 24 AND expected_head GLOB",
+  "new": "expected_head GLOB"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND 0",
+  "note": "SEC H1: a keyless machine inserted live"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving', 'stopping')",
+  "new": "CREATE TRIGGER machines_live_keys_insert BEFORE INSERT ON machines\nWHEN NEW.state IN ('starting', 'running', 'saving')"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND 0",
+  "note": "SEC H1: a keyless machine moved into a live state"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('starting', 'running', 'saving', 'stopping') AND NEW.member_area_key IS NULL",
+  "new": "AND NEW.member_area_key IS NULL",
+  "note": "a migrated live machine kept from saving and stopping"
+ },
+ {
+  "file": "migrations/0017_area_restores.sql",
+  "old": "WHEN NEW.state IN ('starting', 'running', 'saving', 'stopping') AND OLD.state NOT IN",
+  "new": "WHEN NEW.state IN ('starting', 'running', 'saving') AND OLD.state NOT IN"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!env) throw REFUSED();\n",
+  "new": "",
+  "note": "no adapter: on into the provider read"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (ctx.body.mode === \"container\") return containerEnroll(ctx, signer);\n",
+  "new": "",
+  "note": "container requests to the VM path"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (Object.keys(b).sort().join(\",\") !== keys.join(\",\")) return null;\n",
+  "new": "",
+  "note": "extra or missing request fields allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "Object.keys(e).sort().join(\",\") !== \"checks,ok\" || typeof e.ok !== \"boolean\") return null;",
+  "new": "Object.keys(e).sort().join(\",\") !== \"checks,ok\") return null;",
+  "note": "a non-boolean report ok allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!Array.isArray(checks) || checks.length !== ERADICATION_CHECKS.length) return null;",
+  "new": "  if (!Array.isArray(checks)) return null;",
+  "note": "any number of checks"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (c.name !== ERADICATION_CHECKS[i] || typeof c.ok !== \"boolean\") return null;",
+  "new": "    if (typeof c.ok !== \"boolean\") return null;",
+  "note": "any check names, any order"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (c.name !== ERADICATION_CHECKS[i] || typeof c.ok !== \"boolean\") return null;",
+  "new": "    if (c.name !== ERADICATION_CHECKS[i]) return null;",
+  "note": "a non-boolean check ok allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "Array.isArray(c) || Object.keys(c).sort().join(\",\") !== \"name,ok\") return null;",
+  "new": "Array.isArray(c)) return null;",
+  "note": "extra check fields allowed"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  const eradicated = e.ok === true && checks.every((c) => (c as { ok: boolean }).ok === true);",
+  "new": "  const eradicated = checks.every((c) => (c as { ok: boolean }).ok === true);",
+  "note": "the report's own ok ignored"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  const eradicated = e.ok === true && checks.every((c) => (c as { ok: boolean }).ok === true);",
+  "new": "  const eradicated = e.ok === true;",
+  "note": "a failed check under ok: true passes"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (r.used_ms !== null) return containerFailure(ctx, env, r, \"second-enroll\");\n",
+  "new": "",
+  "note": "a used token only refused"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!sameText(req.providerMachineId, r.provider_machine_id as string)) throw REFUSED();\n  if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();\n",
+  "new": "  if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();\n",
+  "note": "another pod's id accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!sameText(req.providerMachineId, r.provider_machine_id as string)) throw REFUSED();\n  if (!sameText(req.agentSha256, r.agent_sha256)) throw REFUSED();\n",
+  "new": "  if (!sameText(req.providerMachineId, r.provider_machine_id as string)) throw REFUSED();\n",
+  "note": "another agent accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (!req.eradicated) return containerFailure(ctx, env, r, \"eradication-failed\");\n",
+  "new": "",
+  "note": "a failing eradication report accepted"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (t.used_ms !== null) return containerFailure(ctx, env, t, \"second-enroll\");\n",
+  "new": "",
+  "note": "a token used during the read only refused"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    if (again && again.used_ms !== null) return containerFailure(ctx, env, again, \"second-enroll\");\n",
+  "new": "",
+  "note": "a lost commit to another holder only refused"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "params: [at + HEARTBEAT_LOST_MS, at + policy.maxSessionMinutes * 60_000,",
+  "new": "params: [at + HEARTBEAT_LOST_MS, at + policy.maxSessionMinutes * 60_000 + 1,",
+  "note": "the hard lifetime a millisecond long"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "params: [at + HEARTBEAT_LOST_MS, at + policy.maxSessionMinutes * 60_000,",
+  "new": "params: [at + HEARTBEAT_LOST_MS + 1, at + policy.maxSessionMinutes * 60_000,",
+  "note": "the first heartbeat due a millisecond late"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome IN ('creating', 'issued', 'enrolled')`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome IN ('creating', 'issued')`,",
+  "note": "an enrolled launch kept on a second use"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (cur && cur.outcome === \"terminate\") deps.waitUntil(terminateContainerAttempt(env, cur, reason));\n",
+  "new": "",
+  "note": "the pod never ended after a definitive failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    return containerFailure(ctx, env, (await read()) ?? t, \"sign-failed\");",
+  "new": "    throw REFUSED();",
+  "note": "a signing failure leaves the launch enrolled"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  deps.alert(`container-enroll: ${reason}`);\n",
+  "new": "",
+  "note": "no alert for a definitive failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "    deps.alert(`container-enroll: ${reason} (not recorded)`);\n",
+  "new": "",
+  "note": "no alert for an unrecorded failure"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "  if (seen !== \"running\") throw REFUSED();\n",
+  "new": "",
+  "note": "enroll from an earlier read's facts"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms <= ?",
+  "note": "due inclusive"
+ },
+ {
+  "file": "migrations/0018_heartbeat_all_modes.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation);",
+  "note": "due index not partial"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "  if (vm) return vm;\n",
+  "new": "",
+  "note": "VM heartbeats looked up as containers only"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "`SELECT b.used_ms AS at_ms FROM launches v",
+  "new": "`SELECT v.created_ms AS at_ms FROM launches v",
+  "note": "the floor at the intent, not the enroll"
+ },
+ {
+  "file": "src/heartbeat.ts",
+  "old": "     WHERE v.outcome = 'enrolled' AND v.heartbeat_due_ms < ?",
+  "new": "     WHERE v.outcome = 'enrolled' AND v.mode = 'vm' AND v.heartbeat_due_ms < ?",
+  "note": "the watchdog VM-only again"
+ },
+ {
+  "file": "migrations/0018_heartbeat_all_modes.sql",
+  "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
+  "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
+  "note": "the due index VM-only again"
+ },
+ {
+  "file": "src/enroll.ts",
+  "old": "export const ERADICATION_CHECKS = AGENT_ERADICATION_CHECKS;",
+  "new": "export const ERADICATION_CHECKS = [\"env\", \"processes\", \"files\"] as const;",
+  "note": "container enroll: the eradication checks not the contract's (no ssh)"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "sameMachineName(s.parsedName, name) && s.state !== \"terminated\")",
+  "new": "sameMachineName(s.parsedName, name))",
+  "note": "terminated pods counted by name"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  return list.filter((s) => sameMachineName(s.parsedName, name) && s.state",
+  "new": "  return list.filter((s) => s.machineId === machineId && s.state",
+  "note": "pods of other installations or incarnations taken by name"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    () => p.launch({ ...l.spec, incarnation: l.incarnation, name, bootToken: token }).then(",
+  "new": "    () => p.launch({ ...l.spec, name, bootToken: token } as LaunchSpec).then(",
+  "note": "the create without its incarnation"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    name = machineName(env.installation, l.machineId, l.incarnation);",
+  "new": "    name = machineName(env.installation, l.machineId, 1);",
+  "note": "the name for the wrong incarnation"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (installation !== undefined && !isInstallation(installation)) throw new Error(\"SBGPU_INSTALLATION must be 4 to 8 of [a-z0-9]\");\n",
+  "new": "",
+  "note": "a malformed installation slug accepted"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (flag === undefined || flag === \"off\") return null;",
+  "new": "  if (flag === undefined) return null;",
+  "note": "container launch: off not accepted"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (flag !== \"on\") throw new Error(\"SBGPU_CONTAINER_LAUNCH must be on or off\");\n",
+  "new": "",
+  "note": "container launch: any flag value taken as on"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (typeof image !== \"string\" || !IMAGE_NAME.test(image)) throw new Error(\"SBGPU_CONTAINER_IMAGE must be an image name\");\n",
+  "new": "",
+  "note": "any container image"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  try {\n    renderBootCommand({ agentUrl, agentSha256, controlUrl: appOrigin, mode: \"container\" });\n  } catch {\n    throw new Error(\"SBGPU_AGENT_URL must be a plain https URL and SBGPU_AGENT_SHA256 64 lowercase hex\");\n  }\n",
+  "new": "",
+  "note": "any agent URL and sha256"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "    containerLaunch: containerLaunchFromEnv(env, appOrigin),",
+  "new": "    containerLaunch: null,",
+  "note": "container launch never on"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  const c = config.containerLaunch;\n  if (c === null) return { off: true };\n  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n",
+  "new": "  const c = config.containerLaunch;\n  if (c === null) return { off: true };\n",
+  "note": "container deps without an installation"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  if (typeof apiKey !== \"string\" || apiKey === \"\") return { unusable: \"RUNPOD_API_KEY is unset\" };\n  const boot = renderBootCommand({ agentUrl: c.agentUrl, agentSha256: c.agentSha256, controlUrl: config.appOrigin, mode: \"container\" });\n",
+  "new": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  const boot = renderBootCommand({ agentUrl: c.agentUrl, agentSha256: c.agentSha256, controlUrl: config.appOrigin, mode: \"container\" });\n",
+  "note": "container deps without a key"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "      expect: { image: c.image, launcher: boot.argv, bootEnv: BOOT_TOKEN_ENV },",
+  "new": "      expect: { image: c.image, launcher: [], bootEnv: BOOT_TOKEN_ENV },",
+  "note": "pods expected with no launcher"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "        if (\"unusable\" in d) log(`control: alert: container launch is on but ${d.unusable}: launches not started`);\n",
+  "new": "        if (\"unusable\" in d) {}\n",
+  "note": "no alert when on but unusable"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            const n = await runContainerWatchdog({",
+  "new": "            const n = 0 && await runContainerWatchdog({",
+  "note": "the container watchdog never runs"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            failed.push(\"container watchdog\");\n",
+  "new": "",
+  "note": "a failed container watchdog doesn't fail the run"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            pending = (await db.all(CONTAINER_PENDING_SELECT)).length > 0;",
+  "new": "            pending = (await db.all(CONTAINER_PENDING_SELECT)).length > 1;",
+  "note": "due container launches never seen when off"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "          let pending = true;",
+  "new": "          let pending = false;",
+  "note": "an unread due check taken as nothing due"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "export function cleanupDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { unusable: string } {\n  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n",
+  "new": "export function cleanupDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { unusable: string } {\n",
+  "note": "cleanup without an installation"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  if (typeof apiKey !== \"string\" || apiKey === \"\") return { unusable: \"RUNPOD_API_KEY is unset\" };\n  const on = containerDeps(config, apiKey, f);",
+  "new": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  const on = containerDeps(config, apiKey, f);",
+  "note": "cleanup without a key"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            else log(`control: alert: container launches are due but ${c.unusable}: they can't be ended`);\n",
+  "new": "",
+  "note": "no alert when due launches can't be ended"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "        container: (() => {\n          const d = containerDeps(config, env.RUNPOD_API_KEY, fetch);\n          return \"deps\" in d ? d.deps : null;\n        })(),",
+  "new": "        container: null,",
+  "note": "requests never get the container dependencies"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "              installation: config.installation,",
+  "new": "              installation: null,",
+  "note": "the scheduled watchdog without the installation"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"none\", reason: \"no-credential\" };",
+  "new": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"ours\", provider };",
+  "note": "byok without a key uses ours"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "WHERE o.id = ?`,\n    [provider, orgId],",
+  "new": "WHERE o.id IS NOT NULL ORDER BY o.billing_mode DESC LIMIT 1`,\n    [provider],",
+  "note": "org resolver reads any org"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "WHERE l.machine_id = ? AND l.incarnation = ?`",
+  "new": "WHERE l.machine_id = ? OR l.incarnation = ?`",
+  "note": "launch resolver any incarnation"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY,",
+  "note": "credential id unchecked"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "note": "credential id char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "note": "credential id prefix dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_' AND substr(id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  id TEXT PRIMARY KEY CHECK (length(CAST(id AS BLOB)) = 24 AND length(id) = 24 AND substr(id, 1, 4) = 'crd_'),",
+  "note": "credential id body open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  org_id TEXT NOT NULL REFERENCES orgs (id),\n  provider TEXT NOT NULL CHECK (provider IN ('runpod', 'shadeform', 'hyperstack', 'nebius')),\n  -- 1 at",
+  "new": "  org_id TEXT NOT NULL REFERENCES orgs (id),\n  provider TEXT NOT NULL,\n  -- 1 at",
+  "note": "credential provider open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  version INTEGER NOT NULL CHECK (version BETWEEN 1 AND 9007199254740991),",
+  "new": "  version INTEGER NOT NULL CHECK (version BETWEEN 0 AND 9007199254740991),",
+  "note": "credential version from 0"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 23 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "sealed min 23"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5485 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "sealed max 5485"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "sealed char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB)) AND sealed NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "new": "  sealed TEXT NOT NULL CHECK (length(CAST(sealed AS BLOB)) BETWEEN 24 AND 5484 AND length(sealed) = length(CAST(sealed AS BLOB))),",
+  "note": "sealed alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND length(nonce) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/]*'),",
+  "new": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/]*'),",
+  "note": "nonce char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND length(nonce) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/]*'),",
+  "new": "  nonce TEXT NOT NULL CHECK (length(CAST(nonce AS BLOB)) = 16 AND length(nonce) = 16 AND nonce NOT GLOB '*[^A-Za-z0-9+/=]*'),",
+  "note": "nonce allows ="
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 17 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "note": "kek version max 17"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 0 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "note": "kek version empty"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "note": "kek version char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB)) AND kek_version NOT GLOB '*[^A-Za-z0-9_-]*'),",
+  "new": "  kek_version TEXT NOT NULL CHECK (length(CAST(kek_version AS BLOB)) BETWEEN 1 AND 16 AND length(kek_version) = length(CAST(kek_version AS BLOB))),",
+  "note": "kek version alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  status TEXT NOT NULL",
+  "new": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  status TEXT NOT NULL",
+  "note": "fingerprint char length dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  status TEXT NOT NULL",
+  "new": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16),\n  status TEXT NOT NULL",
+  "note": "fingerprint alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  status TEXT NOT NULL CHECK (status IN ('unchecked', 'ok', 'rejected', 'revoked', 'error')),",
+  "new": "  status TEXT NOT NULL CHECK (status IN ('none', 'unchecked', 'ok', 'rejected', 'revoked', 'error')),",
+  "note": "credential status allows none"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  last_checked_ms INTEGER CHECK (last_checked_ms IS NULL OR last_checked_ms BETWEEN 0 AND 9007199254740991),",
+  "new": "  last_checked_ms INTEGER,",
+  "note": "last checked unbounded"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  set_by TEXT NOT NULL REFERENCES users (id),",
+  "new": "  set_by TEXT NOT NULL,",
+  "note": "set_by not a user"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  set_ms INTEGER NOT NULL CHECK (set_ms BETWEEN 0 AND 9007199254740991),",
+  "new": "  set_ms INTEGER NOT NULL,",
+  "note": "set_ms unbounded"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  UNIQUE (org_id, provider),\n",
+  "new": "",
+  "note": "one key per org and provider dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK ((status = 'unchecked') = (last_checked_ms IS NULL))\n",
+  "new": "  CHECK (1)\n",
+  "note": "unchecked iff never checked dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) IS NOT 'byok'",
+  "new": "WHEN (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) = 'resold'",
+  "note": "byok-only lets an unknown org through"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN (SELECT billing_mode FROM orgs WHERE id = NEW.org_id) IS NOT 'byok'",
+  "new": "WHEN 0",
+  "note": "byok-only dropped"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "new": "WHEN NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "note": "credential id not fixed"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.provider IS NOT OLD.provider",
+  "note": "credential org not fixed"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id OR NEW.provider IS NOT OLD.provider",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.org_id IS NOT OLD.org_id",
+  "note": "credential provider not fixed"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.version IS NOT OLD.version AND NEW.version IS NOT OLD.version + 1",
+  "new": "WHEN NEW.version < OLD.version",
+  "note": "version may jump"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.version IS NOT OLD.version AND NEW.version IS NOT OLD.version + 1",
+  "new": "WHEN NEW.version > OLD.version + 1",
+  "note": "version may go back"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "new": "  AND (NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "note": "same version may change fingerprint"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "new": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_ms IS NOT OLD.set_ms)",
+  "note": "same version may change setter"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by OR NEW.set_ms IS NOT OLD.set_ms)",
+  "new": "  AND (NEW.fingerprint IS NOT OLD.fingerprint OR NEW.set_by IS NOT OLD.set_by)",
+  "note": "same version may change set time"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.version = OLD.version\n",
+  "new": "WHEN NEW.version = OLD.version + 1\n",
+  "note": "same-version rule on the wrong step"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "WHEN NEW.sealed IS NOT OLD.sealed AND NEW.nonce IS OLD.nonce",
+  "new": "WHEN 0",
+  "note": "nonce may repeat"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  provider TEXT NOT NULL CHECK (provider IN ('runpod', 'shadeform', 'hyperstack', 'nebius')),\n  -- the credential row's",
+  "new": "  provider TEXT NOT NULL,\n  -- the credential row's",
+  "note": "event provider open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  credential_id TEXT NOT NULL CHECK (length(CAST(credential_id AS BLOB)) = 24 AND length(credential_id) = 24 AND substr(credential_id, 1, 4) = 'crd_' AND substr(credential_id, 5) NOT GLOB '*[^0-9abcdefghjkmnpqrstvwxyz]*'),",
+  "new": "  credential_id TEXT NOT NULL,",
+  "note": "event credential id unchecked"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  kind TEXT NOT NULL CHECK (kind IN ('set', 'replace', 'remove', 'check')),",
+  "new": "  kind TEXT NOT NULL,",
+  "note": "event kind open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16 AND fingerprint NOT GLOB '*[^0-9a-f]*'),\n  -- a check's",
+  "new": "  fingerprint TEXT NOT NULL CHECK (length(CAST(fingerprint AS BLOB)) = 16 AND length(fingerprint) = 16),\n  -- a check's",
+  "note": "event fingerprint alphabet open"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  status TEXT CHECK (status IS NULL OR status IN ('ok', 'rejected', 'revoked', 'error')),",
+  "new": "  status TEXT CHECK (status IS NULL OR status IN ('unchecked', 'ok', 'rejected', 'revoked', 'error')),",
+  "note": "event status allows unchecked"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  actor TEXT REFERENCES users (id),",
+  "new": "  actor TEXT,",
+  "note": "event actor not a user"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  at_ms INTEGER NOT NULL CHECK (at_ms BETWEEN 0 AND 9007199254740991),",
+  "new": "  at_ms INTEGER NOT NULL,",
+  "note": "event time unbounded"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK ((kind = 'check') = (status IS NOT NULL)),",
+  "new": "  CHECK (kind <> 'check' OR status IS NOT NULL),",
+  "note": "event status on other kinds"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK ((kind = 'check') = (status IS NOT NULL)),",
+  "new": "  CHECK (kind = 'check' OR status IS NULL),",
+  "note": "event check without status"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK (kind = 'check' OR actor IS NOT NULL),",
+  "new": "  CHECK (1),",
+  "note": "event actor may be null"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK (kind <> 'set' OR credential_version = 1),",
+  "new": "  CHECK (1),",
+  "note": "set event any version"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "  CHECK (kind <> 'replace' OR credential_version > 1)",
+  "new": "  CHECK (1)",
+  "note": "replace event at version 1"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "CREATE TRIGGER credential_events_no_update BEFORE UPDATE ON credential_events",
+  "new": "CREATE TRIGGER credential_events_no_update BEFORE UPDATE OF id ON credential_events",
+  "note": "events may change"
+ },
+ {
+  "file": "migrations/0016_provider_credentials.sql",
+  "old": "CREATE TRIGGER credential_events_no_delete BEFORE DELETE ON credential_events",
+  "new": "CREATE TRIGGER credential_events_no_delete BEFORE DELETE ON credential_events WHEN 0",
+  "note": "events may be deleted"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "[AEIMQUYcgkosw048]=$/;",
+  "new": "[A-Za-z0-9+/]=$/;",
+  "note": "base64 not canonical"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "  if (!B64_32.test(fingerprintKey)) return null;\n",
+  "new": "",
+  "note": "fingerprint key unchecked"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "!VERSION.test(v) || ",
+  "new": "",
+  "note": "kek version unchecked"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": " || keks.has(v)",
+  "new": "",
+  "note": "duplicate kek version"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": " || k === fingerprintKey",
+  "new": "",
+  "note": "fingerprint key may be a kek"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "    current ??= v;",
+  "new": "    current = v;",
+  "note": "last kek current"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "importKey(\"raw\", unb64(fingerprintKey), { name: \"HMAC\"",
+  "new": "importKey(\"raw\", unb64(secret.split(\",\")[0]!.slice(secret.indexOf(\":\") + 1)), { name: \"HMAC\"",
+  "note": "fingerprint under the kek"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without env"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without org"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without provider"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.version}\\n${kekVersion}`",
+  "note": "aad without credential id"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${kekVersion}`",
+  "note": "aad without version"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}\\n${kekVersion}`",
+  "new": "sbgpu-provider-credential\\n${c.env}\\n${c.orgId}\\n${c.provider}\\n${c.credentialId}\\n${c.version}`",
+  "note": "aad without kek version"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "const iv = crypto.getRandomValues(new Uint8Array(12));",
+  "new": "const iv = new Uint8Array(12);",
+  "note": "fixed nonce"
+ },
+ {
+  "file": "src/credential-seal.ts",
+  "old": "mac.subarray(0, 8)",
+  "new": "mac.subarray(0, 9)",
+  "note": "fingerprint 18 hex"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  return status === \"ok\" || status === \"unchecked\";",
+  "new": "  return status === \"ok\" || status === \"unchecked\" || status === \"error\";",
+  "note": "error usable"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (!usableCredentialStatus(r.status)) return { ok: false, reason: \"paused\" };\n",
+  "new": "",
+  "note": "paused key opened"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`",
+  "new": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND ? IS NOT NULL AND kek_version = ?`",
+  "note": "error mark without version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`",
+  "new": "SET status = 'error', last_checked_ms = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND ? IS NOT NULL`",
+  "note": "error mark without kek version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "         WHERE changes() = 1 AND org_id = ?",
+  "new": "         WHERE org_id = ?",
+  "note": "error event unconditional"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`,\n      [n.sealed",
+  "new": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND ? IS NOT NULL AND kek_version = ?`,\n      [n.sealed",
+  "note": "re-seal without version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND kek_version = ?`,\n      [n.sealed",
+  "new": "kek_version = ? WHERE org_id = ? AND provider = ? AND id = ? AND version = ? AND ? IS NOT NULL`,\n      [n.sealed",
+  "note": "re-seal without kek version"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (r.kek_version !== keys.current) {",
+  "new": "  if (false) {",
+  "note": "no re-seal"
+ },
+ {
+  "file": "src/credentials.ts",
+  "old": "  if (!keys) return { ok: false, reason: \"unavailable\" };",
+  "new": "  if (!keys) return { ok: false, reason: \"no-credential\" };",
+  "note": "unavailable misreported"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "LEFT JOIN provider_credentials c ON c.org_id = o.id AND c.provider = ?",
+  "new": "LEFT JOIN provider_credentials c ON c.provider = ?",
+  "note": "org resolver any org's key"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "LEFT JOIN provider_credentials c ON c.org_id = o.id AND c.provider = ?",
+  "new": "LEFT JOIN provider_credentials c ON c.org_id = o.id AND ? IS NOT NULL",
+  "note": "org resolver any provider's key"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "c.org_id = l.account_org_id AND c.provider = l.provider",
+  "new": "c.org_id = (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = l.machine_id) AND c.provider = l.provider",
+  "note": "launch resolver by current owner"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "c.org_id = l.account_org_id AND c.provider = l.provider",
+  "new": "c.org_id = l.account_org_id",
+  "note": "launch resolver any provider's key"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (l.account_kind === \"platform\") return",
+  "new": "  if (l.account_kind !== \"org\") return",
+  "note": "unknown account is ours"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": " && l.account_org_id !== null) return",
+  "new": ") return",
+  "note": "org account without org"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (!usableCredentialStatus(c.credential_status)) return { use: \"none\", reason: \"credential-paused\" };\n",
+  "new": "",
+  "note": "paused key chosen"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (mode === \"resold\") return { use: \"ours\", provider };",
+  "new": "  if (mode === \"byok\") return { use: \"ours\", provider };",
+  "note": "byok uses ours"
  }
 ]

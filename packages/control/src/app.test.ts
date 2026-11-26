@@ -62,11 +62,12 @@ async function world(handlers?: Handlers): Promise<World> {
     waitUntil: (p) => {
       pending.push(p);
     },
-    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: null },
+    config: { ...DEFAULT_CONFIG, appOrigin: ORIGIN, machineDomain: "m.example.test", auth: null, installation: "test", containerLaunch: null },
     fetch: async () => {
       throw new Error("no network in tests");
     },
     vm: null,
+    container: null,
     agentSigner: async () => null,
     agentPublicKeys: async () => null,
     alert: () => {},
@@ -480,7 +481,7 @@ test("role checks: no role is notFound, too low is forbidden, org owners own the
   const mch = newId("machine");
   await w.db.batch([
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, alloc, w.projectId, T0),
-    stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mch, w.projectId, alloc, T0),
+    stmt(`INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mch, w.projectId, alloc, T0),
   ]);
   assert.deepEqual([await s(people.assistant!, "GET", `/v1/machines/${mch}`), await s(outsider, "GET", `/v1/machines/${mch}`)], ["ok", "notFound"]);
   assert.equal(await s(people.assistant!, "GET", `/v1/machines/${newId("machine")}`), "notFound");
@@ -506,7 +507,7 @@ test("role checks are scoped to the project: another real project, its machines,
     stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES (?, 'Org B', 'resold', 0, ?)`, orgB, T0),
     stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'Proj B', ?, ?, 0, ?)`, prjB, orgB, T0, T0 + 1, T0),
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, allocB, prjB, T0),
-    stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES (?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mchB, prjB, allocB, T0),
+    stmt(`INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, 'mbr_x', 'runpod', 'L4', 1, 'X', 'starting', ?)`, mchB, prjB, allocB, T0),
   ]);
   // an owner of the first project only
   await invite(w, "o@example.com", "owner");
@@ -558,6 +559,11 @@ test("configFromEnv takes the deploy config's MACHINE_DOMAIN and APP_ORIGIN, str
   const c = configFromEnv({ APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" });
   assert.equal(c.machineDomain, "m.example.com");
   assert.equal(c.appOrigin, "https://gpu.example.com");
+  // the installation slug: unset is null (no launch then); set, exactly [a-z0-9]{4,8}
+  assert.equal(c.installation, null);
+  const base = { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" };
+  for (const slug of ["prod", "a1b2c3d4", "0000"]) assert.equal(configFromEnv({ ...base, SBGPU_INSTALLATION: slug }).installation, slug);
+  for (const slug of ["abc", "abcdefghi", "Prod", "pr-d", "pr_d", "", " prod", 1234]) assert.throws(() => configFromEnv({ ...base, SBGPU_INSTALLATION: slug }), /SBGPU_INSTALLATION/, String(slug));
   for (const env of [
     {},
     { APP_ORIGIN: "https://gpu.example.com" },
@@ -571,6 +577,44 @@ test("configFromEnv takes the deploy config's MACHINE_DOMAIN and APP_ORIGIN, str
     { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "-m.example.com" },
   ]) {
     assert.throws(() => configFromEnv(env), Error, JSON.stringify(env));
+  }
+});
+
+test("configFromEnv: container launch is off unless SBGPU_CONTAINER_LAUNCH=on, and then needs the release it pins, strictly", () => {
+  const base = { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" };
+  const release = {
+    SBGPU_CONTAINER_IMAGE: "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
+    SBGPU_AGENT_URL: "https://cdn.example.com/agent/sbgpu-agent.tar.gz",
+    SBGPU_AGENT_SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  };
+  // off: unset, or "off", whatever else is set
+  assert.equal(configFromEnv(base).containerLaunch, null);
+  assert.equal(configFromEnv({ ...base, ...release, SBGPU_CONTAINER_LAUNCH: "off" }).containerLaunch, null);
+  // on, with the release
+  assert.deepEqual(configFromEnv({ ...base, ...release, SBGPU_CONTAINER_LAUNCH: "on" }).containerLaunch, {
+    image: release.SBGPU_CONTAINER_IMAGE,
+    agentUrl: release.SBGPU_AGENT_URL,
+    agentSha256: release.SBGPU_AGENT_SHA256,
+  });
+  // anything else refused at startup
+  const bad: Array<[Record<string, unknown>, RegExp]> = [
+    [{ SBGPU_CONTAINER_LAUNCH: "yes" }, /SBGPU_CONTAINER_LAUNCH/],
+    [{ SBGPU_CONTAINER_LAUNCH: "ON" }, /SBGPU_CONTAINER_LAUNCH/],
+    [{ SBGPU_CONTAINER_LAUNCH: true }, /SBGPU_CONTAINER_LAUNCH/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_CONTAINER_IMAGE: undefined }, /SBGPU_CONTAINER_IMAGE/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_CONTAINER_IMAGE: "Upper/Case" }, /SBGPU_CONTAINER_IMAGE/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_CONTAINER_IMAGE: "img with space" }, /SBGPU_CONTAINER_IMAGE/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_URL: undefined }, /SBGPU_AGENT_URL/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_SHA256: undefined }, /SBGPU_AGENT_SHA256/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_URL: "http://cdn.example.com/a.tgz" }, /SBGPU_AGENT_URL/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_URL: "https://cdn.example.com/a b.tgz" }, /SBGPU_AGENT_URL/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_SHA256: "0123" }, /SBGPU_AGENT_SHA256/],
+    [{ SBGPU_CONTAINER_LAUNCH: "on", SBGPU_AGENT_SHA256: release.SBGPU_AGENT_SHA256.toUpperCase() }, /SBGPU_AGENT_SHA256/],
+  ];
+  for (const [over, why] of bad) {
+    const env: Record<string, unknown> = { ...base, ...release, ...over };
+    for (const k of Object.keys(over)) if (over[k] === undefined) delete env[k];
+    assert.throws(() => configFromEnv(env), why, JSON.stringify(over));
   }
 });
 

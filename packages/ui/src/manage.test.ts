@@ -53,8 +53,8 @@ test("memberRows joins meters, teams and running machines; removed members are l
   assert.deepEqual(r.map((x) => x.email), ["ada@example.org", "bob@example.org", "cy@example.org", "eve@example.org"]);
   const ada = r[0]!;
   assert.deepEqual(
-    { team: ada.team, allocation: ada.allocation, spent: ada.spent, remaining: ada.remaining, band: ada.band, running: ada.running, storage: ada.storageBytes },
-    { team: "Team Qwen", allocation: 25_000_000, spent: 5_000_000, remaining: 19_900_000, band: "ok", running: 1, storage: 2048 },
+    { team: ada.team, allocation: ada.allocation, spent: ada.spent, remaining: ada.remaining, band: ada.band, running: ada.running, storage: ada.storageBytes, quota: ada.storageQuotaBytes },
+    { team: "Team Qwen", allocation: 25_000_000, spent: 5_000_000, remaining: 19_900_000, band: "ok", running: 1, storage: 2048, quota: 1 },
   );
   assert.equal(r[1]!.running, 2); // starting and saving both accrue
   assert.equal(r[1]!.band, "critical"); // 0.3 of 10 left
@@ -65,6 +65,7 @@ test("memberRows joins meters, teams and running machines; removed members are l
   // A member without a meter (not loaded yet) shows zeros.
   const lone = memberRows([member("z", "z@example.org", { teamId: "team_gone" })], [], [], []);
   assert.deepEqual([lone[0]!.allocation, lone[0]!.spent, lone[0]!.storageBytes, lone[0]!.team, lone[0]!.teamId], [0, 0, 0, null, "team_gone"]);
+  assert.equal(lone[0]!.storageQuotaBytes, null, "no quota without a meter (so no storage flag)");
 });
 
 test("filterRows: every word must match email, name, team, role or status", () => {

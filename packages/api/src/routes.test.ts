@@ -14,7 +14,7 @@ function sampleParams(path: string): Record<string, string> {
       params[name] = "shadeform";
       continue;
     }
-    const kind = ({ orgId: "org", projectId: "project", memberId: "member", teamId: "team", machineId: "machine" } as const)[name];
+    const kind = ({ orgId: "org", projectId: "project", memberId: "member", teamId: "team", machineId: "machine", snapshotId: "snapshot" } as const)[name];
     assert.ok(kind, `unknown path parameter ${name}`);
     params[name] = newId(kind);
   }
@@ -108,4 +108,28 @@ test("access rules", () => {
   assert.equal(min("createProject"), "owner");
   assert.equal(min("getSpendCsv"), "assistant");
   assert.equal(min("startMachine"), "member");
+  // /me's reauth window is one organization's, chosen by orgId
+  assert.match(ROUTES.getMe.note ?? "", /orgId .*chooses the organization recentAuthForMs is for/);
+  assert.match(ROUTES.getMe.note ?? "", /without it, or for an organization the caller doesn't own, recentAuthForMs is null/);
+});
+
+test("the snapshot routes: a member's own areas, on the project", () => {
+  const p = newId("project");
+  const s = newId("snapshot");
+  assert.deepEqual(matchRoute("GET", `/v1/projects/${p}/snapshots`), { name: "listSnapshots", params: { projectId: p } });
+  assert.deepEqual(matchRoute("PUT", `/v1/projects/${p}/snapshots/${s}/name`), { name: "nameSnapshot", params: { projectId: p, snapshotId: s } });
+  assert.deepEqual(matchRoute("POST", `/v1/projects/${p}/snapshots/${s}/restore`), { name: "restoreSnapshot", params: { projectId: p, snapshotId: s } });
+  assert.equal(matchRoute("POST", `/v1/projects/${p}/snapshots/${s}/name`), null);
+  assert.equal(matchRoute("PUT", `/v1/projects/${p}/snapshots/${s}/restore`), null);
+  assert.equal(matchRoute("GET", `/v1/projects/${p}/snapshots/${s}`), null);
+  for (const n of ["listSnapshots", "nameSnapshot", "restoreSnapshot"] as const) {
+    assert.deepEqual(ROUTES[n].access, { auth: "session", scope: "project", minRole: "member" }, n);
+    assert.match(ROUTES[n].note ?? "", /own member area, or their current team's/, n);
+  }
+  // SEC's ruling: no recent reauth for a restore
+  assert.match(ROUTES.restoreSnapshot.note ?? "", /no recent reauth/);
+  assert.doesNotMatch(ROUTES.restoreSnapshot.note ?? "", /consumes|reauthenticate otherwise/);
+  assert.match(ROUTES.saveMachine.note ?? "", /an optional name/);
+  assert.match(ROUTES.startMachine.note ?? "", /startDuringRestore/);
+  assert.match(ROUTES.restartMachine.note ?? "", /startDuringRestore/);
 });

@@ -120,17 +120,20 @@ test("start uses the price the member saw as a ceiling", async () => {
   // The price goes up after the quote was shown.
   demo.backend.offers = demo.backend.offers.map((o) => (o.gpuType === "L4" ? { ...o, providerCostPerHour: o.providerCostPerHour + 10_000 } : o));
   assert.equal(await store.start("L4"), false);
-  assert.match(store.error.value ?? "", /above what you accepted/);
+  assert.match(store.startRefusal.value?.text ?? "", /The price is now higher than the one you saw/);
+  assert.equal(store.startRefusal.value?.gpuType, "L4");
+  assert.equal(store.error.value, null);
   await store.refresh();
   assert.equal(await store.start("L4"), true);
   assert.equal(store.error.value, null);
+  assert.equal(store.startRefusal.value, null, "a new start clears it");
 });
 
 test("refused and unknown starts", async () => {
   const { demo, store } = await signedIn();
   await store.openProject(demo.projectId);
   assert.equal(await store.start("A10"), false); // no capacity: refused by the server
-  assert.match(store.error.value ?? "", /noCapacity/);
+  assert.deepEqual(store.startRefusal.value, { gpuType: "A10", text: "No capacity right now. Try another type or try again soon." });
   assert.equal(await store.start("H100"), false); // not in the price list: never sent
   assert.equal(store.machines.value.length, 0);
 });
@@ -277,9 +280,9 @@ test("poll: a failure keeps polling alive and clears itself when a later round s
 test("poll: an action's error is not cleared by a good poll", async () => {
   const t = await controllable();
   await t.store.openProject(t.demo.projectId);
-  await t.store.start("A10"); // noCapacity
+  await t.store.save("mch_00000000000000000099"); // (no such machine)
   const message = t.store.error.value;
-  assert.match(message ?? "", /noCapacity/);
+  assert.match(message ?? "", /no such machine/);
   await t.store.poll();
   assert.equal(t.store.error.value, message);
 });

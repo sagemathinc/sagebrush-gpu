@@ -19,13 +19,20 @@ import {
   type SignInOutcome,
   type SpendMeter,
   type UpdateProjectRequest,
+  type ErrorCode,
+  type ProviderPause,
+  type ListSnapshotsResponse,
+  type SnapshotArea,
 } from "@sbgpu/api";
 import { ApiError, type Client, type FetchFn } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
-import { jupyterUrl } from "../view.ts";
+import { jupyterUrl, pausedStartText, startRefusalText } from "../view.ts";
 import { terminalUrl } from "../terminal/session.ts";
 import type { PollTimers } from "./polling.ts";
 import { ProviderKeys, WINDOW_TIMERS } from "./provider-keys.ts";
+
+/** Conflicts (two starts at once) retried quietly before one is shown. */
+export const START_CONFLICT_RETRIES = 1;
 
 export interface StoreOptions {
   /** The UI's own host (location.host); the terminal relay must be on it. */
@@ -80,10 +87,16 @@ export class Store {
   readonly machines = signal<Machine[]>([]);
   readonly gpuTypes = signal<PriceListItem[]>([]);
   readonly quotes = signal<Readonly<Record<string, Quote>>>({});
+  /** The last start refused in words the page can show (startRefusalText), beside its GPU type. */
+  readonly startRefusal = signal<{ gpuType: string; text: string } | null>(null);
+  /** Providers whose launches are paused for the project's organization (the reason only for manager and above). */
+  readonly paused = signal<ProviderPause[]>([]);
   /** Staff only (assistant and up): everyone in the project, its teams, and every machine. */
   readonly members = signal<Member[]>([]);
   readonly teams = signal<Team[]>([]);
   readonly allMachines = signal<Machine[]>([]);
+  /** The caller's saves (workspace snapshots), per area; null when there is no such area (no team, say) or not yet read. */
+  readonly saves = signal<Readonly<Record<SnapshotArea, ListSnapshotsResponse | null>>>({ member: null, team: null });
   /** Lists cut at MAX_LIST_PAGES: "members", "machines" and "allMachines". */
   readonly truncated = signal<ReadonlySet<string>>(new Set());
 
@@ -128,6 +141,7 @@ export class Store {
       options.credentialFetch ?? ((input, init) => fetch(input, init)),
       { monotonic: this.#monotonic, timers: options.timers ?? WINDOW_TIMERS },
       () => this.#endSession(),
+      async (orgId) => (await this.client.call("getMe", { query: { orgId } })).recentAuthForMs,
     );
   }
 
@@ -158,7 +172,8 @@ export class Store {
       // neither its 401 nor its message may touch the new session.
       if (session !== this.#sessionGeneration) return null;
       if (err instanceof ApiError && err.code === "unauthenticated") this.#endSession();
-      this.error.value = err instanceof Error ? err.message : String(err);
+      this.error.value =
+        err instanceof ApiError && err.code === "credentialUnusable" ? pausedStartText(err.provider, err.message) : err instanceof Error ? err.message : String(err);
       return null;
     } finally {
       const next = new Set(this.busy.value);
@@ -173,6 +188,8 @@ export class Store {
    */
   #endSession(): void {
     this.#generation++;
+    this.startRefusal.value = null;
+    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)
     this.keys.endSession();
     batch(() => {
       this.me.value = null;
@@ -183,9 +200,11 @@ export class Store {
       this.machines.value = [];
       this.gpuTypes.value = [];
       this.quotes.value = {};
+      this.paused.value = [];
       this.members.value = [];
       this.teams.value = [];
       this.allMachines.value = [];
+      this.saves.value = { member: null, team: null };
       this.orgId.value = null;
       this.org.value = null;
       this.orgProjects.value = [];
@@ -199,12 +218,11 @@ export class Store {
   // ---------------------------------------------------------------- session
 
   async loadMe(): Promise<void> {
-    // (the reauth window counts from just before the request is sent, never from its answer)
-    const sentAt = this.#monotonic();
     try {
       const me = await this.client.call("getMe");
       this.me.value = me;
-      this.keys.setWindow(sentAt, me.recentAuthForMs);
+      // (the window is per organization: the keys' own read, for the one they show)
+      await this.keys.refreshWindow();
     } catch (err) {
       this.keys.closeWindow();
       if (!(err instanceof ApiError && err.code === "unauthenticated")) {
@@ -223,6 +241,8 @@ export class Store {
   async sessionStarted(): Promise<void> {
     this.#generation++;
     this.#sessionGeneration++;
+    this.#staleSaves(); // (nor the previous person's to the new one)
+    this.startRefusal.value = null;
     this.signInNotice.value = null;
     await this.loadMe();
   }
@@ -315,9 +335,14 @@ export class Store {
         this.machines.value = [];
         this.gpuTypes.value = [];
         this.quotes.value = {};
+        this.startRefusal.value = null;
+        this.paused.value = [];
         this.members.value = [];
         this.teams.value = [];
         this.allMachines.value = [];
+        this.saves.value = { member: null, team: null };
+        // reads for the project left are older than anything the new one asks: none will show
+        this.#staleSaves();
       });
     }
     const generation = ++this.#generation;
@@ -404,10 +429,14 @@ export class Store {
     const params = { projectId };
     const gpuTypes = this.gpuTypes.value;
     const staff = this.isStaff.value;
-    const [spend, machines, quotes, managed] = await Promise.all([
+    const [spend, machines, quotes, prices, memberSaves, teamSaves, managed] = await Promise.all([
       this.client.call("getSpend", { params }),
       this.#allPages((cursor) => this.client.call("listMachines", { params, query: cursor === undefined ? {} : { cursor } })),
       Promise.all(gpuTypes.map((t) => this.client.call("quote", { params, body: { gpuType: t.gpuType, gpuCount: t.gpuCount } }))),
+      // (for the paused providers: a pause can begin or end while the page is open)
+      this.client.call("listGpuTypes", { params }),
+      this.#readSaves(projectId, "member"),
+      this.#readSaves(projectId, "team"),
       staff
         ? Promise.all([
             this.client.call("getProject", { params }),
@@ -424,6 +453,9 @@ export class Store {
       const cut = new Set<string>();
       if (machines.truncated) cut.add("machines");
       this.quotes.value = Object.fromEntries(quotes.map((q) => [q.gpuType, q]));
+      this.paused.value = prices.paused;
+      this.#publishSaves(memberSaves);
+      this.#publishSaves(teamSaves);
       if (managed) {
         const [project, members, teams, all] = managed;
         this.project.value = project;
@@ -437,6 +469,84 @@ export class Store {
     });
   }
 
+  // ---------------------------------------------------------------- saves
+
+  /** Saves reads asked so far, per area (by #refresh and #reloadSaves alike): only the latest one asked may publish. */
+  readonly #savesReads: Record<SnapshotArea, number> = { member: 0, team: 0 };
+
+  /** Every saves read asked so far is stale: none of their answers will show. */
+  #staleSaves(): void {
+    this.#savesReads.member++;
+    this.#savesReads.team++;
+  }
+
+  /** Read one area's saves, numbered when asked. */
+  async #readSaves(projectId: string, area: SnapshotArea): Promise<{ area: SnapshotArea; read: number; list: ListSnapshotsResponse | null }> {
+    const read = ++this.#savesReads[area];
+    return { area, read, list: await this.#savesOf(projectId, area) };
+  }
+
+  /** Show a read's list, unless a later read of the same area was asked meanwhile. */
+  #publishSaves(r: { area: SnapshotArea; read: number; list: ListSnapshotsResponse | null }): void {
+    if (r.read !== this.#savesReads[r.area]) return;
+    this.saves.value = { ...this.saves.value, [r.area]: r.list };
+  }
+
+  /** One area's saves; null when the caller has no such area (the server's notFound: no team, or no member record). */
+  async #savesOf(projectId: string, area: SnapshotArea): Promise<ListSnapshotsResponse | null> {
+    try {
+      return await this.client.call("listSnapshots", { params: { projectId }, query: { area } });
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "notFound") return null;
+      throw err;
+    }
+  }
+
+  /** Read one area's saves again, unless the page has moved on meanwhile. */
+  async #reloadSaves(area: SnapshotArea): Promise<void> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return;
+    // (a move to another project counts as a later read: see openProject)
+    this.#publishSaves(await this.#readSaves(projectId, area));
+  }
+
+  /** Name a save, or remove its name (null). */
+  async nameSave(area: SnapshotArea, snapshotId: string, name: string | null): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`save-name:${snapshotId}`, async () => {
+      await this.client.call("nameSnapshot", { params: { projectId, snapshotId }, body: { area, name } });
+      await this.#reloadSaves(area);
+      return true;
+    });
+    return done === true;
+  }
+
+  /**
+   * Restore a save: the server writes a new save from it, which becomes the current one. The
+   * page offers it only while none of the caller's machines writes the area (saves.ts).
+   */
+  async restoreSave(area: SnapshotArea, snapshotId: string): Promise<boolean> {
+    const projectId = this.projectId.value;
+    if (projectId == null) return false;
+    const done = await this.#act(`restore:${area}`, async () => {
+      await this.client.call("restoreSnapshot", { params: { projectId, snapshotId }, body: { area } });
+      await this.#reloadSaves(area);
+      return true;
+    });
+    return done === true;
+  }
+
+  /** Save a running machine now, naming the save it makes. */
+  async saveNamed(machineId: string, name: string): Promise<boolean> {
+    const done = await this.#act(`save:${machineId}`, async () => {
+      await this.client.call("saveMachine", { params: { machineId }, body: { name } });
+      await this.refresh();
+      return true;
+    });
+    return done === true;
+  }
+
   // ---------------------------------------------------------------- machines
 
   /** Start the GPU type at no more than the price the member was shown. */
@@ -445,13 +555,32 @@ export class Store {
     const quote = this.quotes.value[gpuType];
     const shown = quote?.offers[0]?.pricePerHour.total;
     if (projectId == null || quote == null || shown == null) return false;
+    this.startRefusal.value = null;
+    // (a project switch, a sign-out or a new sign-in moves the generation on: an answer after it
+    // is moot, so it neither retries nor shows any words)
+    const generation = this.#generation;
     const m = await this.#act(`start:${gpuType}`, async () => {
-      const machine = await this.client.call("startMachine", {
-        params: { projectId },
-        body: { gpuType, gpuCount: quote.gpuCount, maxPricePerHour: shown },
-      });
-      await this.refresh();
-      return machine;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const machine = await this.client.call("startMachine", {
+            params: { projectId },
+            body: { gpuType, gpuCount: quote.gpuCount, maxPricePerHour: shown },
+          });
+          await this.refresh();
+          return machine;
+        } catch (err) {
+          if (generation !== this.#generation) return null;
+          // Two starts at once: the server admitted the other; one quiet retry reads the money again.
+          if (err instanceof ApiError && err.code === "conflict" && attempt < START_CONFLICT_RETRIES) continue;
+          // A refusal the page can put in plain words shows beside that GPU; anything else goes to the banner.
+          // (credentialUnusable has no words here: it keeps its own, naming the paused provider)
+          const text = err instanceof ApiError ? startRefusalText(err.code as ErrorCode, this.labels.value) : null;
+          if (text == null) throw err;
+          this.startRefusal.value = { gpuType, text };
+          await this.refresh();
+          return null;
+        }
+      }
     });
     return m != null;
   }

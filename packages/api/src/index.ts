@@ -15,3 +15,4 @@ export * from "./policy.ts";
 export * from "./signin.ts";
 export * from "./credentials.ts";
 export * from "./orphans.ts";
+export * from "./snapshots.ts";

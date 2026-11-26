@@ -33,6 +33,8 @@ export const WHOLE_FIELDS = [
   "maxSessionMinutes",
   "minStartMinutes",
   "finalSaveReserveMinutes",
+  "snapshotKeepLast",
+  "snapshotNamedMax",
 ] as const;
 export type WholeField = (typeof WHOLE_FIELDS)[number];
 export const GIB_FIELDS = ["storageQuotaBytesPerMember", "storageQuotaBytesPerTeam"] as const;
@@ -54,6 +56,8 @@ export const FIELD_NAMES: { readonly [K in keyof ProjectPolicy]: string } = {
   setupScript: "Setup script",
   storageQuotaBytesPerMember: "Storage per person (GiB)",
   storageQuotaBytesPerTeam: "Storage per team (GiB)",
+  snapshotKeepLast: "Saves kept per workspace, besides named ones",
+  snapshotNamedMax: "Named saves per workspace, at most",
 };
 
 export interface SettingsForm {

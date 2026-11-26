@@ -1,6 +1,6 @@
 {
   "id": "7h9k2m4n6p",
-  "name": "sbg-mch_7f3k9q2m4x8z1c5v6b0n",
+  "name": "sbg-test-7f3k9q2m4x8z1c5v6b0n-1",
   "image": "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
   "args": "{\"entrypoint\":[\"/bin/sh\",\"-c\",\"launcher-script\"],\"cmd\":[]}",
   "entrypoint": ["/bin/sh", "-c", "launcher-script"],

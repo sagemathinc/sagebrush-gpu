@@ -6,6 +6,8 @@ import { bootEnvNames, COMMAND_UNOBSERVABLE, type AdapterInfo, type LaunchSpec, 
 const info: AdapterInfo = { provider: "runpod", selfIdentity: { env: "RUNPOD_POD_ID" }, bootDelivery: { kind: "env", name: "SBGPU_BOOT_TOKEN" } };
 const spec: LaunchSpec = {
   machineId: "mch_a",
+  incarnation: 1,
+  name: "sbg-test-a-1",
   gpuType: "L4",
   gpuCount: 1,
   dataCenter: "EU-SE-1",
@@ -20,6 +22,7 @@ const expected = expectedSpec(spec, info, "pod1");
 const clean: ProviderMachineStatus = {
   provider: "runpod",
   providerMachineId: "pod1",
+  parsedName: null,
   machineId: "mch_a",
   state: "running",
   rawStatus: "RUNNING",

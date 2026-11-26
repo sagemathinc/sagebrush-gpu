@@ -1,11 +1,12 @@
 // What the screens show and allow, as pure functions of API objects, so the decisions
 // are tested without a DOM. Components only lay these out.
 
-import type { BillingMode, Machine, ProjectLabels, QuoteRefusal, SpendMeter, StopReason } from "@sbgpu/api";
+import type { BillingMode, ErrorCode, Machine, Micros, ProjectLabels, ProviderId, ProviderPause, QuoteRefusal, SpendMeter, StartFailure, StopReason } from "@sbgpu/api";
 import { MACHINE_DOMAIN } from "./config.ts";
 import { withArticle } from "./labels.ts";
 import { computeMeter, formatDuration, type MeterBand } from "./meter.ts";
 import { formatPriceSplit, formatRate, formatUsd } from "./money.ts";
+import { PROVIDER_NAMES } from "./providers.ts";
 
 export function machineStateLabel(m: Machine): string {
   switch (m.state) {
@@ -20,10 +21,30 @@ export function machineStateLabel(m: Machine): string {
     case "stopped":
       return "Stopped";
     case "failed":
-      return "Failed";
+      return m.startFailure ? "Didn't start" : "Failed";
     case "deleted":
       return "Deleted";
   }
+}
+
+/** Why a machine never started, in plain words. */
+export const START_FAILURE_WORDS: { readonly [K in StartFailure]: string } = {
+  createDeadline: "the provider didn't have it ready in time",
+  podExited: "it stopped on its own before it was ready",
+};
+
+/**
+ * What the card says about a start that never came up; null for any other machine. Resold: what
+ * we charged for this machine. byok: its metered use only (the provider bills the organization).
+ */
+export function startFailureText(m: Machine, mode: BillingMode): string | null {
+  if (m.startFailure == null) return null;
+  const why = `The machine didn't start: ${START_FAILURE_WORDS[m.startFailure]}.`;
+  const cost =
+    mode === "byok"
+      ? `Metered use while starting: ${formatUsd(m.spent.total)}. No further use is being metered for this machine. Your provider bills your organization separately.`
+      : `This machine was charged ${formatUsd(m.spent.total)} while it was starting, and nothing after that.`;
+  return `${why} ${cost} You can start a new one.`;
 }
 
 export function stopReasonText(reason: StopReason, labels: ProjectLabels): string {
@@ -47,14 +68,17 @@ export function stopReasonText(reason: StopReason, labels: ProjectLabels): strin
   }
 }
 
-export function refusalText(reason: QuoteRefusal, labels: ProjectLabels): string {
+/** Why a quote can't start; a "credentialUnusable" refusal names its provider when the quote does. */
+export function refusalText(reason: QuoteRefusal, labels: ProjectLabels, provider?: ProviderId): string {
   switch (reason) {
     case "allocationTooLow":
       return "Not enough allocation left to start.";
     case "priceCap":
       return `Over the ${labels.project}'s price limit.`;
     case "credentialUnusable":
-      return "Launches are paused: the organization's provider key isn't working.";
+      return provider
+        ? `Launches on ${PROVIDER_NAMES[provider]} are paused: the organization's key for it isn't working.`
+        : "Launches are paused: the organization's provider key isn't working.";
     case "noCapacity":
       return "No capacity right now. Try another type or try again soon.";
     case "policy":
@@ -66,6 +90,75 @@ export function refusalText(reason: QuoteRefusal, labels: ProjectLabels): string
     case "concurrencyCap":
       return "Too many machines running. Stop one first.";
   }
+}
+
+/**
+ * A refused start in plain words, chosen by the error's code alone (the server's own words may
+ * change): what happened and what the student can do. Null when the code has nothing better to say
+ * than the server's message (and for credentialUnusable, which has its own words, pausedStartText).
+ */
+export function startRefusalText(code: ErrorCode, labels: ProjectLabels): string | null {
+  switch (code) {
+    case "priceCap":
+      return `The price is now higher than the one you saw, or above the ${labels.project}'s limit. Check the price and try again.`;
+    case "allocationTooLow":
+      return `Your allocation doesn't have enough left for this GPU's shortest run. Try a cheaper one, or ask ${withArticle(labels.manager)} for more.`;
+    case "budgetExhausted":
+      return `Your allocation is used up. Ask ${withArticle(labels.manager)} for more.`;
+    case "projectNotStarted":
+    case "projectEnded":
+    case "noCapacity":
+    case "policy":
+    case "concurrencyCap":
+      return refusalText(code, labels);
+    case "invalidState":
+      return "It can't start right now, perhaps while a restore of your workspace finishes. Try again in a moment.";
+    case "conflict":
+      return "Several starts happened at once. Try again.";
+    default:
+      return null;
+  }
+}
+
+/**
+ * About how long the remaining allocation lasts at an offer's all-in price, for the row before
+ * Start: whole hours from 10 up, tenths below, and "less than an hour" under one. Null when
+ * there's nothing to say (no price, or nothing left).
+ */
+export function hoursOnAllocation(remaining: Micros, pricePerHour: Micros, mode: BillingMode): string | null {
+  if (!(pricePerHour > 0) || !(remaining > 0)) return null;
+  const hours = remaining / pricePerHour;
+  const amount = hours < 1 ? "less than an hour" : hours < 10 ? `about ${(Math.floor(hours * 10) / 10).toFixed(1)} h` : `about ${Math.floor(hours)} h`;
+  return mode === "byok" ? `Your allocation covers ${amount} of metered use at this price.` : `Your allocation buys ${amount} at this price.`;
+}
+
+/** A refused start or restart for a paused provider: its name, or the API's own words without one. */
+export function pausedStartText(provider: ProviderId | undefined, apiMessage: string): string {
+  return provider ? `Launches on ${PROVIDER_NAMES[provider]} are paused for this organization until its key works again.` : apiMessage;
+}
+
+const PAUSE_REASON_WORDS: Readonly<Record<NonNullable<ProviderPause["detail"]>["status"], string>> = Object.freeze({
+  rejected: "was refused by the provider",
+  revoked: "was revoked at the provider",
+  error: "couldn't be checked",
+});
+
+/**
+ * A paused provider's banner. Everyone sees that launches are paused, and since when; the
+ * reason (the key's status and last check) only when `showReason` (manager and above) AND the
+ * server sent it. The server already leaves it out for everyone else; the screen doesn't rely
+ * on that.
+ */
+export function pauseView(pause: ProviderPause, showReason: boolean, nowMs: number): { headline: string; since: string; reason: string | null } {
+  const name = PROVIDER_NAMES[pause.provider];
+  const detail = showReason ? pause.detail : undefined;
+  return {
+    headline: `Launches on ${name} are paused for this organization. Machines already running keep running.`,
+    since: `Paused ${ago(pause.since, nowMs)}.`,
+    reason: detail
+      ? `The organization's ${name} key ${PAUSE_REASON_WORDS[detail.status]}; ${detail.lastCheckedAt ? `last checked ${ago(detail.lastCheckedAt, nowMs)}` : "not checked since"}.`
+      : null,
+  };
 }
 
 export interface MachineActions {
@@ -84,7 +177,8 @@ export function machineActions(m: Machine): MachineActions {
     openTerminal: running && m.terminalAvailable,
     openJupyter: running && m.jupyterAvailable,
     save: running && m.save.state !== "saving",
-    stop: m.state === "starting" || running || m.state === "failed",
+    // (a start that never came up has already been ended: nothing to stop)
+    stop: m.state === "starting" || running || (m.state === "failed" && m.startFailure == null),
     restart: m.state === "stopped",
     delete: m.state === "stopped" || m.state === "failed",
   };
@@ -126,6 +220,26 @@ export interface MeterView {
   /** "about 3 h 20 min left at $0.62/h", or null when nothing is running. */
   timeLeft: string | null;
   storage: string;
+  /** How full the storage is: "near" from 90% of the quota, "full" at or over it. */
+  storageLevel: StorageLevel;
+}
+
+export type StorageLevel = "ok" | "near" | "full";
+
+/** From this fraction of the quota, storage is "near" full. */
+export const STORAGE_NEAR_FRACTION = 0.9;
+
+/** At or over the quota is "full" (so is a quota of 0: there is no room); from 90% of it, "near". */
+export function storageLevel(usedBytes: number, quotaBytes: number): StorageLevel {
+  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return "full";
+  return usedBytes >= STORAGE_NEAR_FRACTION * quotaBytes ? "near" : "ok";
+}
+
+/** What the member's meter says about it; null while there is room. */
+export function storageWarning(level: StorageLevel, labels: ProjectLabels): string | null {
+  if (level === "near") return `Storage is nearly full. Delete files you don't need, or ask ${withArticle(labels.manager)} to raise the limit.`;
+  if (level === "full") return `Storage is full: your workspace can't grow until you delete files or ${withArticle(labels.manager)} raises the limit.`;
+  return null;
 }
 
 export function meterView(meter: SpendMeter, mode: BillingMode = "resold"): MeterView {
@@ -147,6 +261,7 @@ export function meterView(meter: SpendMeter, mode: BillingMode = "resold"): Mete
     rate: running ? formatPriceSplit(rate.providerCost, rate.margin, mode) : null,
     timeLeft: running && m.secondsLeft != null ? `about ${formatDuration(m.secondsLeft)} left at ${formatRate(rate.total)}` : null,
     storage: `${formatBytes(meter.storage.usedBytes)} of ${formatBytes(meter.storage.quotaBytes)}`,
+    storageLevel: storageLevel(meter.storage.usedBytes, meter.storage.quotaBytes),
   };
 }
 

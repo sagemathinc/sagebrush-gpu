@@ -1465,12 +1465,6 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
-  "old": "        if p[\"comm\"] in SSHD_NAMES or os.path.basename(p[\"exe\"]) in SSHD_NAMES:",
-  "new": "        if False:",
-  "note": "vm gate: ssh: a running sshd passes"
- },
- {
-  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
   "old": "            if not stat.S_ISREG(st.st_mode) or st.st_size != 0:",
   "new": "            if st.st_size != 0:",
   "note": "vm gate: keys: a special file passes"
@@ -3286,5 +3280,77 @@
   "old": "            if left <= 0:\n                raise Late()",
   "new": "            if left < 0:\n                raise Late()",
   "note": "PR C: pinned: exactly nothing left still handshakes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    if sshd_running(procs):\n        out.add(\"ssh-running\")",
+  "new": "    if False:\n        out.add(\"ssh-running\")",
+  "note": "vm gate: ssh: a running sshd passes"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmgate.py",
+  "old": "    return any(p[\"comm\"] in SSHD_NAMES or os.path.basename(p[\"exe\"]) in SSHD_NAMES for p in procs.values())",
+  "new": "    return any(os.path.basename(p[\"exe\"]) in SSHD_NAMES for p in procs.values())",
+  "note": "container ssh gate: sshd_running: by executable only"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    (\"ssh\", \"ssh-access\"),\n",
+  "new": "",
+  "note": "container ssh gate: no ssh check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    if vmgate.sshd_running(_named(proc, pid)):\n        return False\n",
+  "new": "",
+  "note": "container ssh gate: no sshd check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    if any(port == 22 for _, _, port, _ in vmgate.sockets(proc)):\n        return False\n",
+  "new": "",
+  "note": "container ssh gate: no port-22 check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    if any(port == 22 for",
+  "new": "    if any(port == 2222 for",
+  "note": "container ssh gate: the wrong port"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    return not vmgate.check_keys(root or \"/\", proc)",
+  "new": "    return True",
+  "note": "container ssh gate: no authorized_keys check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "        if not d.isdigit() or int(d) == pid:",
+  "new": "        if not d.isdigit():",
+  "note": "container ssh gate: the agent itself looked at"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "        if len(comm) > COMM_MAX:\n            raise ValueError(\"comm\")\n",
+  "new": "",
+  "note": "container ssh gate: an oversized comm accepted"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "        except FileNotFoundError:\n            continue  # (it exited)",
+  "new": "        except FileNotFoundError:\n            raise",
+  "note": "container ssh gate: an exited process fails the check"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "REASONS = (\"env-not-clean\", \"extra-process\", \"key-file\", \"ssh-access\", \"other\")",
+  "new": "REASONS = (\"env-not-clean\", \"extra-process\", \"key-file\", \"other\", \"ssh-access\")",
+  "note": "container ssh gate: reasons out of the contract's order"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    (\"files\", \"key-file\"),\n    (\"ssh\", \"ssh-access\"),\n",
+  "new": "    (\"ssh\", \"ssh-access\"),\n    (\"files\", \"key-file\"),\n",
+  "note": "container ssh gate: the checks in another order than the contract's"
  }
 ]

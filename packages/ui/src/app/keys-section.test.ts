@@ -129,9 +129,9 @@ test("the request path is the keys' own: the shared client never sees a credenti
 
 test("the window counts from just before /me was sent: a slow answer doesn't stretch it", async () => {
   const k = await keysPage();
-  const release = k.t.gate(/GET \/v1\/me$/);
+  const release = k.t.gate(/GET \/v1\/me\?orgId=/);
   const sentAt = k.t.mono();
-  const loading = k.t.store.loadMe();
+  const loading = k.t.store.keys.refreshWindow();
   k.t.advanceMono(2_000); // the answer takes two seconds to arrive
   release();
   await loading;
@@ -158,22 +158,82 @@ test("the window counts from just before /me was sent: a slow answer doesn't str
   assert.deepEqual(k.t.keyTimers.delays(), []);
 });
 
+test("the window is the shown organization's: read with its orgId, closed on leaving, and a late answer for one left changes nothing", async () => {
+  const k = await keysPage();
+  await settle();
+  assert.ok(k.t.log.includes(`GET /v1/me?orgId=${k.orgA.id}`), "read for the organization shown");
+  assert.equal(k.t.log.includes("GET /v1/me?orgId=" + k.orgB.id), false);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  k.t.store.keys.leave();
+  assert.equal(k.t.store.keys.windowOpen.value, false, "leaving closes it");
+  // A read for A still in flight when the page moves to an organization they don't own: its answer is dropped.
+  const notOwned = k.b.addOrg("Viewer only", 0, 1_000_000, "byok");
+  k.b.setOrgRole(notOwned.id, [...k.b.users.values()].find((u) => u.email === EMAILS.owner)!.id, "viewer");
+  await k.t.store.keys.open(k.orgA.id);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  const release = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const late = k.t.store.keys.refreshWindow();
+  await k.t.store.keys.open(notOwned.id);
+  assert.equal(k.t.store.keys.windowOpen.value, false, "the viewer's organization has no window");
+  release();
+  await late;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "A's late answer doesn't open it for another organization");
+  // An older read for the same organization, answered after a newer one, changes nothing either.
+  await k.t.store.keys.open(k.orgA.id);
+  const stale = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const older = k.t.store.keys.refreshWindow(); // (its answer, computed now, says the window is open)
+  k.b.advance(RECENT_AUTH_WINDOW_MS); // the server's window then ends
+  await k.t.store.keys.open(k.orgA.id); // left and opened again: this read says closed
+  assert.equal(k.t.store.keys.windowOpen.value, false);
+  stale();
+  await older;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "the older answer doesn't reopen it");
+  k.b.signInAs(EMAILS.owner); // (a fresh sign-in opens the server's window again)
+  // Two reads overlapping in the same open organization, with no leave or open between them: the
+  // older one's answer, arriving last, doesn't reopen the window the newer one closed.
+  await k.t.store.keys.open(k.orgA.id);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  const hold = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const first = k.t.store.keys.refreshWindow(); // (answer computed now: open)
+  k.b.advance(RECENT_AUTH_WINDOW_MS);
+  await k.t.store.keys.refreshWindow(); // the newer read: closed
+  assert.equal(k.t.store.keys.windowOpen.value, false);
+  hold();
+  await first;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "the older answer must not reopen the window");
+  k.b.signInAs(EMAILS.owner);
+  // A read still in flight when the page leaves (opening nothing else): its answer opens nothing.
+  await k.t.store.keys.open(k.orgA.id);
+  const held = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const inFlight = k.t.store.keys.refreshWindow();
+  k.t.store.keys.leave();
+  held();
+  await inFlight;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "no organization open, no window");
+  // A failed read closes it.
+  await k.t.store.keys.open(k.orgA.id);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  k.t.respondOnce(/GET \/v1\/me\?orgId=/, () => Response.json({ error: { code: "internal", message: "x" } }, { status: 500 }));
+  await k.t.store.keys.refreshWindow();
+  assert.equal(k.t.store.keys.windowOpen.value, false);
+});
+
 test("a recentAuthForMs that isn't an integer from 0 to five minutes means the window is closed", async () => {
   const k = await keysPage();
-  const me = JSON.stringify(k.b.request("GET", "/v1/me", {}, undefined).body);
+  const me = JSON.stringify(k.b.request("GET", "/v1/me", { orgId: k.orgA.id }, undefined).body);
   assert.equal(k.t.store.keys.windowOpen.value, true);
   for (const raw of ["null", "-1", "1.5", "300001", '"300000"', "1e999", "-1e999", "[]", "{}"]) {
     // Open it again (a good answer), then the bad one.
     await k.t.store.loadMe();
     assert.equal(k.t.store.keys.windowOpen.value, true, raw);
-    k.t.respondOnce(/GET \/v1\/me$/, () => new Response(me.replace(/"recentAuthForMs":\d+/, `"recentAuthForMs":${raw}`), { headers: { "content-type": "application/json" } }));
+    k.t.respondOnce(/GET \/v1\/me\?orgId=/, () => new Response(me.replace(/"recentAuthForMs":\d+/, `"recentAuthForMs":${raw}`), { headers: { "content-type": "application/json" } }));
     await k.t.store.loadMe();
     await settle();
     assert.equal(k.t.store.keys.windowOpen.value, false, raw);
     assert.equal(k.input("shadeform"), null, raw);
   }
   await k.t.store.loadMe();
-  k.t.respondOnce(/GET \/v1\/me$/, () => Response.json({ ...JSON.parse(me), recentAuthForMs: undefined }));
+  k.t.respondOnce(/GET \/v1\/me\?orgId=/, () => Response.json({ ...JSON.parse(me), recentAuthForMs: undefined }));
   await k.t.store.loadMe();
   assert.equal(k.t.store.keys.windowOpen.value, false, "missing");
   // A /me that fails closes it too.
@@ -331,8 +391,8 @@ for (const outcome of ["held", "success", "refusal", "network"] as const) {
     k.button("vast", "Remove")!.click();
     await settle();
     assert.equal(field.value, "sk_live_unsaved_replacement", "(only a removal empties it)");
-    const release = outcome === "held" ? k.t.gate(/DELETE .*\/credentials\/vast$/) : null;
-    if (outcome === "refusal") k.t.respondOnce(/DELETE .*\/credentials\/vast$/, refusalResponse("busy"));
+    const release = outcome === "held" ? k.t.gate(/DELETE .*\/credentials\/vast\?id=crd_[0-9a-z]{20}&version=\d+$/) : null;
+    if (outcome === "refusal") k.t.respondOnce(/DELETE .*\/credentials\/vast\?id=crd_[0-9a-z]{20}&version=\d+$/, refusalResponse("busy"));
     if (outcome === "network") k.t.failOnce(new TypeError("offline"));
     k.button("vast", "Remove key")!.click();
     // Synchronously: the request has gone, and the field is already empty.
@@ -524,9 +584,12 @@ test("removal: a confirmation first, which says what happens to machines still r
   assert.equal(k.keysLog().some((l) => l.startsWith("KEYS DELETE")), false);
   k.button("vast", "Remove")!.click();
   await settle();
+  // The removal names the key as listed: its id and version.
+  const listed = k.t.store.keys.rows.value!.find((r) => r.provider === "vast")!;
+  assert.match(listed.id ?? "", /^crd_/);
   k.button("vast", "Remove key")!.click();
   await settle();
-  assert.deepEqual(k.keysLog().filter((l) => l.startsWith("KEYS DELETE")), [`KEYS DELETE /v1/orgs/${k.orgA.id}/credentials/vast`]);
+  assert.deepEqual(k.keysLog().filter((l) => l.startsWith("KEYS DELETE")), [`KEYS DELETE /v1/orgs/${k.orgA.id}/credentials/vast?id=${listed.id}&version=${listed.version}`]);
   assert.match(k.row("vast")!.textContent!, new RegExp(`^Vast\\.ai ?${KEY_STATUS_WORDS.none}`));
   assert.match(k.page.text(), new RegExp(KEY_REMOVED_WORDS));
   assert.equal(k.b.credentials.size, 0);
@@ -580,4 +643,50 @@ test("removal: a confirmation first, which says what happens to machines still r
   await settle();
   assert.equal(k.keysLog().filter((l) => l.startsWith("KEYS DELETE")).length, 2);
   assert.equal(k.b.credentials.size, 0);
+});
+
+test("a replace and a removal name the key as listed: changed meanwhile by another owner, they're busy and change nothing", async () => {
+  const k = await keysPage();
+  k.submit("vast");
+  await settle();
+  // The page replaces the key it lists (id and version), so a replace goes through.
+  k.submit("vast", "sk_live_second_key");
+  await settle();
+  const listed = k.t.store.keys.rows.value!.find((r) => r.provider === "vast")!;
+  assert.equal(listed.version, 2);
+  // Another owner replaces it now; this page still lists version 2.
+  const rec = k.b.credentials.get(`${k.orgA.id}|vast`)!;
+  rec.version = 3;
+  k.submit("vast", "sk_live_third_key");
+  await settle();
+  assert.match(k.row("vast")!.textContent!, new RegExp(KEY_REFUSAL_WORDS.busy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(k.b.credentials.get(`${k.orgA.id}|vast`)!.version, 3, "the stale replace changed nothing");
+  k.button("vast", "Remove")!.click();
+  await settle();
+  k.button("vast", "Remove key")!.click();
+  await settle();
+  assert.equal(k.b.credentials.size, 1, "the stale removal removed nothing");
+  k.noKey("stale changes");
+});
+
+test("removing a provider's key when none is listed sends nothing", async () => {
+  const k = await keysPage();
+  assert.equal(await k.t.store.keys.remove("hyperstack"), false);
+  assert.equal(k.keysLog().some((l) => l.startsWith("KEYS DELETE")), false);
+  assert.equal(k.t.store.keys.notices.value.hyperstack, undefined, "and says nothing");
+  assert.equal(k.t.store.keys.pending.value.has("hyperstack"), false);
+});
+
+test("a removal after a replace names the replaced key's version", async () => {
+  const k = await keysPage();
+  k.submit("vast");
+  await settle();
+  k.submit("vast", "sk_live_second_key");
+  await settle();
+  k.button("vast", "Remove")!.click();
+  await settle();
+  k.button("vast", "Remove key")!.click();
+  await settle();
+  assert.match(k.keysLog().filter((l) => l.startsWith("KEYS DELETE"))[0] ?? "", /&version=2$/);
+  assert.equal(k.b.credentials.size, 0, "removed");
 });

@@ -164,8 +164,8 @@ export async function recordLaunchIntent(
 ): Promise<void> {
   await db.batch([
     {
-      sql: `INSERT INTO launches (machine_id, incarnation, mode, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms)
-            VALUES (?, ?, 'vm', ?, ?, ?, ?, 'creating', ?, ?)`,
+      sql: `INSERT INTO launches (machine_id, incarnation, mode, account_kind, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms)
+            VALUES (?, ?, 'vm', 'platform', ?, ?, ?, ?, 'creating', ?, ?)`,
       params: [i.machineId, i.incarnation, i.provider, i.nonceSha256, i.bootScriptSha256, i.agentSha256, i.createdMs + CREATE_DEADLINE_MS, i.createdMs],
     },
   ]);

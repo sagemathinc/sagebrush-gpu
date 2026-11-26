@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BILLING_MODES, isBillingMode, newId } from "@sbgpu/api";
 import { sqliteDb } from "./testing/sqlite.ts";
-import { credentialForMachine, credentialForOrg } from "./billing.ts";
+import { credentialForOrg } from "./billing.ts";
 import { stmt, type Db } from "./db.ts";
 import { T0, addMember, call, person, signIn, world } from "./testing/world.ts";
 
@@ -18,7 +18,7 @@ async function machineIn(db: Db, mode: string) {
     org(o, mode),
     project(p, o),
     stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', 'mbr_x', 0, ?)`, a, p, T0),
-    stmt(`INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES (?, ?, ?, 'mbr_x', 'shadeform', 'L4', 1, 'X', 'starting', ?)`, m, p, a, T0),
+    stmt(`INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, created_ms) VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, 'mbr_x', 'shadeform', 'L4', 1, 'X', 'starting', ?)`, m, p, a, T0),
   ]);
   return { orgId: o, projectId: p, machineId: m };
 }
@@ -31,19 +31,15 @@ test("the modes", () => {
   for (const x of ["", "Resold", "byok ", null, undefined, 0, ["resold"]]) assert.equal(isBillingMode(x), false, String(x));
 });
 
-test("the resolver: resold uses ours; byok, an unknown org or an unknown provider gets none, never ours", async () => {
+test("the resolver: resold uses ours; byok without a key, an unknown org or an unknown provider gets none, never ours", async () => {
   const db = sqliteDb();
   const r = await machineIn(db, "resold");
   const b = await machineIn(db, "byok");
   assert.deepEqual(await credentialForOrg(db, r.orgId, "shadeform"), { use: "ours", provider: "shadeform" });
-  assert.deepEqual(await credentialForMachine(db, r.machineId, "nebius"), { use: "ours", provider: "nebius" });
-  assert.deepEqual(await credentialForOrg(db, b.orgId, "shadeform"), { use: "none", reason: "byok-unavailable" });
-  assert.deepEqual(await credentialForMachine(db, b.machineId, "shadeform"), { use: "none", reason: "byok-unavailable" });
+  assert.deepEqual(await credentialForOrg(db, b.orgId, "shadeform"), { use: "none", reason: "no-credential" });
   assert.deepEqual(await credentialForOrg(db, newId("org"), "shadeform"), { use: "none", reason: "no-such-org" });
-  assert.deepEqual(await credentialForMachine(db, newId("machine"), "shadeform"), { use: "none", reason: "no-such-org" });
   for (const p of ["", "aws", "Shadeform"]) {
     assert.deepEqual(await credentialForOrg(db, r.orgId, p), { use: "none", reason: "unknown-provider" }, p);
-    assert.deepEqual(await credentialForMachine(db, r.machineId, p), { use: "none", reason: "unknown-provider" }, p);
   }
 });
 
@@ -54,7 +50,6 @@ test("the resolver fails closed on a stored mode it doesn't know (a later mode, 
   const odd = (mode: unknown): Db => ({ ...db, all: async <T,>() => [{ billing_mode: mode }] as T[] });
   for (const mode of [null, "", "other", "RESOLD"]) {
     assert.deepEqual(await credentialForOrg(odd(mode), r.orgId, "shadeform"), { use: "none", reason: "no-such-org" }, String(mode));
-    assert.deepEqual(await credentialForMachine(odd(mode), r.machineId, "shadeform"), { use: "none", reason: "no-such-org" }, String(mode));
   }
 });
 
@@ -110,7 +105,7 @@ test("schema: nothing moves between billing modes, whatever its margins or accru
   const b = await machineIn(db, "byok");
   await assert.rejects(move(r.projectId, b.orgId), /same billing mode/);
   assert.equal(await mode(r.machineId), "resold");
-  assert.equal((await credentialForMachine(db, r.machineId, "shadeform")).use, "ours");
+  assert.equal((await credentialForOrg(db, r.orgId, "shadeform")).use, "ours");
   // ... and without any accrual or margin: still refused
   const bare = newId("project");
   await db.batch([project(bare, r.orgId)]);

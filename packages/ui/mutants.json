@@ -66,8 +66,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "const withStock = underCap.filter((o) => o.stock !== \"none\");",
-  "new": "const withStock = underCap;"
+  "old": "const withStock = live.filter((o) => o.stock !== \"none\");",
+  "new": "const withStock = live;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -206,8 +206,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    rec.accruedUntil = null;\n    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");",
-  "new": "    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");"
+  "old": "    rec.accruedUntil = null;\n    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    rec.pendingName",
+  "new": "    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    rec.pendingName"
  },
  {
   "file": "src/mock/backend.ts",
@@ -246,8 +246,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "if (rec.m.state !== \"running\") throw new ApiFail(\"invalidState\", `machine is ${rec.m.state}`);\n      if (rec.m.save",
-  "new": "if (false) throw new ApiFail(\"invalidState\", \"\");\n      if (rec.m.save"
+  "old": "if (rec.m.state !== \"running\") throw new ApiFail(\"invalidState\", `machine is ${rec.m.state}`);\n      if (req.name !== undefined) {",
+  "new": "if (false) throw new ApiFail(\"invalidState\", \"\");\n      if (req.name !== undefined) {"
  },
  {
   "file": "src/client.ts",
@@ -276,7 +276,7 @@
  },
  {
   "file": "src/client.ts",
-  "old": "if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message);",
+  "old": "if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message, body.error.provider);",
   "new": ""
  },
  {
@@ -551,7 +551,7 @@
  },
  {
   "file": "src/view.ts",
-  "old": "stop: m.state === \"starting\" || running || m.state === \"failed\",",
+  "old": "stop: m.state === \"starting\" || running || (m.state === \"failed\" && m.startFailure == null),",
   "new": "stop: m.state === \"starting\" || running,"
  },
  {
@@ -736,8 +736,8 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "? refusalText(quote.reason, labels) : item.stock === \"low\" ? \"Few left\" : \"\"",
-  "new": "? refusalText(quote.reason, labels) : \"\""
+  "old": "[hours, item.stock === \"low\" ? \"Few left\" : null]",
+  "new": "[hours]"
  },
  {
   "file": "src/app/components.ts",
@@ -826,8 +826,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members",
-  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members"
+  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.paused.value = [];\n      this.members",
+  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.paused.value = [];\n      this.members"
  },
  {
   "file": "src/app/store.ts",
@@ -1056,8 +1056,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n      });\n    }\n    const generation",
-  "new": "      });\n    }\n    const generation"
+  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n      });\n    }\n    const generation",
+  "new": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n      });\n    }\n    const generation"
  },
  {
   "file": "src/app/store.ts",
@@ -1656,13 +1656,13 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
-  "new": "    this.#generation++;\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.signInNotice.value = null;",
-  "new": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;"
+  "old": "    this.#generation++;\n    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -1701,8 +1701,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#sessionGeneration++;\n    this.signInNotice.value = null;\n",
-  "new": "    this.#sessionGeneration++;\n"
+  "old": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n    this.signInNotice.value = null;\n",
+  "new": "    this.#sessionGeneration++;\n    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n"
  },
  {
   "file": "src/app/store.ts",
@@ -2391,8 +2391,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n      this.orgId.value = null;",
-  "new": "      this.orgId.value = null;"
+  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n      this.saves.value = { member: null, team: null };\n      this.orgId.value = null;",
+  "new": "      this.saves.value = { member: null, team: null };\n      this.orgId.value = null;"
  },
  {
   "file": "src/app/router.ts",
@@ -2717,8 +2717,8 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "meter=${mine} now=${now} mode=${store.billingMode.value} />",
-  "new": "meter=${mine} now=${now} />"
+  "old": "meter=${mine} now=${now} mode=${store.billingMode.value} labels=${labels} />",
+  "new": "meter=${mine} now=${now} labels=${labels} />"
  },
  {
   "file": "src/app/components.ts",
@@ -3035,8 +3035,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      this.#requireRecentAuth();",
-  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");",
+  "old": "      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      const expected: unknown = (body as { expected?: unknown }).expected;\n      if (!isCredentialExpected(expected)) refuse(\"badExpected\");\n      this.#requireRecentAuth();",
+  "new": "      this.#requireRecentAuth();\n      if (!isCredentialKeyShape(key)) refuse(\"badShape\");\n      const expected: unknown = (body as { expected?: unknown }).expected;\n      if (!isCredentialExpected(expected)) refuse(\"badExpected\");",
   "note": "put: reauth before the shape"
  },
  {
@@ -3071,14 +3071,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    deleteCredential: ({ params }) => {\n      this.#requireRecentAuth();",
-  "new": "    deleteCredential: ({ params }) => {",
+  "old": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");\n      this.#requireRecentAuth();",
+  "new": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");",
   "note": "delete: no reauth"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      if (!this.credentials.delete(`${params.orgId}|${params.provider}`)) refuse(\"noKey\");",
-  "new": "      this.credentials.delete(`${params.orgId}|${params.provider}`);",
+  "old": "      if (current == null) refuse(\"noKey\");",
+  "new": "      if (current == null) return { removed: true };",
   "note": "delete: none is fine"
  },
  {
@@ -3119,7 +3119,7 @@
  },
  {
   "file": "src/credential-request.ts",
-  "old": "  if (!PATH.test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "old": "  if (!(method === \"DELETE\" ? DELETE_PATH : PATH).test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
   "new": "",
   "note": "request: any path"
  },
@@ -3287,8 +3287,8 @@
  },
  {
   "file": "src/app/provider-keys.ts",
-  "old": "    this.#generation++;\n    for (const c",
-  "new": "    for (const c",
+  "old": "    this.#generation++;\n    this.closeWindow();\n    for (const c",
+  "new": "    this.closeWindow();\n    for (const c",
   "note": "leave: no new generation"
  },
  {
@@ -3383,8 +3383,8 @@
  },
  {
   "file": "src/app/keys-section.ts",
-  "old": "    const body = JSON.stringify({ key: value });\n    input.value = \"\";",
-  "new": "    const body = JSON.stringify({ key: value });",
+  "old": "    const body = JSON.stringify({ key: value, expected });\n    input.value = \"\";",
+  "new": "    const body = JSON.stringify({ key: value, expected });",
   "note": "save: field kept while sending"
  },
  {
@@ -3460,10 +3460,10 @@
   "note": "row: no fingerprint"
  },
  {
-  "file": "src/app/store.ts",
-  "old": "      this.keys.setWindow(sentAt, me.recentAuthForMs);",
-  "new": "      this.keys.setWindow(this.#monotonic(), me.recentAuthForMs);",
-  "note": "loadMe: window from receipt"
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.setWindow(sentAt, forMs);",
+  "new": "    this.setWindow(this.#clocks.monotonic(), forMs);",
+  "note": "refreshWindow (was loadMe): window from receipt"
  },
  {
   "file": "src/app/store.ts",
@@ -3473,8 +3473,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.keys.endSession();",
-  "new": "    this.#generation++;",
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
+  "new": "    this.#generation++;\n    this.startRefusal.value = null;",
   "note": "endSession: keys kept"
  },
  {
@@ -3545,14 +3545,940 @@
  },
  {
   "file": "src/view.ts",
-  "old": "      return \"Launches are paused: the organization's provider key isn't working.\";\n    case \"noCapacity\":",
+  "old": "      return provider\n        ? `Launches on ${PROVIDER_NAMES[provider]} are paused: the organization's key for it isn't working.`\n        : \"Launches are paused: the organization's provider key isn't working.\";\n    case \"noCapacity\":",
   "new": "    case \"noCapacity\":",
   "note": "refusalText: credentialUnusable reads as noCapacity"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      return { items, asOf: toIso(this.#now), paused: [] };",
+  "old": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };",
   "new": "      return { items, asOf: toIso(this.#now) } as never;",
   "note": "mock listGpuTypes: no paused list"
+ },
+ {
+  "file": "src/client.ts",
+  "old": "throw new ApiError(body.error.code, response.status, body.error.message, body.error.provider);",
+  "new": "throw new ApiError(body.error.code, response.status, body.error.message);",
+  "note": "client: the paused provider is dropped from the error"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return provider\n        ? `Launches on ${PROVIDER_NAMES[provider]} are paused: the organization's key for it isn't working.`\n        :",
+  "new": "      return false\n        ? ``\n        :",
+  "note": "refusalText: the provider isn't named"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  return provider ? `Launches on ${PROVIDER_NAMES[provider]} are paused for this organization until its key works again.` : apiMessage;",
+  "new": "  return apiMessage;",
+  "note": "pausedStartText: the provider isn't named"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  const detail = showReason ? pause.detail : undefined;",
+  "new": "  const detail = pause.detail;",
+  "note": "pauseView: a reason that reaches the page is shown to anyone"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  rejected: \"was refused by the provider\",\n  revoked: \"was revoked at the provider\",",
+  "new": "  rejected: \"was revoked at the provider\",\n  revoked: \"was refused by the provider\",",
+  "note": "pauseView: the reasons swapped"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "${detail.lastCheckedAt ? `last checked ${ago(detail.lastCheckedAt, nowMs)}` : \"not checked since\"}",
+  "new": "last checked ${ago(detail.lastCheckedAt ?? pause.since, nowMs)}",
+  "note": "pauseView: a missing last check reads as a check"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    since: `Paused ${ago(pause.since, nowMs)}.`,",
+  "new": "    since: \"\",",
+  "note": "pauseView: no since"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        err instanceof ApiError && err.code === \"credentialUnusable\" ? pausedStartText(err.provider, err.message) : err instanceof Error ? err.message : String(err);",
+  "new": "        err instanceof Error ? err.message : String(err);",
+  "note": "store: a refused start shows the API's words, not the provider"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.paused.value = prices.paused;\n",
+  "new": "",
+  "note": "store: pauses never refresh (nor load)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.startRefusal.value = null;\n        this.paused.value = [];\n        this.members.value = [];",
+  "new": "        this.startRefusal.value = null;\n        this.members.value = [];",
+  "note": "store: a project switch keeps the old project's pauses"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.quotes.value = {};\n      this.paused.value = [];\n      this.members.value = [];",
+  "new": "      this.quotes.value = {};\n      this.members.value = [];",
+  "note": "store: sign-out keeps the pauses"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const showReason = store.canManage.value;",
+  "new": "  const showReason = true;",
+  "note": "PauseBanner: the reason and owner text for everyone"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const showReason = store.canManage.value;",
+  "new": "  const showReason = store.isStaff.value;",
+  "note": "PauseBanner: assistants see the reason"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "o.orgId === orgId && o.role === \"owner\"",
+  "new": "o.orgId === orgId",
+  "note": "PauseBanner: any org role gets the owner's link"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${showReason && owner && nav && orgId",
+  "new": "${showReason && nav && orgId",
+  "note": "PauseBanner: a manager gets the owner's link"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "refusalText(quote.reason, labels, quote.reasonProvider)",
+  "new": "refusalText(quote.reason, labels)",
+  "note": "GpuRow: the refusal doesn't name the provider"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    <${PauseBanner} store=${store} nav=${nav} />\n",
+  "new": "",
+  "note": "ProjectPage: no pause banner"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const showReason = role != null && projectRoleAtLeast(role, \"manager\");",
+  "new": "    const showReason = role != null && projectRoleAtLeast(role, \"assistant\");",
+  "note": "mock: assistants get the reason"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (this.#org(orgId).billingMode !== \"byok\") return out;\n    for (const provider of PROVIDER_IDS) {\n      const rec",
+  "new": "    for (const provider of PROVIDER_IDS) {\n      const rec",
+  "note": "mock: a resold organization pauses too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "PROVIDER_IDS.filter((p) => paused.has(p) && project.policy.allowedProviders.includes(p))",
+  "new": "PROVIDER_IDS.filter((p) => paused.has(p))",
+  "note": "mock: other providers' pauses listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (rec && isPausingCredentialStatus(rec.status)) out.add(provider);",
+  "new": "      if (rec && rec.status !== \"ok\") out.add(provider);",
+  "note": "mock: unchecked pauses"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "new": "    else if (underCap.every((o) => o.stock === \"none\")) reason = \"noCapacity\";\n    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "note": "mock: noCapacity before credentialUnusable"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));",
+  "new": "    const live = underCap.filter((o) => !keyless.has(o.provider));",
+  "note": "mock: paused offers kept"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (provider) quote.reasonProvider = provider;",
+  "new": "",
+  "note": "mock: reasonProvider missing"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "PROVIDER_IDS.find((p) => paused.has(p) && underCap.some((o) => o.provider === p))",
+  "new": "[...PROVIDER_IDS].reverse().find((p) => paused.has(p) && underCap.some((o) => o.provider === p))",
+  "note": "mock: reasonProvider not the first in provider order"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (isPausingCredentialStatus(status) && !wasPaused) rec.pausedSince = this.#now;",
+  "new": "    if (isPausingCredentialStatus(status)) rec.pausedSince = this.#now;",
+  "note": "mock: a pause restarts on every pausing status"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (showReason && isPausingCredentialStatus(rec.status)) pause.detail = { status: rec.status, lastCheckedAt: toIso(rec.lastCheckedAt) };",
+  "new": "      if (showReason && isPausingCredentialStatus(rec.status)) pause.detail = { status: rec.status, lastCheckedAt: toIso(rec.setAt) };",
+  "note": "mock: the wrong last check"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`, quote.reasonProvider);\n      }",
+  "new": "throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`);\n      }",
+  "note": "mock: start refusal without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`, quote.reasonProvider);",
+  "new": "      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? \"policy\", `cannot start: ${quote.reason}`);",
+  "note": "mock: restart refusal without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),",
+  "new": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !keyless.has(o.provider),",
+  "note": "mock: price list prices a paused provider's offer"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),",
+  "new": "underCap.length > 0 ? [] : allowed.filter((o) => !keyless.has(o.provider)),",
+  "note": "mock: over the limit, paused offers listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (err instanceof ApiFail && err.code === \"credentialUnusable\" && err.provider) {\n        return { status: ERROR_STATUS.credentialUnusable, contentType: \"application/json\", body: credentialUnusableBody(err.provider) };\n      }\n",
+  "new": "",
+  "note": "mock: credentialUnusable body without its provider"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };",
+  "new": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, \"owner\") };",
+  "note": "mock: everyone gets the reason"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    for (const provider of PROVIDER_IDS) if (!this.credentials.has(`${orgId}|${provider}`)) out.add(provider);\n",
+  "new": "",
+  "note": "mock: a byok provider without a key keeps its offers"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "  #keylessProviders(orgId: string): Set<ProviderId> {\n    const out = new Set<ProviderId>();\n    if (this.#org(orgId).billingMode !== \"byok\") return out;",
+  "new": "  #keylessProviders(orgId: string): Set<ProviderId> {\n    const out = new Set<ProviderId>();",
+  "note": "mock: a resold organization needs keys too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";",
+  "new": "    else if (live.length === 0) reason = \"credentialUnusable\";",
+  "note": "mock: a keyless provider counts as a pause"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),",
+  "new": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider),",
+  "note": "mock: price list prices a keyless provider's offer"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),",
+  "new": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider)),",
+  "note": "mock: over the limit, keyless offers listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));",
+  "new": "    const live = underCap.filter((o) => !paused.has(o.provider));",
+  "note": "mock: a keyless provider's offers kept in quotes"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return \"full\";",
+  "new": "  if (usedBytes >= quotaBytes && quotaBytes > 0) return \"full\";",
+  "note": "storageLevel: a quota of 0 isn't full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return \"full\";",
+  "new": "  if (!(quotaBytes > 0) || usedBytes > quotaBytes) return \"full\";",
+  "note": "storageLevel: exactly at the quota isn't full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  return usedBytes >= STORAGE_NEAR_FRACTION * quotaBytes ? \"near\" : \"ok\";",
+  "new": "  return usedBytes > STORAGE_NEAR_FRACTION * quotaBytes ? \"near\" : \"ok\";",
+  "note": "storageLevel: exactly 90% isn't near"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "export const STORAGE_NEAR_FRACTION = 0.9;",
+  "new": "export const STORAGE_NEAR_FRACTION = 0.8;",
+  "note": "storageLevel: near from 80%"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (level === \"near\") return `Storage is nearly full. Delete files you don't need, or ask ${withArticle(labels.manager)} to raise the limit.`;\n",
+  "new": "",
+  "note": "storageWarning: nothing when nearly full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (level === \"full\") return `Storage is full: your workspace can't grow until you delete files or ${withArticle(labels.manager)} raises the limit.`;\n",
+  "new": "",
+  "note": "storageWarning: nothing when full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    storageLevel: storageLevel(meter.storage.usedBytes, meter.storage.quotaBytes),",
+  "new": "    storageLevel: \"ok\",",
+  "note": "meterView: storage always ok"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    ${storageNote ? html`<p class=${`warn storage-${v.storageLevel}`} role=\"status\">${storageNote}</p>` : null}\n",
+  "new": "",
+  "note": "MeterCard: no storage warning"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "mode=${store.billingMode.value} labels=${labels} />` : null}\n      ${team",
+  "new": "mode=${store.billingMode.value} />` : null}\n      ${team",
+  "note": "ProjectPage: the meter's warning in generic words"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        storageQuotaBytes: meter?.storage.quotaBytes ?? null,",
+  "new": "        storageQuotaBytes: meter?.storage.quotaBytes ?? 0,",
+  "note": "memberRows: no meter reads as a quota of 0"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        storageQuotaBytes: meter?.storage.quotaBytes ?? null,",
+  "new": "        storageQuotaBytes: null,",
+  "note": "memberRows: the quota never shown"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  const level = quota == null ? \"ok\" : storageLevel(row.storageBytes, quota);",
+  "new": "  const level = storageLevel(row.storageBytes, quota ?? 0);",
+  "note": "StorageCell: no meter flags full"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "new": "${level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "note": "StorageCell: nearly full not flagged"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "new": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : null}",
+  "note": "StorageCell: full not flagged"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  return html`<td class=${level === \"ok\" ? \"storage\" : `storage storage-${level}`}>",
+  "new": "  return html`<td class=\"storage\">",
+  "note": "StorageCell: no row class"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    ${formatBytes(row.storageBytes)}${quota == null ? null : ` of ${formatBytes(quota)}`}",
+  "new": "    ${formatBytes(row.storageBytes)}",
+  "note": "StorageCell: the quota not shown"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    <${PauseBanner} store=${store} nav=${nav} />\n    <${Summary}",
+  "new": "    <${Summary}",
+  "note": "ManagePage: no pause banner"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (none ? c.id !== null || c.version !== null : !isId(\"credential\", c.id) || !isCredentialVersion(c.version)) return null;\n",
+  "new": "",
+  "note": "readCredential: id and version unchecked"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (none ? c.id !== null || c.version !== null : !isId(\"credential\", c.id) || !isCredentialVersion(c.version)) return null;",
+  "new": "  if (!none && (!isId(\"credential\", c.id) || !isCredentialVersion(c.version))) return null;",
+  "note": "readCredential: a none row with an id accepted"
+ },
+ {
+  "file": "src/credential-request.ts",
+  "old": "  if (!(method === \"DELETE\" ? DELETE_PATH : PATH).test(path)) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "new": "  if (!(DELETE_PATH.test(path) || PATH.test(path))) return Promise.resolve({ ok: false, refusal: \"badResponse\" });",
+  "note": "request: a query on GET/PUT, or a DELETE without one, accepted"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    const query = `?id=${encodeURIComponent(row.id)}&version=${row.version}`;",
+  "new": "    const query = `?id=${encodeURIComponent(row.id)}&version=1`;",
+  "note": "remove: the version not as listed"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (row == null || row.id == null || row.version == null) return Promise.resolve(false);\n",
+  "new": "",
+  "note": "remove: sent with no listed key"
+ },
+ {
+  "file": "src/app/keys-section.ts",
+  "old": "    const expected = row.id != null && row.version != null ? { id: row.id, version: row.version } : null;",
+  "new": "    const expected = null;",
+  "note": "save: never names the key it replaces"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!matches) refuse(\"busy\");\n",
+  "new": "",
+  "note": "mock put: a stale change applied"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        version: current == null ? 1 : (current.version as number) + 1,",
+  "new": "        version: 1,",
+  "note": "mock put: the version never goes up"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (current.id !== query.id || current.version !== version) refuse(\"busy\");\n",
+  "new": "",
+  "note": "mock delete: a stale removal applied"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isCredentialExpected(expected)) refuse(\"badExpected\");\n",
+  "new": "",
+  "note": "mock put: a malformed expected accepted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isId(\"credential\", query.id) || version == null) refuse(\"badExpected\");\n",
+  "new": "",
+  "note": "mock delete: a malformed query accepted"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!this.hasAuthenticator) refuse(\"mfaRequired\");\n",
+  "new": "",
+  "note": "mock assurance: no factor needed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (!isAuthenticatorCode(code) || code !== this.mockAuthenticatorCode) refuse(\"mfaInvalid\");",
+  "new": "      if (!isAuthenticatorCode(code)) refuse(\"mfaInvalid\");",
+  "note": "mock assurance: any well-formed code"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    verifyCredentialAssurance: ({ body }) => {\n      this.#requireRecentAuth();",
+  "new": "    verifyCredentialAssurance: ({ body }) => {",
+  "note": "mock assurance: no fresh sign-in"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  return html`<td class=${level === \"ok\" ? \"storage\" : `storage storage-${level}`}>",
+  "new": "  return html`<td class=${level === \"ok\" ? undefined : `storage storage-${level}`}>",
+  "note": "StorageCell: no storage class (so no nowrap) on an ok row"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(rec.memberAreaKey === areaKey || rec.teamAreaKey === areaKey)",
+  "new": "(rec.memberAreaKey === areaKey)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (PROVIDER_LIVE_STATES.has(rec.m.state) && (rec.memberAreaKey",
+  "new": "if ((rec.memberAreaKey"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": " || (team != null && this.restoreClaims.has(team))",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.#pinAreas(rec, member); // (from stopped: re-pinned from membership now)\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (this.restoreClaims.has(key)) snapRefuse(\"restoreInProgress\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (member.teamId == null) snapRefuse(\"notFound\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "unnamed.length - keepLast)",
+  "new": "unnamed.length - (keepLast - 1))"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast);",
+  "new": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast - 1);",
+  "note": "the reported bug (TESTS on #86): one unnamed save too many dropped"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (target.name == null && named.length >=",
+  "new": "if (named.length >="
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "kind: rec.m.state === \"saving\" ? \"final\" : \"manual\",",
+  "new": "kind: \"manual\","
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    rec.pendingName = null; // (a failed save names nothing)\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "current: this.snapshotHeads.get(areaKey) === x.id,",
+  "new": "current: true,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "[...(this.snapshots.get(key) ?? [])].reverse()",
+  "new": "[...(this.snapshots.get(key) ?? [])]"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (named.some((x) => x.name === req.name)) snapRefuse(\"nameTaken\");\n        if (named.length >= this.#project(rec.m.projectId)",
+  "new": "if (named.length >= this.#project(rec.m.projectId)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (named.length >= this.#project(rec.m.projectId).policy.snapshotNamedMax) snapRefuse(\"tooManyNamed\");",
+  "new": "if (named.length > this.#project(rec.m.projectId).policy.snapshotNamedMax) snapRefuse(\"tooManyNamed\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "this.#pinAreas(rec, member);\n      this.#placeAndBoot(rec, offer);",
+  "new": "this.#placeAndBoot(rec, offer);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "Math.max(0, unnamed.length - keepLast)",
+  "new": "unnamed.length - keepLast"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (orgId !== undefined && !isId(\"org\", orgId)) throw new ApiFail(\"badRequest\", \"orgId is an organization id\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "const owner = orgId !== undefined && this.#orgRole(orgId, (user as User).id) === \"owner\";",
+  "new": "const owner = orgId !== undefined;"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "recentAuthForMs: owner ? (me.recentAuthForMs ?? null) : null",
+  "new": "recentAuthForMs: me.recentAuthForMs ?? null"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    this.#generation++;\n    this.closeWindow();\n",
+  "new": "    this.#generation++;\n"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    if (read !== this.#windowReads || this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);",
+  "new": "    this.setWindow(sentAt, forMs);"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "    } catch {\n      forMs = null;\n    }",
+  "new": "    } catch {\n      return;\n    }"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "return Promise.all([this.#load(), this.refreshWindow()]).then(() => undefined);",
+  "new": "return this.#load();"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "(await this.client.call(\"getMe\", { query: { orgId } })).recentAuthForMs",
+  "new": "(await this.client.call(\"getMe\")).recentAuthForMs"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      await this.keys.refreshWindow();\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "read !== this.#windowReads || ",
+  "new": "",
+  "note": "overlapping window reads in one organization (TESTS on #90)"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": " || this.orgId.value !== orgId) return;",
+  "new": ") return;",
+  "note": "an answer for an organization since left"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  periodic: \"Saved automatically\",",
+  "new": "  periodic: \"Saved\","
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "kind: s.kind === \"restore\" && from ?",
+  "new": "kind: s.kind === \"restore\" ?"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const WRITING: ReadonlySet<Machine[\"state\"]> = new Set([\"starting\", \"running\", \"saving\", \"stopping\"]);",
+  "new": "const WRITING: ReadonlySet<Machine[\"state\"]> = new Set([\"starting\", \"running\", \"saving\"]);"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  return !machines.some((m) => WRITING.has(m.state));",
+  "new": "  return !machines.some((m) => m.state === \"running\");"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  const name = text.trim();",
+  "new": "  const name = text;"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "list.items.filter((s) => s.id !== selfId && s.name != null)",
+  "new": "list.items.filter((s) => s.name != null)"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  if (self?.name == null && others.length >= list.namedMax) {",
+  "new": "  if (others.length >= list.namedMax) {"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  if (self?.name == null && others.length >= list.namedMax) {",
+  "new": "  if (self?.name == null && others.length > list.namedMax) {"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const which = row.name ? `\"${row.name}\" (saved ${row.when})` : `the save from ${row.when}`;",
+  "new": "const which = `the save from ${row.when}`;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"notFound\") return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { area } });\n      await this.#reloadSaves(area);",
+  "new": "body: { area } });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { area, name } });\n      await this.#reloadSaves(area);",
+  "new": "body: { area, name } });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.saves.value = { member: null, team: null };\n        // reads for the project left are older than anything the new one asks: none will show\n        this.#staleSaves();\n",
+  "new": "        this.saves.value = { member: null, team: null };\n",
+  "note": "a read for the project left, answering before the new one reads"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "\"saveMachine\", { params: { machineId }, body: { name } });",
+  "new": "\"saveMachine\", { params: { machineId }, body: {} });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.saves.value = { member: null, team: null };\n        // reads for the project left",
+  "new": "        // reads for the project left"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.#publishSaves(teamSaves);\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "${row.current || !restorable",
+  "new": "${!restorable"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "${row.current || !restorable",
+  "new": "${row.current"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    ${restoring ? html`<p class=\"small\" role=\"status\">",
+  "new": "    ${false ? html`<p class=\"small\" role=\"status\">"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    if (window.confirm(restoreConfirmText(row, area, labels, list.keepLast))) void store.restoreSave(area, row.id);",
+  "new": "    void store.restoreSave(area, row.id);"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "disabled=${restoring} aria-label=",
+  "new": "aria-label="
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    <button disabled=${!check.ok || busy} onClick=${save}>Save name</button>",
+  "new": "    <button disabled=${busy} onClick=${save}>Save name</button>"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    ${team ? html`<${SavesCard} store=${store} area=\"team\"",
+  "new": "    ${false ? html`<${SavesCard} store=${store} area=\"team\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "      ${actions.save ? html`<${SaveWithName} store=${store} machineId=${m.id} />` : null}\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (r.read !== this.#savesReads[r.area]) return;\n",
+  "new": "",
+  "note": "an older saves read publishing over a newer one (TESTS on #92)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const read = ++this.#savesReads[area];",
+  "new": "    const read = this.#savesReads[area];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.#publishSaves(memberSaves);\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (init.kind !== \"restore\") this.#prune(areaKey, policy.snapshotKeepLast);",
+  "new": "    if (true) this.#prune(areaKey, policy.snapshotKeepLast);",
+  "note": "retention at the restore's commit (ruling (a))"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;\n    return id;",
+  "new": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;\n    this.#prune(areaKey, 1);\n    return id;",
+  "note": "retention at a restore commit's retry"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (id == null || !(this.snapshots.get(areaKey) ?? []).some((x) => x.id === id)) return null;",
+  "new": "    if (id == null) return null;"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const where = area === \"team\" ? `your ${labels.team}'s shared workspace` : \"your workspace\";",
+  "new": "const where = \"your workspace\";"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "It becomes the current save. Nothing is deleted now: the save that's current stays in the list, so you can restore it again. ",
+  "new": "It becomes the current save. "
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n",
+  "new": "",
+  "note": "a held saves answer after sign-out (TESTS on #92)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#savesReads.member++;\n    this.#savesReads.team++;\n  }",
+  "new": "    this.#savesReads.member++;\n  }"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "return m.startFailure ? \"Didn't start\" : \"Failed\";",
+  "new": "return \"Failed\";"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  createDeadline: \"the provider didn't have it ready in time\",",
+  "new": "  createDeadline: \"it didn't start\","
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (m.startFailure == null) return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/view.ts",
+  "old": "(m.state === \"failed\" && m.startFailure == null)",
+  "new": "m.state === \"failed\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    ${m.startFailure ? html`<p class=\"warn small\">${startFailureText(m, store.billingMode.value)}</p>` : null}\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    this.#accrue(rec, this.#now);\n    rec.accruedUntil = null;\n    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    Object.assign(rec.m, { startFailure: reason,",
+  "new": "    rec.timerEnd = null;\n    this.#setState(rec, \"failed\");\n    Object.assign(rec.m, { startFailure: reason,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "Object.assign(rec.m, { startFailure: reason, stoppedAt:",
+  "new": "Object.assign(rec.m, { startFailure: null, stoppedAt:"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "        startFailure: null,\n        error: null,",
+  "new": "        error: null,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (rec.m.state !== \"starting\") throw new Error(`only a starting machine fails to start",
+  "new": "    if (false) throw new Error(`only a starting machine fails to start"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    mode === \"byok\"\n      ?",
+  "new": "    false\n      ?",
+  "note": "a byok start failure's text as if resold (COPY on the failed-start PR)"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${startFailureText(m, store.billingMode.value)}",
+  "new": "${startFailureText(m, \"resold\")}"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return `Your allocation is used up. Ask ${withArticle(labels.manager)} for more.`;",
+  "new": "      return \"Used up.\";"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return `The price is now higher than the one you saw, or above the ${labels.project}'s limit. Check the price and try again.`;",
+  "new": "      return refusalText(\"priceCap\", labels);"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return \"It can't start right now, perhaps while a restore of your workspace finishes. Try again in a moment.\";",
+  "new": "      return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "      return \"Several starts happened at once. Try again.\";",
+  "new": "      return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    case \"noCapacity\":\n    case \"policy\":\n    case \"concurrencyCap\":\n      return refusalText(code, labels);",
+  "new": "    case \"policy\":\n    case \"concurrencyCap\":\n      return refusalText(code, labels);"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    default:\n      return null;\n  }\n}\n\n/**\n * About how long",
+  "new": "    default:\n      return \"Something went wrong.\";\n  }\n}\n\n/**\n * About how long"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  const amount = hours < 1 ?",
+  "new": "  const amount = hours < 0.5 ?"
+ },
+ {
+  "file": "src/view.ts",
+  "old": ": hours < 10 ? `about ${",
+  "new": ": hours < 100 ? `about ${"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "(Math.floor(hours * 10) / 10).toFixed(1)",
+  "new": "(Math.round(hours * 10) / 10).toFixed(1)"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "`about ${Math.floor(hours)} h`",
+  "new": "`about ${Math.round(hours)} h`"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(pricePerHour > 0) || !(remaining > 0)) return null;",
+  "new": "  if (!(remaining > 0)) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(pricePerHour > 0) || !(remaining > 0)) return null;",
+  "new": "  if (!(pricePerHour > 0)) return null;"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "return mode === \"byok\" ? `Your allocation covers ${amount} of metered use at this price.`",
+  "new": "return mode !== \"byok\" ? `Your allocation covers ${amount} of metered use at this price.`"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "err.code === \"conflict\" && attempt < START_CONFLICT_RETRIES) continue;",
+  "new": "err.code === \"conflict\" && attempt < 0) continue;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "export const START_CONFLICT_RETRIES = 1;",
+  "new": "export const START_CONFLICT_RETRIES = 2;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.startRefusal.value = null;\n    // (a project switch",
+  "new": "    // (a project switch"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.startRefusal.value = null;\n        this.paused.value = [];",
+  "new": "        this.paused.value = [];"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          this.startRefusal.value = { gpuType, text };\n          await this.refresh();",
+  "new": "          this.startRefusal.value = { gpuType, text };"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (text == null) throw err;",
+  "new": "          if (text == null) return null;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "  const refused = store.startRefusal.value?.gpuType === item.gpuType ? store.startRefusal.value.text : null;",
+  "new": "  const refused = store.startRefusal.value?.text ?? null;"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": ".filter((x) => x != null).join(\" · \")",
+  "new": ".filter((x) => x != null).join(\" \")"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "          if (generation !== this.#generation) return null;\n          // Two starts at once",
+  "new": "          // Two starts at once",
+  "note": "a late start answer after the page moved on (TESTS on the start panel PR)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)",
+  "new": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n",
+  "new": "    this.#staleSaves(); // (nor the previous person's to the new one)\n"
  }
 ]

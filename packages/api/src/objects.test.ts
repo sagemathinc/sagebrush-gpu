@@ -15,6 +15,8 @@ import {
   type MachineState,
   VM_GATE_WORDS,
   parseGateReport,
+  START_FAILURES,
+  isStartFailure,
 } from "./objects.ts";
 
 test("project role order", () => {
@@ -68,6 +70,7 @@ test("the default policy is frozen and allows nothing until configured", () => {
   assert.deepEqual(DEFAULT_POLICY.allowedGpuTypes, []);
   assert.deepEqual(DEFAULT_POLICY.allowedProviders, []);
   assert.equal(DEFAULT_POLICY.finalSaveReserveMinutes, 10);
+  assert.deepEqual([DEFAULT_POLICY.snapshotKeepLast, DEFAULT_POLICY.snapshotNamedMax], [10, 5]);
 });
 
 test("billing modes: exactly resold and byok", () => {
@@ -115,4 +118,10 @@ test("quote refusals in precedence order: credentialUnusable just before noCapac
     [...QUOTE_REFUSALS],
     ["projectNotStarted", "projectEnded", "policy", "priceCap", "credentialUnusable", "noCapacity", "concurrencyCap", "allocationTooLow"],
   );
+});
+
+test("start failures: the two reasons a machine never starts, and nothing else", () => {
+  assert.deepEqual([...START_FAILURES], ["createDeadline", "podExited"]);
+  for (const r of START_FAILURES) assert.equal(isStartFailure(r), true, r);
+  for (const bad of ["create-deadline", "pod-exited", "provider", "", null, undefined, 1]) assert.equal(isStartFailure(bad), false, String(bad));
 });

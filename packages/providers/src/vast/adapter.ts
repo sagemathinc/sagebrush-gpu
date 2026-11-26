@@ -4,6 +4,10 @@
 // Launch shape (as RunPod's): a Docker container on an on-demand, verified, datacenter-hosted
 // offer; our launcher in the `args` runtype, so the image must have no ENTRYPOINT of its own and
 // the launcher is PID 1; no SSH or Jupyter runtype, no onstart, no template, no volume, no bid;
+// never an SSH key (SEC ruling: no attach call and no ssh_key field, ever, and a readback showing
+// SSH is refused; only the requests in ROUTES are ever sent). Vast writes the account's own SSH
+// keys into every instance, attach or not (r13), so a launch first reads the account's key list
+// and refuses unless it is empty (SEC ruling on r13);
 // the only environment variable is the boot token. Vast's VMs (beta, consumer GPUs only) are never
 // used. Offers are per host machine: our data-center id is "machine-<id>", and a launch searches
 // that machine's current offer again (offer ids don't last) before accepting it.
@@ -15,7 +19,7 @@
 import { driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, isSuccess, readBody, retryAfterSeconds, type Fetch } from "../http.ts";
-import { machineName, parseMachineName } from "../machine-name.ts";
+import { nameFields, parseMachineName, sameMachineName, specNameMatches } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
 import type {
   AdapterInfo,
@@ -54,7 +58,7 @@ export interface VastOptions {
 }
 
 /** Which kind of call failed: Vast's 404 means a bad key on a search and a gone offer on a create. */
-export type VastCall = "offers" | "create" | "instance";
+export type VastCall = "offers" | "create" | "instance" | "keys";
 
 /**
  * Map one Vast HTTP error to a ProviderError. Vast's error bodies are never read or kept: they can
@@ -183,9 +187,29 @@ export function vastState(actual: unknown, intended: unknown): MachineState {
   return "unknown";
 }
 
+/** Whether an instance field holds anything: not absent, null, empty, false or an empty list. */
+function isSet(v: unknown): boolean {
+  return v !== null && v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && v.length === 0);
+}
+
+/**
+ * SSH on an instance (SEC ruling: refused): a host or port, or any other field named for SSH that
+ * holds anything (key material included), as "ssh:host", "ssh:port", "ssh:key" or "ssh:set".
+ */
+function sshSettings(inst: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  if (isSet(inst["ssh_host"])) out.push("ssh:host");
+  if (isSet(inst["ssh_port"])) out.push("ssh:port");
+  for (const k of Object.keys(inst)) {
+    if (k === "ssh_host" || k === "ssh_port" || !/ssh/i.test(k) || !isSet(inst[k])) continue;
+    out.push(/key/i.test(k) ? "ssh:key" : "ssh:set");
+  }
+  return [...new Set(out)];
+}
+
 /** Vast settings outside our launch shape, as "name:value"; missing or malformed ones too. */
 function unexpectedSettings(inst: Record<string, unknown>): string[] {
-  const out: string[] = [];
+  const out: string[] = sshSettings(inst);
   const rt = inst["image_runtype"];
   if (rt !== "args") out.push(`runtype:${shortWord(rt) ?? UNREADABLE}`);
   if (inst["is_bid"] !== false) out.push(`bid:${inst["is_bid"] === true ? "true" : UNREADABLE}`);
@@ -220,7 +244,7 @@ export function instanceStatus(inst: unknown, observedAt: string): ProviderMachi
   return {
     provider: "vast",
     providerMachineId: String(id),
-    machineId: shortWord(inst["label"], 64) !== null ? parseMachineName(inst["label"] as string) : null,
+    ...nameFields(shortWord(inst["label"], 64)),
     state: vastState(actual, intended),
     rawStatus: `${statusWord(actual)}/${statusWord(intended)}`,
     gpuType: typeof inst["gpu_name"] === "string" ? gpuFromVast(inst["gpu_name"], inst["gpu_ram"]) : null,
@@ -282,6 +306,85 @@ function usableOffer(o: unknown, gpuCount: number): { askId: number; gpuType: st
   return { askId, gpuType, dataCenter, country, usdPerHour: usd };
 }
 
+type Method = "GET" | "POST" | "PUT" | "DELETE";
+
+/**
+ * The only requests this adapter ever sends, each an exact method, path and query shape: the
+ * offer search, the create, one instance's show and delete, and the instance list. Never an
+ * SSH-key call (SEC ruling).
+ */
+const ROUTES: ReadonlyArray<{ method: Method; path: RegExp; query: "none" | "list"; body: boolean }> = [
+  { method: "POST", path: /^\/api\/v0\/bundles\/?$/, query: "none", body: true },
+  { method: "PUT", path: /^\/api\/v0\/asks\/[0-9]{1,18}\/?$/, query: "none", body: true },
+  { method: "GET", path: /^\/api\/v0\/instances\/[0-9]{1,18}\/?$/, query: "none", body: false },
+  { method: "DELETE", path: /^\/api\/v0\/instances\/[0-9]{1,18}\/?$/, query: "none", body: false },
+  { method: "GET", path: /^\/api\/v1\/instances\/?$/, query: "list", body: false },
+  // the account-key preflight: exactly this read, nothing else under ssh/ (SEC ruling on r13)
+  { method: "GET", path: /^\/api\/v0\/ssh\/$/, query: "none", body: false },
+];
+
+/**
+ * The list's query, decoded: exactly the keys the list sends, each once, each value in its shape:
+ * `limit` (required), `select_filters` (exactly {"label": {"eq": <one of our machine names>}})
+ * and `after_token` (the page token Vast gave). Any other key, encoded or not, is refused.
+ */
+function listQueryOk(query: string): boolean {
+  if (!/^[A-Za-z0-9%._~&=+-]*$/.test(query)) return false;
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(query);
+  } catch {
+    return false;
+  }
+  const seen = new Set<string>();
+  for (const [k, v] of params) {
+    if (seen.has(k)) return false;
+    seen.add(k);
+    if (k === "limit") {
+      if (!/^[1-9][0-9]{0,2}$/.test(v)) return false;
+    } else if (k === "select_filters") {
+      let f: unknown;
+      try {
+        f = JSON.parse(v);
+      } catch {
+        return false;
+      }
+      const label = isObject(f) && Object.keys(f).length === 1 && isObject(f["label"]) && Object.keys(f["label"]).length === 1 ? f["label"]["eq"] : undefined;
+      if (typeof label !== "string" || parseMachineName(label) === null) return false;
+    } else if (k === "after_token") {
+      if (!/^[A-Za-z0-9._~+/=:-]{1,512}$/.test(v)) return false;
+    } else {
+      return false;
+    }
+  }
+  return seen.has("limit");
+}
+
+/** Whether a body names SSH anywhere: in any key, at any depth. */
+function namesSsh(x: unknown, depth = 0): boolean {
+  if (depth > 8) return true;
+  if (Array.isArray(x)) return x.some((v) => namesSsh(v, depth + 1));
+  if (!isObject(x)) return false;
+  return Object.keys(x).some((k) => /ssh/i.test(k) || namesSsh(x[k], depth + 1));
+}
+
+/**
+ * Whether a request is one of ours: a route's exact method and path, its query shape (none, or the
+ * list's exact keys), a body exactly where the route has one, and no SSH field in that body.
+ */
+export function allowedRequest(method: string, path: string, body: unknown): boolean {
+  const q = path.indexOf("?");
+  const pathname = q < 0 ? path : path.slice(0, q);
+  const query = q < 0 ? null : path.slice(q + 1);
+  return ROUTES.some(
+    (r) =>
+      r.method === method &&
+      r.path.test(pathname) &&
+      (r.query === "none" ? query === null : query !== null && listQueryOk(query)) &&
+      (r.body ? isObject(body) && !namesSsh(body) : body === undefined),
+  );
+}
+
 /** A Docker image name we pass on (the control plane's allowlist decides which). */
 const IMAGE_NAME = /^[a-z0-9][a-z0-9._/:@-]{0,255}$/;
 /** The boot token is base64url: safe inside Vast's Docker-flag `env` string. */
@@ -315,6 +418,8 @@ export class VastAdapter implements ProviderAdapter {
    */
   async #call(method: "GET" | "POST" | "PUT" | "DELETE", path: string, call: VastCall, body?: unknown, shouldStop?: () => boolean): Promise<unknown> {
     const where = `Vast ${method} ${path.split("?")[0]}`;
+    // (before anything is sent: a request outside the fixed set is a bug, and fails closed)
+    if (!allowedRequest(method, path, body)) throw new ProviderError("vast", "invalid_request", "Vast: a request outside the adapter's fixed set");
     if (shouldStop?.() === true) throw new ProviderError("vast", "outcome_unknown", `${where}: stopped at the caller's deadline`);
     const deadline = Date.now() + this.#timeoutMs;
     const init: Parameters<Fetch>[1] = {
@@ -357,7 +462,7 @@ export class VastAdapter implements ProviderAdapter {
   searchBody(gpuCount: number, diskGb: number, only?: { gpuName: string; machineId: number }): Record<string, unknown> {
     return {
       limit: only === undefined ? 1000 : 10,
-      type: "ondemand",
+      type: "on-demand",
       verified: { eq: true },
       rentable: { eq: true },
       rented: { eq: false },
@@ -372,7 +477,7 @@ export class VastAdapter implements ProviderAdapter {
   }
 
   async #search(body: Record<string, unknown>, gpuCount: number, shouldStop?: () => boolean) {
-    const json = await this.#call("POST", "/api/v0/bundles", "offers", body, shouldStop);
+    const json = await this.#call("POST", "/api/v0/bundles/", "offers", body, shouldStop);
     // The reference's example shows one object where its schema says an array: only an array is read.
     if (!isObject(json) || !Array.isArray(json["offers"])) throw new ProviderError("vast", "unknown", "Vast offer search reply is malformed");
     return json["offers"].map((o) => usableOffer(o, gpuCount)).filter((o) => o !== null);
@@ -413,9 +518,10 @@ export class VastAdapter implements ProviderAdapter {
     if (typeof spec.image !== "string" || !IMAGE_NAME.test(spec.image)) throw new ProviderError("vast", "invalid_request", "Vast: bad image name");
     if (spec.launcher.length === 0) throw new ProviderError("vast", "invalid_request", "empty launcher");
     if (!BOOT_TOKEN.test(spec.bootToken)) throw new ProviderError("vast", "invalid_request", "Vast: bad boot token");
+    if (!specNameMatches(spec)) throw new ProviderError("vast", "invalid_request", "Vast: the spec's name isn't its machine's");
     return {
       image: spec.image,
-      label: machineName(spec.machineId),
+      label: spec.name,
       disk: spec.diskGb,
       runtype: "args",
       args: [...spec.launcher],
@@ -426,12 +532,33 @@ export class VastAdapter implements ProviderAdapter {
     };
   }
 
+  /**
+   * The account-key preflight (SEC ruling on r13): Vast puts the account's SSH keys into every
+   * instance, so a launch needs the account to have none. Only the list's length is taken: no key,
+   * value or fingerprint is kept, returned or put in an error. A list that isn't readable as one
+   * refuses too. Nothing is created by this read, so a lost reply is a plain failure here.
+   */
+  async #accountKeysNone(stop: (() => boolean) | undefined): Promise<void> {
+    let json: unknown;
+    try {
+      json = await this.#call("GET", "/api/v0/ssh/", "keys", undefined, stop);
+    } catch (e) {
+      if (e instanceof ProviderError && e.kind === "outcome_unknown") throw new ProviderError("vast", "unknown", e.message, e.httpStatus);
+      throw e;
+    }
+    const keys = Array.isArray(json) ? json : isObject(json) && Array.isArray(json["ssh_keys"]) ? json["ssh_keys"] : null;
+    if (keys === null) throw new ProviderError("vast", "unknown", "Vast account SSH keys: the list can't be read");
+    if (keys.length !== 0) throw new ProviderError("vast", "auth", "Vast account has SSH keys: a launch needs none");
+  }
+
   async launch(spec: LaunchSpec, opts: LaunchOptions = {}): Promise<LaunchResult> {
     const body = this.createBody(spec);
     const stop = opts.shouldStop;
     const machine = vastMachineId(spec.dataCenter)!;
     const gpuName = gpuToVast(spec.gpuType)!;
     if (stop?.() === true) throw new ProviderError("vast", "unknown", "stopped at the caller's deadline before launching");
+    // Before any spend: the account must have no SSH keys.
+    await this.#accountKeysNone(stop);
     // This machine's offer as it is now, priced with this launch's disk.
     let offers;
     try {
@@ -448,7 +575,7 @@ export class VastAdapter implements ProviderAdapter {
 
     let id: string;
     try {
-      id = createdId(await this.#call("PUT", `/api/v0/asks/${ask.askId}`, "create", body, stop));
+      id = createdId(await this.#call("PUT", `/api/v0/asks/${ask.askId}/`, "create", body, stop));
     } catch (e) {
       if (!(e instanceof ProviderError) || (e.kind !== "outcome_unknown" && e.kind !== "transient")) throw e;
       // The instance may exist even though the call failed: look for it by name before anyone retries.
@@ -505,7 +632,7 @@ export class VastAdapter implements ProviderAdapter {
 
   /** One instance, as Vast reports it; another instance's answer, or none, fails. */
   async #read(id: string): Promise<ProviderMachineStatus> {
-    const json = await this.#call("GET", `/api/v0/instances/${id}`, "instance");
+    const json = await this.#call("GET", `/api/v0/instances/${id}/`, "instance");
     const inst = isObject(json) ? json["instances"] : undefined;
     // What Vast answers for a destroyed instance isn't documented beyond a 404: anything else that
     // isn't this instance is an error, never "gone".
@@ -530,7 +657,7 @@ export class VastAdapter implements ProviderAdapter {
     if (!/^[1-9][0-9]{0,15}$/.test(providerMachineId)) throw new ProviderError("vast", "invalid_request", "not a Vast instance id");
     let json: unknown;
     try {
-      json = await this.#call("DELETE", `/api/v0/instances/${providerMachineId}`, "instance");
+      json = await this.#call("DELETE", `/api/v0/instances/${providerMachineId}/`, "instance");
     } catch (e) {
       if (e instanceof ProviderError && e.kind === "not_found") return;
       throw e;
@@ -553,7 +680,7 @@ export class VastAdapter implements ProviderAdapter {
       const qs = new URLSearchParams({ limit: String(PAGE) });
       if (label !== undefined) qs.set("select_filters", JSON.stringify({ label: { eq: label } }));
       if (token !== null) qs.set("after_token", token);
-      const json = await this.#call("GET", `/api/v1/instances?${qs}`, "instance", undefined, shouldStop);
+      const json = await this.#call("GET", `/api/v1/instances/?${qs}`, "instance", undefined, shouldStop);
       const observedAt = this.#observedAt();
       // A malformed page proves nothing: not that a machine is absent, nor that the list is complete.
       if (!isObject(json) || !Array.isArray(json["instances"])) {
@@ -565,7 +692,7 @@ export class VastAdapter implements ProviderAdapter {
         const s = instanceStatus(inst, observedAt);
         if (s.machineId === null) continue;
         // A filter Vast ignored must not widen a by-label answer.
-        if (label !== undefined && machineName(s.machineId) !== label) continue;
+        if (label !== undefined && !sameMachineName(s.parsedName, label)) continue;
         retained += retainedChars(s);
         if (retained > MAX_LIST_CHARS) throw new ProviderError("vast", "unknown", "Vast instance list is too large to keep");
         out.push(s);
@@ -580,7 +707,11 @@ export class VastAdapter implements ProviderAdapter {
   }
 }
 
-/** The instance id in a create reply: `new_contract` with success true; anything else may have created one. */
+/**
+ * The instance id in a create reply: `new_contract` with success true; anything else may have
+ * created one. Only these two fields are read. The reply also carries `instance_api_key`, a secret:
+ * it is never read, and the reply is never kept, returned or put in an error (SEC ruling).
+ */
 function createdId(json: unknown): string {
   const id = isObject(json) && json["success"] === true ? intId(json["new_contract"]) : null;
   if (id === null) throw new ProviderError("vast", "outcome_unknown", "Vast create reply has no new_contract");
@@ -592,6 +723,7 @@ function goneStatus(providerMachineId: string, observedAt: string): ProviderMach
     provider: "vast",
     providerMachineId,
     machineId: null,
+    parsedName: null,
     state: "terminated",
     rawStatus: "NOT_FOUND",
     gpuType: null,

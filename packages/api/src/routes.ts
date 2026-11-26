@@ -8,12 +8,13 @@
 // sees only their own machines) are the handler's job and are noted in `note`.
 
 import type { Micros } from "./money.ts";
-import type { MachineId, MemberId, OrgId, ProjectId, TeamId } from "./ids.ts";
+import type { MachineId, MemberId, OrgId, ProjectId, SnapshotId, TeamId } from "./ids.ts";
 import type { IsoTime } from "./time.ts";
 import type { OrgRole, ProjectRole } from "./objects.ts";
 import type { ProviderId } from "./providers.ts";
-import type { ProviderCredential, ProviderPause, PutCredentialRequest } from "./credentials.ts";
+import type { CredentialAssuranceRequest, ProviderCredential, ProviderPause, PutCredentialRequest } from "./credentials.ts";
 import type { OrphanReport } from "./orphans.ts";
+import type { ListSnapshotsResponse, NameSnapshotRequest, RestoreSnapshotRequest, SaveMachineRequest, Snapshot } from "./snapshots.ts";
 import type {
   AgentAbortRequest,
   AgentAnnounceRequest,
@@ -112,7 +113,7 @@ export interface Endpoints {
   startSignIn: { method: "GET"; path: "/v1/auth/start"; params: {}; query: { return?: string; reauth?: "1" }; body: undefined; response: Redirect };
   signInCallback: { method: "GET"; path: "/v1/auth/callback"; params: {}; query: { code?: string; state?: string; error?: string }; body: undefined; response: Redirect };
   signOut: { method: "POST"; path: "/v1/auth/sign-out"; params: {}; query: {}; body: {}; response: Ok };
-  getMe: { method: "GET"; path: "/v1/me"; params: {}; query: {}; body: undefined; response: Me };
+  getMe: { method: "GET"; path: "/v1/me"; params: {}; query: { orgId?: OrgId }; body: undefined; response: Me };
 
   // organizations
   getOrg: { method: "GET"; path: "/v1/orgs/:orgId"; params: { orgId: OrgId }; query: {}; body: undefined; response: Organization };
@@ -123,7 +124,8 @@ export interface Endpoints {
   // an organization's own provider keys (byok; see credentials.ts)
   listCredentials: { method: "GET"; path: "/v1/orgs/:orgId/credentials"; params: { orgId: OrgId }; query: {}; body: undefined; response: { items: ProviderCredential[] } };
   putCredential: { method: "PUT"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: {}; body: PutCredentialRequest; response: ProviderCredential };
-  deleteCredential: { method: "DELETE"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: {}; body: undefined; response: { removed: true } };
+  deleteCredential: { method: "DELETE"; path: "/v1/orgs/:orgId/credentials/:provider"; params: { orgId: OrgId; provider: ProviderId }; query: { id: string; version: string }; body: undefined; response: { removed: true } };
+  verifyCredentialAssurance: { method: "POST"; path: "/v1/orgs/:orgId/credentials/assurance"; params: { orgId: OrgId }; query: {}; body: CredentialAssuranceRequest; response: { recentAuthForMs: number } };
 
   // projects
   getProject: { method: "GET"; path: "/v1/projects/:projectId"; params: { projectId: ProjectId }; query: {}; body: undefined; response: Project };
@@ -149,6 +151,11 @@ export interface Endpoints {
   getSpendCsv: { method: "GET"; path: "/v1/projects/:projectId/spend.csv"; params: { projectId: ProjectId }; query: { by: SpendCsvGrouping }; body: undefined; response: string };
   listLedger: { method: "GET"; path: "/v1/projects/:projectId/ledger"; params: { projectId: ProjectId }; query: { cursor?: string }; body: undefined; response: Page<LedgerEntry> };
 
+  // workspace snapshots (see snapshots.ts)
+  listSnapshots: { method: "GET"; path: "/v1/projects/:projectId/snapshots"; params: { projectId: ProjectId }; query: { area: "member" | "team" }; body: undefined; response: ListSnapshotsResponse };
+  nameSnapshot: { method: "PUT"; path: "/v1/projects/:projectId/snapshots/:snapshotId/name"; params: { projectId: ProjectId; snapshotId: SnapshotId }; query: {}; body: NameSnapshotRequest; response: Snapshot };
+  restoreSnapshot: { method: "POST"; path: "/v1/projects/:projectId/snapshots/:snapshotId/restore"; params: { projectId: ProjectId; snapshotId: SnapshotId }; query: {}; body: RestoreSnapshotRequest; response: Snapshot };
+
   // machines
   listMachines: { method: "GET"; path: "/v1/projects/:projectId/machines"; params: { projectId: ProjectId }; query: { cursor?: string; all?: "1" }; body: undefined; response: Page<Machine> };
   startMachine: { method: "POST"; path: "/v1/projects/:projectId/machines"; params: { projectId: ProjectId }; query: {}; body: StartMachineRequest; response: Machine };
@@ -156,7 +163,7 @@ export interface Endpoints {
   getMachine: { method: "GET"; path: "/v1/machines/:machineId"; params: { machineId: MachineId }; query: {}; body: undefined; response: Machine };
   stopMachine: { method: "POST"; path: "/v1/machines/:machineId/stop"; params: { machineId: MachineId }; query: {}; body: StopMachineRequest; response: Machine };
   restartMachine: { method: "POST"; path: "/v1/machines/:machineId/start"; params: { machineId: MachineId }; query: {}; body: {}; response: Machine };
-  saveMachine: { method: "POST"; path: "/v1/machines/:machineId/save"; params: { machineId: MachineId }; query: {}; body: {}; response: Machine };
+  saveMachine: { method: "POST"; path: "/v1/machines/:machineId/save"; params: { machineId: MachineId }; query: {}; body: SaveMachineRequest; response: Machine };
   deleteMachine: { method: "DELETE"; path: "/v1/machines/:machineId"; params: { machineId: MachineId }; query: {}; body: undefined; response: Ok };
   openMachineSession: { method: "POST"; path: "/v1/machines/:machineId/session"; params: { machineId: MachineId }; query: {}; body: {}; response: MachineSession };
   openJupyterLink: { method: "POST"; path: "/v1/machines/:machineId/jupyter-link"; params: { machineId: MachineId }; query: {}; body: {}; response: { url: string; expiresAt: IsoTime } };
@@ -197,6 +204,8 @@ const assistant = { auth: "session", scope: "project", minRole: "assistant" } as
 const manager = { auth: "session", scope: "project", minRole: "manager" } as const;
 const machineMember = { auth: "session", scope: "machine", minRole: "member" } as const;
 const OWN = "a member may act only on their own machines; assistants and above on any in the project";
+const SNAPSHOTS_NOTE =
+  "only the caller's own member area, or their current team's (area=team; notFound without a team): control derives the area from current membership, and a snapshot outside it is notFound; every refusal is one of SNAPSHOT_REFUSALS";
 const CREDENTIALS_NOTE = "byok organizations only (notByok otherwise); every refusal is one of CREDENTIAL_REFUSALS, and nothing ever carries the key";
 
 export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } = {
@@ -208,7 +217,12 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   },
   signInCallback: { method: "GET", path: "/v1/auth/callback", access: { auth: "public" }, note: "WorkOS's redirect back: a 302 to the return path with the session cookie, or to /?signin=<SignInOutcome>" },
   signOut: { method: "POST", path: "/v1/auth/sign-out", access: { auth: "session", scope: "none" } },
-  getMe: { method: "GET", path: "/v1/me", access: { auth: "session", scope: "none" } },
+  getMe: {
+    method: "GET",
+    path: "/v1/me",
+    access: { auth: "session", scope: "none" },
+    note: "orgId (optional, isId org; badRequest otherwise) chooses the organization recentAuthForMs is for; without it, or for an organization the caller doesn't own, recentAuthForMs is null",
+  },
 
   getOrg: { method: "GET", path: "/v1/orgs/:orgId", access: { auth: "session", scope: "org", minRole: "viewer" } },
   addOrgCredit: { method: "POST", path: "/v1/orgs/:orgId/credit", access: { auth: "system" }, note: "manual top-up against an invoice or PO" },
@@ -220,13 +234,19 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
     method: "PUT",
     path: "/v1/orgs/:orgId/credentials/:provider",
     access: { auth: "session", scope: "org", minRole: "owner" },
-    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); the key is checked with isCredentialKeyShape before anything else, then with the provider, and only then stored`,
+    note: `${CREDENTIALS_NOTE}; consumes one live assurance (verifyCredentialAssurance; reauthenticate otherwise); the key is checked with isCredentialKeyShape before anything else, then with the provider, and only then stored; expected must name the current key (badExpected if malformed, busy if stale)`,
   },
   deleteCredential: {
     method: "DELETE",
     path: "/v1/orgs/:orgId/credentials/:provider",
     access: { auth: "session", scope: "org", minRole: "owner" },
-    note: `${CREDENTIALS_NOTE}; needs a recent sign-in (reauthenticate otherwise); takes effect at once`,
+    note: `${CREDENTIALS_NOTE}; consumes one live assurance (reauthenticate otherwise); the query's id and version must name the current key (badExpected if malformed, busy if stale, noKey if none); takes effect at once`,
+  },
+  verifyCredentialAssurance: {
+    method: "POST",
+    path: "/v1/orgs/:orgId/credentials/assurance",
+    access: { auth: "session", scope: "org", minRole: "owner" },
+    note: `${CREDENTIALS_NOTE}; body at most 256 bytes, checked before parsing; needs a fresh sign-in (reauthenticate), then reserves one unit of the organization's hourly check quota (tooManyChecks), then verifies the code against the owner's one authenticator factor (mfaRequired without one, mfaInvalid if wrong); success opens a single-use, session-bound assurance for one key change`,
   },
 
   getProject: { method: "GET", path: "/v1/projects/:projectId", access: member },
@@ -250,13 +270,27 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   getSpendCsv: { method: "GET", path: "/v1/projects/:projectId/spend.csv", access: assistant },
   listLedger: { method: "GET", path: "/v1/projects/:projectId/ledger", access: manager },
 
+  listSnapshots: { method: "GET", path: "/v1/projects/:projectId/snapshots", access: member, note: `${SNAPSHOTS_NOTE}; current is the gateway's HEAD at listing time` },
+  nameSnapshot: {
+    method: "PUT",
+    path: "/v1/projects/:projectId/snapshots/:snapshotId/name",
+    access: member,
+    note: `${SNAPSHOTS_NOTE}; a name used in the area is nameTaken, more than snapshotNamedMax named is tooManyNamed; null unnames`,
+  },
+  restoreSnapshot: {
+    method: "POST",
+    path: "/v1/projects/:projectId/snapshots/:snapshotId/restore",
+    access: member,
+    note: `${SNAPSHOTS_NOTE}; no recent reauth (SEC); claims the area (restoreInProgress if claimed, writerRunning while a machine's pinned area keys name it), then the gateway writes a new restore snapshot from the target; answers only once the claim is done or failed`,
+  },
+
   listMachines: { method: "GET", path: "/v1/projects/:projectId/machines", access: member, note: "all=1 needs assistant; otherwise the caller's own" },
-  startMachine: { method: "POST", path: "/v1/projects/:projectId/machines", access: member },
+  startMachine: { method: "POST", path: "/v1/projects/:projectId/machines", access: member, note: "startDuringRestore while a restore claims the caller's member area or current team's area" },
   stopAllMachines: { method: "POST", path: "/v1/projects/:projectId/stop-all", access: assistant, note: "save=false needs manager" },
   getMachine: { method: "GET", path: "/v1/machines/:machineId", access: machineMember, note: OWN },
   stopMachine: { method: "POST", path: "/v1/machines/:machineId/stop", access: machineMember, note: `${OWN}; save=false needs manager` },
-  restartMachine: { method: "POST", path: "/v1/machines/:machineId/start", access: machineMember, note: OWN },
-  saveMachine: { method: "POST", path: "/v1/machines/:machineId/save", access: machineMember, note: OWN },
+  restartMachine: { method: "POST", path: "/v1/machines/:machineId/start", access: machineMember, note: `${OWN}; startDuringRestore while a restore claims one of the areas it would pin` },
+  saveMachine: { method: "POST", path: "/v1/machines/:machineId/save", access: machineMember, note: `${OWN}; an optional name (isSnapshotName) names the snapshot this save produces, and a failed save names nothing` },
   deleteMachine: { method: "DELETE", path: "/v1/machines/:machineId", access: machineMember, note: OWN },
   openMachineSession: { method: "POST", path: "/v1/machines/:machineId/session", access: machineMember, note: "the machine's own member only" },
   openJupyterLink: { method: "POST", path: "/v1/machines/:machineId/jupyter-link", access: machineMember, note: "the machine's own member only" },

@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { launchErrorAction, ProviderError } from "./errors.ts";
 import { retryAfterSeconds } from "./http.ts";
 import { countryAllowed, localityFor, PRESET_COUNTRIES } from "./locality.ts";
-import { machineName, parseMachineName } from "./machine-name.ts";
 import { usdToMicros } from "./money.ts";
 import { GPU_TYPES, isGpuType } from "./gpus.ts";
 
@@ -22,18 +21,6 @@ test("usdToMicros refuses what isn't a USD amount", () => {
     assert.throws(() => usdToMicros(bad), RangeError, String(bad));
   }
   assert.equal(usdToMicros(9e9), 9e15);
-});
-
-test("machine names round-trip and reject anything else", () => {
-  const id = "mch_7f3k9q2m4x8z1c5v6b0n";
-  assert.equal(machineName(id), "sbg-" + id);
-  assert.equal(parseMachineName("sbg-" + id), id);
-  assert.throws(() => machineName("prj_7f3k9q2m4x8z1c5v6b0n"), RangeError);
-  assert.throws(() => machineName("mch_"), RangeError);
-  assert.throws(() => machineName("mch_abc"), RangeError);
-  for (const name of [id, "sbg-", "sbg-mch_", "sbg-prj_7f3k9q2m4x8z1c5v6b0n", "xsbg-" + id, "abcd" + id, "sbg-" + id + " ", "sbg-" + id + "0", "sbg-mch_7f3k9q2m4x8z1c5v6b0", "my-pod"]) {
-    assert.equal(parseMachineName(name), null, name);
-  }
 });
 
 const EUROPE = PRESET_COUNTRIES.europe;
