@@ -21,7 +21,7 @@
 //   batch and retried by id until each reads terminated. Only the provider confirming the pods
 //   gone marks the launch terminated and closes the accrual.
 
-import type { LaunchSpec, ProviderMachineStatus } from "@sbgpu/providers";
+import type { LaunchSpec, ProviderErrorKind, ProviderMachineStatus } from "@sbgpu/providers";
 import { ProviderError, machineName, sameMachineName } from "@sbgpu/providers";
 import type { Db, Stmt } from "./db.ts";
 import { base64url, sha256Hex } from "./http.ts";
@@ -470,15 +470,31 @@ export interface ContainerLaunch {
 }
 
 /**
+ * A create the provider refused for this offer only (it said so, and named no pod): another offer
+ * may work. A rate limit isn't one (its Retry-After isn't for another offer to skip), nor is a 5xx.
+ */
+export const NEXT_OFFER_KINDS: ReadonlySet<ProviderErrorKind> = new Set(["no_capacity", "unplaceable", "forbidden"]);
+
+/**
+ * The provider's definitive refusals of a create (an answer it gave, naming no pod): the launch is
+ * ended. Every other kind leaves its outcome unknown.
+ */
+const DEFINITIVE_REFUSALS: ReadonlySet<ProviderErrorKind> = new Set([...NEXT_OFFER_KINDS, "rate_limited", "invalid_request", "auth", "insufficient_funds", "not_found"]);
+
+/**
  * The launch up to the provider id: the intent, then the create with the token in the pod's env,
  * then the id batch. "not-started": the intent wasn't written (nothing was created). "created":
  * the id and the accrual are recorded. "unknown": the create's outcome is unknown (the row stays
- * creating; at its create deadline the watchdog finds any pod by its name). "abandoned": the
- * create failed, or its pod was refused; the launch is ended (token revoked first), its pod once
- * its accrual is open (the watchdog retries). Throws HeldPodsUnknown (from abandonContainer) when
- * a pod it holds could be neither recorded nor confirmed gone.
+ * creating; at its create deadline the watchdog finds any pod by its name). "next-offer": the
+ * provider definitively refused this offer (NEXT_OFFER_KINDS) and named no pod; the launch is
+ * ended as for "abandoned", and the caller may try another offer as a new admitted machine.
+ * "abandoned": the create failed definitively otherwise, or its pod was refused; the launch is
+ * ended (token revoked first), its pod once its accrual is open (the watchdog retries). Anything
+ * the provider didn't answer definitively (a timeout, a lost or malformed reply, a 5xx, an error
+ * that isn't the adapter's) is "unknown". Throws HeldPodsUnknown (from abandonContainer) when a
+ * pod it holds could be neither recorded nor confirmed gone.
  */
-export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Promise<"not-started" | "created" | "unknown" | "abandoned"> {
+export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Promise<"not-started" | "created" | "unknown" | "next-offer" | "abandoned"> {
   // the pod's name first: one that can't be built (no installation, or an incarnation past the
   // name's bound) is a launch not started, with nothing written
   let name: string;
@@ -521,10 +537,11 @@ export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Pr
       await abandonContainer(env, l.machineId, l.incarnation, "create-failed", [e.providerMachineId]);
       return "abandoned";
     }
-    if (e instanceof ProviderError && e.kind === "outcome_unknown") return "unknown";
+    // only the provider's own definitive refusal ends the launch; anything else may have made a pod
+    if (!(e instanceof ProviderError) || !DEFINITIVE_REFUSALS.has(e.kind)) return "unknown";
     // a definitive failure: no pod; the watchdog confirms that by name before it marks the launch terminated
     await abandonContainer(env, l.machineId, l.incarnation, "create-failed");
-    return "abandoned";
+    return NEXT_OFFER_KINDS.has(e.kind) ? "next-offer" : "abandoned";
   }
   if ((await recordContainerId(env.db, l.machineId, l.incarnation, created.id)) === "recorded") return "created";
   await abandonContainer(env, l.machineId, l.incarnation, "create-failed", [created.id]);

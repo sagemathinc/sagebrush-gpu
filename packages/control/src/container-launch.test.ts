@@ -39,7 +39,9 @@ class FakeRunPod implements ContainerProvider {
   pods = new Map<string, ProviderMachineStatus>();
   n = 0;
   /** What the next create does. */
-  mode: "ok" | "lost" | "definitive" | "rejected" | "renamed" | "duplicate" = "ok";
+  mode: "ok" | "lost" | "definitive" | "rejected" | "renamed" | "duplicate" | "throws" = "ok";
+  /** The kind a "definitive" create refuses with. */
+  refusal: ProviderError["kind"] = "no_capacity";
   specs: LaunchSpec[] = [];
   terminated: string[] = [];
   /** Called at each terminate, before it takes effect (to see what the database held then). */
@@ -89,7 +91,9 @@ class FakeRunPod implements ContainerProvider {
         this.pod(spec.machineId, "provisioning", spec.name);
         throw new ProviderError("runpod", "outcome_unknown", "2 pods carry the machine");
       case "definitive":
-        throw new ProviderError("runpod", "no_capacity", "no instances available");
+        throw new ProviderError("runpod", this.refusal, "refused");
+      case "throws":
+        throw new TypeError("not the adapter's error");
       case "rejected":
       case "renamed": {
         // (renamed: the pod doesn't carry the machine's name, so no list finds it by the name)
@@ -454,6 +458,7 @@ test("lost reply: at the create deadline the watchdog finds the pod by name, ope
 test("a definitive create failure: abandoned with the token revoked, and zero accruals, ever", async () => {
   const m = await machine();
   rp.mode = "definitive";
+  rp.refusal = "invalid_request";
   assert.equal(await launchContainer(env(), req(m)), "abandoned");
   assert.equal((await launch(m)).outcome, "terminated", "a fresh list showed no pod: confirmed");
   assert.notEqual((await token(m)).used_ms, null);
@@ -469,6 +474,43 @@ test("a definitive create failure: abandoned with the token revoked, and zero ac
   assert.equal(await runContainerWatchdog(env()), 1);
   assert.equal((await launch(m2)).outcome, "terminated");
   assert.equal((await accruals(m2)).length, 0);
+});
+
+test("a create's outcome by its error: only the provider's definitive refusals end the launch, and only an offer-specific one says to try the next offer; anything else is unknown, the launch kept", async () => {
+  const cases: Array<[ProviderError["kind"] | "throws", "next-offer" | "abandoned" | "unknown"]> = [
+    ["no_capacity", "next-offer"],
+    ["unplaceable", "next-offer"],
+    ["forbidden", "next-offer"],
+    ["rate_limited", "abandoned"],
+    ["invalid_request", "abandoned"],
+    ["auth", "abandoned"],
+    ["insufficient_funds", "abandoned"],
+    ["not_found", "abandoned"],
+    ["transient", "unknown"],
+    ["outcome_unknown", "unknown"],
+    ["unknown", "unknown"],
+    ["throws", "unknown"],
+  ];
+  for (const [kind, outcome] of cases) {
+    rp = new FakeRunPod();
+    const m = await machine();
+    if (kind === "throws") rp.mode = "throws";
+    else {
+      rp.mode = "definitive";
+      rp.refusal = kind;
+    }
+    assert.equal(await launchContainer(env(), req(m)), outcome, kind);
+    const l = await launch(m);
+    if (outcome === "unknown") {
+      // kept: still creating, due at its create deadline, its token pending; nothing ended
+      assert.deepEqual([l.outcome, l.next_ms, (await token(m)).used_ms], ["creating", T0 + CREATE_DEADLINE_MS, null], kind);
+    } else {
+      // ended as before: the token used, the launch confirmed gone by a fresh list, no accrual
+      assert.equal(l.outcome, "terminated", kind);
+      assert.notEqual((await token(m)).used_ms, null, kind);
+      assert.equal((await accruals(m)).length, 0, kind);
+    }
+  }
 });
 
 test("an accrual the ledger refuses for good: the pod waits for it 30 minutes from the intent (watchdog retries), then is ended by its id", async () => {
