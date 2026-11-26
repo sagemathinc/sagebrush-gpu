@@ -349,7 +349,7 @@ test("watchdog: both classes merged by age under one bound, so neither starves t
   assert.ok(plan.every((d) => !/\bSCAN\b|TEMP B-TREE/.test(d)), JSON.stringify(plan));
   // (and the index holds enrolled launches only: ended ones, which keep their due times, are never examined)
   const idx = w.db.raw.prepare(`SELECT sql FROM sqlite_master WHERE name = 'launches_heartbeat_due'`).get() as { sql: string };
-  assert.match(idx.sql, / WHERE outcome = 'enrolled' AND mode = 'vm'$/);
+  assert.match(idx.sql, / WHERE outcome = 'enrolled'$/);
 });
 
 test("heartbeat: crossed requests never regress the report, the save estimate or the due time; no loss until 120 s after the newest", async () => {

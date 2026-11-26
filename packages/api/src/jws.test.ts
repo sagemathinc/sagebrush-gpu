@@ -22,6 +22,11 @@ const CLAIMS: { [K in TokenKind]: ClaimsOf<K> } = {
     grants: [{ area: "member", mode: "rw", quotaBytes: 50e9 }, { area: "project-data", mode: "ro" }],
     mode: { kind: "normal" },
   } as ClaimsOf<"workspace">,
+  restore: {
+    v: 1, kind: "restore", jti, iat: NOW - 10, exp: NOW - 10 + TOKEN_TTL_SECONDS.restore,
+    env: "production", prj, area: { kind: "member", mbr }, op: "BBBBBBBBBBBBBBBBBBBBBB", actor: mbr,
+    snap: newId("snapshot"), expectedHead: newId("snapshot"),
+  },
 };
 
 type KeyPair = { publicKey: Key; privateKey: Key };

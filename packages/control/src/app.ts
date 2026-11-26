@@ -28,6 +28,7 @@ import { SIGN_IN_HANDLERS, authConfigFromEnv, revalidate, type AuthConfig, type 
 import { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, cookieValue, json, sessionCookie, sha256Hex } from "./http.ts";
 import type { Fetch } from "./workos.ts";
 import { ANNOUNCE_MAX_BODY_BYTES, VM_HANDLERS, type VmProvider } from "./vm.ts";
+import type { ContainerDeps } from "./container.ts";
 import { ENROLL_HANDLERS, ENROLL_MAX_BODY_BYTES } from "./enroll.ts";
 import type { AgentKeysSource, AgentSignerSource } from "./signer.ts";
 import { agentAuth } from "./agent-auth.ts";
@@ -82,6 +83,8 @@ export interface AppDeps {
   fetch: Fetch;
   /** VM mode's provider adapter; null where none is wired (VM announces are then refused). */
   vm: VmProvider | null;
+  /** Container mode's adapter and what its pods must show; null where none is wired (container enroll is then refused). */
+  container: ContainerDeps | null;
   /** Runs work after the response (the Worker's ctx.waitUntil). */
   waitUntil(work: Promise<unknown>): void;
   /** The agent-token signer, proved ready per use; null when it isn't (VM enroll then refuses). */

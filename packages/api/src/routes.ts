@@ -113,7 +113,7 @@ export interface Endpoints {
   startSignIn: { method: "GET"; path: "/v1/auth/start"; params: {}; query: { return?: string; reauth?: "1" }; body: undefined; response: Redirect };
   signInCallback: { method: "GET"; path: "/v1/auth/callback"; params: {}; query: { code?: string; state?: string; error?: string }; body: undefined; response: Redirect };
   signOut: { method: "POST"; path: "/v1/auth/sign-out"; params: {}; query: {}; body: {}; response: Ok };
-  getMe: { method: "GET"; path: "/v1/me"; params: {}; query: {}; body: undefined; response: Me };
+  getMe: { method: "GET"; path: "/v1/me"; params: {}; query: { orgId?: OrgId }; body: undefined; response: Me };
 
   // organizations
   getOrg: { method: "GET"; path: "/v1/orgs/:orgId"; params: { orgId: OrgId }; query: {}; body: undefined; response: Organization };
@@ -217,7 +217,12 @@ export const ROUTES: { readonly [K in EndpointName]: RouteSpec<Endpoints[K]> } =
   },
   signInCallback: { method: "GET", path: "/v1/auth/callback", access: { auth: "public" }, note: "WorkOS's redirect back: a 302 to the return path with the session cookie, or to /?signin=<SignInOutcome>" },
   signOut: { method: "POST", path: "/v1/auth/sign-out", access: { auth: "session", scope: "none" } },
-  getMe: { method: "GET", path: "/v1/me", access: { auth: "session", scope: "none" } },
+  getMe: {
+    method: "GET",
+    path: "/v1/me",
+    access: { auth: "session", scope: "none" },
+    note: "orgId (optional, isId org; badRequest otherwise) chooses the organization recentAuthForMs is for; without it, or for an organization the caller doesn't own, recentAuthForMs is null",
+  },
 
   getOrg: { method: "GET", path: "/v1/orgs/:orgId", access: { auth: "session", scope: "org", minRole: "viewer" } },
   addOrgCredit: { method: "POST", path: "/v1/orgs/:orgId/credit", access: { auth: "system" }, note: "manual top-up against an invoice or PO" },

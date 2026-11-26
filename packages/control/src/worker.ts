@@ -70,6 +70,7 @@ export function createWorker(o: WorkerOptions = {}) {
         config,
         fetch: (input, init) => fetch(input, init),
         vm: null,
+        container: null,
         waitUntil: guardedWaitUntil(ctx, log),
         agentSigner: () => loadAgentSigner(env.AGENT_SIGNING_JWK, env.AGENT_SIGNING_KID, env.AGENT_PUBLIC_KEYS),
         agentPublicKeys: () => loadAgentPublicKeys(env.AGENT_PUBLIC_KEYS),

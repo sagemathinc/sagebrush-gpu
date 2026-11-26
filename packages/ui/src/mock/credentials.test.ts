@@ -89,20 +89,28 @@ test("the list: one row per provider taken (RunPod only behind the test flag), n
 test("the reauth window: /me says what's left from a sign-in, to the millisecond, and null once it has closed", async () => {
   const s = setup();
   const owner = s.as(s.demo.emails.owner);
-  assert.equal((await owner.call("getMe")).recentAuthForMs, RECENT_AUTH_WINDOW_MS);
+  // The window is one organization's: none without orgId, none for an organization they don't own; a malformed orgId is refused.
+  assert.equal((await owner.call("getMe")).recentAuthForMs, null);
+  const other = s.b.addOrg("Not theirs", 0, 1_000_000, "byok");
+  assert.equal((await owner.call("getMe", { query: { orgId: other.id } })).recentAuthForMs, null);
+  s.b.setOrgRole(other.id, [...s.b.users.values()].find((u) => u.email === s.demo.emails.owner)!.id, "viewer");
+  assert.equal((await owner.call("getMe", { query: { orgId: other.id } })).recentAuthForMs, null, "a viewer");
+  await assert.rejects(owner.call("getMe", { query: { orgId: "org_x" } }), (e: unknown) => (e as { code?: string }).code === "badRequest");
+  await assert.rejects(owner.call("getMe", { query: { orgId: s.demo.projectId } }), (e: unknown) => (e as { code?: string }).code === "badRequest");
+  assert.equal((await owner.call("getMe", { query: { orgId: s.org.id } })).recentAuthForMs, RECENT_AUTH_WINDOW_MS);
   s.b.advance(1000);
-  assert.equal((await owner.call("getMe")).recentAuthForMs, RECENT_AUTH_WINDOW_MS - 1000);
+  assert.equal((await owner.call("getMe", { query: { orgId: s.org.id } })).recentAuthForMs, RECENT_AUTH_WINDOW_MS - 1000);
   s.b.advance(RECENT_AUTH_WINDOW_MS - 2000);
-  assert.equal((await owner.call("getMe")).recentAuthForMs, 1000);
+  assert.equal((await owner.call("getMe", { query: { orgId: s.org.id } })).recentAuthForMs, 1000);
   const kept = await put(owner, s.org.id, "shadeform", KEY); // (still open)
   s.b.advance(1000);
-  assert.equal((await owner.call("getMe")).recentAuthForMs, null);
+  assert.equal((await owner.call("getMe", { query: { orgId: s.org.id } })).recentAuthForMs, null);
   await refused(put(owner, s.org.id, "hyperstack", KEY), "reauthenticate");
   await refused(del(owner, s.org.id, "shadeform", kept.id!, kept.version!), "reauthenticate");
   assert.equal(s.b.credentials.size, 1, "a refused delete removes nothing");
   // Signing in again opens it again; signing out closes it.
   s.as(s.demo.emails.owner);
-  assert.equal((await owner.call("getMe")).recentAuthForMs, RECENT_AUTH_WINDOW_MS);
+  assert.equal((await owner.call("getMe", { query: { orgId: s.org.id } })).recentAuthForMs, RECENT_AUTH_WINDOW_MS);
   await owner.call("signOut", { body: {} });
   assert.equal(s.b.authenticatedAt, null);
 });

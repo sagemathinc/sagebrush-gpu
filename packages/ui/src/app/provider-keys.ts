@@ -103,16 +103,22 @@ export class ProviderKeys {
   readonly #clocks: KeyClocks;
   readonly #signedOut: () => void;
   #generation = 0;
+  /** Window reads asked so far: only the latest one's answer may set the window. */
+  #windowReads = 0;
   /** Credential changes ended so far (any outcome): a list read that saw this move is stale. */
   #writes = 0;
   readonly #controllers = new Set<AbortController>();
   #deadline: number | null = null;
   #timer: unknown = null;
 
-  constructor(fetchFn: FetchFn, clocks: KeyClocks, signedOut: () => void) {
+  /** Reads /me's window for one organization (GET /v1/me?orgId=): what it says, or a throw. */
+  readonly #readWindow: (orgId: string) => Promise<unknown>;
+
+  constructor(fetchFn: FetchFn, clocks: KeyClocks, signedOut: () => void, readWindow: (orgId: string) => Promise<unknown> = async () => null) {
     this.#fetch = fetchFn;
     this.#clocks = clocks;
     this.#signedOut = signedOut;
+    this.#readWindow = readWindow;
   }
 
   // ---------------------------------------------------------------- the reauth window
@@ -153,19 +159,45 @@ export class ProviderKeys {
 
   // ---------------------------------------------------------------- the organization
 
-  /** Show `orgId`'s keys: whatever was open is left, and the list is read from the server. */
+  /**
+   * Show `orgId`'s keys: whatever was open is left (its window with it), and the list and this
+   * organization's window are read from the server.
+   */
   open(orgId: string): Promise<void> {
     this.leave();
     this.orgId.value = orgId;
-    return this.#load();
+    return Promise.all([this.#load(), this.refreshWindow()]).then(() => undefined);
+  }
+
+  /**
+   * Read the open organization's window again (an assurance is for one organization). An answer
+   * for an organization since left, or from any read but the latest asked (even for the same
+   * organization), changes nothing; a failed read closes it.
+   */
+  async refreshWindow(): Promise<void> {
+    const orgId = this.orgId.value;
+    if (orgId == null) return; // (none open: the window closed when it was left, or was never opened)
+    // (every open starts a newer read, and leaving clears orgId: this fence covers both)
+    const read = ++this.#windowReads;
+    const sentAt = this.#clocks.monotonic();
+    let forMs: unknown = null;
+    try {
+      forMs = await this.#readWindow(orgId);
+    } catch {
+      forMs = null;
+    }
+    if (read !== this.#windowReads || this.orgId.value !== orgId) return;
+    this.setWindow(sentAt, forMs);
   }
 
   /**
    * Leave the organization (a switch, unmount, the session's end): every request in flight is
-   * aborted, and none of their answers will change anything.
+   * aborted, none of their answers will change anything, and its window closes (it was that
+   * organization's).
    */
   leave(): void {
     this.#generation++;
+    this.closeWindow();
     for (const c of this.#controllers) c.abort();
     this.#controllers.clear();
     batch(() => {

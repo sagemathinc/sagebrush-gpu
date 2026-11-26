@@ -67,6 +67,7 @@ async function world(handlers?: Handlers): Promise<World> {
       throw new Error("no network in tests");
     },
     vm: null,
+    container: null,
     agentSigner: async () => null,
     agentPublicKeys: async () => null,
     alert: () => {},
