@@ -1533,8 +1533,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
-  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
  },
  {
   "file": "migrations/0007_sessions.sql",
@@ -1916,8 +1916,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
  },
  {
   "file": "src/jobs.ts",
@@ -1971,8 +1971,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop]);",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop]);",
   "note": "the VM watchdog left out of the cron"
  },
  {
@@ -3061,8 +3061,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog])",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, containerLifetime, containerHardStop, vmWatchdog])",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog])",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, containerLifetime, containerHardStop, vmWatchdog])",
   "note": "heartbeat watchdog not scheduled"
  },
  {
@@ -5543,5 +5543,311 @@
   "old": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled') AND watchdog_version = ?`,",
   "new": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled')`,",
   "note": "the re-read ignores the version"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (\"machineId\" in req) return refuse(\"restartNotSupported\");\n",
+  "new": "",
+  "note": "a restart admitted as new"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (Object.keys(req).some((k) => !REQUEST_KEYS.has(k))) return refuse(\"badRequest\");\n",
+  "new": "",
+  "note": "extra fields accepted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (listed.listedAtMs > nowMs || nowMs - listed.listedAtMs > OFFER_FRESH_MS) return refuse(\"staleOffer\");",
+  "new": "  if (nowMs - listed.listedAtMs > OFFER_FRESH_MS) return refuse(\"staleOffer\");",
+  "note": "a future listing accepted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (listed.listedAtMs > nowMs || nowMs - listed.listedAtMs > OFFER_FRESH_MS) return refuse(\"staleOffer\");",
+  "new": "  if (listed.listedAtMs > nowMs || nowMs - listed.listedAtMs > OFFER_FRESH_MS + 1) return refuse(\"staleOffer\");",
+  "note": "freshness off by one"
+ },
+ {
+  "file": "src/start.ts",
+  "old": " || o.provider === \"vast\"",
+  "new": "",
+  "note": "vast offer accepted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": " || typeof o.dataCenter !== \"string\" || !DATA_CENTER.test(o.dataCenter)) return refuse(\"offerMismatch\");",
+  "new": ") return refuse(\"offerMismatch\");",
+  "note": "data center unchecked"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (!isCount(o.providerCostPerHour) || o.providerCostPerHour > COST_MAX) return refuse(\"offerMismatch\");",
+  "new": "  if (!isCount(o.providerCostPerHour)) return refuse(\"offerMismatch\");",
+  "note": "cost unbounded"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (o.gpuType !== gpuType || o.gpuCount !== gpuCount) return refuse(\"offerMismatch\");",
+  "new": "  if (o.gpuType !== gpuType) return refuse(\"offerMismatch\");",
+  "note": "count swap accepted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (o.gpuType !== gpuType || o.gpuCount !== gpuCount) return refuse(\"offerMismatch\");",
+  "new": "  if (o.gpuCount !== gpuCount) return refuse(\"offerMismatch\");",
+  "note": "type swap accepted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "       WHERE m.project_id = ? AND m.user_id = ? AND m.status = 'active'`,",
+  "new": "       WHERE m.project_id = ? AND m.user_id = ?`,",
+  "note": "a removed member admitted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (nowMs < ctx.starts_ms) return refuse(\"projectNotStarted\");\n",
+  "new": "",
+  "note": "before the project starts"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (nowMs >= ctx.ends_ms) return refuse(\"projectEnded\");",
+  "new": "  if (nowMs > ctx.ends_ms) return refuse(\"projectEnded\");",
+  "note": "the project's end off by one"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (payer === \"team\" && ctx.team_id === null) return refuse(\"noTeam\");\n",
+  "new": "",
+  "note": "team payer without a team"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (ctx.billing_mode !== \"resold\") return refuse(\"byokNotYetAvailable\");\n",
+  "new": "",
+  "note": "byok admitted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "    marginBps = ctx.margin_bps_override ?? ctx.org_margin_bps;",
+  "new": "    marginBps = ctx.org_margin_bps;",
+  "note": "the project's override ignored"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (!(price <= policy.maxPricePerHour)) return refuse(\"overPolicyPrice\");",
+  "new": "  if (!(price <= policy.maxPricePerHour * 2)) return refuse(\"overPolicyPrice\");",
+  "note": "the policy cap loosened"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (quoteMaxPerHour !== undefined && price > quoteMaxPerHour) return refuse(\"overQuote\");\n",
+  "new": "",
+  "note": "the quote ignored"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  return checkedMul(entrySplit(providerCostPerHour, 60, marginBps).total, 60);",
+  "new": "  return entrySplit(providerCostPerHour, 3600, marginBps).total;",
+  "note": "the price as an hour, not full minutes"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  const holderId = payer === \"member\" ? ctx.member_id : ctx.team_id!;",
+  "new": "  const holderId = ctx.member_id;",
+  "note": "a team payer charged to the member"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (shouldHardStop({ unspent: mn.unspent, machines: mn.commitments, unbilledSeconds: mn.unbilledSeconds, ...periods })) return refuse(\"hardStop\");\n",
+  "new": "",
+  "note": "no hard stop"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  for (const r of rows.filter((x) => x.kind === \"pending\")) commitments.push({ providerCostPerHour: r.provider_cost_per_hour!, marginBps: r.margin_bps! });\n",
+  "new": "",
+  "note": "pending starts not counted (H1)"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "         AND NOT EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.incarnation = m.incarnation)`,",
+  "new": "`,",
+  "note": "an accruing start counted twice"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "       WHERE ${who} AND m.state = 'starting' AND m.admitted_cost_per_hour IS NOT NULL",
+  "new": "       WHERE ${who} AND m.state IN ('starting', 'failed') AND m.admitted_cost_per_hour IS NOT NULL",
+  "note": "failed starts still counted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "      pending += pendingCharge(m);\n",
+  "new": "",
+  "note": "pending charge ignored"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "      providerCostPerHour: Math.max(...m.intervals.map((i) => i.providerCostPerHour)),",
+  "new": "      providerCostPerHour: Math.min(...m.intervals.map((i) => i.providerCostPerHour)),",
+  "note": "the lowest unbilled rate"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "    w0 = Math.min(w0, m.billedThroughMs);",
+  "new": "    w0 = w0;",
+  "note": "unbilled time ignored"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  const unspent = alloc.amount - alloc.spent - pending;",
+  "new": "  const unspent = alloc.amount - pending;",
+  "note": "ledger entries ignored"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (!isCount(alloc.amount) || !isCount(alloc.start_version) || typeof alloc.spent !== \"number\" || !Number.isSafeInteger(alloc.spent)) throw new RangeError(\"allocation figures\");",
+  "new": "  if (false) throw new RangeError(\"allocation figures\");",
+  "note": "untrusted figures accepted"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "      stmt(`UPDATE allocations SET start_version = start_version + 1 WHERE id = ? AND start_version = ?`, mn.allocationId, mn.startVersion),\n      guard,",
+  "new": "      stmt(`UPDATE allocations SET start_version = start_version + 1 WHERE id = ? AND ? IS NOT NULL`, mn.allocationId, mn.startVersion),\n      guard,",
+  "note": "the CAS dropped"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "        ctx.member_id, projectId, userId, ctx.team_id,\n      ),\n      guard,\n    ]);",
+  "new": "        ctx.member_id, projectId, userId, ctx.team_id,\n      ),\n    ]);",
+  "note": "the guard after the machine dropped"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "         WHERE NOT EXISTS (SELECT 1 FROM area_restores r WHERE r.state = 'claimed' AND r.area_key IN (?, ?))\n           AND EXISTS",
+  "new": "         WHERE (? IS NOT NULL OR ? IS NOT NULL)\n           AND EXISTS",
+  "note": "the restore claim ignored"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "x.status = 'active' AND x.team_id IS ?)`,",
+  "new": "x.status = 'active' AND (? IS NOT NULL OR 1))`,",
+  "note": "the team change ignored"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "           AND EXISTS (SELECT 1 FROM members x WHERE x.id = ? AND x.project_id = ? AND x.user_id = ? AND x.status = 'active' AND x.team_id IS ?)`,",
+  "new": "           AND (? IS NOT NULL OR ? OR ? OR ? OR 1)`,",
+  "note": "membership not re-checked at the write"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "    if (v[0]?.start_version !== mn.startVersion) return refuse(\"busy\");",
+  "new": "    if (false) return refuse(\"busy\");",
+  "note": "a lost CAS reported as something else"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "    launch: { provider: o.provider, gpuType: o.gpuType, gpuCount: o.gpuCount, dataCenter: o.dataCenter, maxProviderCostPerHour: o.providerCostPerHour },",
+  "new": "    launch: { provider: o.provider, gpuType: o.gpuType, gpuCount: o.gpuCount, dataCenter: o.dataCenter, maxProviderCostPerHour: quoteMaxPerHour ?? o.providerCostPerHour },",
+  "note": "the launch ceiling from the quote"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  stmt(`UPDATE machines SET state = 'failed' WHERE id = ? AND incarnation = ? AND state = 'starting'`, machineId, incarnation);",
+  "new": "  stmt(`UPDATE machines SET state = 'failed' WHERE id = ? AND incarnation = ? AND state <> 'deleted'`, machineId, incarnation);",
+  "note": "cleanup touches a machine that moved on"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  stmt(`UPDATE machines SET state = 'failed' WHERE id = ? AND incarnation = ? AND state = 'starting'`, machineId, incarnation);",
+  "new": "  stmt(`UPDATE machines SET state = 'failed' WHERE id = ? AND ? IS NOT NULL AND state = 'starting'`, machineId, incarnation);",
+  "note": "cleanup at any incarnation"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "AND m.created_ms <= ?\n         AND NOT EXISTS (SELECT 1 FROM launches l WHERE l.machine_id = m.id AND l.incarnation = m.incarnation)\n       ORDER BY",
+  "new": "AND m.created_ms <= ?\n       ORDER BY",
+  "note": "stale cleanup ignores the intent"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "SELECT m.id FROM machines m WHERE m.state = 'starting' AND m.admitted_cost_per_hour IS NOT NULL AND m.created_ms <= ?",
+  "new": "SELECT m.id FROM machines m WHERE m.state IN ('starting', 'running') AND m.admitted_cost_per_hour IS NOT NULL AND m.created_ms <= ?",
+  "note": "stale cleanup touches a running machine"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "    [nowMs - START_INTENT_GRACE_MS, STALE_START_BATCH],",
+  "new": "    [nowMs - START_INTENT_GRACE_MS + 1, STALE_START_BATCH],",
+  "note": "stale grace off by one"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "WHEN NEW.start_version IS NOT OLD.start_version AND NEW.start_version IS NOT OLD.start_version + 1",
+  "new": "WHEN NEW.start_version < OLD.start_version",
+  "note": "start version may jump"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "WHEN NEW.admitted_cost_per_hour IS NOT OLD.admitted_cost_per_hour OR NEW.admitted_margin_bps IS NOT OLD.admitted_margin_bps\n",
+  "new": "WHEN NEW.admitted_cost_per_hour IS NOT OLD.admitted_cost_per_hour\n",
+  "note": "admitted margin may change"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "  CHECK ((admitted_margin_bps IS NULL) = (admitted_cost_per_hour IS NULL));",
+  "new": "  CHECK (1);",
+  "note": "admitted rate half set"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "    AND (m.admitted_cost_per_hour IS NOT NEW.provider_cost_per_hour OR m.admitted_margin_bps IS NOT NEW.margin_bps)",
+  "new": "    AND (m.admitted_cost_per_hour IS NOT NEW.provider_cost_per_hour)",
+  "note": "a launch rate's margin unbound"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "    AND (m.admitted_cost_per_hour IS NOT NEW.provider_cost_per_hour OR m.admitted_margin_bps IS NOT NEW.margin_bps)",
+  "new": "    AND (m.admitted_margin_bps IS NOT NEW.margin_bps)",
+  "note": "a launch rate's cost unbound"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND m.admitted_cost_per_hour IS NOT NULL AND m.provider IS NOT NEW.provider)",
+  "new": "WHEN 0",
+  "note": "a launch's provider unbound"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "  AND NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND m.state = 'starting' AND m.incarnation = NEW.incarnation)",
+  "new": "  AND NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND m.incarnation = NEW.incarnation)",
+  "note": "intent trigger without the state (H4)"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "  AND NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND m.state = 'starting' AND m.incarnation = NEW.incarnation)",
+  "new": "  AND NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND m.state = 'starting')",
+  "note": "intent trigger without the incarnation (H4)"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "  CHECK (admitted_cost_per_hour IS NULL OR admitted_cost_per_hour BETWEEN 0 AND 1000000000);",
+  "new": "  CHECK (admitted_cost_per_hour IS NULL OR admitted_cost_per_hour BETWEEN -1 AND 1000000001);",
+  "note": "admitted cost unbounded"
+ },
+ {
+  "file": "migrations/0019_start_admission.sql",
+  "old": "  CHECK (admitted_margin_bps IS NULL OR admitted_margin_bps BETWEEN 0 AND 1000000)",
+  "new": "  CHECK (admitted_margin_bps IS NULL OR admitted_margin_bps BETWEEN -1 AND 1000001)",
+  "note": "admitted margin unbounded"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, staleStarts, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "note": "stale starts not scheduled"
  }
 ]
