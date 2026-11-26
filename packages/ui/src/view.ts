@@ -1,7 +1,7 @@
 // What the screens show and allow, as pure functions of API objects, so the decisions
 // are tested without a DOM. Components only lay these out.
 
-import type { BillingMode, Machine, ProjectLabels, ProviderId, ProviderPause, QuoteRefusal, SpendMeter, StartFailure, StopReason } from "@sbgpu/api";
+import type { BillingMode, ErrorCode, Machine, Micros, ProjectLabels, ProviderId, ProviderPause, QuoteRefusal, SpendMeter, StartFailure, StopReason } from "@sbgpu/api";
 import { MACHINE_DOMAIN } from "./config.ts";
 import { withArticle } from "./labels.ts";
 import { computeMeter, formatDuration, type MeterBand } from "./meter.ts";
@@ -90,6 +90,46 @@ export function refusalText(reason: QuoteRefusal, labels: ProjectLabels, provide
     case "concurrencyCap":
       return "Too many machines running. Stop one first.";
   }
+}
+
+/**
+ * A refused start in plain words, chosen by the error's code alone (the server's own words may
+ * change): what happened and what the student can do. Null when the code has nothing better to say
+ * than the server's message (and for credentialUnusable, which has its own words, pausedStartText).
+ */
+export function startRefusalText(code: ErrorCode, labels: ProjectLabels): string | null {
+  switch (code) {
+    case "priceCap":
+      return `The price is now higher than the one you saw, or above the ${labels.project}'s limit. Check the price and try again.`;
+    case "allocationTooLow":
+      return `Your allocation doesn't have enough left for this GPU's shortest run. Try a cheaper one, or ask ${withArticle(labels.manager)} for more.`;
+    case "budgetExhausted":
+      return `Your allocation is used up. Ask ${withArticle(labels.manager)} for more.`;
+    case "projectNotStarted":
+    case "projectEnded":
+    case "noCapacity":
+    case "policy":
+    case "concurrencyCap":
+      return refusalText(code, labels);
+    case "invalidState":
+      return "It can't start right now, perhaps while a restore of your workspace finishes. Try again in a moment.";
+    case "conflict":
+      return "Several starts happened at once. Try again.";
+    default:
+      return null;
+  }
+}
+
+/**
+ * About how long the remaining allocation lasts at an offer's all-in price, for the row before
+ * Start: whole hours from 10 up, tenths below, and "less than an hour" under one. Null when
+ * there's nothing to say (no price, or nothing left).
+ */
+export function hoursOnAllocation(remaining: Micros, pricePerHour: Micros, mode: BillingMode): string | null {
+  if (!(pricePerHour > 0) || !(remaining > 0)) return null;
+  const hours = remaining / pricePerHour;
+  const amount = hours < 1 ? "less than an hour" : hours < 10 ? `about ${(Math.floor(hours * 10) / 10).toFixed(1)} h` : `about ${Math.floor(hours)} h`;
+  return mode === "byok" ? `Your allocation covers ${amount} of metered use at this price.` : `Your allocation buys ${amount} at this price.`;
 }
 
 /** A refused start or restart for a paused provider: its name, or the API's own words without one. */

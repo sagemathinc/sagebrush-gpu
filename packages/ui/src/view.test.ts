@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MACHINE_STATES, QUOTE_REFUSALS, STOP_REASONS, type Machine, type SpendMeter } from "@sbgpu/api";
 import { MACHINE_DOMAIN, TEST_MACHINE_DOMAIN } from "./config.ts";
 import { capitalize, GENERIC_LABELS, plural, resolveLabels, withArticle } from "./labels.ts";
-import { ago, formatBytes, jupyterUrl, machineActions, machineStateLabel, meterView, pausedStartText, pauseView, refusalText, savePercent, START_FAILURE_WORDS, startFailureText, STORAGE_NEAR_FRACTION, stopReasonText, storageLevel, storageWarning } from "./view.ts";
+import { ago, formatBytes, hoursOnAllocation, startRefusalText, jupyterUrl, machineActions, machineStateLabel, meterView, pausedStartText, pauseView, refusalText, savePercent, START_FAILURE_WORDS, startFailureText, STORAGE_NEAR_FRACTION, stopReasonText, storageLevel, storageWarning } from "./view.ts";
 
 const COURSE = resolveLabels({ project: "course", member: "student", manager: "instructor", assistant: "TA", team: "group" });
 
@@ -276,4 +276,28 @@ test("a start that never came up: its own label, why in plain words, what it cos
   assert.deepEqual(START_FAILURE_WORDS, { createDeadline: "the provider didn't have it ready in time", podExited: "it stopped on its own before it was ready" });
   assert.deepEqual([machineActions(deadline).stop, machineActions(deadline).delete, machineActions(deadline).restart], [false, true, false]);
   assert.deepEqual([machineActions(lost).stop, machineActions(lost).delete], [true, true], "a machine that failed later may still need stopping");
+});
+
+test("a refused start in plain words, by its code alone", () => {
+  assert.equal(startRefusalText("priceCap", COURSE), "The price is now higher than the one you saw, or above the course's limit. Check the price and try again.");
+  assert.equal(startRefusalText("allocationTooLow", COURSE), "Your allocation doesn't have enough left for this GPU's shortest run. Try a cheaper one, or ask an instructor for more.");
+  assert.equal(startRefusalText("budgetExhausted", COURSE), "Your allocation is used up. Ask an instructor for more.");
+  assert.equal(startRefusalText("invalidState", COURSE), "It can't start right now, perhaps while a restore of your workspace finishes. Try again in a moment.");
+  assert.equal(startRefusalText("conflict", COURSE), "Several starts happened at once. Try again.");
+  for (const code of ["projectNotStarted", "projectEnded", "noCapacity", "policy", "concurrencyCap"] as const) assert.equal(startRefusalText(code, COURSE), refusalText(code, COURSE), code);
+  for (const code of ["credentialUnusable", "badRequest", "notFound", "internal", "unauthenticated", "forbidden"] as const) assert.equal(startRefusalText(code, COURSE), null, code);
+});
+
+test("how long the allocation lasts at an all-in price: whole hours from 10, tenths below, and less than an hour", () => {
+  assert.equal(hoursOnAllocation(25_000_000, 624_000, "resold"), "Your allocation buys about 40 h at this price.");
+  assert.equal(hoursOnAllocation(25_334_400, 624_000, "resold"), "Your allocation buys about 40 h at this price.", "40.6 h: rounded down, never promised");
+  assert.equal(hoursOnAllocation(6_240_000, 624_000, "resold"), "Your allocation buys about 10 h at this price.");
+  assert.equal(hoursOnAllocation(6_239_999, 624_000, "resold"), "Your allocation buys about 9.9 h at this price.");
+  assert.equal(hoursOnAllocation(3_000_000, 624_000, "resold"), "Your allocation buys about 4.8 h at this price.");
+  assert.equal(hoursOnAllocation(624_000, 624_000, "resold"), "Your allocation buys about 1.0 h at this price.");
+  assert.equal(hoursOnAllocation(623_999, 624_000, "resold"), "Your allocation buys less than an hour at this price.");
+  assert.equal(hoursOnAllocation(3_000_000, 624_000, "byok"), "Your allocation covers about 4.8 h of metered use at this price.");
+  for (const [r, p] of [[0, 624_000], [-1, 624_000], [1_000_000, 0], [1_000_000, -5], [Number.NaN, 1], [1, Number.NaN]] as const) {
+    assert.equal(hoursOnAllocation(r, p, "resold"), null, `${r} at ${p}`);
+  }
 });

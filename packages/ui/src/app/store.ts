@@ -19,16 +19,20 @@ import {
   type SignInOutcome,
   type SpendMeter,
   type UpdateProjectRequest,
+  type ErrorCode,
   type ProviderPause,
   type ListSnapshotsResponse,
   type SnapshotArea,
 } from "@sbgpu/api";
 import { ApiError, type Client, type FetchFn } from "../client.ts";
 import { resolveLabels } from "../labels.ts";
-import { jupyterUrl, pausedStartText } from "../view.ts";
+import { jupyterUrl, pausedStartText, startRefusalText } from "../view.ts";
 import { terminalUrl } from "../terminal/session.ts";
 import type { PollTimers } from "./polling.ts";
 import { ProviderKeys, WINDOW_TIMERS } from "./provider-keys.ts";
+
+/** Conflicts (two starts at once) retried quietly before one is shown. */
+export const START_CONFLICT_RETRIES = 1;
 
 export interface StoreOptions {
   /** The UI's own host (location.host); the terminal relay must be on it. */
@@ -83,6 +87,8 @@ export class Store {
   readonly machines = signal<Machine[]>([]);
   readonly gpuTypes = signal<PriceListItem[]>([]);
   readonly quotes = signal<Readonly<Record<string, Quote>>>({});
+  /** The last start refused in words the page can show (startRefusalText), beside its GPU type. */
+  readonly startRefusal = signal<{ gpuType: string; text: string } | null>(null);
   /** Providers whose launches are paused for the project's organization (the reason only for manager and above). */
   readonly paused = signal<ProviderPause[]>([]);
   /** Staff only (assistant and up): everyone in the project, its teams, and every machine. */
@@ -327,6 +333,7 @@ export class Store {
         this.machines.value = [];
         this.gpuTypes.value = [];
         this.quotes.value = {};
+        this.startRefusal.value = null;
         this.paused.value = [];
         this.members.value = [];
         this.teams.value = [];
@@ -546,13 +553,28 @@ export class Store {
     const quote = this.quotes.value[gpuType];
     const shown = quote?.offers[0]?.pricePerHour.total;
     if (projectId == null || quote == null || shown == null) return false;
+    this.startRefusal.value = null;
     const m = await this.#act(`start:${gpuType}`, async () => {
-      const machine = await this.client.call("startMachine", {
-        params: { projectId },
-        body: { gpuType, gpuCount: quote.gpuCount, maxPricePerHour: shown },
-      });
-      await this.refresh();
-      return machine;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const machine = await this.client.call("startMachine", {
+            params: { projectId },
+            body: { gpuType, gpuCount: quote.gpuCount, maxPricePerHour: shown },
+          });
+          await this.refresh();
+          return machine;
+        } catch (err) {
+          // Two starts at once: the server admitted the other; one quiet retry reads the money again.
+          if (err instanceof ApiError && err.code === "conflict" && attempt < START_CONFLICT_RETRIES) continue;
+          // A refusal the page can put in plain words shows beside that GPU; anything else goes to the banner.
+          // (credentialUnusable has no words here: it keeps its own, naming the paused provider)
+          const text = err instanceof ApiError ? startRefusalText(err.code as ErrorCode, this.labels.value) : null;
+          if (text == null) throw err;
+          this.startRefusal.value = { gpuType, text };
+          await this.refresh();
+          return null;
+        }
+      }
     });
     return m != null;
   }
