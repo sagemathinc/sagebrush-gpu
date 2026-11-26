@@ -347,7 +347,7 @@ test("schema (0012): every bounded text counts stored bytes and holds no NUL", a
   const intentWith = (col: string, v: string) => {
     const vals: Record<string, string> = { nonce_sha256: AGENT, boot_script_sha256: AGENT, agent_sha256: AGENT, [col]: v };
     return w.db.batch([stmt(
-      `INSERT INTO launches (machine_id, incarnation, mode, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms) VALUES (?, ?, 'vm', 'shadeform', ?, ?, ?, 'creating', ?, ?)`,
+      `INSERT INTO launches (machine_id, incarnation, mode, account_kind, provider, nonce_sha256, boot_script_sha256, agent_sha256, outcome, next_ms, created_ms) VALUES (?, ?, 'vm', 'platform', 'shadeform', ?, ?, ?, 'creating', ?, ?)`,
       l.machineId, inc++, vals.nonce_sha256!, vals.boot_script_sha256!, vals.agent_sha256!, T0, T0,
     )]);
   };

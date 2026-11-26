@@ -62,8 +62,8 @@ async function launch(o: { firstActiveMs?: number; ipv4?: string; bootScriptSha2
       machineId, w.projectId, allocationId, memberId, providerMachineId, T0,
     ),
     stmt(
-      `INSERT INTO launches (machine_id, incarnation, mode, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, next_ms, created_ms, outcome)
-       VALUES (?, 1, 'vm', 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, 'launched')`,
+      `INSERT INTO launches (machine_id, incarnation, mode, account_kind, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, next_ms, created_ms, outcome)
+       VALUES (?, 1, 'vm', 'platform', 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, 'launched')`,
       machineId, providerMachineId, sha(nonce), o.bootScriptSha256 ?? SCRIPT, sha("agent"), o.ipv4 ?? IP, o.firstActiveMs ?? T0, (o.firstActiveMs ?? T0) + ANNOUNCE_DEADLINE_MS, T0,
     ),
   ]);
@@ -371,8 +371,8 @@ test("watchdog: its search is a range on the partial index in its own order: no 
       kind === "enrolled" ? ["enrolled", null, null, null] :
       ["launched", null, null, firstActive + ANNOUNCE_DEADLINE_MS];
     stmts.push(stmt(
-      `INSERT INTO launches (machine_id, incarnation, mode, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, announce_ms, outcome, terminate_reason, terminated_ms, next_ms, heartbeat_due_ms, created_ms)
-       VALUES (?, 1, 'vm', 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO launches (machine_id, incarnation, mode, account_kind, provider, provider_machine_id, nonce_sha256, boot_script_sha256, agent_sha256, ipv4, first_active_ms, announce_ms, outcome, terminate_reason, terminated_ms, next_ms, heartbeat_due_ms, created_ms)
+       VALUES (?, 1, 'vm', 'platform', 'hyperstack', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       machineId, String(100000 + i), sha(machineId), SCRIPT, sha("agent"), IP, firstActive, kind === "enrolled" ? T0 : null, outcome, reason, terminated, next, kind === "enrolled" ? T0 : null, T0,
     ));
     if (kind === "due") due.push(String(100000 + i));

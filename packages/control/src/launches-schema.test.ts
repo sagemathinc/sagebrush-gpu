@@ -54,9 +54,9 @@ const insert = (table: string, v: Record<string, SqlValue>) => {
   return w.db.batch([{ sql: `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`, params: Object.values(v) }]);
 };
 const container = (m: string, over: Record<string, SqlValue> = {}) =>
-  insert("launches", { machine_id: m, incarnation: 1, mode: "container", provider: "runpod", agent_sha256: H, credential_kind: "ours", outcome: "creating", next_ms: T0, heartbeat_due_ms: T0, created_ms: T0, ...over });
+  insert("launches", { machine_id: m, incarnation: 1, mode: "container", provider: "runpod", agent_sha256: H, credential_kind: "ours", account_kind: "platform", outcome: "creating", next_ms: T0, heartbeat_due_ms: T0, created_ms: T0, ...over });
 const vmLaunch = (m: string, over: Record<string, SqlValue> = {}) =>
-  insert("launches", { machine_id: m, incarnation: 1, mode: "vm", provider: "shadeform", nonce_sha256: H, boot_script_sha256: H, agent_sha256: H, outcome: "creating", next_ms: T0, created_ms: T0, ...over });
+  insert("launches", { machine_id: m, incarnation: 1, mode: "vm", account_kind: "platform", provider: "shadeform", nonce_sha256: H, boot_script_sha256: H, agent_sha256: H, outcome: "creating", next_ms: T0, created_ms: T0, ...over });
 const upd = (m: string, set: string, ...p: SqlValue[]) => w.db.batch([stmt(`UPDATE launches SET ${set} WHERE machine_id = ?`, ...p, m)]);
 const token = (m: string, over: Record<string, SqlValue> = {}) =>
   insert("boot_tokens", { token_sha256: sha(m), machine_id: m, incarnation: 1, mode: "container", ...over });
@@ -118,6 +118,87 @@ test("launches: which launch a row is (machine, incarnation) never changes, in b
   await tryAll(v, "vm, with its id and token");
   const rows = await w.db.all<{ machine_id: string; incarnation: number }>(`SELECT machine_id, incarnation FROM launches WHERE machine_id IN (?, ?) ORDER BY machine_id`, [c, v]);
   assert.deepEqual(rows.map((r) => [r.machine_id, r.incarnation]).sort(), [[c, 1], [v, 1]].sort());
+});
+
+test("launches: the account kind has no default: an intent that omits it is refused, in both modes", async () => {
+  // (an explicit NULL is refused by NOT NULL alone; this is the omission, which a DEFAULT would accept)
+  const omit = (v: Record<string, SqlValue>) => {
+    const rest = { ...v };
+    delete rest.account_kind;
+    return insert("launches", rest);
+  };
+  const c = await machine();
+  await assert.rejects(
+    omit({ machine_id: c, incarnation: 1, mode: "container", provider: "runpod", agent_sha256: H, credential_kind: "ours", outcome: "creating", next_ms: T0, created_ms: T0 }),
+    /NOT NULL constraint failed: launches\.account_kind/,
+  );
+  const v = await machine("shadeform");
+  await assert.rejects(
+    omit({ machine_id: v, incarnation: 1, mode: "vm", provider: "shadeform", nonce_sha256: H, boot_script_sha256: H, agent_sha256: H, outcome: "creating", next_ms: T0, created_ms: T0 }),
+    /NOT NULL constraint failed: launches\.account_kind/,
+  );
+  assert.equal((await w.db.all(`SELECT 1 FROM launches WHERE machine_id IN (?, ?)`, [c, v])).length, 0);
+});
+
+test("launches: the account is pinned at the intent (the machine's organization then), and moves of the machine or its project don't change it", async () => {
+  const other = newId("org");
+  await w.db.batch([stmt(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms, total_credit) VALUES (?, 'Other', 'resold', 3000, ?, 0)`, other, T0)]);
+  const ORG = { credential_kind: "org", account_kind: "org", account_org_id: w.orgId };
+  // the account's shape
+  const c = await machine();
+  await assert.rejects(container(c, { account_kind: "other" }), /CHECK/); // (a closed kind)
+  await assert.rejects(container(c, { account_kind: null }), /NOT NULL/); // (always written, never inferred)
+  await assert.rejects(container(c, { ...ORG, account_org_id: null }), /CHECK/); // (an org account names its organization)
+  await assert.rejects(container(c, { account_org_id: w.orgId }), /CHECK/); // (ours names none)
+  await assert.rejects(container(c, { ...ORG, credential_kind: "ours" }), /CHECK/); // (a container's account follows its credential)
+  await assert.rejects(container(c, { credential_kind: "org" }), /CHECK/);
+  const v = await machine("shadeform");
+  await assert.rejects(vmLaunch(v, { account_kind: "org", account_org_id: w.orgId }), /CHECK/); // (a VM is ours under today's contract)
+  // the organization must be the machine's at the intent, exactly
+  await assert.rejects(container(c, { ...ORG, account_org_id: other }), /organization at the intent/);
+  await container(c, ORG);
+  // fixed: never changed, never cleared (the same values pass)
+  for (const [why, set, ...p] of [
+    ["another organization", `account_org_id = ?`, other],
+    ["cleared", `account_org_id = NULL, account_kind = 'platform'`],
+    ["the kind alone", `account_kind = 'platform'`],
+  ] as Array<[string, string, ...SqlValue[]]>) {
+    await assert.rejects(upd(c, set, ...p), /intent is fixed/, why);
+  }
+  await upd(c, `account_kind = 'org', account_org_id = ?`, w.orgId);
+  // transfers after the intent: the launch keeps the account it was made in
+  const pinned = async (m: string) => (await w.db.all<{ k: string; o: string | null }>(`SELECT account_kind AS k, account_org_id AS o FROM launches WHERE machine_id = ?`, [m])).map((r) => [r.k, r.o])[0];
+  // (the machine moves to a project of the other organization; before and after its provider id)
+  const p2 = newId("project");
+  const a2 = newId("allocation");
+  await w.db.batch([
+    stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'P2', ?, ?, 0, ?)`, p2, other, T0, T0 + 86_400_000, T0),
+    stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', ?, 0, ?)`, a2, p2, memberId, T0),
+    stmt(`UPDATE machines SET project_id = ?, allocation_id = ? WHERE id = ?`, p2, a2, c),
+  ]);
+  assert.deepEqual(await pinned(c), ["org", w.orgId]);
+  await upd(c, `provider_machine_id = 'pod-c'`);
+  assert.deepEqual(await pinned(c), ["org", w.orgId]);
+  // (a project of the first organization, with its machine, moves to the other organization)
+  const p3 = newId("project");
+  const a3 = newId("allocation");
+  const d = newId("machine");
+  await w.db.batch([
+    stmt(`INSERT INTO projects (id, org_id, name, starts_ms, ends_ms, budget, created_ms) VALUES (?, ?, 'P3', ?, ?, 0, ?)`, p3, w.orgId, T0, T0 + 86_400_000, T0),
+    stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'member', ?, 0, ?)`, a3, p3, memberId, T0),
+    stmt(
+      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES (?, ?, ?, ?, 'runpod', 'L4', 1, 'X', 'starting', 1, ?)`,
+      d, p3, a3, memberId, T0,
+    ),
+  ]);
+  await container(d, ORG);
+  await w.db.batch([stmt(`UPDATE projects SET org_id = ? WHERE id = ?`, other, p3)]);
+  assert.deepEqual(await pinned(d), ["org", w.orgId]); // (not the current owner, which is now the other organization)
+  // a new intent after a move takes the owner at that time
+  await assert.rejects(container(d, { ...ORG, incarnation: 2 }), /organization at the intent/);
+  await container(d, { ...ORG, incarnation: 2, account_org_id: other });
+  assert.deepEqual((await w.db.all<{ o: string }>(`SELECT account_org_id AS o FROM launches WHERE machine_id = ? AND incarnation = 2`, [d]))[0]!.o, other);
 });
 
 test("launches: the intent's pins never change, in both modes (the same value passes)", async () => {
@@ -211,7 +292,7 @@ test("launches: each mode carries its own columns, and never the other mode's", 
   }
   await assert.rejects(vmLaunch(v, { nonce_sha256: null }), /CHECK/);
   await assert.rejects(vmLaunch(v, { boot_script_sha256: null }), /CHECK/);
-  await container(m, { credential_kind: "org" });
+  await container(m, { credential_kind: "org", account_kind: "org", account_org_id: w.orgId });
   await vmLaunch(v);
 });
 
@@ -267,7 +348,7 @@ test("launches: first running only moves earlier; a lifetime and a credential ki
     await assert.rejects(upd(m, `credential_kind = ?`, to), /credential kind is fixed|CHECK/, String(to));
   }
   const o = await machine();
-  await container(o, { credential_kind: "org" });
+  await container(o, { credential_kind: "org", account_kind: "org", account_org_id: w.orgId });
   await assert.rejects(upd(o, `credential_kind = 'ours'`), /credential kind is fixed/);
   // a VM row's credential kind stays NULL
   const v = await machine("shadeform");
