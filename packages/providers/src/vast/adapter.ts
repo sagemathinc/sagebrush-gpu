@@ -5,7 +5,9 @@
 // offer; our launcher in the `args` runtype, so the image must have no ENTRYPOINT of its own and
 // the launcher is PID 1; no SSH or Jupyter runtype, no onstart, no template, no volume, no bid;
 // never an SSH key (SEC ruling: no attach call and no ssh_key field, ever, and a readback showing
-// SSH is refused; only the requests in ROUTES are ever sent);
+// SSH is refused; only the requests in ROUTES are ever sent). Vast writes the account's own SSH
+// keys into every instance, attach or not (r13), so a launch first reads the account's key list
+// and refuses unless it is empty (SEC ruling on r13);
 // the only environment variable is the boot token. Vast's VMs (beta, consumer GPUs only) are never
 // used. Offers are per host machine: our data-center id is "machine-<id>", and a launch searches
 // that machine's current offer again (offer ids don't last) before accepting it.
@@ -56,7 +58,7 @@ export interface VastOptions {
 }
 
 /** Which kind of call failed: Vast's 404 means a bad key on a search and a gone offer on a create. */
-export type VastCall = "offers" | "create" | "instance";
+export type VastCall = "offers" | "create" | "instance" | "keys";
 
 /**
  * Map one Vast HTTP error to a ProviderError. Vast's error bodies are never read or kept: they can
@@ -317,6 +319,8 @@ const ROUTES: ReadonlyArray<{ method: Method; path: RegExp; query: "none" | "lis
   { method: "GET", path: /^\/api\/v0\/instances\/[0-9]{1,18}\/?$/, query: "none", body: false },
   { method: "DELETE", path: /^\/api\/v0\/instances\/[0-9]{1,18}\/?$/, query: "none", body: false },
   { method: "GET", path: /^\/api\/v1\/instances\/?$/, query: "list", body: false },
+  // the account-key preflight: exactly this read, nothing else under ssh/ (SEC ruling on r13)
+  { method: "GET", path: /^\/api\/v0\/ssh\/$/, query: "none", body: false },
 ];
 
 /**
@@ -527,12 +531,33 @@ export class VastAdapter implements ProviderAdapter {
     };
   }
 
+  /**
+   * The account-key preflight (SEC ruling on r13): Vast puts the account's SSH keys into every
+   * instance, so a launch needs the account to have none. Only the list's length is taken: no key,
+   * value or fingerprint is kept, returned or put in an error. A list that isn't readable as one
+   * refuses too. Nothing is created by this read, so a lost reply is a plain failure here.
+   */
+  async #accountKeysNone(stop: (() => boolean) | undefined): Promise<void> {
+    let json: unknown;
+    try {
+      json = await this.#call("GET", "/api/v0/ssh/", "keys", undefined, stop);
+    } catch (e) {
+      if (e instanceof ProviderError && e.kind === "outcome_unknown") throw new ProviderError("vast", "unknown", e.message, e.httpStatus);
+      throw e;
+    }
+    const keys = Array.isArray(json) ? json : isObject(json) && Array.isArray(json["ssh_keys"]) ? json["ssh_keys"] : null;
+    if (keys === null) throw new ProviderError("vast", "unknown", "Vast account SSH keys: the list can't be read");
+    if (keys.length !== 0) throw new ProviderError("vast", "auth", "Vast account has SSH keys: a launch needs none");
+  }
+
   async launch(spec: LaunchSpec, opts: LaunchOptions = {}): Promise<LaunchResult> {
     const body = this.createBody(spec);
     const stop = opts.shouldStop;
     const machine = vastMachineId(spec.dataCenter)!;
     const gpuName = gpuToVast(spec.gpuType)!;
     if (stop?.() === true) throw new ProviderError("vast", "unknown", "stopped at the caller's deadline before launching");
+    // Before any spend: the account must have no SSH keys.
+    await this.#accountKeysNone(stop);
     // This machine's offer as it is now, priced with this launch's disk.
     let offers;
     try {
