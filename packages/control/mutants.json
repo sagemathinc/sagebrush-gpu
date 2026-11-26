@@ -3866,7 +3866,7 @@
  },
  {
   "file": "src/container.ts",
-  "old": "    if (e instanceof ProviderError && e.kind === \"outcome_unknown\") return \"unknown\";\n",
+  "old": "    if (!(e instanceof ProviderError) || !DEFINITIVE_REFUSALS.has(e.kind)) return \"unknown\";\n",
   "new": "",
   "note": "a lost reply treated as a definitive failure"
  },
@@ -6857,5 +6857,107 @@
   "old": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) <= ?`,",
   "new": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) >= 0 AND ? IS NOT NULL`,",
   "note": "the save estimate unbound"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "new Set([\"no_capacity\", \"unplaceable\", \"forbidden\"])",
+  "new": "new Set([\"no_capacity\", \"unplaceable\"])",
+  "note": "forbidden not a next offer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "new Set([\"no_capacity\", \"unplaceable\", \"forbidden\"])",
+  "new": "new Set([\"no_capacity\", \"forbidden\"])",
+  "note": "unplaceable not a next offer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "new Set([\"no_capacity\", \"unplaceable\", \"forbidden\"])",
+  "new": "new Set([\"unplaceable\", \"forbidden\"])",
+  "note": "no capacity not a next offer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "new Set([\"no_capacity\", \"unplaceable\", \"forbidden\"])",
+  "new": "new Set([\"no_capacity\", \"unplaceable\", \"forbidden\", \"rate_limited\"])",
+  "note": "a rate limit a next offer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "new Set([...NEXT_OFFER_KINDS, \"rate_limited\", \"invalid_request\",",
+  "new": "new Set([...NEXT_OFFER_KINDS, \"rate_limited\", \"transient\", \"invalid_request\",",
+  "note": "a 5xx definitive"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "\"insufficient_funds\", \"not_found\"]);",
+  "new": "\"insufficient_funds\", \"not_found\", \"outcome_unknown\"]);",
+  "note": "an unknown outcome definitive"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "\"insufficient_funds\", \"not_found\"]);",
+  "new": "\"insufficient_funds\", \"not_found\", \"unknown\"]);",
+  "note": "an unrecognised error definitive"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "new Set([...NEXT_OFFER_KINDS, \"rate_limited\", \"invalid_request\",",
+  "new": "new Set([...NEXT_OFFER_KINDS, \"invalid_request\",",
+  "note": "a rate limit not definitive"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (!(e instanceof ProviderError) || !DEFINITIVE_REFUSALS.has(e.kind)) return \"unknown\";\n",
+  "new": "    if (e instanceof ProviderError && !DEFINITIVE_REFUSALS.has(e.kind)) return \"unknown\";\n",
+  "note": "a foreign error definitive"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    return NEXT_OFFER_KINDS.has(e.kind) ? \"next-offer\" : \"abandoned\";",
+  "new": "    return \"abandoned\";",
+  "note": "never a next offer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    return NEXT_OFFER_KINDS.has(e.kind) ? \"next-offer\" : \"abandoned\";",
+  "new": "    return NEXT_OFFER_KINDS.has(e.kind) ? \"next-offer\" : \"next-offer\";",
+  "note": "every definitive refusal a next offer"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  const providers = [...new Set(policy.allowedProviders)].filter((p) => deps.listers[p] !== undefined).sort();",
+  "new": "  const providers = (Object.keys(deps.listers) as ProviderId[]).filter((p) => deps.listers[p] !== undefined).sort();",
+  "note": "providers the policy disallows listed"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": ".filter((p) => deps.listers[p] !== undefined).sort();",
+  "new": ".filter((p) => deps.listers[p] !== undefined);",
+  "note": "unavailable providers unordered"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "(Array.isArray(x) ? [...x] : \"unavailable\")",
+  "new": "(Array.isArray(x) ? [...x] : [])",
+  "note": "a nonsense answer taken as empty"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    else offers.push(...list.filter((o) => o.provider === p));",
+  "new": "    else offers.push(...list);",
+  "note": "another provider's offers kept"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  const ranked = gpuType === null ? rankAllowed(offers, policy, gpuCount) : rankOffers(offers, policy, { gpuType, gpuCount });",
+  "new": "  const ranked = rankAllowed(offers, policy, gpuCount);",
+  "note": "the GPU type ignored"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  const listedAtMs = deps.clock();\n",
+  "new": "  const listedAtMs = 0;\n",
+  "note": "not stamped with the clock"
  }
 ]
