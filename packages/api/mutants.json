@@ -1328,5 +1328,11 @@
   "file": "src/tokens.ts",
   "old": "`prj/${c.prj}/t/${c.area.team}`",
   "new": "`prj/${c.prj}/${c.area.team}`"
+ },
+ {
+  "file": "src/tokens.ts",
+  "old": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9_-]{22}$/;",
+  "new": "export const RESTORE_OP_PATTERN = /^[A-Za-z0-9]{22}$/;",
+  "note": "T1 (TESTS on #89): the op's alphabet narrowed"
  }
 ]

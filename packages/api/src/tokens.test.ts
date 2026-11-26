@@ -190,6 +190,11 @@ test("restore claims: one deployment, project, area, operation, actor, snapshot 
   }
   for (const bad of ["short", "B".repeat(23), "B".repeat(21) + "=", "B".repeat(21) + "+", 22, null]) assert.equal(reason(restore({ op: bad }), "restore"), "op", String(bad));
   assert.match(op, RESTORE_OP_PATTERN);
+  // base64url's whole alphabet, including "-" and "_" (16 random bytes encode to any of them)
+  for (const good of ["-_-_-_-_-_-_-_-_-_-_-_", "aZ09-_aZ09-_aZ09-_aZ09", "_".repeat(22), "-".repeat(22), "z".repeat(21) + "9"]) {
+    assert.match(good, RESTORE_OP_PATTERN, good);
+    assert.equal(reason(restore({ op: good }), "restore"), "ok", good);
+  }
   assert.equal(reason(restore({ actor: newId("user") }), "restore"), "actor");
   // a member area is restored only by its own member; a team area by any member (control checks the team)
   assert.equal(reason(restore({ actor: newId("member") }), "restore"), "another member's area");
