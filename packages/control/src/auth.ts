@@ -18,7 +18,7 @@ import { SIGN_IN_OUTCOME_PARAM, isSafeReturnPath, newId, type SignInOutcome } fr
 import type { AppDeps, Ctx, Handlers } from "./app.ts";
 import { HttpError, SECURITY_HEADERS, base64url, cookieValue, sessionCookie, sha256Hex } from "./http.ts";
 import { seal, sealKeys, unseal } from "./seal.ts";
-import { authorizeUrl, exchangeCode, refreshSession, verifyAccessToken, type WorkosConfig } from "./workos.ts";
+import { authenticationOf, authorizeUrl, exchangeCode, refreshSession, verifyAccessToken, type WorkosConfig } from "./workos.ts";
 
 export interface AuthConfig {
   workos: WorkosConfig;
@@ -160,7 +160,9 @@ export const SIGN_IN_HANDLERS: Handlers = {
       x: deps.now() + STATE_TTL_MS,
     };
     const cookie = `${AUTH_COOKIE}=${await packState(a.stateKey, st)}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${STATE_TTL_MS / 1000}`;
-    const to = authorizeUrl(a.workos, { redirectUri: `${deps.config.appOrigin}/v1/auth/callback`, state: st.s, challenge: await sha256B64url(st.v) });
+    // (reauth=1: a fresh authentication, for a credential change; BYOK row 4)
+    const reauth = ctx.query.get("reauth") === "1";
+    const to = authorizeUrl(a.workos, { redirectUri: `${deps.config.appOrigin}/v1/auth/callback`, state: st.s, challenge: await sha256B64url(st.v), reauth });
     return redirect(to, [cookie]);
   },
 
@@ -205,6 +207,9 @@ export const SIGN_IN_HANDLERS: Handlers = {
     const sessionValue = base64url(deps.randomBytes(32));
     const hash = await sha256Hex(sessionValue);
     const sealed = await seal(keys, { env: a.workos.env, identity: sub, session: hash }, ex.refreshToken);
+    // when this authentication happened, and whether anyone was impersonating (either source says so)
+    const authn = authenticationOf(ver.claims);
+    const impersonated = ex.impersonated || authn.impersonated ? 1 : 0;
     try {
       await deps.db.batch([
         // a user for a live invitation (when there's no identity and no user for this email yet)
@@ -235,9 +240,9 @@ export const SIGN_IN_HANDLERS: Handlers = {
           params: [iss, sub, email],
         },
         {
-          sql: `INSERT INTO sessions (id_sha256, user_id, created_ms, expires_ms, refresh_version, refresh_sealed, validated_ms)
-                SELECT ?, user_id, ?, ?, ?, ?, ? FROM identities WHERE iss = ? AND sub = ?`,
-          params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now, iss, sub],
+          sql: `INSERT INTO sessions (id_sha256, user_id, created_ms, expires_ms, refresh_version, refresh_sealed, validated_ms, authenticated_ms, workos_sid, impersonated)
+                SELECT ?, user_id, ?, ?, ?, ?, ?, ?, ?, ? FROM identities WHERE iss = ? AND sub = ?`,
+          params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now, authn.authenticatedMs, ver.sid, impersonated, iss, sub],
         },
       ]);
     } catch (e) {
@@ -311,9 +316,12 @@ export async function revalidate(deps: AppDeps, hash: string, r: SessionRow): Pr
   const sealed = await seal(keys, { env: a.workos.env, identity: sub, session: hash }, res.refreshToken);
   await deps.db.batch([
     {
-      sql: `UPDATE sessions SET refresh_version = ?, refresh_sealed = ?, validated_ms = ?, refresh_claim_ms = NULL
+      // (the WorkOS session id as this token says: an assurance bound to another no longer
+      // matches; impersonation only ever rises; the authentication time never changes)
+      sql: `UPDATE sessions SET refresh_version = ?, refresh_sealed = ?, validated_ms = ?, refresh_claim_ms = NULL, workos_sid = ?,
+              impersonated = CASE WHEN ? = 1 THEN 1 ELSE impersonated END
             WHERE id_sha256 = ? AND refresh_claim_ms = ? AND revoked_ms IS NULL`,
-      params: [sealed.version, sealed.ct, now, hash, now],
+      params: [sealed.version, sealed.ct, now, ver.sid, authenticationOf(ver.claims).impersonated ? 1 : 0, hash, now],
     },
     ...(res.user && res.user.id === sub && res.user.email
       ? [{ sql: `UPDATE identities SET email = ?, email_ticket = ? WHERE iss = ? AND sub = ? AND email_ticket <= ?`, params: [res.user.email, now, a.workos.issuer, sub, now] }]

@@ -39,6 +39,7 @@ import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
 import { normalizeEmail } from "./validate.ts";
+import { ASSURANCE_HANDLERS, ASSURANCE_MAX_BODY_BYTES, CREDENTIAL_ROUTES, asCredentialRefusal, meRecentAuth } from "./credential-assurance.ts";
 
 export { HttpError, SECURITY_HEADERS, SESSION_COOKIE, base64url, json, normalizeEmail, sha256Hex };
 
@@ -165,7 +166,7 @@ export function withSecurityHeaders(res: Response): Response {
 
 export const MAX_BODY_BYTES = 64 * 1024;
 /** Routes whose bodies are smaller still (read, counted and refused the same way, before any handler). */
-const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };
+const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES, verifyCredentialAssurance: ASSURANCE_MAX_BODY_BYTES };
 
 function fail(e: HttpError): Response {
   return json(ERROR_STATUS[e.code], errorBody(e.code, e.message));
@@ -344,11 +345,12 @@ const AUTH_HANDLERS: Handlers = {
   },
 
   async getMe(ctx) {
-    return json(200, await buildMe(ctx.deps.db, ctx.userId as string));
+    const recentAuthForMs = await meRecentAuth(ctx);
+    return json(200, { ...(await buildMe(ctx.deps.db, ctx.userId as string)), recentAuthForMs });
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS, ...HEARTBEAT_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS, ...HEARTBEAT_HANDLERS, ...ASSURANCE_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 
@@ -357,9 +359,11 @@ const BODY_METHODS = new Set(["POST", "PATCH", "PUT"]);
 export function createApp(deps: AppDeps, handlers: Handlers = HANDLERS): { fetch(req: Request): Promise<Response> } {
   return {
     async fetch(req: Request): Promise<Response> {
+      let route: string | null = null;
       try {
         const url = new URL(req.url);
         const match = matchRoute(req.method, url.pathname);
+        route = match?.name ?? null;
         if (!match) throw new HttpError("notFound", "no such endpoint");
         const spec = ROUTES[match.name];
         // State changes from browsers must come from the app's own origin (machines,
@@ -385,6 +389,8 @@ export function createApp(deps: AppDeps, handlers: Handlers = HANDLERS): { fetch
         if (!handler) throw new HttpError("notFound", "not implemented yet");
         return await handler(ctx);
       } catch (e) {
+        // (the credential routes answer only CREDENTIAL_REFUSALS, whatever failed)
+        if (route !== null && Object.hasOwn(CREDENTIAL_ROUTES, route)) return fail(asCredentialRefusal(route, e));
         if (e instanceof HttpError) return fail(e);
         return fail(new HttpError("internal", "internal error"));
       }
