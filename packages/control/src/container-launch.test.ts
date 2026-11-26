@@ -157,8 +157,8 @@ async function machine(): Promise<string> {
   const machineId = newId("machine");
   await w.db.batch([
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, 'runpod', 'A40', 1, 'EU-SE-1', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'runpod', 'A40', 1, 'EU-SE-1', 'starting', 1, ?)`,
       machineId, w.projectId, allocationId, memberId, T0,
     ),
   ]);
@@ -831,8 +831,8 @@ test("the watchdogs keep to their mode; the container search is a range scan of 
   const v = newId("machine");
   await w.db.batch([
     stmt(
-      `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
-       VALUES (?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
+      `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms)
+       VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
       v, w.projectId, allocationId, memberId, T0,
     ),
     stmt(
@@ -848,7 +848,7 @@ test("the watchdogs keep to their mode; the container search is a range scan of 
     const x = newId("machine");
     await w.db.batch([
       stmt(
-        `INSERT INTO machines (id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms) VALUES (?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
+        `INSERT INTO machines (member_area_key, id, project_id, allocation_id, member_id, provider, gpu_type, gpu_count, data_center, state, incarnation, created_ms) VALUES ('m:prj_00000000000000000000:mbr_00000000000000000000', ?, ?, ?, ?, 'shadeform', 'L4', 1, 'X', 'starting', 1, ?)`,
         x, w.projectId, allocationId, memberId, T0,
       ),
       stmt(

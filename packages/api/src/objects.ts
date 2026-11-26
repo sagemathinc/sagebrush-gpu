@@ -122,6 +122,14 @@ export interface ProjectPolicy {
   setupScript: string | null;
   storageQuotaBytesPerMember: number;
   storageQuotaBytesPerTeam: number;
+  /**
+   * Snapshots: how many unnamed ones each area keeps, the newest. The current snapshot is always the
+   * newest, so when it is unnamed it is one of these; every named one is kept besides (within
+   * snapshotNamedMax), and so is a named current one.
+   */
+  snapshotKeepLast: number;
+  /** Snapshots: the most named ones per area. */
+  snapshotNamedMax: number;
 }
 
 export const DEFAULT_POLICY: Readonly<ProjectPolicy> = Object.freeze({
@@ -139,6 +147,8 @@ export const DEFAULT_POLICY: Readonly<ProjectPolicy> = Object.freeze({
   setupScript: null,
   storageQuotaBytesPerMember: 50 * 1024 ** 3,
   storageQuotaBytesPerTeam: 50 * 1024 ** 3,
+  snapshotKeepLast: 10,
+  snapshotNamedMax: 5,
 });
 
 /** Display words a project may choose; the API itself always uses the generic ones. */
