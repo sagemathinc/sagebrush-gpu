@@ -1533,8 +1533,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);",
-  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
  },
  {
   "file": "migrations/0007_sessions.sql",
@@ -1916,8 +1916,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, containerLifetime, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);"
  },
  {
   "file": "src/jobs.ts",
@@ -1971,8 +1971,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime]);",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop]);",
   "note": "the VM watchdog left out of the cron"
  },
  {
@@ -3061,8 +3061,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog])",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, containerLifetime, vmWatchdog])",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog])",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, containerLifetime, containerHardStop, vmWatchdog])",
   "note": "heartbeat watchdog not scheduled"
  },
  {
@@ -5402,8 +5402,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "heartbeatWatchdog, containerLifetime, vmWatchdog]",
-  "new": "heartbeatWatchdog, vmWatchdog]",
+  "old": "heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]",
+  "new": "heartbeatWatchdog, containerHardStop, vmWatchdog]",
   "note": "the lifetime never scheduled"
  },
  {
@@ -5411,6 +5411,72 @@
   "old": "CREATE INDEX launches_container_lifetime ON launches (max_end_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'container';",
   "new": "CREATE INDEX launches_container_lifetime ON launches (machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'container';",
   "note": "the lifetime index without max_end_ms"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  const accrued = await accrueAll(env.db, env.now);\n",
+  "new": "  const accrued = { failed: [] as string[] };\n",
+  "note": "no accrual in the run"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "Object.freeze({ checkIntervalSeconds: 60, safetySeconds: 60 })",
+  "new": "Object.freeze({ checkIntervalSeconds: 0, safetySeconds: 60 })",
+  "note": "no check period"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "Object.freeze({ checkIntervalSeconds: 60, safetySeconds: 60 })",
+  "new": "Object.freeze({ checkIntervalSeconds: 60, safetySeconds: 120 })",
+  "note": "a longer safety period"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "terminate_reason = 'hard-stop'",
+  "new": "terminate_reason = 'max-session'",
+  "note": "another reason"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "          TOOK,\n          stopMachineStmt(machineId, live.incarnation),\n",
+  "new": "          stopMachineStmt(machineId, live.incarnation),\n",
+  "note": "a mark that changed nothing still counts and moves the machine"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "          TOOK,\n          stopMachineStmt(machineId, live.incarnation),\n",
+  "new": "          TOOK,\n",
+  "note": "the hard stop leaves the machine running"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "WHERE l.machine_id = ? AND l.mode = 'container' AND l.outcome IN ('creating', 'issued', 'enrolled')`",
+  "new": "WHERE l.machine_id = ? AND l.mode = 'container' AND l.outcome IN ('enrolled')`",
+  "note": "a pod accruing before enroll never stopped"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "WHERE l.machine_id = ? AND l.mode = 'container' AND l.outcome IN ('creating', 'issued', 'enrolled')`",
+  "new": "WHERE l.machine_id = ? AND l.mode = 'container' AND l.outcome IN ('creating', 'issued')`",
+  "note": "an enrolled pod never stopped"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  if (accrued.failed.length > 0) throw new Error(`the accrual failed for ${accrued.failed.length} machine(s)`);\n",
+  "new": "",
+  "note": "an accrual failure not reported"
+ },
+ {
+  "file": "src/hard-stop.ts",
+  "old": "  const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);\n",
+  "new": "  if (accrued.failed.length > 0) throw new Error(\"accrual\");\n  const stops = await findHardStops(env.db, env.now, HARD_STOP_PERIODS);\n",
+  "note": "an accrual failure stops the hard stop"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]",
+  "new": "heartbeatWatchdog, containerLifetime, vmWatchdog]",
+  "note": "the hard stop never scheduled"
  },
  {
   "file": "src/jobs.ts",

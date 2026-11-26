@@ -5,6 +5,7 @@
 import { runVmWatchdog, type JobEnv } from "./vm.ts";
 import { runHeartbeatWatchdog } from "./heartbeat.ts";
 import { runContainerLifetime } from "./container.ts";
+import { runContainerHardStop } from "./hard-stop.ts";
 
 export type { JobEnv };
 
@@ -50,4 +51,7 @@ export const heartbeatWatchdog: ScheduledJob = { name: "heartbeat watchdog", run
 /** Enrolled containers past their hard lifetime (container.ts): marked max-session, for the container watchdog to end. */
 export const containerLifetime: ScheduledJob = { name: "container lifetime", run: runContainerLifetime };
 
-export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);
+/** The ledger's accrual, then the budget hard stop for container machines (hard-stop.ts): marked hard-stop, for the container watchdog to end. */
+export const containerHardStop: ScheduledJob = { name: "accrual and container hard stop", run: runContainerHardStop };
+
+export const SCHEDULED_JOBS: readonly ScheduledJob[] = Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, containerHardStop, vmWatchdog]);
