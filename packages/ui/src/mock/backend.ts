@@ -22,6 +22,7 @@ import {
   ID_PREFIXES,
   ID_RANDOM_LENGTH,
   ROUTES,
+  SNAPSHOT_REFUSALS,
   SPEND_CSV_GROUPINGS,
   addSplits,
   canInvite,
@@ -37,6 +38,13 @@ import {
   isId,
   parseCredentialVersionQuery,
   isPausingCredentialStatus,
+  isSnapshotArea,
+  isSnapshotName,
+  memberAreaKey,
+  parseNameSnapshotRequest,
+  parseRestoreSnapshotRequest,
+  parseSaveMachineRequest,
+  teamAreaKey,
   isGpuTypeId,
   isIsoTime,
   isNonNegativeMicros,
@@ -84,6 +92,10 @@ import {
   type ProviderCredential,
   type ProviderId,
   type ProviderPause,
+  type Snapshot,
+  type SnapshotArea,
+  type SnapshotKind,
+  type SnapshotRefusal,
   type Quote,
   type QuoteRefusal,
   type SpendCsvGrouping,
@@ -143,6 +155,12 @@ function refuse(refusal: CredentialRefusal): never {
   throw new ApiFail(code, message);
 }
 
+/** A refusal on the snapshot routes (and a start into a claimed area): one of SNAPSHOT_REFUSALS, with its fixed words. */
+function snapRefuse(refusal: SnapshotRefusal): never {
+  const { code, message } = SNAPSHOT_REFUSALS[refusal];
+  throw new ApiFail(code, message);
+}
+
 const CREDENTIAL_ROUTES: ReadonlySet<EndpointName> = new Set<EndpointName>(["listCredentials", "putCredential", "deleteCredential", "verifyCredentialAssurance"]);
 
 /** Mock-only country sets for the locality presets; the real table is @sbgpu/providers' localityFor. */
@@ -167,6 +185,10 @@ function pageOf<T>(all: readonly T[], cursor: string | undefined): { items: T[];
   if (!/^\d+$/.test(cursor ?? "0") || !Number.isSafeInteger(offset)) throw new ApiFail("badRequest", "bad cursor");
   const end = offset + PAGE_SIZE;
   return { items: all.slice(offset, end), next: end < all.length ? String(end) : null };
+}
+
+function isPlainBody(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
 }
 
 function metered(rec: { m: Machine; marginBps: BasisPoints }): MeteredMachine {
@@ -209,6 +231,22 @@ interface MachineRec {
   /** The ledger has charged this machine up to here, ms; null when not accruing. */
   accruedUntil: number | null;
   marginBps: BasisPoints;
+  /** The areas it writes, pinned at each start from membership then (snapshots r3.1, 4.0); null before its first start. */
+  memberAreaKey: string | null;
+  teamAreaKey: string | null;
+  /** The name asked for the save in flight (saveMachine's), given to the snapshot it commits. */
+  pendingName: string | null;
+}
+
+/** One snapshot of an area, as the gateway keeps its manifest; `current` comes from the area's head. */
+interface SnapshotRec {
+  id: string;
+  createdAt: number;
+  kind: SnapshotKind;
+  bytes: number;
+  name: string | null;
+  machineId: string | null;
+  restoredFrom: string | null;
 }
 
 /** An organization's key for one provider: what's kept is facts about it, never the key. */
@@ -261,6 +299,14 @@ export class MockBackend {
   /** The ledger's compute entries by "machineId|periodStart": one per (machine, minute). */
   readonly #minuteEntries = new Map<string, LedgerEntry>();
   readonly storageUsed = new Map<string, number>();
+  /** Each area's snapshots, oldest first, by area key (m:<prj>:<mbr> or t:<prj>:<team>), and its head (current) snapshot. */
+  readonly snapshots = new Map<string, SnapshotRec[]>();
+  readonly snapshotHeads = new Map<string, string>();
+  /**
+   * Areas with a live restore claim. The mock's own restores finish at once, so a claim is only
+   * ever held here by a test (holdRestore), to show a restore in progress.
+   */
+  readonly restoreClaims = new Set<string>();
   offers: Offer[] = [];
   /** The signed-in user; the mock's stand-in for the session cookie. */
   currentUserId: string | null = null;
@@ -449,6 +495,26 @@ export class MockBackend {
     this.#beginStop(this.#machine(machineId), "idle", true);
   }
 
+  /** Test hook: a snapshot committed to an area (as a machine's save would), now its head. */
+  seedSnapshot(areaKey: string, init: { kind?: SnapshotKind; name?: string | null; bytes?: number; machineId?: string | null } = {}): string {
+    return this.#commitSnapshot(areaKey, {
+      kind: init.kind ?? "periodic",
+      bytes: init.bytes ?? SAVE_BYTES,
+      name: init.name ?? null,
+      machineId: init.machineId ?? null,
+      restoredFrom: null,
+    });
+  }
+
+  /** Test hook: a restore of this area in progress (a live claim), until releaseRestore. */
+  holdRestore(areaKey: string): void {
+    this.restoreClaims.add(areaKey);
+  }
+
+  releaseRestore(areaKey: string): void {
+    this.restoreClaims.delete(areaKey);
+  }
+
   /** Test hook: the provider loses the machine. It stops accruing at once. */
   failMachine(machineId: string, error: string): void {
     const rec = this.#machine(machineId);
@@ -456,6 +522,7 @@ export class MockBackend {
     rec.accruedUntil = null;
     rec.timerEnd = null;
     this.#setState(rec, "failed");
+    rec.pendingName = null; // (a failed save names nothing)
     Object.assign(rec.m, {
       stopReason: "provider",
       error,
@@ -965,8 +1032,85 @@ export class MockBackend {
       rec.m.save = { ...rec.m.save, progress: { bytesDone, bytesTotal: progress.bytesTotal } };
       return false;
     }
-    rec.m.save = { ...rec.m.save, state: "idle", progress: null, lastSavedAt: toIso(this.#now), snapshotId: this.newId("snapshot") };
+    // the save commits a snapshot to the machine's own (pinned) member area: a final one while it stops
+    const snapshotId = this.#commitSnapshot(rec.memberAreaKey as string, {
+      kind: rec.m.state === "saving" ? "final" : "manual",
+      bytes: progress.bytesTotal,
+      name: rec.pendingName,
+      machineId: rec.m.id,
+      restoredFrom: null,
+    });
+    rec.pendingName = null;
+    rec.m.save = { ...rec.m.save, state: "idle", progress: null, lastSavedAt: toIso(this.#now), snapshotId };
     return true;
+  }
+
+  // ---------------------------------------------------------------- snapshots
+
+  /** The caller's area: their own member area, or their current team's; notFound for anything else. */
+  #snapshotAreaKey(projectId: string, user: User | null, area: unknown): string {
+    if (!isSnapshotArea(area)) snapRefuse("badRequest");
+    const member = user ? this.#callerMember(projectId, user.id) : null;
+    if (member == null) snapRefuse("notFound");
+    if (area === "member") return memberAreaKey(projectId, member.id);
+    if (member.teamId == null) snapRefuse("notFound");
+    return teamAreaKey(projectId, member.teamId);
+  }
+
+  /** The machines writing an area: live at the provider, with a pinned key naming it. */
+  #writesArea(areaKey: string): boolean {
+    for (const rec of this.machines.values()) {
+      if (PROVIDER_LIVE_STATES.has(rec.m.state) && (rec.memberAreaKey === areaKey || rec.teamAreaKey === areaKey)) return true;
+    }
+    return false;
+  }
+
+  /** Pin a machine's areas as it moves into starting, refused while a restore claims either. */
+  #pinAreas(rec: MachineRec, member: Member): void {
+    const mine = memberAreaKey(member.projectId, member.id);
+    const team = member.teamId == null ? null : teamAreaKey(member.projectId, member.teamId);
+    if (this.restoreClaims.has(mine) || (team != null && this.restoreClaims.has(team))) snapRefuse("startDuringRestore");
+    rec.memberAreaKey = mine;
+    rec.teamAreaKey = team;
+  }
+
+  /**
+   * Commit a snapshot to an area as the gateway does: it becomes the head, then retention keeps
+   * the newest snapshotKeepLast unnamed ones, every named one and the head's.
+   */
+  #commitSnapshot(areaKey: string, init: Omit<SnapshotRec, "id" | "createdAt">): string {
+    const list = this.snapshots.get(areaKey) ?? [];
+    const named = list.filter((x) => x.name != null);
+    const policy = this.#project(areaKey.split(":")[1] as string).policy;
+    // (a name that was taken or over the cap meanwhile is dropped: the save itself still commits)
+    const name = init.name != null && !named.some((x) => x.name === init.name) && named.length < policy.snapshotNamedMax ? init.name : null;
+    const rec: SnapshotRec = { ...init, name, id: this.newId("snapshot"), createdAt: this.#now };
+    list.push(rec);
+    this.snapshotHeads.set(areaKey, rec.id);
+    const unnamed = list.filter((x) => x.name == null && x.id !== rec.id);
+    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - (policy.snapshotKeepLast - 1))).map((x) => x.id));
+    this.snapshots.set(areaKey, list.filter((x) => !drop.has(x.id)));
+    return rec.id;
+  }
+
+  #snapshotView(areaKey: string, area: SnapshotArea, x: SnapshotRec): Snapshot {
+    return {
+      id: x.id,
+      area,
+      createdAt: toIso(x.createdAt),
+      kind: x.kind,
+      bytes: x.bytes,
+      name: x.name,
+      machineId: x.machineId,
+      current: this.snapshotHeads.get(areaKey) === x.id,
+      restoredFrom: x.restoredFrom,
+    };
+  }
+
+  #snapshotIn(areaKey: string, id: string): SnapshotRec {
+    const x = (this.snapshots.get(areaKey) ?? []).find((s) => s.id === id);
+    if (x === undefined) snapRefuse("notFound");
+    return x;
   }
 
   #tick(): void {
@@ -1443,6 +1587,40 @@ export class MockBackend {
 
     listLedger: ({ params, query }) => pageOf(this.ledger.filter((e) => e.projectId === params.projectId), query.cursor),
 
+    listSnapshots: ({ params, query, user }) => {
+      const key = this.#snapshotAreaKey(params.projectId, user, query.area);
+      const policy = this.#project(params.projectId).policy;
+      const items = [...(this.snapshots.get(key) ?? [])].reverse().map((x) => this.#snapshotView(key, query.area, x)); // newest first
+      return { items, keepLast: policy.snapshotKeepLast, namedMax: policy.snapshotNamedMax };
+    },
+
+    nameSnapshot: ({ params, body, user }) => {
+      const req = parseNameSnapshotRequest(body);
+      if (req == null) snapRefuse(isPlainBody(body) && isSnapshotArea(body.area) && Object.keys(body).length === 2 && Object.hasOwn(body, "name") ? "badName" : "badRequest");
+      const key = this.#snapshotAreaKey(params.projectId, user, req.area);
+      const target = this.#snapshotIn(key, params.snapshotId);
+      if (req.name !== null && req.name !== target.name) {
+        const named = (this.snapshots.get(key) ?? []).filter((x) => x.name != null);
+        if (named.some((x) => x.name === req.name)) snapRefuse("nameTaken");
+        if (target.name == null && named.length >= this.#project(params.projectId).policy.snapshotNamedMax) snapRefuse("tooManyNamed");
+      }
+      target.name = req.name;
+      return this.#snapshotView(key, req.area, target);
+    },
+
+    restoreSnapshot: ({ params, body, user }) => {
+      // As control orders it (r3.1, 4.1): the area and the target, then a live claim (conflict),
+      // then a writer (invalidState); the gateway then writes the restore snapshot, now current.
+      const req = parseRestoreSnapshotRequest(body);
+      if (req == null) snapRefuse("badRequest");
+      const key = this.#snapshotAreaKey(params.projectId, user, req.area);
+      const target = this.#snapshotIn(key, params.snapshotId);
+      if (this.restoreClaims.has(key)) snapRefuse("restoreInProgress");
+      if (this.#writesArea(key)) snapRefuse("writerRunning");
+      const id = this.#commitSnapshot(key, { kind: "restore", bytes: target.bytes, name: null, machineId: null, restoredFrom: target.id });
+      return this.#snapshotView(key, req.area, this.#snapshotIn(key, id));
+    },
+
     listMachines: ({ params, query, user }) => {
       const all = query.all === "1";
       if (all) this.#requireRole(params.projectId, user, "assistant", "listing all machines");
@@ -1495,7 +1673,11 @@ export class MockBackend {
         timerEnd: null,
         accruedUntil: null,
         marginBps: this.#marginBps(project),
+        memberAreaKey: null,
+        teamAreaKey: null,
+        pendingName: null,
       };
+      this.#pinAreas(rec, member);
       this.#placeAndBoot(rec, offer);
       this.machines.set(rec.m.id, rec);
       return rec.m;
@@ -1533,6 +1715,7 @@ export class MockBackend {
       const quote = this.#quote(project, member, rec.m.gpuType, rec.m.gpuCount, allocation.holder.kind, rec.m.id);
       const offer = quote.offers[0];
       if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? "policy", `cannot start: ${quote.reason}`, quote.reasonProvider);
+      this.#pinAreas(rec, member); // (from stopped: re-pinned from membership now)
       this.#setState(rec, "starting");
       Object.assign(rec.m, {
         incarnation: rec.m.incarnation + 1,
@@ -1546,9 +1729,17 @@ export class MockBackend {
       return rec.m;
     },
 
-    saveMachine: ({ params }) => {
+    saveMachine: ({ params, body }) => {
       const rec = this.#machine(params.machineId);
+      const req = parseSaveMachineRequest(body);
+      if (req == null) snapRefuse(isPlainBody(body) && Object.hasOwn(body, "name") && Object.keys(body).length === 1 ? "badName" : "badRequest");
       if (rec.m.state !== "running") throw new ApiFail("invalidState", `machine is ${rec.m.state}`);
+      if (req.name !== undefined) {
+        const named = (this.snapshots.get(rec.memberAreaKey as string) ?? []).filter((x) => x.name != null);
+        if (named.some((x) => x.name === req.name)) snapRefuse("nameTaken");
+        if (named.length >= this.#project(rec.m.projectId).policy.snapshotNamedMax) snapRefuse("tooManyNamed");
+        rec.pendingName = req.name;
+      }
       if (rec.m.save.state !== "saving") {
         rec.m.save = { ...rec.m.save, state: "saving", progress: { bytesDone: 0, bytesTotal: SAVE_BYTES }, error: null };
       }

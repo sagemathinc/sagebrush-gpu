@@ -246,8 +246,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "if (rec.m.state !== \"running\") throw new ApiFail(\"invalidState\", `machine is ${rec.m.state}`);\n      if (rec.m.save",
-  "new": "if (false) throw new ApiFail(\"invalidState\", \"\");\n      if (rec.m.save"
+  "old": "if (rec.m.state !== \"running\") throw new ApiFail(\"invalidState\", `machine is ${rec.m.state}`);\n      if (req.name !== undefined) {",
+  "new": "if (false) throw new ApiFail(\"invalidState\", \"\");\n      if (req.name !== undefined) {"
  },
  {
   "file": "src/client.ts",
@@ -3980,5 +3980,85 @@
   "old": "  return html`<td class=${level === \"ok\" ? \"storage\" : `storage storage-${level}`}>",
   "new": "  return html`<td class=${level === \"ok\" ? undefined : `storage storage-${level}`}>",
   "note": "StorageCell: no storage class (so no nowrap) on an ok row"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(rec.memberAreaKey === areaKey || rec.teamAreaKey === areaKey)",
+  "new": "(rec.memberAreaKey === areaKey)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (PROVIDER_LIVE_STATES.has(rec.m.state) && (rec.memberAreaKey",
+  "new": "if ((rec.memberAreaKey"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": " || (team != null && this.restoreClaims.has(team))",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      this.#pinAreas(rec, member); // (from stopped: re-pinned from membership now)\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "      if (this.restoreClaims.has(key)) snapRefuse(\"restoreInProgress\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    if (member.teamId == null) snapRefuse(\"notFound\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(policy.snapshotKeepLast - 1)",
+  "new": "(policy.snapshotKeepLast)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "x.name == null && x.id !== rec.id",
+  "new": "x.name == null"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (target.name == null && named.length >=",
+  "new": "if (named.length >="
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "kind: rec.m.state === \"saving\" ? \"final\" : \"manual\",",
+  "new": "kind: \"manual\","
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    rec.pendingName = null; // (a failed save names nothing)\n",
+  "new": ""
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "current: this.snapshotHeads.get(areaKey) === x.id,",
+  "new": "current: true,"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "[...(this.snapshots.get(key) ?? [])].reverse()",
+  "new": "[...(this.snapshots.get(key) ?? [])]"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (named.some((x) => x.name === req.name)) snapRefuse(\"nameTaken\");\n        if (named.length >= this.#project(rec.m.projectId)",
+  "new": "if (named.length >= this.#project(rec.m.projectId)"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "if (named.length >= this.#project(rec.m.projectId).policy.snapshotNamedMax) snapRefuse(\"tooManyNamed\");",
+  "new": "if (named.length > this.#project(rec.m.projectId).policy.snapshotNamedMax) snapRefuse(\"tooManyNamed\");"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "this.#pinAreas(rec, member);\n      this.#placeAndBoot(rec, offer);",
+  "new": "this.#placeAndBoot(rec, offer);"
  }
 ]

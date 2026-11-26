@@ -3841,5 +3841,135 @@
   "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
   "new": "  account_kind TEXT NOT NULL DEFAULT 'platform' CHECK (account_kind IN ('platform', 'org')),",
   "note": "account kind defaulted"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted')",
+  "new": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted', 'running')"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "AND OLD.state NOT IN ('stopped', 'failed', 'deleted')",
+  "new": "AND OLD.state NOT IN ('stopped', 'failed')"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "length(CAST(member_area_key AS BLOB)) = 51",
+  "new": "length(CAST(member_area_key AS BLOB)) >= 51"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "length(CAST(team_area_key AS BLOB)) = 52",
+  "new": "length(CAST(team_area_key AS BLOB)) >= 52"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": " AND (team_area_key IS NULL OR member_area_key IS NOT NULL)",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "ON area_restores (area_key) WHERE state = 'claimed'",
+  "new": "ON area_restores (area_key)"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "WHEN NEW.state <> 'claimed' OR NEW.expected_head",
+  "new": "WHEN NEW.expected_head"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "  OR NEW.jti IS NOT OLD.jti\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "  OR NEW.created_ms IS NOT OLD.created_ms\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "  OR NEW.target_snapshot_id IS NOT OLD.target_snapshot_id\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "(OLD.expected_head IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.expected_head IS NOT NULL)"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "(OLD.expected_head IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.state <> 'claimed')"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "(OLD.token_exp_ms IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.state <> 'claimed')"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "(OLD.token_exp_ms IS NOT NULL OR OLD.state <> 'claimed')",
+  "new": "(OLD.token_exp_ms IS NOT NULL)"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "token_exp_ms + 30000 <= created_ms + lease_ms",
+  "new": "token_exp_ms <= created_ms + lease_ms"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "token_exp_ms > created_ms AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "  CHECK (token_exp_ms IS NULL OR expected_head IS NOT NULL),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "CHECK (lease_ms = 120000)",
+  "new": "CHECK (lease_ms BETWEEN 1 AND 120000)"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "instr(op_id, char(0)) = 0 AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "instr(jti, char(0)) = 0 AND ",
+  "new": ""
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "  SELECT RAISE(ABORT, 'restore records are kept');",
+  "new": "  SELECT 1;"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "actor_member_id TEXT NOT NULL REFERENCES members (id),",
+  "new": "actor_member_id TEXT NOT NULL,"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "(length(CAST(area_key AS BLOB)) = 51 AND",
+  "new": "(length(CAST(area_key AS BLOB)) >= 51 AND"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "length(CAST(target_snapshot_id AS BLOB)) = 24",
+  "new": "length(CAST(target_snapshot_id AS BLOB)) >= 24"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "jti TEXT NOT NULL UNIQUE CHECK",
+  "new": "jti TEXT NOT NULL CHECK"
+ },
+ {
+  "file": "migrations/0015_area_restores.sql",
+  "old": "NOT (OLD.state = 'claimed' AND",
+  "new": "NOT (OLD.state IN ('claimed', 'done') AND"
  }
 ]

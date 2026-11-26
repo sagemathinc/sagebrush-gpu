@@ -122,6 +122,10 @@ export interface ProjectPolicy {
   setupScript: string | null;
   storageQuotaBytesPerMember: number;
   storageQuotaBytesPerTeam: number;
+  /** Snapshots: the newest unnamed ones kept per area (named ones and the current one are kept besides). */
+  snapshotKeepLast: number;
+  /** Snapshots: the most named ones per area. */
+  snapshotNamedMax: number;
 }
 
 export const DEFAULT_POLICY: Readonly<ProjectPolicy> = Object.freeze({
@@ -139,6 +143,8 @@ export const DEFAULT_POLICY: Readonly<ProjectPolicy> = Object.freeze({
   setupScript: null,
   storageQuotaBytesPerMember: 50 * 1024 ** 3,
   storageQuotaBytesPerTeam: 50 * 1024 ** 3,
+  snapshotKeepLast: 10,
+  snapshotNamedMax: 5,
 });
 
 /** Display words a project may choose; the API itself always uses the generic ones. */
