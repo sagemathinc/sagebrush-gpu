@@ -18,6 +18,7 @@ import {
   RECENT_AUTH_WINDOW_MS,
   ERROR_STATUS,
   ID_ALPHABET,
+  PROVIDER_IDS,
   ID_PREFIXES,
   ID_RANDOM_LENGTH,
   ROUTES,
@@ -28,8 +29,10 @@ import {
   canTransition,
   canUpdateMember,
   entrySplit,
+  credentialUnusableBody,
   errorBody,
   isCredentialKeyShape,
+  isPausingCredentialStatus,
   isGpuTypeId,
   isIsoTime,
   isNonNegativeMicros,
@@ -76,6 +79,7 @@ import {
   type ProjectRole,
   type ProviderCredential,
   type ProviderId,
+  type ProviderPause,
   type Quote,
   type QuoteRefusal,
   type SpendCsvGrouping,
@@ -177,9 +181,12 @@ function enforce(decision: MembershipDecision, what: string): void {
 
 export class ApiFail extends Error {
   readonly code: ErrorCode;
-  constructor(code: ErrorCode, message: string) {
+  /** For "credentialUnusable" only: the paused provider its body names. */
+  readonly provider: ProviderId | undefined;
+  constructor(code: ErrorCode, message: string, provider?: ProviderId) {
     super(message);
     this.code = code;
+    this.provider = provider;
   }
 }
 
@@ -207,6 +214,8 @@ interface CredentialRec {
   setAt: number;
   lastCheckedAt: number;
   status: CredentialStatus;
+  /** When its status last turned to one that pauses launches (setKeyStatus); unset while it doesn't. */
+  pausedSince?: number;
 }
 
 interface OrgRoleRec {
@@ -463,6 +472,9 @@ export class MockBackend {
       if (match.name === "getSpendCsv") return { status: 200, contentType: "text/csv", body: result };
       return { status: 200, contentType: "application/json", body: structuredClone(result) };
     } catch (err) {
+      if (err instanceof ApiFail && err.code === "credentialUnusable" && err.provider) {
+        return { status: ERROR_STATUS.credentialUnusable, contentType: "application/json", body: credentialUnusableBody(err.provider) };
+      }
       if (err instanceof ApiFail) return this.#error(err.code, err.message);
       return this.#error("internal", String(err));
     }
@@ -669,6 +681,59 @@ export class MockBackend {
     };
   }
 
+  // ---------------------------------------------------------------- paused providers
+
+  /**
+   * The provider's key check changes a stored key's status, as a scheduled re-check would:
+   * rejected, revoked or error pause the organization's launches on that provider (byok only),
+   * and ok (or unchecked) ends the pause. Running machines are untouched.
+   */
+  setKeyStatus(orgId: string, provider: ProviderId, status: CredentialStatus): void {
+    const rec = this.credentials.get(`${orgId}|${provider}`);
+    if (rec == null) throw new Error(`no ${provider} key for ${orgId}`);
+    const wasPaused = isPausingCredentialStatus(rec.status);
+    rec.status = status;
+    rec.lastCheckedAt = this.#now;
+    if (isPausingCredentialStatus(status) && !wasPaused) rec.pausedSince = this.#now;
+  }
+
+  /** The providers paused for an organization: byok, with a stored key whose status pauses launches. */
+  #pausedProviders(orgId: string): Set<ProviderId> {
+    const out = new Set<ProviderId>();
+    if (this.#org(orgId).billingMode !== "byok") return out;
+    for (const provider of PROVIDER_IDS) {
+      const rec = this.credentials.get(`${orgId}|${provider}`);
+      if (rec && isPausingCredentialStatus(rec.status)) out.add(provider);
+    }
+    return out;
+  }
+
+  /**
+   * The providers a byok organization has no key for: not a pause (no paused[] entry), but
+   * there is nothing to launch with, so their offers are dropped too.
+   */
+  #keylessProviders(orgId: string): Set<ProviderId> {
+    const out = new Set<ProviderId>();
+    if (this.#org(orgId).billingMode !== "byok") return out;
+    for (const provider of PROVIDER_IDS) if (!this.credentials.has(`${orgId}|${provider}`)) out.add(provider);
+    return out;
+  }
+
+  /**
+   * The pauses a project's price list shows: the project's own providers only, in PROVIDER_IDS
+   * order, with the reason only for manager and above.
+   */
+  #pausesFor(project: Project, role: ProjectRole | null): ProviderPause[] {
+    const paused = this.#pausedProviders(project.orgId);
+    const showReason = role != null && projectRoleAtLeast(role, "manager");
+    return PROVIDER_IDS.filter((p) => paused.has(p) && project.policy.allowedProviders.includes(p)).map((provider) => {
+      const rec = this.credentials.get(`${project.orgId}|${provider}`) as CredentialRec;
+      const pause: ProviderPause = { provider, since: toIso(rec.pausedSince ?? rec.lastCheckedAt) };
+      if (showReason && isPausingCredentialStatus(rec.status)) pause.detail = { status: rec.status, lastCheckedAt: toIso(rec.lastCheckedAt) };
+      return pause;
+    });
+  }
+
   // ---------------------------------------------------------------- quotes
 
   #allowedOffers(project: Project, gpuType: string, gpuCount: number): PricedOffer[] {
@@ -715,7 +780,11 @@ export class MockBackend {
     const allocation = this.#chargeAllocation(project, member, chargeTo);
     const allowed = project.policy.allowedGpuTypes.includes(gpuType) ? this.#allowedOffers(project, gpuType, gpuCount) : [];
     const underCap = allowed.filter((o) => o.pricePerHour.total <= project.policy.maxPricePerHour);
-    const withStock = underCap.filter((o) => o.stock !== "none");
+    // Offers on a provider whose organization key is paused are dropped.
+    const paused = this.#pausedProviders(project.orgId);
+    const keyless = this.#keylessProviders(project.orgId);
+    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));
+    const withStock = live.filter((o) => o.stock !== "none");
     const cheapest = withStock[0] ?? null;
     let required: Micros | null = null;
     let unspent = 0;
@@ -745,6 +814,8 @@ export class MockBackend {
     else if (this.#now >= Date.parse(project.endsAt)) reason = "projectEnded";
     else if (allowed.length === 0 || allocation == null) reason = "policy";
     else if (underCap.length === 0) reason = "priceCap";
+    // Only when every offer was dropped for a pause; a provider without a key isn't one.
+    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = "credentialUnusable";
     else if (withStock.length === 0) reason = "noCapacity";
     else if (
       accruing.length >= project.policy.maxConcurrentMachines ||
@@ -755,13 +826,18 @@ export class MockBackend {
     const quote: Quote = {
       gpuType,
       gpuCount,
-      offers: withStock.length > 0 ? withStock : underCap.length > 0 ? underCap : allowed,
+      offers: withStock.length > 0 ? withStock : live.length > 0 ? live : underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),
       allocationId: allocation?.id ?? null,
       remaining: allocation ? this.#meter(allocation).remaining : 0,
       requiredToStart: required,
       canStart: reason == null,
     };
     if (reason != null) quote.reason = reason;
+    if (reason === "credentialUnusable") {
+      // The first paused provider (in PROVIDER_IDS order) that had an offer here.
+      const provider = PROVIDER_IDS.find((p) => paused.has(p) && underCap.some((o) => o.provider === p));
+      if (provider) quote.reasonProvider = provider;
+    }
     return quote;
   }
 
@@ -1276,10 +1352,14 @@ export class MockBackend {
     setTeamAllocation: ({ params, body }) =>
       this.#setAllocation(this.#team(params.projectId, params.teamId).allocationId, body.amount),
 
-    listGpuTypes: ({ params }) => {
+    listGpuTypes: ({ params, user }) => {
       const project = this.#project(params.projectId);
+      const paused = this.#pausedProviders(project.orgId);
+      const keyless = this.#keylessProviders(project.orgId);
       const items: PriceListItem[] = project.policy.allowedGpuTypes.map((gpuType) => {
-        const offers = this.#allowedOffers(project, gpuType, 1).filter((o) => o.pricePerHour.total <= project.policy.maxPricePerHour);
+        const offers = this.#allowedOffers(project, gpuType, 1).filter(
+          (o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),
+        );
         const best = offers.find((o) => o.stock !== "none") ?? null;
         return {
           gpuType,
@@ -1289,7 +1369,7 @@ export class MockBackend {
           stock: best?.stock ?? "none",
         };
       });
-      return { items, asOf: toIso(this.#now), paused: [] };
+      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };
     },
 
     quote: ({ params, body, user }) => {
@@ -1337,7 +1417,7 @@ export class MockBackend {
       const quote = this.#quote(project, member, body.gpuType, gpuCount, body.chargeTo ?? "member");
       const offer = quote.offers[0];
       if (!quote.canStart || quote.allocationId == null || offer == null) {
-        throw new ApiFail(quote.reason ?? "policy", `cannot start: ${quote.reason}`);
+        throw new ApiFail(quote.reason ?? "policy", `cannot start: ${quote.reason}`, quote.reasonProvider);
       }
       if (body.maxPricePerHour !== undefined && offer.pricePerHour.total > body.maxPricePerHour) {
         throw new ApiFail("priceCap", "the price is now above what you accepted");
@@ -1407,7 +1487,7 @@ export class MockBackend {
       const allocation = this.allocations.get(rec.m.allocationId) as Allocation;
       const quote = this.#quote(project, member, rec.m.gpuType, rec.m.gpuCount, allocation.holder.kind, rec.m.id);
       const offer = quote.offers[0];
-      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? "policy", `cannot start: ${quote.reason}`);
+      if (!quote.canStart || offer == null) throw new ApiFail(quote.reason ?? "policy", `cannot start: ${quote.reason}`, quote.reasonProvider);
       this.#setState(rec, "starting");
       Object.assign(rec.m, {
         incarnation: rec.m.incarnation + 1,

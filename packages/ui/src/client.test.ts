@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { credentialUnusableBody } from "@sbgpu/api";
 import { ApiError, createClient, queryString, type FetchFn } from "./client.ts";
 
 function recorder(response: () => Response): { fetch: FetchFn; calls: Array<{ url: string; init: RequestInit }> } {
@@ -56,7 +57,14 @@ test("missing or unsafe path params never reach fetch", async () => {
 
 test("API errors keep their code and status", async () => {
   const c = createClient({ fetch: recorder(() => Response.json({ error: { code: "priceCap", message: "too dear" } }, { status: 422 })).fetch });
-  await assert.rejects(c.call("getMe"), (e: unknown) => e instanceof ApiError && e.code === "priceCap" && e.status === 422 && e.message === "too dear");
+  await assert.rejects(c.call("getMe"), (e: unknown) => e instanceof ApiError && e.code === "priceCap" && e.status === 422 && e.message === "too dear" && e.provider === undefined);
+});
+
+test("credentialUnusable keeps the paused provider; a body that names one on another code isn't an API error", async () => {
+  const paused = createClient({ fetch: recorder(() => Response.json(credentialUnusableBody("vast"), { status: 409 })).fetch });
+  await assert.rejects(paused.call("getMe"), (e: unknown) => e instanceof ApiError && e.code === "credentialUnusable" && e.status === 409 && e.provider === "vast");
+  const odd = createClient({ fetch: recorder(() => Response.json({ error: { code: "noCapacity", message: "x", provider: "vast" } }, { status: 503 })).fetch });
+  await assert.rejects(odd.call("getMe"), (e: unknown) => e instanceof ApiError && e.code === "badResponse" && e.provider === undefined);
 });
 
 test("non-API failures are badResponse or network", async () => {

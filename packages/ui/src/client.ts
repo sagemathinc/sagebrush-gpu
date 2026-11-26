@@ -9,6 +9,7 @@ import {
   type EndpointName,
   type Endpoints,
   type ErrorCode,
+  type ProviderId,
 } from "@sbgpu/api";
 
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
@@ -19,15 +20,20 @@ export interface CallArgs<N extends EndpointName> {
   body?: Endpoints[N]["body"];
 }
 
-/** An API error (its closed code), or "network" / "badResponse" for failures outside the API. */
+/**
+ * An API error (its closed code), or "network" / "badResponse" for failures outside the API.
+ * `provider` is set for "credentialUnusable" (the paused provider), the one code that names one.
+ */
 export class ApiError extends Error {
   readonly code: ErrorCode | "network" | "badResponse";
   readonly status: number;
-  constructor(code: ErrorCode | "network" | "badResponse", status: number, message: string) {
+  readonly provider: ProviderId | undefined;
+  constructor(code: ErrorCode | "network" | "badResponse", status: number, message: string, provider?: ProviderId) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.status = status;
+    this.provider = provider;
   }
 }
 
@@ -80,7 +86,7 @@ export function createClient(options: ClientOptions = {}): Client {
         } catch {
           // not JSON; fall through
         }
-        if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message);
+        if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message, body.error.provider);
         throw new ApiError("badResponse", response.status, `HTTP ${response.status} without an API error body`);
       }
       if (TEXT_RESPONSES.has(name)) return (await response.text()) as Endpoints[N]["response"];
