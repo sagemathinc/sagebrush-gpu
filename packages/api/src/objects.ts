@@ -548,8 +548,15 @@ export interface AgentAnnounceResponse {
   expiresAt: IsoTime;
 }
 
+/**
+ * The container agent's eradication checks, by name, in its order (sbgpu_agent/eradication.py
+ * CHECKS; the machine package's agent test pins that list to this one). A container enroll's
+ * eradication.checks is exactly these, in this order.
+ */
+export const AGENT_ERADICATION_CHECKS = ["env", "processes", "files", "ssh"] as const;
+
 /** Closed list: the machine never sends free text here. */
-export const AGENT_ABORT_REASONS = ["env-not-clean", "extra-process", "key-file", "other"] as const;
+export const AGENT_ABORT_REASONS = ["env-not-clean", "extra-process", "key-file", "ssh-access", "other"] as const;
 export type AgentAbortReason = (typeof AGENT_ABORT_REASONS)[number];
 
 /** Uses up the boot token; control terminates the machine at once. */
