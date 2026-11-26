@@ -53,8 +53,17 @@ const insert = (table: string, v: Record<string, SqlValue>) => {
   const cols = Object.keys(v);
   return w.db.batch([{ sql: `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`, params: Object.values(v) }]);
 };
-const container = (m: string, over: Record<string, SqlValue> = {}) =>
-  insert("launches", { machine_id: m, incarnation: 1, mode: "container", provider: "runpod", agent_sha256: H, credential_kind: "ours", account_kind: "platform", outcome: "creating", next_ms: T0, heartbeat_due_ms: T0, created_ms: T0, ...over });
+// (a container launch inserted creating, with no id, gets its pinned rate in the same batch, as
+// the intent writes it: 0015 lets a container launch take an id or leave creating only with one)
+const container = (m: string, over: Record<string, SqlValue> = {}) => {
+  const v: Record<string, SqlValue> = { machine_id: m, incarnation: 1, mode: "container", provider: "runpod", agent_sha256: H, credential_kind: "ours", account_kind: "platform", outcome: "creating", next_ms: T0, heartbeat_due_ms: T0, created_ms: T0, ...over };
+  const cols = Object.keys(v);
+  const rated = v["outcome"] === "creating" && (v["provider_machine_id"] ?? null) === null;
+  return w.db.batch([
+    { sql: `INSERT INTO launches (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`, params: Object.values(v) },
+    ...(rated ? [stmt(`INSERT INTO launch_rates (machine_id, incarnation, provider_cost_per_hour, margin_bps) VALUES (?, ?, 0, 0)`, m, v["incarnation"] ?? 1)] : []),
+  ]);
+};
 const vmLaunch = (m: string, over: Record<string, SqlValue> = {}) =>
   insert("launches", { machine_id: m, incarnation: 1, mode: "vm", account_kind: "platform", provider: "shadeform", nonce_sha256: H, boot_script_sha256: H, agent_sha256: H, outcome: "creating", next_ms: T0, created_ms: T0, ...over });
 const upd = (m: string, set: string, ...p: SqlValue[]) => w.db.batch([stmt(`UPDATE launches SET ${set} WHERE machine_id = ?`, ...p, m)]);
@@ -301,7 +310,9 @@ test("launches: terminated exactly with its time, in both modes", async () => {
     const m = await machine(p);
     await assert.rejects(insert(m, { outcome: "terminated", terminate_reason: "abort", next_ms: null }), /CHECK/, `${p}: terminated without its time`);
     await assert.rejects(insert(m, { outcome: "terminate", terminate_reason: "abort", terminated_ms: T0 }), /CHECK/, `${p}: a time before terminated`);
-    await insert(m, { outcome: "terminate", terminate_reason: "abort" });
+    // (inserted creating, then marked to terminate: a container launch moves only with its rate, 0015)
+    await insert(m);
+    await upd(m, `outcome = 'terminate', terminate_reason = 'abort'`);
     await upd(m, `outcome = 'terminated', terminated_ms = ?, next_ms = NULL`, T0);
   }
 });

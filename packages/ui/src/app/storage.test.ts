@@ -55,18 +55,18 @@ test("the manager's people table: used of quota, flagged nearly full or full; an
     return row?.querySelectorAll("td")[row.querySelectorAll("td").length - 2] ?? null; // storage is the column before the actions
   };
   assert.match(cell(EMAILS.member)?.textContent ?? "", /46(\.0)? GB of 50(\.0)? GB\s+nearly full/);
-  assert.equal(cell(EMAILS.member)?.className, "storage-near");
+  assert.equal(cell(EMAILS.member)?.className, "storage storage-near");
   assert.match(cell(EMAILS.lowMember)?.textContent ?? "", /of 50(\.0)? GB\s+full/);
-  assert.equal(cell(EMAILS.lowMember)?.className, "storage-full");
+  assert.equal(cell(EMAILS.lowMember)?.className, "storage storage-full");
   assert.doesNotMatch(cell(EMAILS.teamMember)?.textContent ?? "", /full/);
-  assert.equal(cell(EMAILS.teamMember)?.className, "");
+  assert.equal(cell(EMAILS.teamMember)?.className, "storage");
   // An invited address with nothing stored: no flag.
   assert.match(cell("barbara@example.org")?.textContent ?? "", /^\s*0 B of 50(\.0)? GB\s*$/);
   // Before the meters are in (no quota known), bytes only: no quota and no flag.
   t.store.meters.value = [];
   await settle();
   assert.match(cell(EMAILS.lowMember)?.textContent ?? "", /^\s*0 B\s*$/);
-  assert.equal(cell(EMAILS.lowMember)?.className, "");
+  assert.equal(cell(EMAILS.lowMember)?.className, "storage");
 });
 
 test("the manage page shows paused providers too, with the reason for a manager", async () => {

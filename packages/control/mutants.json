@@ -2425,24 +2425,6 @@
   "new": ""
  },
  {
-  "file": "src/billing.ts",
-  "old": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"none\", reason: \"no-credential\" };",
-  "new": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"ours\", provider };",
-  "note": "byok without a key uses ours"
- },
- {
-  "file": "src/billing.ts",
-  "old": "WHERE o.id = ?`,\n    [provider, orgId],",
-  "new": "WHERE o.id IS NOT NULL ORDER BY o.billing_mode DESC LIMIT 1`,\n    [provider],",
-  "note": "org resolver reads any org"
- },
- {
-  "file": "src/billing.ts",
-  "old": "WHERE l.machine_id = ? AND l.incarnation = ?`",
-  "new": "WHERE l.machine_id = ? OR l.incarnation = ?`",
-  "note": "launch resolver any incarnation"
- },
- {
   "file": "src/projects.ts",
   "old": "    name: r.name,\n    billingMode: r.billing_mode,\n",
   "new": "    name: r.name,\n    billingMode: \"resold\",\n"
@@ -3844,6 +3826,528 @@
   "old": "  account_kind TEXT NOT NULL CHECK (account_kind IN ('platform', 'org')),",
   "new": "  account_kind TEXT NOT NULL DEFAULT 'platform' CHECK (account_kind IN ('platform', 'org')),",
   "note": "account kind defaulted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [i.machineId, i.incarnation, i.rate.providerCostPerHour, i.rate.marginBps],",
+  "new": "params: [i.machineId, i.incarnation, i.rate.marginBps, i.rate.providerCostPerHour],",
+  "note": "the rate's cost and margin swapped at intent"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "i.credentialKind, i.machineId, i.createdMs + CREATE_DEADLINE_MS, i.createdMs,",
+  "new": "i.credentialKind, i.machineId, i.createdMs + CREATE_DEADLINE_MS + 1, i.createdMs,",
+  "note": "the create deadline a millisecond late"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "SELECT 0 WHERE changes() <> 1`",
+  "new": "SELECT 0 WHERE changes() < 0`",
+  "note": "every changes() guard disabled"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND outcome = 'creating' AND provider_machine_id IS NULL`,",
+  "new": "WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND provider_machine_id IS NULL`,",
+  "note": "the id recorded past creating"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND provider_machine_id IS NULL AND used_ms IS NULL`,",
+  "new": "AND provider_machine_id IS NULL`,",
+  "note": "a revoked token takes the id"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "SELECT l.machine_id, l.incarnation, l.provider, r.provider_cost_per_hour, r.margin_bps, l.created_ms",
+  "new": "SELECT l.machine_id, l.incarnation, l.provider, r.provider_cost_per_hour, r.margin_bps, l.created_ms + 60000",
+  "note": "the accrual starts after the intent"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "(SELECT (l.created_ms / 60000) * 60000 FROM launches l",
+  "new": "(SELECT l.created_ms + 60000 FROM launches l",
+  "note": "billed-through not the intent's minute"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    return r.length === 1 ? \"recorded\" : \"refused\";",
+  "new": "    return \"refused\";",
+  "note": "a replay reported refused"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND (first_running_ms IS NULL OR first_running_ms > ?)`,",
+  "new": "AND (first_running_ms IS NULL OR first_running_ms >= ?)`,",
+  "note": "an equal sample re-recorded"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [atMs, atMs + CONNECT_WINDOW_MS, machineId,",
+  "new": "params: [atMs, atMs + CONNECT_WINDOW_MS + 1, machineId,",
+  "note": "the connect deadline a millisecond late"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "params: [atMs, atMs + BOOT_TOKEN_TTL_MS, machineId,",
+  "new": "params: [atMs + 1, atMs + 1 + BOOT_TOKEN_TTL_MS, machineId,",
+  "note": "the token's window not first running"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND mode = 'container' AND provider_machine_id = ? AND used_ms IS NULL`,\n        params: [atMs",
+  "new": "AND mode = 'container' AND provider_machine_id = ?`,\n        params: [atMs",
+  "note": "a revoked token gets a window"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "AND mode = 'container' AND watchdog_version = ? AND outcome IN ('creating', 'issued', 'terminate')`,",
+  "new": "AND mode = 'container' AND outcome IN ('creating', 'issued', 'terminate')`,",
+  "note": "the claim ignores the version"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "sql: `UPDATE boot_tokens SET used_ms = COALESCE(used_ms, ?) WHERE machine_id = ? AND incarnation = ? AND mode = 'container'`,",
+  "new": "sql: `UPDATE boot_tokens SET used_ms = used_ms WHERE machine_id = ? AND incarnation = ? AND mode = 'container' AND ? IS NOT NULL`,",
+  "note": "no revocation before terminate"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "s.machineId === machineId && s.state !== \"terminated\")",
+  "new": "s.machineId === machineId)",
+  "note": "terminated pods counted by name"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (false) {",
+  "note": "pods found by name never billed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "gone = s !== \"unavailable\" && s.providerMachineId === r.provider_machine_id && s.state === \"terminated\";",
+  "new": "gone = s !== \"unavailable\";",
+  "note": "terminated without the provider confirming"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "gone = left !== \"unavailable\" && left.length === 0;",
+  "new": "gone = left !== \"unavailable\";",
+  "note": "terminated while pods are still listed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      ...closeAccrual(r.machine_id, r.incarnation, at),\n",
+  "new": "",
+  "note": "the accrual never closed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (e instanceof ProviderError && e.kind === \"outcome_unknown\") return \"unknown\";\n",
+  "new": "",
+  "note": "a lost reply treated as a definitive failure"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "await abandonContainer(env, l.machineId, l.incarnation, \"create-failed\", [e.providerMachineId]);",
+  "new": "await abandonContainer(env, l.machineId, l.incarnation, \"create-failed\");",
+  "note": "a refused pod not ended by its id"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if ((await recordContainerId(env.db, l.machineId, l.incarnation, created.id)) === \"recorded\") return \"created\";",
+  "new": "await recordContainerId(env.db, l.machineId, l.incarnation, created.id); if (Math.random() < 2) return \"created\";",
+  "note": "a refused id batch reported created"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const s = await withDeadline<ProviderMachineStatus | \"unavailable\">(() => p.status(id), \"unavailable\");\n  if (s === \"unavailable\") return \"unavailable\";\n  const at = env.clock(); // (control time, after the read)",
+  "new": "  const at = env.clock();\n  const s = await withDeadline<ProviderMachineStatus | \"unavailable\">(() => p.status(id), \"unavailable\");\n  if (s === \"unavailable\") return \"unavailable\";",
+  "note": "first running timed before the read"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (s.providerMachineId !== id || s.machineId !== machineId) {",
+  "new": "  if (s.machineId !== machineId) {",
+  "note": "another pod's answer accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (s.providerMachineId !== id || s.machineId !== machineId) {",
+  "new": "  if (s.providerMachineId !== id) {",
+  "note": "another machine's pod accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.image === e.image &&",
+  "new": "    true &&",
+  "note": "image drift accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    sameList(s.command, e.launcher) &&",
+  "new": "    true &&",
+  "note": "entrypoint drift accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    sameList(s.envNames, [e.bootEnv]) &&",
+  "new": "    true &&",
+  "note": "extra env names accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.exposedPorts.length === 0 &&",
+  "new": "    true &&",
+  "note": "exposed ports accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    s.unexpectedSettings.length === 0;",
+  "new": "    true;",
+  "note": "unexpected settings accepted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if (s.state === \"terminated\" || s.state === \"failed\" || s.state === \"stopping\") {",
+  "new": "if (s.state === \"terminated\" || s.state === \"stopping\") {",
+  "note": "a failed pod not ended"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ? AND v.mode = 'container'",
+  "new": "     WHERE v.next_ms IS NOT NULL AND v.next_ms <= ?",
+  "note": "the container watchdog takes VM launches"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "            WHEN v.outcome = 'creating' THEN 'create-deadline'",
+  "new": "            WHEN v.outcome = 'creating' THEN 'connect-deadline'",
+  "note": "the create deadline misnamed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) break;",
+  "new": "    if (env.elapsedMs() > WATCHDOG_BUDGET_MS) break;",
+  "note": "a claim at the budget's end"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "if (named !== \"unavailable\" && named.length === 1) {",
+  "new": "if (named !== \"unavailable\" && named.length >= 1) {",
+  "note": "one of two pods recorded as the launch's"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "        reason = \"duplicate-name\";",
+  "new": "        reason = reason;",
+  "note": "duplicates not named"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS;",
+  "new": "export const CONNECT_WINDOW_MS = BOOT_TOKEN_TTL_MS + 1000;",
+  "note": "a longer connect window"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "  WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation AND l.outcome = 'creating'\n)",
+  "new": "  WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation\n)",
+  "note": "a rate added past creating"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "WHEN NEW.mode = 'container'\n  AND (NEW.provider_machine_id",
+  "new": "WHEN NEW.mode = 'vm'\n  AND (NEW.provider_machine_id",
+  "note": "a container launch moves without its rate"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour AND r.margin_bps = NEW.margin_bps",
+  "new": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour",
+  "note": "an accrual at another margin"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND r.provider_cost_per_hour = NEW.provider_cost_per_hour AND r.margin_bps = NEW.margin_bps",
+  "new": "      AND r.margin_bps = NEW.margin_bps",
+  "note": "an accrual at another cost"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND l.provider = NEW.provider\n",
+  "new": "",
+  "note": "an accrual of another provider"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "      AND (l.mode <> 'container' OR l.created_ms = NEW.start_ms)",
+  "new": "      AND 1",
+  "note": "an accrual from another start"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "    OR EXISTS (SELECT 1 FROM launches l WHERE l.machine_id = NEW.machine_id AND l.incarnation = NEW.incarnation AND l.mode = 'container')\n",
+  "new": "",
+  "note": "a container launch without a rate accrues"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_rates_kept BEFORE UPDATE ON launch_rates\n",
+  "new": "CREATE TRIGGER launch_rates_kept BEFORE UPDATE OF incarnation ON launch_rates\n",
+  "note": "a rate changed"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nBEGIN",
+  "new": "CREATE TRIGGER launch_rates_no_delete BEFORE DELETE ON launch_rates\nWHEN 0\nBEGIN",
+  "note": "a rate deleted"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r).then(() => true)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "note": "a failed accrual write swallowed: the pods ended unbilled"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      return a.length > 0;",
+  "new": "      return true;",
+  "note": "a failed accrual write taken for an open accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      return a.length > 0;",
+  "new": "      return false;",
+  "note": "an accrual already open not recognized"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    } catch {\n      return false;\n    }",
+  "new": "    } catch {\n      return true;\n    }",
+  "note": "a failed read of the accruals taken for an open accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now <= r.created_ms + ACCRUAL_WAIT_MS) {",
+  "note": "the wait one millisecond longer"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r)) && now < r.created_ms + ACCRUAL_WAIT_MS) {",
+  "new": "  if (byName && ids.length > 0 && !(await accrualOpen(env.db, r))) {",
+  "note": "a pod waits for its accrual forever"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 20 * 60_000;",
+  "new": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 19 * 60_000;",
+  "note": "a shorter wait for the accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 20 * 60_000;",
+  "new": "export const ACCRUAL_WAIT_MS = CREATE_DEADLINE_MS + 21 * 60_000;",
+  "note": "a longer wait for the accrual"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "outcome, created_ms FROM launches WHERE",
+  "new": "outcome FROM launches WHERE",
+  "note": "the row read without its intent time"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "v.watchdog_version, v.outcome, v.created_ms,",
+  "new": "v.watchdog_version, v.outcome,",
+  "note": "the watchdog's rows without their intent time"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup);",
+  "note": "cleanup ids a list shows by the name ended before the accrual is open"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "    await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "note": "cleanup ids ended when the list wasn't read"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (named !== \"unavailable\") await endCleanup(env, p, r, cleanup.filter((x) => !named.includes(x)));",
+  "new": "",
+  "note": "a renamed held pod left up while the accrual waits"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held: string[] = [];",
+  "note": "held ids never written as cleanup ids"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x)))];",
+  "note": "the recorded id written as a cleanup id too"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const held = [...new Set(heldIds.filter((x) => PROVIDER_ID.test(x) && x !== r.provider_machine_id))];",
+  "new": "  const held = [...new Set(heldIds.filter((x) => x !== r.provider_machine_id))];",
+  "note": "an invalid held id fails the claim"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") {",
+  "new": "    if (s === \"unavailable\" || s.providerMachineId !== id) {",
+  "note": "a cleanup id forgotten when its status isn't terminated"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") {",
+  "new": "    if (s === \"unavailable\" || s.state !== \"terminated\") {",
+  "note": "a cleanup id forgotten on another id's status"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "      all = false;\n      continue;",
+  "new": "      continue;",
+  "note": "an unconfirmed cleanup id doesn't hold the launch back"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  for (const id of ids) if (!cleanup.includes(id)) await withDeadline(() => p.terminate(id), undefined);",
+  "new": "  for (const id of ids) await withDeadline(() => p.terminate(id), undefined);",
+  "note": "cleanup ids terminated twice an attempt"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  const cleaned = await endCleanup(env, p, r, cleanup);",
+  "new": "  const cleaned = true;",
+  "note": "cleanup ids never ended or confirmed"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (gone && cleaned) {",
+  "new": "  if (gone) {",
+  "note": "terminated with cleanup ids left"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "ORDER BY provider_machine_id`,\n      [r.machine_id, r.incarnation],\n    )).map((c) => c.provider_machine_id);",
+  "new": "ORDER BY provider_machine_id`,\n      [r.machine_id, r.incarnation],\n    )).map((c) => c.provider_machine_id).filter((x) => heldIds.includes(x));",
+  "note": "earlier attempts' cleanup ids not retried"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "WHEN NEW.outcome = 'terminated' AND OLD.outcome <> 'terminated'\n  AND EXISTS (SELECT 1 FROM launch_cleanup",
+  "new": "WHEN NEW.outcome = 'terminatedX' AND OLD.outcome <> 'terminated'\n  AND EXISTS (SELECT 1 FROM launch_cleanup",
+  "note": "a launch terminated with cleanup left"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "CREATE TRIGGER launch_cleanup_fixed BEFORE UPDATE ON launch_cleanup\nBEGIN",
+  "new": "CREATE TRIGGER launch_cleanup_fixed BEFORE UPDATE ON launch_cleanup WHEN 0\nBEGIN",
+  "note": "cleanup ids rewritable"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "l.mode = 'container' AND l.outcome <> 'terminated'\n)",
+  "new": "l.mode = 'container'\n)",
+  "note": "cleanup for a terminated launch"
+ },
+ {
+  "file": "migrations/0015_launch_rates.sql",
+  "old": "AND provider_machine_id NOT GLOB '*[^!-~]*'),",
+  "new": "),",
+  "note": "cleanup ids outside printable ASCII"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "const ABANDON_CLAIM_TRIES = 2;",
+  "new": "const ABANDON_CLAIM_TRIES = 1;",
+  "note": "no second claim after a failed one"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (held.length === 0) return;\n  try {",
+  "new": "  return;\n  try {",
+  "note": "held ids dropped when no claim is won"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    );\n    return;\n  } catch {\n    // (nothing durable",
+  "new": "    );\n  } catch {\n    // (nothing durable",
+  "note": "a handed-over pod also ended unrecorded"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (await terminateContainerAttempt(env, r, reason, heldIds)) return;\n  }",
+  "new": "    await terminateContainerAttempt(env, r, reason, heldIds);\n    return;\n  }",
+  "note": "a failed claim taken for a won one"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (p) await withDeadline(() => p.terminate(id), undefined);\n    const s = p ?",
+  "new": "    const s = p ?",
+  "note": "a held pod left up when nothing is writable"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  if (left.length > 0) throw new HeldPodsUnknown(machineId, incarnation, left);\n",
+  "new": "",
+  "note": "unconfirmed held ids dropped silently"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "new": "    if (s === \"unavailable\" || s.providerMachineId !== id) left.push(id);",
+  "note": "a held id dropped on a status that isn't terminated"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "new": "    if (s === \"unavailable\" || s.state !== \"terminated\") left.push(id);",
+  "note": "a held id dropped on another id's status"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    if (s === \"unavailable\" || s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "new": "    if (s === \"unavailable\" && s.providerMachineId !== id || s.state !== \"terminated\") left.push(id);",
+  "note": "a held id dropped unless the status read fails"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "i.credentialKind === \"org\" ? \"org\" : \"platform\",",
+  "new": "\"platform\",",
+  "note": "an organization's key recorded as the platform's account"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "CASE WHEN ? = 'org' THEN (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
+  "new": "CASE WHEN ? = 'org' THEN NULL ELSE (SELECT p.org_id FROM machines m JOIN projects p ON p.id = m.project_id WHERE m.id = ?) END,",
+  "note": "the account's organization on the wrong kind"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"none\", reason: \"no-credential\" };",
+  "new": "  if (!c || c.credential_id === null || c.credential_version === null) return { use: \"ours\", provider };",
+  "note": "byok without a key uses ours"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "WHERE o.id = ?`,\n    [provider, orgId],",
+  "new": "WHERE o.id IS NOT NULL ORDER BY o.billing_mode DESC LIMIT 1`,\n    [provider],",
+  "note": "org resolver reads any org"
+ },
+ {
+  "file": "src/billing.ts",
+  "old": "WHERE l.machine_id = ? AND l.incarnation = ?`",
+  "new": "WHERE l.machine_id = ? OR l.incarnation = ?`",
+  "note": "launch resolver any incarnation"
  },
  {
   "file": "migrations/0016_provider_credentials.sql",

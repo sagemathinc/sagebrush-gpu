@@ -3875,8 +3875,8 @@
  },
  {
   "file": "src/app/manage-page.ts",
-  "old": "  return html`<td class=${level === \"ok\" ? undefined : `storage-${level}`}>",
-  "new": "  return html`<td>",
+  "old": "  return html`<td class=${level === \"ok\" ? \"storage\" : `storage storage-${level}`}>",
+  "new": "  return html`<td class=\"storage\">",
   "note": "StorageCell: no row class"
  },
  {
@@ -3974,5 +3974,11 @@
   "old": "    verifyCredentialAssurance: ({ body }) => {\n      this.#requireRecentAuth();",
   "new": "    verifyCredentialAssurance: ({ body }) => {",
   "note": "mock assurance: no fresh sign-in"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  return html`<td class=${level === \"ok\" ? \"storage\" : `storage storage-${level}`}>",
+  "new": "  return html`<td class=${level === \"ok\" ? undefined : `storage storage-${level}`}>",
+  "note": "StorageCell: no storage class (so no nowrap) on an ok row"
  }
 ]
