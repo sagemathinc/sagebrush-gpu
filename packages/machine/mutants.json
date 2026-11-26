@@ -2692,5 +2692,11 @@
   "old": "REASONS = (\"env-not-clean\", \"extra-process\", \"key-file\", \"ssh-access\", \"other\")",
   "new": "REASONS = (\"env-not-clean\", \"extra-process\", \"key-file\", \"other\", \"ssh-access\")",
   "note": "container ssh gate: reasons out of the contract's order"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/eradication.py",
+  "old": "    (\"files\", \"key-file\"),\n    (\"ssh\", \"ssh-access\"),\n",
+  "new": "    (\"ssh\", \"ssh-access\"),\n    (\"files\", \"key-file\"),\n",
+  "note": "container ssh gate: the checks in another order than the contract's"
  }
 ]
