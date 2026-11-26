@@ -9,7 +9,7 @@ import { seedDemo } from "../mock/seed.ts";
 import { App, GpuRow, html, MeterCard, ProjectPage, type Nav } from "./components.ts";
 import { GENERIC_LABELS } from "../labels.ts";
 import { Store } from "./store.ts";
-import { signInAs } from "./testkit.ts";
+import { memoryPrefs, signInAs } from "./testkit.ts";
 
 const MIN = 60_000;
 
@@ -30,7 +30,7 @@ function text(markup: string): string {
 
 async function memberStore(email?: string) {
   const demo = seedDemo();
-  const store = new Store(createClient({ fetch: mockFetch(demo.backend) }), () => demo.backend.now());
+  const store = new Store(createClient({ fetch: mockFetch(demo.backend) }), () => demo.backend.now(), { prefs: memoryPrefs() });
   await signInAs(store, demo.backend, email ?? demo.emails.member);
   await store.openProject(demo.projectId);
   return { demo, store };
@@ -123,6 +123,7 @@ test("a running machine: actions, cost, and the reserve on the meter", async () 
 
 test("saving and stopped machines say what is happening and why", async () => {
   const { demo, store } = await memberStore();
+  store.hideTour(); // (the walkthrough names these buttons too: this is about the machine card)
   await store.start("L4");
   demo.backend.advance(90_000);
   const id = store.machines.value[0]?.id as string;
@@ -258,6 +259,7 @@ test("meter card: a low allocation says so", () => {
 
 test("a start that never came up says so on its card, with what it cost, and offers no stop", async () => {
   const { demo, store } = await memberStore();
+  store.hideTour(); // (the walkthrough names these buttons too: this is about the machine card)
   await store.start("L4");
   demo.backend.advance(30_000);
   const id = store.machines.value[0]!.id;

@@ -4,12 +4,18 @@ import { createClient } from "../client.ts";
 import { mockFetch } from "../mock/fetch.ts";
 import { seedDemo } from "../mock/seed.ts";
 import type { MockBackend } from "../mock/backend.ts";
-import { Store, type StoreOptions } from "./store.ts";
+import { Store, type Prefs, type StoreOptions } from "./store.ts";
 
 /** Signs `store` in as `email`, as a WorkOS round trip would; the account must be admitted. */
 export async function signInAs(store: Store, backend: MockBackend, email: string): Promise<void> {
   if (!backend.signInAs(email)) throw new Error(`the mock refused ${email}`);
   await store.sessionStarted();
+}
+
+/** Preferences kept in memory only (each test its own). */
+export function memoryPrefs(): Prefs {
+  const m = new Map<string, string>();
+  return { get: (k) => m.get(k) ?? null, set: (k, v) => void m.set(k, v) };
 }
 
 /**
@@ -93,6 +99,7 @@ export async function controllable(email?: string, options: StoreOptions = {}, s
     credentialFetch,
     monotonic: () => mono,
     timers: keyTimers,
+    prefs: memoryPrefs(),
     ...options,
   });
   await signInAs(store, demo.backend, email ?? demo.emails.member);

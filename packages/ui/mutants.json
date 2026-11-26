@@ -1706,8 +1706,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.signInNotice.value = null;\n    await this.loadMe();",
-  "new": "    this.signInNotice.value = null;"
+  "old": "    this.tourHidden.value = false;\n    await this.loadMe();\n",
+  "new": "    this.tourHidden.value = false;\n"
  },
  {
   "file": "src/app/store.ts",
@@ -3473,8 +3473,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
-  "new": "    this.#generation++;\n    this.startRefusal.value = null;",
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.jupyterOpened.value = false;\n    this.tourHidden.value = false;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)\n    this.keys.endSession();",
+  "new": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.jupyterOpened.value = false;\n    this.tourHidden.value = false;",
   "note": "endSession: keys kept"
  },
  {
@@ -4473,12 +4473,172 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)",
-  "new": "    this.#generation++;\n    this.#staleSaves(); // (a late answer must not show a signed-out person's saves)"
+  "old": "    this.#generation++;\n    this.startRefusal.value = null;\n    this.jupyterOpened.value = false;\n",
+  "new": "    this.#generation++;\n    this.jupyterOpened.value = false;\n"
  },
  {
   "file": "src/app/store.ts",
   "old": "    this.#staleSaves(); // (nor the previous person's to the new one)\n    this.startRefusal.value = null;\n",
   "new": "    this.#staleSaves(); // (nor the previous person's to the new one)\n"
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "const machines = input.machines.filter((m) => m.state !== \"deleted\");",
+  "new": "const machines = input.machines;"
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "      done: machines.length > 0,",
+  "new": "      done: machines.length >= 0,"
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "      done: input.jupyterOpened,",
+  "new": "      done: true,"
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "s.name != null) === true,",
+  "new": "s.name !== undefined) === true,"
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "input.memberSaves?.items.some(",
+  "new": "input.memberSaves?.items.every("
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "machines.some((m) => m.state === \"stopped\")",
+  "new": "machines.some((m) => m.state !== \"running\")"
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "  return `sbgpu.tour.hidden.${userId}`;",
+  "new": "  return `sbgpu.tour.hidden`;"
+ },
+ {
+  "file": "src/tour.ts",
+  "old": "and it stops using your allocation once it has stopped.",
+  "new": "and charging ends once it has stopped."
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.#prefs = options.prefs ?? browserPrefs();",
+  "new": "    this.#prefs = browserPrefs();"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    try {\n      return globalThis.localStorage ?? null;\n    } catch {\n      return null;\n    }",
+  "new": "    return globalThis.localStorage ?? null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        return store ? store.getItem(key) : (memory.get(key) ?? null);",
+  "new": "        return memory.get(key) ?? null;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        return memory.get(key) ?? null;\n      }\n    },",
+  "new": "        return null;\n      }\n    },"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      memory.set(key, value);\n      try {",
+  "new": "      try {"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        store?.setItem(key, value);",
+  "new": "        store?.getItem(key);"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (me) this.#prefs.set(tourPrefKey(me.user.id), \"1\");",
+  "new": "    if (me) this.#prefs.set(tourPrefKey(me.user.id), \"0\");"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.tourHidden.value = true;\n    if (me)",
+  "new": "    if (me)"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (me) this.#prefs.set(tourPrefKey(me.user.id), \"1\");",
+  "new": "    this.#prefs.set(tourPrefKey(me?.user.id ?? \"\"), \"1\");"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "this.tourHidden.value = this.#prefs.get(tourPrefKey(me.user.id)) === \"1\";",
+  "new": "this.tourHidden.value = false;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.startRefusal.value = null;\n    this.jupyterOpened.value = false;\n",
+  "new": "    this.startRefusal.value = null;\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.jupyterOpened.value = false;\n    this.tourHidden.value = false;\n    this.#staleSaves();",
+  "new": "    this.jupyterOpened.value = false;\n    this.#staleSaves();"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    // (the walkthrough is the new person's: loadMe reads whether they hid it)\n    this.jupyterOpened.value = false;\n",
+  "new": "    // (the walkthrough is the new person's: loadMe reads whether they hid it)\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    this.tourHidden.value = false;\n    await this.loadMe();",
+  "new": "    await this.loadMe();"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.jupyterOpened.value = false; // (the walkthrough ticks what happened in this project)\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    else this.jupyterOpened.value = true;\n",
+  "new": "\n"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    if (url == null) this.error.value",
+  "new": "    this.jupyterOpened.value = true;\n    if (url == null) this.error.value"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "store.role.value === \"member\" && !store.tourHidden.value ?",
+  "new": "!store.tourHidden.value ?"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "store.role.value === \"member\" && !store.tourHidden.value ?",
+  "new": "store.role.value === \"member\" ?"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${finished ? \"Hide\" : \"Skip\"}",
+  "new": "${\"Skip\"}"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "const finished = steps.every((s) => s.done);",
+  "new": "const finished = steps.some((s) => s.done);"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${s === next ? html`<br /><span class=\"small\">${s.hint}</span>` : null}",
+  "new": "${!s.done ? html`<br /><span class=\"small\">${s.hint}</span>` : null}"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "${s.done ? html` <span class=\"badge\">Done</span>` : null}",
+  "new": "${null}"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "onClick=${() => store.hideTour()}>",
+  "new": "onClick=${() => undefined}>"
  }
 ]
