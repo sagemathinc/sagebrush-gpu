@@ -4700,5 +4700,113 @@
   "old": "  if (installation !== undefined && !isInstallation(installation)) throw new Error(\"SBGPU_INSTALLATION must be 4 to 8 of [a-z0-9]\");\n",
   "new": "",
   "note": "a malformed installation slug accepted"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (flag === undefined || flag === \"off\") return null;",
+  "new": "  if (flag === undefined) return null;",
+  "note": "container launch: off not accepted"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (flag !== \"on\") throw new Error(\"SBGPU_CONTAINER_LAUNCH must be on or off\");\n",
+  "new": "",
+  "note": "container launch: any flag value taken as on"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (typeof image !== \"string\" || !IMAGE_NAME.test(image)) throw new Error(\"SBGPU_CONTAINER_IMAGE must be an image name\");\n",
+  "new": "",
+  "note": "any container image"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  try {\n    renderBootCommand({ agentUrl, agentSha256, controlUrl: appOrigin, mode: \"container\" });\n  } catch {\n    throw new Error(\"SBGPU_AGENT_URL must be a plain https URL and SBGPU_AGENT_SHA256 64 lowercase hex\");\n  }\n",
+  "new": "",
+  "note": "any agent URL and sha256"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "    containerLaunch: containerLaunchFromEnv(env, appOrigin),",
+  "new": "    containerLaunch: null,",
+  "note": "container launch never on"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  const c = config.containerLaunch;\n  if (c === null) return { off: true };\n  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n",
+  "new": "  const c = config.containerLaunch;\n  if (c === null) return { off: true };\n",
+  "note": "container deps without an installation"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  if (typeof apiKey !== \"string\" || apiKey === \"\") return { unusable: \"RUNPOD_API_KEY is unset\" };\n  const boot = renderBootCommand({ agentUrl: c.agentUrl, agentSha256: c.agentSha256, controlUrl: config.appOrigin, mode: \"container\" });\n",
+  "new": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  const boot = renderBootCommand({ agentUrl: c.agentUrl, agentSha256: c.agentSha256, controlUrl: config.appOrigin, mode: \"container\" });\n",
+  "note": "container deps without a key"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "      expect: { image: c.image, launcher: boot.argv, bootEnv: BOOT_TOKEN_ENV },",
+  "new": "      expect: { image: c.image, launcher: [], bootEnv: BOOT_TOKEN_ENV },",
+  "note": "pods expected with no launcher"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "        if (\"unusable\" in d) log(`control: alert: container launch is on but ${d.unusable}: launches not started`);\n",
+  "new": "        if (\"unusable\" in d) {}\n",
+  "note": "no alert when on but unusable"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            const n = await runContainerWatchdog({",
+  "new": "            const n = 0 && await runContainerWatchdog({",
+  "note": "the container watchdog never runs"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            failed.push(\"container watchdog\");\n",
+  "new": "",
+  "note": "a failed container watchdog doesn't fail the run"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            pending = (await db.all(CONTAINER_PENDING_SELECT)).length > 0;",
+  "new": "            pending = (await db.all(CONTAINER_PENDING_SELECT)).length > 1;",
+  "note": "due container launches never seen when off"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "          let pending = true;",
+  "new": "          let pending = false;",
+  "note": "an unread due check taken as nothing due"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "export function cleanupDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { unusable: string } {\n  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n",
+  "new": "export function cleanupDeps(config: AppConfig, apiKey: unknown, f: typeof fetch): { deps: ContainerDeps } | { unusable: string } {\n",
+  "note": "cleanup without an installation"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  if (typeof apiKey !== \"string\" || apiKey === \"\") return { unusable: \"RUNPOD_API_KEY is unset\" };\n  const on = containerDeps(config, apiKey, f);",
+  "new": "  if (config.installation === null) return { unusable: \"SBGPU_INSTALLATION is unset\" };\n  const on = containerDeps(config, apiKey, f);",
+  "note": "cleanup without a key"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            else log(`control: alert: container launches are due but ${c.unusable}: they can't be ended`);\n",
+  "new": "",
+  "note": "no alert when due launches can't be ended"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "        container: (() => {\n          const d = containerDeps(config, env.RUNPOD_API_KEY, fetch);\n          return \"deps\" in d ? d.deps : null;\n        })(),",
+  "new": "        container: null,",
+  "note": "requests never get the container dependencies"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "              installation: config.installation,",
+  "new": "              installation: null,",
+  "note": "the scheduled watchdog without the installation"
  }
 ]

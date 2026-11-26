@@ -4,7 +4,13 @@ import { readFileSync } from "node:fs";
 import { newId } from "@sbgpu/api";
 import { startWorker, type StartedWorker } from "@sbgpu/testing/worker";
 import { SECURITY_HEADERS } from "./http.ts";
-import { backgroundFailureLine, createWorker, guardedWaitUntil } from "./worker.ts";
+import { inspect } from "node:util";
+import { renderBootCommand } from "@sbgpu/machine";
+import { RunPodAdapter } from "@sbgpu/providers";
+import { configFromEnv } from "./app.ts";
+import { CONTAINER_WATCHDOG_SELECT } from "./container.ts";
+import { ERADICATION_CHECKS } from "./enroll.ts";
+import { CONTAINER_PENDING_SELECT, backgroundFailureLine, containerDeps, createWorker, guardedWaitUntil } from "./worker.ts";
 import { PRUNE_BATCH } from "./jobs.ts";
 import { d1Db, type D1Like } from "./db.ts";
 
@@ -223,6 +229,168 @@ test("scheduled: every job runs even if one fails; then the run fails, naming it
   assert.deepEqual(logs, ["control: one: 2", "control: scheduled job two failed (Error)"]);
   // all well: no error
   await createWorker({ log: () => {}, jobs: [{ name: "ok", run: async () => 0 }] }).scheduled({ scheduledTime: 0, cron: "" }, env, { waitUntil() {} });
+});
+
+// ---- container launch (off by default): the Worker's wiring
+
+const BASE_VARS = { APP_ORIGIN: "https://gpu.example.com", MACHINE_DOMAIN: "m.example.com" };
+const RELEASE = {
+  SBGPU_CONTAINER_IMAGE: "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
+  SBGPU_AGENT_URL: "https://cdn.example.com/agent/sbgpu-agent.tar.gz",
+  SBGPU_AGENT_SHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+};
+
+test("containerDeps: off by default; on but unusable without the installation or the key; usable: our RunPod adapter, the release's image and launcher", () => {
+  assert.deepEqual(containerDeps(configFromEnv(BASE_VARS), "k", fetch), { off: true });
+  const on = configFromEnv({ ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on" });
+  assert.deepEqual(containerDeps(on, "k", fetch), { unusable: "SBGPU_INSTALLATION is unset" });
+  const full = configFromEnv({ ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod" });
+  for (const key of [undefined, "", 5]) assert.deepEqual(containerDeps(full, key, fetch), { unusable: "RUNPOD_API_KEY is unset" }, String(key));
+  const d = containerDeps(full, "rpa_SECRETKEYVALUE0000", fetch);
+  assert.ok("deps" in d);
+  assert.ok(d.deps.provider instanceof RunPodAdapter);
+  const boot = renderBootCommand({ agentUrl: RELEASE.SBGPU_AGENT_URL, agentSha256: RELEASE.SBGPU_AGENT_SHA256, controlUrl: "https://gpu.example.com", mode: "container" });
+  assert.ok("argv" in boot);
+  assert.deepEqual(d.deps.expect, { image: RELEASE.SBGPU_CONTAINER_IMAGE, launcher: boot.argv, bootEnv: "SBGPU_BOOT_TOKEN" });
+  assert.ok(!inspect(d, { depth: null, showHidden: true }).includes("SECRETKEYVALUE"), "the key isn't visible in the deps");
+});
+
+/**
+ * A D1 that answers every read with no rows and records each statement's SQL; `pending` makes the
+ * due-container-launch read find one (or, "fail", throw), `failReads` every read throw.
+ */
+function recordingD1(failReads = false, pending: boolean | "fail" = false) {
+  const sqls: string[] = [];
+  const stmt = (sql: string) => ({
+    bind: () => ({
+      all: async () => {
+        sqls.push(sql);
+        if (failReads) throw new Error("d1 down");
+        if (sql === CONTAINER_PENDING_SELECT && pending === "fail") throw new Error("d1 down");
+        if (sql === CONTAINER_PENDING_SELECT && pending === true) return { results: [{ one: 1 }] };
+        return { results: [] };
+      },
+      run: async () => (sqls.push(sql), { meta: { changes: 0 } }),
+    }),
+  });
+  return { sqls, d1: { prepare: (sql: string) => stmt(sql), batch: async () => [] } };
+}
+
+test("scheduled: the container watchdog runs only when container launch is on and usable; on but unusable is one alert line a run", async () => {
+  const cases: Array<[Record<string, string>, boolean, string[]]> = [
+    [{}, false, []],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "off" }, false, []],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on" }, false, ["control: alert: container launch is on but SBGPU_INSTALLATION is unset: launches not started"]],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod" }, false, ["control: alert: container launch is on but RUNPOD_API_KEY is unset: launches not started"]],
+    [{ ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" }, true, []],
+  ];
+  for (const [vars, ran, lines] of cases) {
+    const logs: string[] = [];
+    const r = recordingD1();
+    const other: string[] = [];
+    await createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [{ name: "other", run: async () => (other.push("ran"), 0) }] }).scheduled(
+      { scheduledTime: 0, cron: "" },
+      { DB: r.d1, ...BASE_VARS, ...vars } as never,
+      { waitUntil() {} },
+    );
+    assert.equal(r.sqls.includes(CONTAINER_WATCHDOG_SELECT), ran, JSON.stringify(vars));
+    assert.deepEqual([logs, other], [lines, ["ran"]], JSON.stringify(vars));
+  }
+  // a failing container watchdog fails the run by name, after the other jobs; a bad deploy config only skips it
+  const logs: string[] = [];
+  const failing = recordingD1(true);
+  await assert.rejects(
+    createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled(
+      { scheduledTime: 0, cron: "" },
+      { DB: failing.d1, ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" } as never,
+      { waitUntil() {} },
+    ),
+    /scheduled jobs failed: container watchdog$/,
+  );
+  assert.deepEqual(logs, ["control: scheduled job container watchdog failed (Error)"]);
+  const bad: string[] = [];
+  await createWorker({ now: () => 123, log: (l) => bad.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, { DB: recordingD1().d1, MACHINE_DOMAIN: "m.example.com", SBGPU_CONTAINER_LAUNCH: "on" } as never, { waitUntil() {} });
+  assert.deepEqual(bad, ["control: the deploy config is invalid; no container watchdog"]);
+});
+
+test("scheduled: switched off, the container watchdog still runs while a container launch is due; if it can't, one alert line a run", async () => {
+  const KEYED = { SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" };
+  const cases: Array<[string, Record<string, string>, boolean | "fail", boolean, string[]]> = [
+    ["off, nothing due", { ...KEYED }, false, false, []],
+    ["off, a launch due", { ...KEYED }, true, true, []],
+    ["off with the release still set, a launch due", { ...RELEASE, SBGPU_CONTAINER_LAUNCH: "off", ...KEYED }, true, true, []],
+    ["off, the due read failing (as if due)", { ...KEYED }, "fail", true, []],
+    ["off, due, no installation", { RUNPOD_API_KEY: "k" }, true, false, ["control: alert: container launches are due but SBGPU_INSTALLATION is unset: they can't be ended"]],
+    ["off, due, no key", { SBGPU_INSTALLATION: "prod" }, true, false, ["control: alert: container launches are due but RUNPOD_API_KEY is unset: they can't be ended"]],
+    [
+      "on but no key, due",
+      { ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod" },
+      true,
+      false,
+      ["control: alert: container launch is on but RUNPOD_API_KEY is unset: launches not started", "control: alert: container launches are due but RUNPOD_API_KEY is unset: they can't be ended"],
+    ],
+  ];
+  for (const [why, vars, pending, ran, lines] of cases) {
+    const logs: string[] = [];
+    const r = recordingD1(false, pending);
+    await createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, { DB: r.d1, ...BASE_VARS, ...vars } as never, { waitUntil() {} });
+    assert.equal(r.sqls.includes(CONTAINER_WATCHDOG_SELECT), ran, why);
+    assert.deepEqual(logs, lines, why);
+  }
+});
+
+test("the wiring, end to end: on and usable, a container enroll reaches its token lookup; the scheduled watchdog reads RunPod's list with the installation", async () => {
+  const k = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as { privateKey: Parameters<typeof crypto.subtle.exportKey>[1]; publicKey: Parameters<typeof crypto.subtle.exportKey>[1] };
+  const priv = (await crypto.subtle.exportKey("jwk", k.privateKey)) as Record<string, unknown>;
+  const pub = (await crypto.subtle.exportKey("jwk", k.publicKey)) as Record<string, unknown>;
+  const SIGNER = {
+    AGENT_SIGNING_JWK: JSON.stringify({ kty: priv.kty, crv: priv.crv, d: priv.d, x: priv.x }),
+    AGENT_SIGNING_KID: "k1",
+    AGENT_PUBLIC_KEYS: JSON.stringify({ k1: { kty: pub.kty, crv: pub.crv, x: pub.x } }),
+  };
+  const ON = { ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" };
+  const enrollBody = {
+    bootToken: "A".repeat(43), agentVersion: "0.1.0", agentSha256: "0".repeat(64), providerMachineId: "pod1", mode: "container",
+    eradication: { ok: true, checks: ERADICATION_CHECKS.map((name) => ({ name, ok: true })) }, gpu: null, hostname: "pod1",
+  };
+  // (1) a request: the app gets the container dependencies only when on and usable
+  for (const [vars, reaches] of [[ON, true], [{ ...ON, SBGPU_CONTAINER_LAUNCH: "off" }, false], [{ ...ON, SBGPU_INSTALLATION: undefined }, false]] as const) {
+    const r = recordingD1();
+    const env: Record<string, unknown> = { DB: r.d1, ...BASE_VARS, ...SIGNER, ...vars };
+    for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key];
+    const res = await createWorker({ log: () => {} }).fetch(
+      new Request("https://gpu.example.com/v1/agent/enroll", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(enrollBody) }),
+      env as never,
+      { waitUntil() {} },
+    );
+    assert.equal(res.status, 403);
+    assert.equal(r.sqls.some((q) => /FROM boot_tokens b[\s\S]*b\.mode = 'container'/.test(q)), reaches, JSON.stringify(vars));
+  }
+  // (2) the scheduled watchdog: a creating launch with no id is looked for by name, in RunPod's list,
+  // which needs the installation (without it, the name can't be built and nothing is read)
+  const real = globalThis.fetch;
+  for (const [installation, reads] of [["prod", true], [undefined, false]] as const) {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      urls.push(String(input instanceof Request ? input.url : input));
+      return new Response("{}", { status: 503 });
+    }) as typeof fetch;
+    try {
+      const r = recordingD1(false, true);
+      const row = { machine_id: "mch_0a7km2x6veews5590ctj", incarnation: 1, provider_machine_id: null, watchdog_version: 0, outcome: "creating", created_ms: 0, reason: "create-deadline" };
+      const d1 = {
+        prepare: (sql: string) => (sql === CONTAINER_WATCHDOG_SELECT ? { bind: () => ({ all: async () => (r.sqls.push(sql), { results: [row] }), run: async () => ({ meta: { changes: 0 } }) }) } : r.d1.prepare(sql)),
+        batch: r.d1.batch,
+      };
+      const env: Record<string, unknown> = { DB: d1, ...BASE_VARS, ...ON };
+      if (installation === undefined) delete env.SBGPU_INSTALLATION;
+      const logs: string[] = [];
+      await createWorker({ now: () => 10 ** 12, log: (l) => logs.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, env as never, { waitUntil() {} }).catch(() => {});
+      assert.equal(urls.some((u) => u.startsWith("https://rest.runpod.io/") || u.startsWith("https://api.runpod.io/")), reads, `${String(installation)}: ${urls.join(" ")}`);
+    } finally {
+      globalThis.fetch = real;
+    }
+  }
 });
 
 // ---- the enroll batch's guard on D1 itself (SEC): the all-or-nothing proof rests on D1
