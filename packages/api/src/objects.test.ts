@@ -17,6 +17,8 @@ import {
   parseGateReport,
   START_FAILURES,
   isStartFailure,
+  AGENT_ERADICATION_CHECKS,
+  AGENT_ABORT_REASONS,
 } from "./objects.ts";
 
 test("project role order", () => {
@@ -124,4 +126,11 @@ test("start failures: the two reasons a machine never starts, and nothing else",
   assert.deepEqual([...START_FAILURES], ["createDeadline", "podExited"]);
   for (const r of START_FAILURES) assert.equal(isStartFailure(r), true, r);
   for (const bad of ["create-deadline", "pod-exited", "provider", "", null, undefined, 1]) assert.equal(isStartFailure(bad), false, String(bad));
+});
+
+test("the container agent's eradication checks and abort reasons are exactly the contract's lists", () => {
+  // (control parses a container's report against the first, and an abort's reason against the second; the agent's
+  // own lists are pinned to these by the machine package's agent test)
+  assert.deepEqual([...AGENT_ERADICATION_CHECKS], ["env", "processes", "files", "ssh"]);
+  assert.deepEqual([...AGENT_ABORT_REASONS], ["env-not-clean", "extra-process", "key-file", "ssh-access", "other"]);
 });

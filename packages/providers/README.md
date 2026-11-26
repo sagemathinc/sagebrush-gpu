@@ -41,7 +41,9 @@ PID 1 and runs before any access.
 On RunPod the create body is fixed (`RunPodAdapter.createBody`): Secure Cloud, one data center,
 `entrypoint` = the launcher, `cmd: []`, `ports: []`, `startSsh: false`, `startJupyter: false`,
 `mounts: {}`, no template, `env` = `{SBGPU_BOOT_TOKEN}` only. RunPod's own `/start.sh` (nginx,
-sshd, Jupyter) never runs.
+sshd, Jupyter) never runs. If a provider ever puts a non-empty `authorized_keys` in the image's homes or runs sshd in
+the container, every launch aborts at the agent's ssh check (`ssh-access`): intended, fail closed. On RunPod it
+shouldn't fire, since the launcher is PID 1 and `/start.sh` never runs.
 
 **After every launch** the adapter checks the returned pod against the spec (the drift check
 below, except a data center the scheduler hasn't reported yet). A pod that doesn't match is
