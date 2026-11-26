@@ -4534,5 +4534,185 @@
   "file": "src/vast/adapter.ts",
   "old": "if (typeof e === \"string\" && e.length > MAX_ENV_ENTRY_CHARS) return [UNREADABLE];",
   "new": "if (typeof e === \"string\" && e.length >= MAX_ENV_ENTRY_CHARS) return [UNREADABLE];"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "Object.keys(x).some((k) => /ssh/i.test(k) || namesSsh(x[k], depth + 1));",
+  "new": "Object.keys(x).some((k) => /ssh/i.test(k));",
+  "note": "nested SSH fields allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  if (Array.isArray(x)) return x.some((v) => namesSsh(v, depth + 1));\n",
+  "new": "",
+  "note": "SSH fields inside a list allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  const out: string[] = sshSettings(inst);",
+  "new": "  const out: string[] = [];",
+  "note": "SSH on an instance not refused"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  if (isSet(inst[\"ssh_host\"])) out.push(\"ssh:host\");\n",
+  "new": "",
+  "note": "an SSH host not refused"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  if (isSet(inst[\"ssh_port\"])) out.push(\"ssh:port\");\n",
+  "new": "",
+  "note": "an SSH port not refused"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    out.push(/key/i.test(k) ? \"ssh:key\" : \"ssh:set\");",
+  "new": "    out.push(\"ssh:set\");",
+  "note": "key material not named"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    if (k === \"ssh_host\" || k === \"ssh_port\" || !/ssh/i.test(k) || !isSet(inst[k])) continue;",
+  "new": "    if (k === \"ssh_host\" || k === \"ssh_port\" || !/^ssh_/.test(k) || !isSet(inst[k])) continue;",
+  "note": "only ssh_ fields checked"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  return [...new Set(out)];",
+  "new": "  return out;",
+  "note": "a kind named twice"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": " && v !== false && ",
+  "new": " && ",
+  "note": "false taken for set"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": " && !(Array.isArray(v) && v.length === 0);",
+  "new": ";",
+  "note": "an empty list taken for set"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  return v !== null && v !== undefined && v !== \"\" &&",
+  "new": "  return v !== null && v !== undefined &&",
+  "note": "an empty string taken for set"
+ },
+ {
+  "file": "src/drift.ts",
+  "old": "  \"host\", \"port\",\n",
+  "new": "",
+  "note": "Vast's SSH words reported as other"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  { method: \"POST\", path: /^\\/api\\/v0\\/bundles\\/?$/, query: \"none\", body: true },",
+  "new": "  { method: \"GET\", path: /^\\/api\\/v0\\/bundles\\/?$/, query: \"none\", body: true },",
+  "note": "the search under another method"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  { method: \"DELETE\", path: /^\\/api\\/v0\\/instances\\/[0-9]{1,18}\\/?$/, query: \"none\", body: false },",
+  "new": "  { method: \"PUT\", path: /^\\/api\\/v0\\/instances\\/[0-9]{1,18}\\/?$/, query: \"none\", body: false },",
+  "note": "PUT allowed on an instance"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  { method: \"GET\", path: /^\\/api\\/v0\\/instances\\/[0-9]{1,18}\\/?$/, query: \"none\", body: false },",
+  "new": "  { method: \"GET\", path: /^\\/api\\/v0\\/instances\\/.*$/, query: \"none\", body: false },",
+  "note": "any instance subpath allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      r.method === method &&\n",
+  "new": "",
+  "note": "any method on any route"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "(r.query === \"none\" ? query === null : query !== null && listQueryOk(query))",
+  "new": "(r.query === \"none\" ? true : query !== null && listQueryOk(query))",
+  "note": "a query allowed where none is sent"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "(r.query === \"none\" ? query === null : query !== null && listQueryOk(query))",
+  "new": "(r.query === \"none\" ? query === null : query !== null)",
+  "note": "any list query allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "(r.body ? isObject(body) && !namesSsh(body) : body === undefined)",
+  "new": "(r.body ? isObject(body) && !namesSsh(body) : true)",
+  "note": "a body allowed where none is sent"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "(r.body ? isObject(body) && !namesSsh(body) : body === undefined)",
+  "new": "(r.body ? !namesSsh(body) : body === undefined)",
+  "note": "no body where one is sent"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "(r.body ? isObject(body) && !namesSsh(body) : body === undefined)",
+  "new": "(r.body ? isObject(body) : body === undefined)",
+  "note": "SSH fields in a body allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  if (!/^[A-Za-z0-9%._~&=+-]*$/.test(query)) return false;\n",
+  "new": "",
+  "note": "raw characters in the list query allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    if (seen.has(k)) return false;\n",
+  "new": "",
+  "note": "a repeated query key allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      if (!/^[1-9][0-9]{0,2}$/.test(v)) return false;",
+  "new": "      if (!/^.*$/.test(v)) return false;",
+  "note": "any limit allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "    } else {\n      return false;\n    }\n  }\n  return seen.has(\"limit\");",
+  "new": "    } else {\n      continue;\n    }\n  }\n  return seen.has(\"limit\");",
+  "note": "unknown query keys allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "  return seen.has(\"limit\");\n}",
+  "new": "  return true;\n}",
+  "note": "a list without its limit allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "if (typeof label !== \"string\" || parseMachineName(label) === null) return false;",
+  "new": "if (typeof label !== \"string\") return false;",
+  "note": "any label in the filter"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "isObject(f) && Object.keys(f).length === 1 && isObject(f[\"label\"])",
+  "new": "isObject(f) && isObject(f[\"label\"])",
+  "note": "extra filter keys allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "isObject(f[\"label\"]) && Object.keys(f[\"label\"]).length === 1 ?",
+  "new": "isObject(f[\"label\"]) ?",
+  "note": "extra label operators allowed"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      if (!/^[A-Za-z0-9._~+/=:-]{1,512}$/.test(v)) return false;",
+  "new": "      if (!/^.*$/.test(v)) return false;",
+  "note": "any page token allowed"
  }
 ]
