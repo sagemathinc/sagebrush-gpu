@@ -1598,11 +1598,6 @@
  },
  {
   "file": "src/auth.ts",
-  "old": "challenge: await sha256B64url(st.v) });",
-  "new": "challenge: st.v });"
- },
- {
-  "file": "src/auth.ts",
   "old": "if (!st || st.x <= now || ctx.query.get(\"state\") !== st.s) return outcome(\"expired\");",
   "new": "if (!st || st.x < now || ctx.query.get(\"state\") !== st.s) return outcome(\"expired\");"
  },
@@ -1689,11 +1684,6 @@
  },
  {
   "file": "src/auth.ts",
-  "old": "params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now, iss, sub],",
-  "new": "params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now - 1, iss, sub],"
- },
- {
-  "file": "src/auth.ts",
   "old": "      return outcome(otherIdentity(e) ? \"refused\" : \"unavailable\");",
   "new": "      return outcome(\"unavailable\");"
  },
@@ -1771,11 +1761,6 @@
   "file": "src/auth.ts",
   "old": "...(res.user && res.user.id === sub && res.user.email",
   "new": "...(res.user && res.user.email"
- },
- {
-  "file": "src/auth.ts",
-  "old": "params: [sealed.version, sealed.ct, now, hash, now],",
-  "new": "params: [sealed.version, sealed.ct, now - 1, hash, now],"
  },
  {
   "file": "src/auth.ts",
@@ -2202,11 +2187,6 @@
   "file": "src/vm.ts",
   "old": "export const ANNOUNCE_MAX_BODY_BYTES = 1024;",
   "new": "export const ANNOUNCE_MAX_BODY_BYTES = 1025;"
- },
- {
-  "file": "src/app.ts",
-  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };",
-  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentEnroll: ENROLL_MAX_BODY_BYTES, agentHeartbeat: HEARTBEAT_MAX_BODY_BYTES };"
  },
  {
   "file": "src/app.ts",
@@ -5543,5 +5523,499 @@
   "old": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled') AND watchdog_version = ?`,",
   "new": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled')`,",
   "note": "the re-read ignores the version"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "challenge: await sha256B64url(st.v), reauth });",
+  "new": "challenge: st.v, reauth });"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now, authn.authenticatedMs,",
+  "new": "params: [hash, now, now + deps.config.sessionTtlMs, sealed.version, sealed.ct, now - 1, authn.authenticatedMs,"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "params: [sealed.version, sealed.ct, now, ver.sid,",
+  "new": "params: [sealed.version, sealed.ct, now - 1, ver.sid,"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentAnnounce: ANNOUNCE_MAX_BODY_BYTES, agentEnroll:",
+  "new": "const ROUTE_BODY_CAPS: Partial<Record<EndpointName, number>> = { agentEnroll:"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.authenticated_ms IS NOT OLD.authenticated_ms\n",
+  "new": "WHEN 0\n",
+  "note": "authentication time may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.impersonated IS NOT OLD.impersonated AND NEW.impersonated IS NOT 1\n",
+  "new": "WHEN 0\n",
+  "note": "impersonation may fall"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (impersonated IS NULL OR impersonated IN (0, 1));",
+  "new": "  CHECK (impersonated IS NULL OR impersonated BETWEEN -1 AND 2);",
+  "note": "session impersonated open"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (authenticated_ms IS NULL OR authenticated_ms BETWEEN 0 AND 9007199254740991);",
+  "new": "  CHECK (authenticated_ms IS NULL OR authenticated_ms BETWEEN -1 AND 9007199254740991);",
+  "note": "authenticated negative"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (workos_sid IS NULL OR (length(CAST(workos_sid AS BLOB)) BETWEEN 9 AND 128 AND length(workos_sid) = length(CAST(workos_sid AS BLOB)) AND substr(workos_sid, 1, 8) = 'session_' AND substr(workos_sid, 9) NOT GLOB '*[^A-Za-z0-9]*'));",
+  "new": "  CHECK (workos_sid IS NULL OR (length(CAST(workos_sid AS BLOB)) BETWEEN 9 AND 128 AND length(workos_sid) = length(CAST(workos_sid AS BLOB)) AND substr(workos_sid, 9) NOT GLOB '*[^A-Za-z0-9]*'));",
+  "note": "session sid prefix dropped"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (workos_sid IS NULL OR (length(CAST(workos_sid AS BLOB)) BETWEEN 9 AND 128 AND length(workos_sid) = length(CAST(workos_sid AS BLOB)) AND substr(workos_sid, 1, 8) = 'session_' AND substr(workos_sid, 9) NOT GLOB '*[^A-Za-z0-9]*'));",
+  "new": "  CHECK (workos_sid IS NULL OR (length(CAST(workos_sid AS BLOB)) BETWEEN 9 AND 128 AND length(workos_sid) = length(CAST(workos_sid AS BLOB)) AND substr(workos_sid, 1, 8) = 'session_'));",
+  "note": "session sid body open"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (workos_sid IS NULL OR (length(CAST(workos_sid AS BLOB)) BETWEEN 9 AND 128 AND length(workos_sid) = length(CAST(workos_sid AS BLOB)) AND substr(workos_sid, 1, 8) = 'session_' AND substr(workos_sid, 9) NOT GLOB '*[^A-Za-z0-9]*'));",
+  "new": "  CHECK (workos_sid IS NULL OR (length(CAST(workos_sid AS BLOB)) BETWEEN 9 AND 129 AND length(workos_sid) = length(CAST(workos_sid AS BLOB)) AND substr(workos_sid, 1, 8) = 'session_' AND substr(workos_sid, 9) NOT GLOB '*[^A-Za-z0-9]*'));",
+  "note": "session sid max 129"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  impersonated INTEGER NOT NULL CHECK (impersonated = 0),",
+  "new": "  impersonated INTEGER NOT NULL CHECK (impersonated IN (0, 1)),",
+  "note": "impersonated assurance allowed"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (expires_ms = min(auth_time_ms + 300000, created_ms + 300000)),",
+  "new": "  CHECK (expires_ms <= created_ms + 300000),",
+  "note": "expiry ignores the authentication"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (expires_ms = min(auth_time_ms + 300000, created_ms + 300000)),",
+  "new": "  CHECK (expires_ms <= auth_time_ms + 300000),",
+  "note": "expiry ignores the creation"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (expires_ms > created_ms),",
+  "new": "  CHECK (1),",
+  "note": "born expired allowed"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (used_ms IS NULL OR (used_ms >= created_ms AND used_ms <= expires_ms))",
+  "new": "  CHECK (used_ms IS NULL OR used_ms >= created_ms)",
+  "note": "used after expiry allowed"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  CHECK (used_ms IS NULL OR (used_ms >= created_ms AND used_ms <= expires_ms))",
+  "new": "  CHECK (used_ms IS NULL OR used_ms <= expires_ms)",
+  "note": "used before creation allowed"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "substr(factor_id, 1, 12) = 'auth_factor_' AND ",
+  "new": "",
+  "note": "factor prefix dropped"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "substr(client_id, 1, 7) = 'client_' AND ",
+  "new": "",
+  "note": "client prefix dropped"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": " AND substr(client_id, 8) NOT GLOB '*[^A-Za-z0-9]*'",
+  "new": "",
+  "note": "client body open"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": " AND env NOT GLOB '*[^!-~]*'",
+  "new": "",
+  "note": "env alphabet open"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  session_sha256 TEXT NOT NULL CHECK (length(CAST(session_sha256 AS BLOB)) = 64 AND length(session_sha256) = 64 AND session_sha256 NOT GLOB '*[^0-9a-f]*'),",
+  "new": "  session_sha256 TEXT NOT NULL CHECK (length(CAST(session_sha256 AS BLOB)) = 64),",
+  "note": "session hash alphabet open"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "note": "assurance org may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "note": "assurance factor may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "note": "assurance env may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "note": "assurance client may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "note": "assurance user may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "note": "assurance sid may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "note": "assurance session may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.auth_time_ms IS NOT OLD.auth_time_ms OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated OR NEW.created_ms IS NOT OLD.created_ms OR NEW.expires_ms IS NOT OLD.expires_ms",
+  "new": "WHEN NEW.id IS NOT OLD.id OR NEW.session_sha256 IS NOT OLD.session_sha256 OR NEW.workos_sid IS NOT OLD.workos_sid\n  OR NEW.user_id IS NOT OLD.user_id OR NEW.org_id IS NOT OLD.org_id OR NEW.factor_id IS NOT OLD.factor_id\n  OR NEW.env IS NOT OLD.env OR NEW.client_id IS NOT OLD.client_id\n  OR NEW.impersonated IS NOT OLD.impersonated",
+  "note": "assurance times may change"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN OLD.used_ms IS NOT NULL\n",
+  "new": "WHEN 0\n",
+  "note": "assurance reusable"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "  used INTEGER NOT NULL CHECK (used BETWEEN 1 AND 10),",
+  "new": "  used INTEGER NOT NULL CHECK (used BETWEEN 0 AND 11),",
+  "note": "quota cap open"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": " AND window_start_ms % 3600000 = 0",
+  "new": "",
+  "note": "window unaligned"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "WHEN NEW.org_id IS NOT OLD.org_id OR NEW.window_start_ms IS NOT OLD.window_start_ms OR NEW.used IS NOT OLD.used + 1",
+  "new": "WHEN NEW.used < OLD.used",
+  "note": "quota may jump or move"
+ },
+ {
+  "file": "migrations/0021_credential_assurance.sql",
+  "old": "CREATE TRIGGER credential_check_quota_kept BEFORE DELETE ON credential_check_quota\n",
+  "new": "CREATE TRIGGER credential_check_quota_kept BEFORE DELETE ON credential_check_quota WHEN 0\n",
+  "note": "quota released"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    ...(a.reauth ? { max_age: \"0\" } : {}),",
+  "new": "",
+  "note": "no max_age"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "    ...(a.reauth ? { max_age: \"0\" } : {}),",
+  "new": "    max_age: \"0\",",
+  "note": "max_age always"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "impersonated: j.impersonator !== undefined && j.impersonator !== null };",
+  "new": "impersonated: false };",
+  "note": "exchange impersonator ignored"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "return { authenticatedMs, impersonated: claims.act !== undefined && claims.act !== null };",
+  "new": "return { authenticatedMs, impersonated: false };",
+  "note": "act ignored"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "? t * 1000 : null;",
+  "new": "? t : null;",
+  "note": "auth_time as ms"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "if (x && x.type === \"totp\" && typeof x.id === \"string\"",
+  "new": "if (x && typeof x.id === \"string\"",
+  "note": "any factor type"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": " && x.user_id === userId) totp.push(x.id);",
+  "new": ") totp.push(x.id);",
+  "note": "another user's factor"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "return { ok: true, valid: (v.j as { valid?: unknown } | null)?.valid === true };",
+  "new": "return { ok: true, valid: true };",
+  "note": "code never checked"
+ },
+ {
+  "file": "src/workos.ts",
+  "old": "  if (isRedirect(r) || r.status >= 500 || r.status === 429 || r.status === 408) return { ok: false, kind: \"unavailable\" };\n  if (!r.ok) return { ok: false, kind: \"invalid\" };\n  try {\n    return { ok: true, j:",
+  "new": "  if (isRedirect(r) || r.status === 429 || r.status === 408) return { ok: false, kind: \"unavailable\" };\n  if (!r.ok) return { ok: false, kind: \"invalid\" };\n  try {\n    return { ok: true, j:",
+  "note": "5xx as invalid"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    s.impersonated === 0 &&\n",
+  "new": "",
+  "note": "impersonated session fresh"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    s.workos_sid !== null &&\n",
+  "new": "",
+  "note": "no sid fresh"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": " &&\n    s.authenticated_ms <= nowMs + AUTH_TIME_SKEW_MS\n",
+  "new": "\n",
+  "note": "future auth time"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (mode[0]?.billing_mode !== \"byok\") throw credentialRefusal(\"notByok\");\n",
+  "new": "",
+  "note": "resold org verifies"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "DO UPDATE SET used = used + 1 WHERE used < ?`,",
+  "new": "DO UPDATE SET used = used + 1 WHERE used <= ?`,",
+  "note": "quota cap 11"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (factors.totp.length !== 1) throw credentialRefusal(\"mfaRequired\");",
+  "new": "    if (factors.totp.length === 0) throw credentialRefusal(\"mfaRequired\");",
+  "note": "first of many factors"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (!v.ok || !v.valid) throw credentialRefusal(\"mfaInvalid\");",
+  "new": "    if (!v.ok) throw credentialRefusal(\"mfaInvalid\");",
+  "note": "invalid code accepted"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (!v.ok && v.kind === \"unavailable\") throw credentialRefusal(\"checkUnavailable\");\n",
+  "new": "",
+  "note": "verify outage as invalid"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "s.authenticated_ms = ? AND s.impersonated = 0 AND s.revoked_ms IS NULL AND s.expires_ms > ?\n         AND EXISTS",
+  "new": "s.authenticated_ms = ? AND ? IS NOT NULL AND s.revoked_ms IS NULL AND s.expires_ms > ?\n         AND EXISTS",
+  "note": "write ignores impersonation now"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "         AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = ? AND m.user_id = s.user_id AND m.role = 'owner')`,",
+  "new": "         AND ? IS NOT NULL`,",
+  "note": "write ignores the owner role now"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (expires <= at) throw credentialRefusal(\"reauthenticate\");\n",
+  "new": "",
+  "note": "born expired attempted"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "AND a.impersonated = 0 AND a.used_ms IS NULL AND a.expires_ms >= ?\n  AND EXISTS",
+  "new": "AND a.impersonated = 0 AND a.expires_ms >= ?\n  AND EXISTS",
+  "note": "use without used"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "AND a.impersonated = 0 AND a.used_ms IS NULL AND a.expires_ms >= ?\n  AND EXISTS",
+  "new": "AND a.impersonated = 0 AND a.used_ms IS NULL AND ? IS NOT NULL\n  AND EXISTS",
+  "note": "use without expiry"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "s.workos_sid = a.workos_sid\n    AND s.authenticated_ms",
+  "new": "1\n    AND s.authenticated_ms",
+  "note": "use without sid"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "AND s.impersonated = 0 AND s.revoked_ms IS NULL AND s.expires_ms > ?)\n  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')\n  AND EXISTS (SELECT 1 FROM orgs",
+  "new": "AND s.revoked_ms IS NULL AND s.expires_ms > ?)\n  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')\n  AND EXISTS (SELECT 1 FROM orgs",
+  "note": "use without impersonation now"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "AND s.revoked_ms IS NULL AND s.expires_ms > ?)\n  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')\n  AND EXISTS (SELECT 1 FROM orgs",
+  "new": "AND s.expires_ms > ?)\n  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')\n  AND EXISTS (SELECT 1 FROM orgs",
+  "note": "use without revoked session"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "AND s.expires_ms > ?)\n  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')\n  AND EXISTS (SELECT 1 FROM orgs",
+  "new": "AND ? IS NOT NULL)\n  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')\n  AND EXISTS (SELECT 1 FROM orgs",
+  "note": "use without expired session"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')\n  AND EXISTS (SELECT 1 FROM orgs",
+  "new": "  AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id)\n  AND EXISTS (SELECT 1 FROM orgs",
+  "note": "use without owner role"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "new": "const LIVE = `? IS NOT NULL AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "note": "use without session"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "new": "const LIVE = `a.session_sha256 = ? AND ? IS NOT NULL AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "note": "use without user"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "new": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND ? IS NOT NULL AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "note": "use without org"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "new": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND ? IS NOT NULL AND a.client_id = ? AND a.factor_id = ?",
+  "note": "use without env"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "new": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND ? IS NOT NULL AND a.factor_id = ?",
+  "note": "use without client"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND a.factor_id = ?",
+  "new": "const LIVE = `a.session_sha256 = ? AND a.user_id = ? AND a.org_id = ? AND a.env = ? AND a.client_id = ? AND ? IS NOT NULL",
+  "note": "use without factor"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    stmt(`INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`),\n",
+  "new": "",
+  "note": "use without the guard"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "WHERE ${LIVE} ORDER BY a.id DESC LIMIT 1)`,",
+  "new": "WHERE ${LIVE} ORDER BY a.id ASC LIMIT 1)`,",
+  "note": "oldest used first"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "       AND a.impersonated = 0 AND a.used_ms IS NULL AND a.expires_ms >= ?\n       AND EXISTS",
+  "new": "       AND a.impersonated = 0 AND a.expires_ms >= ?\n       AND EXISTS",
+  "note": "me counts a used one"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "         AND s.authenticated_ms = a.auth_time_ms AND s.impersonated = 0 AND s.revoked_ms IS NULL AND s.expires_ms > ?)\n       AND EXISTS (SELECT 1 FROM org_members m WHERE m.org_id = a.org_id AND m.user_id = a.user_id AND m.role = 'owner')`,",
+  "new": "         AND s.authenticated_ms = a.auth_time_ms AND s.impersonated = 0 AND s.revoked_ms IS NULL AND s.expires_ms > ?)`,",
+  "note": "me ignores the owner role"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "  if (orgId === null) return null;\n",
+  "new": "",
+  "note": "me without org"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "  if (!isId(\"org\", orgId)) throw new HttpError(\"badRequest\", \"orgId must be an organization id\");\n",
+  "new": "",
+  "note": "me malformed org"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (e.code === \"unauthenticated\") return credentialRefusal(\"signedOut\");",
+  "new": "    if (e.code === \"unauthenticated\") return credentialRefusal(\"notOwner\");",
+  "note": "signed out as notOwner"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (e.code === \"forbidden\" || e.code === \"notFound\") return credentialRefusal(\"notOwner\");",
+  "new": "    if (e.code === \"forbidden\") return credentialRefusal(\"notOwner\");",
+  "note": "non-member as unavailable"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (e.code === \"badRequest\") return credentialRefusal(CREDENTIAL_ROUTES[route] ?? \"checkUnavailable\");",
+  "new": "",
+  "note": "unreadable body as unavailable"
+ },
+ {
+  "file": "src/credential-assurance.ts",
+  "old": "    if (keys.length !== 1 || keys[0] !== \"code\" || !isAuthenticatorCode(ctx.body.code)) throw credentialRefusal(\"mfaInvalid\");",
+  "new": "    if (!isAuthenticatorCode(ctx.body.code)) throw credentialRefusal(\"mfaInvalid\");",
+  "note": "extra keys accepted"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "        if (route !== null && Object.hasOwn(CREDENTIAL_ROUTES, route)) return fail(asCredentialRefusal(route, e));\n",
+  "new": "",
+  "note": "credential routes answer generic errors"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    const impersonated = ex.impersonated || authn.impersonated ? 1 : 0;",
+  "new": "    const impersonated = authn.impersonated ? 1 : 0;",
+  "note": "exchange impersonator dropped"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "    const impersonated = ex.impersonated || authn.impersonated ? 1 : 0;",
+  "new": "    const impersonated = ex.impersonated ? 1 : 0;",
+  "note": "act claim dropped at sign-in"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "              impersonated = CASE WHEN ? = 1 THEN 1 ELSE impersonated END",
+  "new": "              impersonated = CASE WHEN ? = 2 THEN 1 ELSE impersonated END",
+  "note": "refresh ignores act"
+ },
+ {
+  "file": "src/auth.ts",
+  "old": "refresh_claim_ms = NULL, workos_sid = ?,",
+  "new": "refresh_claim_ms = NULL, workos_sid = coalesce(workos_sid, ?),",
+  "note": "refresh keeps the old sid"
  }
 ]

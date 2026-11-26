@@ -204,7 +204,7 @@ export async function verifyAccessToken(c: WorkosConfig, token: unknown, opts: {
 }
 
 /** Where to send the browser: AuthKit's hosted sign-in, with PKCE (S256). */
-export function authorizeUrl(c: WorkosConfig, a: { redirectUri: string; state: string; challenge: string }): string {
+export function authorizeUrl(c: WorkosConfig, a: { redirectUri: string; state: string; challenge: string; reauth?: boolean }): string {
   const u = new URL(`${api(c)}/user_management/authorize`);
   const q: Record<string, string> = {
     client_id: c.clientId,
@@ -214,6 +214,8 @@ export function authorizeUrl(c: WorkosConfig, a: { redirectUri: string; state: s
     state: a.state,
     code_challenge: a.challenge,
     code_challenge_method: "S256",
+    // (a fresh authentication, never a remembered one: the token's auth_time is then now)
+    ...(a.reauth ? { max_age: "0" } : {}),
   };
   u.search = new URLSearchParams(q).toString();
   return u.toString();
@@ -237,7 +239,7 @@ export function userOf(j: unknown): WorkosUser | null {
 }
 
 export type Exchanged =
-  | { ok: true; accessToken: string; refreshToken: string | null; user: WorkosUser | null }
+  | { ok: true; accessToken: string; refreshToken: string | null; user: WorkosUser | null; impersonated: boolean }
   | { ok: false; kind: "invalid" | "unavailable"; status: number };
 
 /** The code exchanged for tokens, server-side, with the API key. */
@@ -258,10 +260,11 @@ export async function exchangeCode(c: WorkosConfig, code: string, verifier: stri
   if (r.status >= 500 || r.status === 429 || r.status === 408) return { ok: false, kind: "unavailable", status: r.status };
   if (!r.ok) return { ok: false, kind: "invalid", status: r.status };
   try {
-    const j = (await boundedJson(r, BODY_MAX_BYTES)) as { access_token?: unknown; refresh_token?: unknown };
+    const j = (await boundedJson(r, BODY_MAX_BYTES)) as { access_token?: unknown; refresh_token?: unknown; impersonator?: unknown };
     if (typeof j.access_token !== "string") return { ok: false, kind: "invalid", status: r.status };
     const rt = typeof j.refresh_token === "string" && j.refresh_token.length > 0 && j.refresh_token.length <= TOKEN_MAX ? j.refresh_token : null;
-    return { ok: true, accessToken: j.access_token, refreshToken: rt, user: userOf(j) };
+    // (any impersonator field at all, whatever its shape, counts)
+    return { ok: true, accessToken: j.access_token, refreshToken: rt, user: userOf(j), impersonated: j.impersonator !== undefined && j.impersonator !== null };
   } catch {
     return { ok: false, kind: "unavailable", status: r.status };
   }
@@ -310,4 +313,68 @@ export async function refreshSession(c: WorkosConfig, refreshToken: string, f: F
   } catch {
     return { ok: false, kind: "unavailable", status: r.status };
   }
+}
+
+// ---------------------------------------------------------------- authenticator factors (BYOK row 4)
+
+/** What a verified token says about the authentication itself: when it was (auth_time), and whether someone was impersonating. */
+export function authenticationOf(claims: JWTPayload): { authenticatedMs: number | null; impersonated: boolean } {
+  const t = claims.auth_time;
+  const authenticatedMs = typeof t === "number" && Number.isSafeInteger(t) && t >= 0 && t * 1000 <= Number.MAX_SAFE_INTEGER ? t * 1000 : null;
+  return { authenticatedMs, impersonated: claims.act !== undefined && claims.act !== null };
+}
+
+export const FACTOR_ID = /^auth_factor_[A-Za-z0-9]{1,116}$/;
+const CHALLENGE_ID = /^auth_challenge_[A-Za-z0-9]{1,113}$/;
+
+export type Factors = { ok: true; totp: string[] } | { ok: false; kind: "invalid" | "unavailable" };
+
+async function apiCall(c: WorkosConfig, f: Fetch, path: string, body: unknown): Promise<{ ok: true; j: unknown } | { ok: false; kind: "invalid" | "unavailable" }> {
+  let r: Response;
+  try {
+    r = await f(`${api(c)}${path}`, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { authorization: `Bearer ${c.apiKey}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      redirect: "manual",
+      signal: AbortSignal.timeout(DEADLINE_MS),
+    });
+  } catch {
+    return { ok: false, kind: "unavailable" };
+  }
+  if (isRedirect(r) || r.status >= 500 || r.status === 429 || r.status === 408) return { ok: false, kind: "unavailable" };
+  if (!r.ok) return { ok: false, kind: "invalid" };
+  try {
+    return { ok: true, j: await boundedJson(r, BODY_MAX_BYTES) };
+  } catch {
+    return { ok: false, kind: "unavailable" };
+  }
+}
+
+/** The user's TOTP factors' ids, as WorkOS lists them now (server-side, with the API key). */
+export async function listTotpFactors(c: WorkosConfig, userId: string, f: Fetch = defaultFetch): Promise<Factors> {
+  if (!SUBJECT.test(userId)) return { ok: false, kind: "invalid" };
+  const r = await apiCall(c, f, `/user_management/users/${userId}/auth_factors?limit=100`, undefined);
+  if (!r.ok) return r;
+  const data = (r.j as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return { ok: false, kind: "unavailable" };
+  const totp: string[] = [];
+  for (const x of data as Array<{ id?: unknown; type?: unknown; user_id?: unknown } | null>) {
+    if (x && x.type === "totp" && typeof x.id === "string" && FACTOR_ID.test(x.id) && x.user_id === userId) totp.push(x.id);
+  }
+  return { ok: true, totp };
+}
+
+/** `code` checked against `factorId`: a challenge created for it, then verified. valid is true only for WorkOS's own `valid: true`. */
+export async function verifyFactorCode(c: WorkosConfig, factorId: string, code: string, f: Fetch = defaultFetch): Promise<{ ok: true; valid: boolean } | { ok: false; kind: "invalid" | "unavailable" }> {
+  if (!FACTOR_ID.test(factorId)) return { ok: false, kind: "invalid" };
+  const ch = await apiCall(c, f, `/auth/factors/${factorId}/challenge`, {});
+  if (!ch.ok) return ch;
+  const challengeId = (ch.j as { id?: unknown } | null)?.id;
+  if (typeof challengeId !== "string" || !CHALLENGE_ID.test(challengeId) || (ch.j as { authentication_factor_id?: unknown }).authentication_factor_id !== factorId) {
+    return { ok: false, kind: "unavailable" };
+  }
+  const v = await apiCall(c, f, `/auth/challenges/${challengeId}/verify`, { code });
+  if (!v.ok) return v;
+  return { ok: true, valid: (v.j as { valid?: unknown } | null)?.valid === true };
 }

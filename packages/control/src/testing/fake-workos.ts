@@ -36,6 +36,17 @@ export interface CodeGrant {
   /** Another refresh token than a fresh one (an empty or an oversized one). */
   refresh?: string;
   noRefresh?: boolean;
+  /** The authentication's time (ms; default: the exchange's now), kept by every refresh. */
+  authTimeMs?: number;
+  /** An impersonator in the exchange's answer, and an act claim in its tokens. */
+  impersonator?: boolean;
+  act?: boolean;
+}
+
+export interface FakeFactor {
+  id: string;
+  type: string;
+  user_id: string;
 }
 
 export class FakeWorkos {
@@ -51,7 +62,19 @@ export class FakeWorkos {
   authCalls = 0;
   codes = new Map<string, CodeGrant>();
   /** Live refresh tokens: their user and session. A refresh rotates the token. */
-  rts = new Map<string, { subject: string; sid: string; email: string }>();
+  rts = new Map<string, { subject: string; sid: string; email: string; authTimeS?: number; act?: boolean }>();
+  /** Each WorkOS user's authentication factors. */
+  factors = new Map<string, FakeFactor[]>();
+  /** The code the user's authenticator app shows now. */
+  totpCode = "123456";
+  challenges = new Map<string, string>();
+  factorsStatus = 200;
+  challengeStatus = 200;
+  verifyStatus = 200;
+  factorCalls = 0;
+  verifyCalls = 0;
+  /** The sid a refresh's token carries instead of the session's (a changed WorkOS session). */
+  refreshSid: string | null = null;
   refreshStatus: { status: number; body?: string } | null = null;
   refreshThrows = false;
   refreshNoRt = false;
@@ -138,7 +161,8 @@ export class FakeWorkos {
         this.rts.delete(b.refresh_token!);
         const next = "rt_" + randomBytes(9).toString("hex");
         this.rts.set(next, r);
-        const access = this.sign(this.claims(r.subject, r.sid, this.now(), this.refreshClaims ?? {}));
+        // (a refresh keeps the authentication's time and any act claim: WorkOS advances auth_time only on an active authentication)
+        const access = this.sign(this.claims(r.subject, this.refreshSid ?? r.sid, this.now(), { auth_time: r.authTimeS ?? Math.floor(this.now() / 1000), ...(r.act ? { act: { sub: "admin@example.com" } } : {}), ...(this.refreshClaims ?? {}) }));
         const user = this.refreshUser !== undefined ? this.refreshUser : { id: r.subject, email: r.email, email_verified: true };
         return Response.json(this.refreshNoRt ? { access_token: access, user } : { access_token: access, refresh_token: next, user });
       }
@@ -152,9 +176,46 @@ export class FakeWorkos {
       if (this.authGarbage) return new Response("not json", { status: 200, headers: { "content-type": "application/json" } });
       const email = c.email ?? "someone@example.com";
       const rt = "rt_" + randomBytes(9).toString("hex");
-      if (!c.noRefresh) this.rts.set(rt, { subject: c.subject, sid: c.sid, email });
+      const authTimeS = Math.floor((c.authTimeMs ?? this.now()) / 1000);
+      if (!c.noRefresh) this.rts.set(rt, { subject: c.subject, sid: c.sid, email, authTimeS, act: c.act === true });
       const user = "user" in c ? c.user : { id: c.subject, email, email_verified: true };
-      return Response.json({ access_token: c.token ?? this.sign(this.claims(c.subject, c.sid, this.now())), ...(c.noRefresh ? {} : { refresh_token: c.refresh ?? rt }), user });
+      const extra = { auth_time: authTimeS, ...(c.act ? { act: { sub: "admin@example.com" } } : {}) };
+      return Response.json({
+        access_token: c.token ?? this.sign(this.claims(c.subject, c.sid, this.now(), extra)),
+        ...(c.noRefresh ? {} : { refresh_token: c.refresh ?? rt }),
+        user,
+        ...(c.impersonator ? { impersonator: { email: "admin@example.com", reason: "support" } } : {}),
+      });
+    }
+    // authenticator factors: listed, challenged, verified (server-side, with the API key)
+    const authorized = new Headers(init?.headers).get("authorization") === `Bearer ${API_KEY}`;
+    const factorsOf = /^\/user_management\/users\/([^/]+)\/auth_factors$/.exec(u.pathname);
+    if (factorsOf && (init?.method ?? "GET") === "GET") {
+      this.factorCalls++;
+      if (!authorized) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (this.factorsStatus !== 200) return new Response("down", { status: this.factorsStatus });
+      return Response.json({ object: "list", data: this.factors.get(factorsOf[1]!) ?? [], list_metadata: { before: null, after: null } });
+    }
+    const challengeOf = /^\/auth\/factors\/([^/]+)\/challenge$/.exec(u.pathname);
+    if (challengeOf && init?.method === "POST") {
+      if (!authorized) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (this.challengeStatus !== 200) return new Response("down", { status: this.challengeStatus });
+      const factor = challengeOf[1]!;
+      if (![...this.factors.values()].some((fs) => fs.some((f) => f.id === factor))) return Response.json({ error: "not_found" }, { status: 404 });
+      const id = `auth_challenge_${randomBytes(6).toString("hex")}`;
+      this.challenges.set(id, factor);
+      return Response.json({ object: "authentication_challenge", id, authentication_factor_id: factor, expires_at: null });
+    }
+    const verifyOf = /^\/auth\/challenges\/([^/]+)\/verify$/.exec(u.pathname);
+    if (verifyOf && init?.method === "POST") {
+      this.verifyCalls++;
+      if (!authorized) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (this.verifyStatus !== 200) return new Response("down", { status: this.verifyStatus });
+      const factor = this.challenges.get(verifyOf[1]!);
+      if (!factor) return Response.json({ error: "not_found" }, { status: 404 });
+      this.challenges.delete(verifyOf[1]!);
+      const b = JSON.parse(String(init.body)) as { code?: unknown };
+      return Response.json({ challenge: { id: verifyOf[1], authentication_factor_id: factor }, valid: b.code === this.totpCode });
     }
     return new Response("not found", { status: 404 });
   };
