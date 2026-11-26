@@ -1,8 +1,12 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { DEFAULT_POLICY, newId, verifyToken, type Key } from "@sbgpu/api";
+import { DEFAULT_POLICY, isId, newId, verifyToken, type Key } from "@sbgpu/api";
 import { ProviderError, type LaunchSpec, type ProviderMachineStatus } from "@sbgpu/providers";
+import { machineName, nameFields } from "@sbgpu/providers";
+/** A pod name as control builds it here (installation "test", incarnation 1); anything else is kept as given (a name that is not ours). */
+const podName = (machineId: string) => (isId("machine", machineId) ? machineName("test", machineId, 1) : machineId);
+
 import { stmt } from "./db.ts";
 import { CONNECT_WINDOW_MS, launchContainer, type ContainerEnv, type ContainerProvider } from "./container.ts";
 import { ERADICATION_CHECKS, HEARTBEAT_SECONDS } from "./enroll.ts";
@@ -32,7 +36,7 @@ class FakeRunPod implements ContainerProvider {
     this.pods.set(id, {
       provider: "runpod",
       providerMachineId: id,
-      machineId: machineId as ProviderMachineStatus["machineId"],
+      ...nameFields(podName(machineId)),
       state: "provisioning",
       rawStatus: "CREATED",
       gpuType: "A40",
@@ -62,7 +66,7 @@ class FakeRunPod implements ContainerProvider {
     }
     if (this.statusFails) throw new ProviderError("runpod", "transient", "down");
     const p = this.pods.get(id);
-    if (!p) return { ...p!, provider: "runpod", providerMachineId: id, machineId: null, state: "terminated" } as ProviderMachineStatus;
+    if (!p) return { provider: "runpod", providerMachineId: id, machineId: null, parsedName: null, state: "terminated" } as ProviderMachineStatus;
     return { ...p, ...this.override };
   }
   async terminate(id: string): Promise<void> {
@@ -109,6 +113,7 @@ beforeEach(async () => {
 
 function env(): ContainerEnv {
   return {
+    installation: "test",
     db: w.db,
     clock: () => w.clock.t,
     provider: rp,

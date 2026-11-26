@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { machineName } from "../machine-name.ts";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ProviderError } from "../errors.ts";
@@ -13,6 +14,7 @@ const POD = JSON.parse(fixture("pod-running.json")) as Record<string, unknown>;
 const CATALOG = JSON.parse(fixture("catalog-gpus.json")) as { gpus: Array<Record<string, unknown>> };
 const KEY = "test-key-not-a-real-key";
 const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
+const NAME = machineName("test", MID, 1);
 const NOW = new Date("2026-11-24T12:00:00.000Z");
 
 /**
@@ -69,7 +71,7 @@ function adapter(replies: Reply[]) {
 }
 
 const spec: LaunchSpec = {
-  machineId: MID,
+  machineId: MID, incarnation: 1, name: NAME,
   gpuType: "L4",
   gpuCount: 1,
   dataCenter: "EU-SE-1",
@@ -179,7 +181,7 @@ test("listOffers rejects a malformed catalog rather than reporting no offers", a
 test("the create body is exactly our launch shape", () => {
   const { a } = adapter([]);
   assert.deepEqual(a.createBody(spec), {
-    name: `sbg-${MID}`,
+    name: NAME,
     cloud: "SECURE",
     gpu: { id: "NVIDIA L4", count: 1 },
     dataCenterIds: ["EU-SE-1"],
@@ -196,7 +198,10 @@ test("the create body is exactly our launch shape", () => {
   assert.throws(() => a.createBody({ ...spec, gpuType: "NOPE" }), (e: unknown) => e instanceof ProviderError && e.kind === "invalid_request");
   assert.throws(() => a.createBody({ ...spec, launcher: [] }), (e: unknown) => e instanceof ProviderError && e.kind === "invalid_request");
   assert.throws(() => a.createBody({ ...spec, bootToken: "" }), (e: unknown) => e instanceof ProviderError && e.kind === "invalid_request");
-  assert.throws(() => a.createBody({ ...spec, machineId: "mch_bad" }), RangeError);
+  // a spec whose name isn't exactly its own machine and incarnation is refused before any request
+  for (const bad of [{ machineId: "mch_bad" }, { incarnation: 2 }, { name: `sbg-${MID}` }, { name: machineName("test", "mch_0000000000000000000a", 1) }]) {
+    assert.throws(() => a.createBody({ ...spec, ...bad }), (e: unknown) => e instanceof ProviderError && e.kind === "invalid_request", JSON.stringify(bad));
+  }
 });
 
 test("launch posts the body and returns the pod", async () => {
@@ -590,7 +595,7 @@ test("terminate is idempotent and reports other failures", async () => {
 });
 
 test("listMachines walks every page and keeps only our pods", async () => {
-  const p2 = { ...POD, id: "p2", name: "sbg-mch_0000000000000000000a" };
+  const p2 = { ...POD, id: "p2", name: "sbg-test-0000000000000000000a-1" };
   const { a, calls } = adapter([
     { status: 200, body: { pods: [POD, { ...POD, id: "x", name: "not-ours" }], pagination: { nextCursor: "c1", hasNextPage: true } } },
     { status: 200, body: { pods: [p2], pagination: { nextCursor: null, hasNextPage: false } } },
@@ -621,6 +626,7 @@ test("podStatus reads the fixture pod", () => {
     provider: "runpod",
     providerMachineId: "7h9k2m4n6p",
     machineId: MID,
+    parsedName: { installation: "test", machineId: MID, incarnation: 1 },
     state: "running",
     rawStatus: "RUNNING",
     gpuType: "L4",

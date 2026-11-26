@@ -8,7 +8,7 @@
 
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, isSuccess, retryAfterSeconds, type Fetch } from "../http.ts";
-import { parseMachineName } from "../machine-name.ts";
+import { nameFields } from "../machine-name.ts";
 import type {
   AdapterInfo,
   LaunchOptions,
@@ -164,7 +164,7 @@ export function instanceStatus(inst: unknown, observedAt: string): ProviderMachi
   return {
     provider: "shadeform",
     providerMachineId: inst["id"],
-    machineId: typeof inst["name"] === "string" ? parseMachineName(inst["name"]) : null,
+    ...nameFields(inst["name"]),
     state: Object.hasOwn(STATES, rawStatus) ? STATES[rawStatus]! : "unknown",
     rawStatus,
     gpuType: gpuFromShadeform(conf["gpu_type"], conf["interconnect"]),
@@ -387,6 +387,7 @@ function goneStatus(providerMachineId: string, observedAt: string): ProviderMach
     provider: "shadeform",
     providerMachineId,
     machineId: null,
+    parsedName: null,
     state: "terminated",
     rawStatus: "NOT_FOUND",
     gpuType: null,

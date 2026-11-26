@@ -26,6 +26,7 @@
 // it adds the account's currentSpendPerHr, which must read 0 for the run to count as settled.
 
 import { randomBytes } from "node:crypto";
+import { machineName } from "../machine-name.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isGpuType } from "../gpus.ts";
@@ -139,8 +140,12 @@ export function planFor(o: CliOptions, bootToken: string, saltHex: string): Prob
   const agent = { agentUrl: o.agentUrl, agentSha256: o.agentSha256, controlUrl: o.controlUrl };
   const launcher = probeLauncher(agent, saltHex);
   const maxSpendMicros = Math.round(o.maxUsd * 1_000_000);
+  const machineId = "mch_pr0bepr0bepr0bepr0be";
   const spec: LaunchSpec = {
-    machineId: "mch_pr0bepr0bepr0bepr0be",
+    machineId,
+    incarnation: 0,
+    // (its own installation slug: no deployment's sweep ever takes a probe pod for one of its own)
+    name: machineName("probe", machineId, 0),
     gpuType: o.gpu,
     gpuCount: 1,
     dataCenter: o.dc,

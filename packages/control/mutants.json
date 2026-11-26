@@ -3904,8 +3904,8 @@
  },
  {
   "file": "src/container.ts",
-  "old": "s.machineId === machineId && s.state !== \"terminated\")",
-  "new": "s.machineId === machineId)",
+  "old": "sameMachineName(s.parsedName, name) && s.state !== \"terminated\")",
+  "new": "sameMachineName(s.parsedName, name))",
   "note": "terminated pods counted by name"
  },
  {
@@ -4670,5 +4670,29 @@
   "old": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled';",
   "new": "CREATE INDEX launches_heartbeat_due ON launches (heartbeat_due_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'vm';",
   "note": "the due index VM-only again"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "  return list.filter((s) => sameMachineName(s.parsedName, name) && s.state",
+  "new": "  return list.filter((s) => s.machineId === machineId && s.state",
+  "note": "pods of other installations or incarnations taken by name"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    () => p.launch({ ...l.spec, incarnation: l.incarnation, name, bootToken: token }).then(",
+  "new": "    () => p.launch({ ...l.spec, name, bootToken: token } as LaunchSpec).then(",
+  "note": "the create without its incarnation"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "    name = machineName(env.installation, l.machineId, l.incarnation);",
+  "new": "    name = machineName(env.installation, l.machineId, 1);",
+  "note": "the name for the wrong incarnation"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "  if (installation !== undefined && !isInstallation(installation)) throw new Error(\"SBGPU_INSTALLATION must be 4 to 8 of [a-z0-9]\");\n",
+  "new": "",
+  "note": "a malformed installation slug accepted"
  }
 ]

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { newId, signToken, type AgentClaims, type Key } from "@sbgpu/api";
 import type { ProviderMachineStatus, LaunchSpec } from "@sbgpu/providers";
+import { machineName, nameFields } from "@sbgpu/providers";
 import { stmt } from "./db.ts";
 import { CONNECT_WINDOW_MS, launchContainer, recordContainerId, recordContainerIntent, recordFirstRunning, runContainerWatchdog, type ContainerEnv, type ContainerProvider } from "./container.ts";
 import { ERADICATION_CHECKS } from "./enroll.ts";
@@ -35,9 +36,9 @@ class FakeRunPod implements ContainerProvider {
     return { providerMachineId: id };
   }
   async status(id: string): Promise<ProviderMachineStatus> {
-    if (!this.pods.has(id)) return { provider: "runpod", providerMachineId: id, machineId: null, state: "terminated" } as ProviderMachineStatus;
+    if (!this.pods.has(id)) return { provider: "runpod", providerMachineId: id, machineId: null, parsedName: null, state: "terminated" } as ProviderMachineStatus;
     return {
-      provider: "runpod", providerMachineId: id, machineId: (this.owner.get(id) ?? null) as ProviderMachineStatus["machineId"], state: "running", rawStatus: "RUNNING",
+      provider: "runpod", providerMachineId: id, ...nameFields(machineName("test", this.owner.get(id)!, 1)), state: "running", rawStatus: "RUNNING",
       gpuType: "A40", gpuCount: 1, dataCenter: "EU-SE-1", image: IMAGE, diskGb: 20, volumeGb: 0, exposedPorts: [], command: [...LAUNCHER], envNames: [BOOT_ENV],
       unexpectedSettings: [], providerCostPerHour: RATE.providerCostPerHour, observedAt: new Date(T0).toISOString(),
     } as ProviderMachineStatus;
@@ -74,6 +75,7 @@ beforeEach(async () => {
 });
 
 const cenv = (): ContainerEnv => ({
+  installation: "test",
   db: w.db,
   clock: () => w.clock.t,
   provider: rp,

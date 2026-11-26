@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { machineName } from "../machine-name.ts";
 import { test } from "node:test";
 import { inspect } from "node:util";
 import { driftMarkers, expectedSpec, isDriftMarker, specDrift } from "../drift.ts";
@@ -27,6 +28,7 @@ import { gpuFromVast, gpuToVast, VAST_GPUS, vastCountry, vastDataCenter, vastFil
 
 const KEY = "test-key-not-a-real-key";
 const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
+const NAME = machineName("test", MID, 1);
 const NOW = new Date("2026-11-25T12:00:00.000Z");
 const T = NOW.toISOString();
 const TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde";
@@ -98,7 +100,7 @@ function offer(over: Record<string, unknown> = {}): Record<string, unknown> {
 }
 
 const SPEC: LaunchSpec = {
-  machineId: MID,
+  machineId: MID, incarnation: 1, name: NAME,
   gpuType: "RTX-4090",
   gpuCount: 1,
   dataCenter: "machine-4242",
@@ -113,7 +115,7 @@ const SPEC: LaunchSpec = {
 function inst(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 31337,
-    label: `sbg-${MID}`,
+    label: NAME,
     actual_status: "running",
     intended_status: "running",
     machine_id: 4242,
@@ -202,6 +204,7 @@ test("an instance in our launch shape has no drift", () => {
     provider: "vast",
     providerMachineId: "31337",
     machineId: MID,
+    parsedName: { installation: "test", machineId: MID, incarnation: 1 },
     state: "running",
     rawStatus: "running/running",
     gpuType: "RTX-4090",
@@ -376,7 +379,7 @@ test("launch: the machine's offer again, then the create, then the readback", as
   // the create body: exactly our launch shape, nothing else
   assert.deepEqual(JSON.parse(calls[1]!.init.body!), {
     image: SPEC.image,
-    label: `sbg-${MID}`,
+    label: NAME,
     disk: 40,
     runtype: "args",
     args: [...SPEC.launcher],
@@ -415,7 +418,7 @@ test("launch: a lost create reply is recovered by exact label, or stays unknown"
     assert.equal((await a.launch(SPEC)).providerMachineId, "31337");
     const u = new URL(calls[2]!.url);
     assert.equal(u.pathname, "/api/v1/instances/");
-    assert.deepEqual(JSON.parse(u.searchParams.get("select_filters")!), { label: { eq: `sbg-${MID}` } });
+    assert.deepEqual(JSON.parse(u.searchParams.get("select_filters")!), { label: { eq: NAME } });
   }
   // a 200 without new_contract may have created one: the same recovery
   {
@@ -434,7 +437,7 @@ test("launch: a lost create reply is recovered by exact label, or stays unknown"
   }
   // a filter Vast ignored: other labels never count
   {
-    const { a } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), listed([inst({ id: 1, label: "sbg-mch_00000000000000000000" })])]);
+    const { a } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), listed([inst({ id: 1, label: "sbg-test-00000000000000000000-1" })])]);
     await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
   }
   // two: unknown, with an id to clean up
@@ -507,6 +510,10 @@ test("launch: a bad spec is refused before any request", async () => {
     { bootToken: `${TOKEN} -p 22:22` },
     { bootToken: "short" },
     { bootToken: `${TOKEN}=` },
+    // a name that isn't exactly this machine's and this incarnation's
+    { incarnation: 2 },
+    { name: `sbg-${MID}` },
+    { name: machineName("test", "mch_0000000000000000000a", 1) },
   ];
   for (const over of bad) {
     const { a, calls } = adapter([]);
@@ -564,7 +571,7 @@ test("listMachines: every page by next_token; only our names; a malformed or end
   {
     const { a, calls } = adapter([
       ok({ success: true, instances: [inst({ id: 1 }), inst({ id: 2, label: null })], next_token: "t1" }),
-      ok({ success: true, instances: [inst({ id: 3, label: "sbg-mch_aaaaaaaaaaaaaaaaaaaa" })], next_token: null }),
+      ok({ success: true, instances: [inst({ id: 3, label: "sbg-test-aaaaaaaaaaaaaaaaaaaa-1" })], next_token: null }),
     ]);
     const got = await a.listMachines();
     assert.deepEqual(got.map((s) => s.providerMachineId), ["1", "3"]);
@@ -572,7 +579,7 @@ test("listMachines: every page by next_token; only our names; a malformed or end
     assert.equal(new URL(calls[0]!.url).searchParams.get("after_token"), null);
     assert.equal(new URL(calls[1]!.url).searchParams.get("after_token"), "t1");
   }
-  for (const body of [{ instances: [] }, { instances: {}, next_token: null }, { instances: [], next_token: "" }, { instances: [], next_token: 5 }, { instances: [{ label: `sbg-${MID}` }], next_token: null }]) {
+  for (const body of [{ instances: [] }, { instances: {}, next_token: null }, { instances: [], next_token: "" }, { instances: [], next_token: 5 }, { instances: [{ label: NAME }], next_token: null }]) {
     const { a } = adapter([ok(body)]);
     await assert.rejects(a.listMachines(), ProviderError, JSON.stringify(body));
   }
@@ -670,7 +677,7 @@ test("kept text holds no long strings alive: short slices of large replies are n
   const child = `
     const { VastAdapter } = await import(process.env.ADAPTER);
     const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
-    const row = (id, over) => ({ id, label: "sbg-" + MID, actual_status: "running", intended_status: "running", machine_id: 4242,
+    const row = (id, over) => ({ id, label: "sbg-test-7f3k9q2m4x8z1c5v6b0n-1", actual_status: "running", intended_status: "running", machine_id: 4242,
       gpu_name: "RTX 4090", gpu_ram: 24564, num_gpus: 1, image_uuid: "img", image_runtype: "args", image_args: ["/l"],
       extra_env: ["SBGPU_BOOT_TOKEN=x"], is_bid: false, verification: "verified", dph_total: 0.4, disk_space: 40, ...over });
     const big = (n, id) => String(id).padEnd(n, "x");
@@ -768,7 +775,7 @@ test("the fixed request set: each route's exact method, path and query shape; an
     ["GET", "/api/v0/instances/31337", undefined], ["GET", "/api/v0/instances/31337/", undefined],
     ["DELETE", "/api/v0/instances/31337", undefined], ["DELETE", "/api/v0/instances/31337/", undefined],
     ["GET", `/api/v1/instances?${q({ limit: "25" })}`, undefined],
-    ["GET", `/api/v1/instances/?${q({ limit: "25", select_filters: sel(`sbg-${MID}`), after_token: "eyJpZCI6IDQyfQ==" })}`, undefined],
+    ["GET", `/api/v1/instances/?${q({ limit: "25", select_filters: sel(NAME), after_token: "eyJpZCI6IDQyfQ==" })}`, undefined],
   ] as Array<[string, string, unknown]>) {
     assert.ok(allowedRequest(m, p, b), `${m} ${p}`);
   }
@@ -788,18 +795,18 @@ test("the fixed request set: each route's exact method, path and query shape; an
   for (const query of [
     "%73%73%68=1", "%53%53%48=1", "x=%2f%73%73%68", "limit=25&%73%73%68=1", "limit=25&ssh=1", "limit=25&x=1", "",
     "limit=25&limit=25", "limit=0", "limit=x", "limit=1000", "limit=%32%35%26ssh%3D1",
-    `limit=25&${q({ select_filters: JSON.stringify({ label: { eq: `sbg-${MID}` }, ssh: 1 }) })}`,
-    `limit=25&${q({ select_filters: JSON.stringify({ label: { eq: `sbg-${MID}`, ssh: 1 } }) })}`,
+    `limit=25&${q({ select_filters: JSON.stringify({ label: { eq: NAME }, ssh: 1 }) })}`,
+    `limit=25&${q({ select_filters: JSON.stringify({ label: { eq: NAME, ssh: 1 } }) })}`,
     `limit=25&${q({ select_filters: sel("ssh") })}`, `limit=25&${q({ select_filters: sel(1) })}`, "limit=25&select_filters=%7B",
-    `${q({ select_filters: sel(`sbg-${MID}`) })}`, "limit=25&after_token=", "limit=25&after_token=%20", "limit=25&after_token=a/b", "limit=25&a%66ter_token=x&after_token=y",
+    `${q({ select_filters: sel(NAME) })}`, "limit=25&after_token=", "limit=25&after_token=%20", "limit=25&after_token=a/b", "limit=25&a%66ter_token=x&after_token=y",
   ]) {
     assert.equal(allowedRequest("GET", `/api/v1/instances?${query}`, undefined), false, query);
   }
   // a value may hold the letters s, s, h: a machine id can (they are in its alphabet), and so can a page token
   const sshId = "mch_0ssh0000000000000000";
   assert.equal(sshId.length, MID.length);
-  assert.ok(allowedRequest("GET", `/api/v1/instances?${q({ limit: "25", select_filters: sel(`sbg-${sshId}`), after_token: "ssh" })}`, undefined));
-  assert.ok(allowedRequest("PUT", "/api/v0/asks/9001/", { ...B, label: `sbg-${sshId}`, env: "-e A=ssh" }));
+  assert.ok(allowedRequest("GET", `/api/v1/instances?${q({ limit: "25", select_filters: sel(machineName("test", sshId, 1)), after_token: "ssh" })}`, undefined));
+  assert.ok(allowedRequest("PUT", "/api/v0/asks/9001/", { ...B, label: machineName("test", sshId, 1), env: "-e A=ssh" }));
   // bodies: exactly where the route has one, never naming SSH
   assert.equal(allowedRequest("PUT", "/api/v0/asks/9001/", undefined), false);
   assert.equal(allowedRequest("POST", "/api/v0/bundles/", "ssh"), false);

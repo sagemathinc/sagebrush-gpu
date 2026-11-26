@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { machineName } from "../machine-name.ts";
 import { test } from "node:test";
 import { expectedSpec, specDrift } from "../drift.ts";
 import { ProviderError } from "../errors.ts";
@@ -9,6 +10,7 @@ import { gpuFromShadeform, SHADEFORM_GPUS, shadeformCountry, shadeformDataCenter
 
 const KEY = "test-key-not-a-real-key";
 const MID = "mch_7f3k9q2m4x8z1c5v6b0n";
+const NAME = machineName("test", MID, 1);
 const NOW = new Date("2026-11-24T12:00:00.000Z");
 const IID = "d290f1ee-6c54-4b01-90e6-d701748f0851";
 
@@ -50,7 +52,7 @@ function adapter(replies: Reply[]) {
 function instance(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: IID,
-    name: `sbg-${MID}`,
+    name: NAME,
     status: "active",
     status_details: "",
     cloud: "hyperstack",
@@ -170,7 +172,7 @@ test("the key goes only in the X-API-KEY header, never in the URL", async () => 
 test("launch refuses (VM mode is not supported) and never reaches the network", async () => {
   const { a, calls } = adapter([]);
   const spec: LaunchSpec = {
-    machineId: MID, gpuType: "RTX-A6000", gpuCount: 1, dataCenter: "hyperstack/canada-1", image: "ubuntu",
+    machineId: MID, incarnation: 1, name: NAME, gpuType: "RTX-A6000", gpuCount: 1, dataCenter: "hyperstack/canada-1", image: "ubuntu",
     diskGb: 40, bootToken: "test-token-not-a-secret", launcher: ["/bin/sh", "-c", "x"], maxProviderCostPerHour: 10_000_000,
   };
   await assert.rejects(
@@ -189,6 +191,7 @@ test("instanceStatus reads an instance", () => {
     provider: "shadeform",
     providerMachineId: IID,
     machineId: MID,
+    parsedName: { installation: "test", machineId: MID, incarnation: 1 },
     state: "running",
     rawStatus: "active",
     gpuType: "RTX-A6000",
@@ -229,7 +232,7 @@ test("instanceStatus: only a missing id throws; other bad fields become unreadab
   assert.deepEqual(s.unexpectedSettings, [`shade_cloud:${UNREADABLE}`, `rental:${UNREADABLE}`]);
   assert.equal(instanceStatus(instance({ name: "someone-else" }), "T").machineId, null);
   assert.equal(instanceStatus(instance({ name: 7 }), "T").machineId, null);
-  assert.equal(instanceStatus(instance({ name: [`sbg-${MID}`] }), "T").machineId, null);
+  assert.equal(instanceStatus(instance({ name: [NAME] }), "T").machineId, null);
   const conf = (c: Record<string, unknown>) => instanceStatus(instance({ configuration: c }), "T");
   assert.deepEqual([conf({ num_gpus: -1 }).gpuCount, conf({ num_gpus: 1.5 }).gpuCount, conf({ num_gpus: "1" }).gpuCount], [NaN, NaN, NaN]);
   assert.equal(conf({ num_gpus: 0 }).gpuCount, 0);
@@ -285,7 +288,7 @@ test("instanceStatus reports SSH keys, Shade Cloud, rental terms and attachments
 
 test("no Shadeform machine ever matches a launch spec: the command never equals a launcher", () => {
   const spec: LaunchSpec = {
-    machineId: MID, gpuType: "RTX-A6000", gpuCount: 1, dataCenter: "hyperstack/canada-1", image: "ubuntu22.04_cuda12.2",
+    machineId: MID, incarnation: 1, name: NAME, gpuType: "RTX-A6000", gpuCount: 1, dataCenter: "hyperstack/canada-1", image: "ubuntu22.04_cuda12.2",
     diskGb: 500, bootToken: "t", launcher: ["/bin/sh", "-c", "x"], maxProviderCostPerHour: 10_000_000,
   };
   const a = new ShadeformAdapter({ apiKey: KEY, fetch: mockFetch([]).fetch });
@@ -428,7 +431,7 @@ test("listOffers: a malformed catalog fails, and so does a bad GPU count, before
 // ---------------------------------------------------------------- machine list
 
 const page = (instances: unknown[], total: number) => ({ status: 200, body: { instances, total } });
-const ours = (i: number) => instance({ id: `i${i}`, name: `sbg-mch_${String(i).padStart(20, "0")}` });
+const ours = (i: number) => instance({ id: `i${i}`, name: `sbg-test-${String(i).padStart(20, "0")}-1` });
 
 test("listMachines reads every page by offset and keeps only our machines", async () => {
   const first = Array.from({ length: 100 }, (_, i) => (i === 5 ? instance({ id: "x", name: "not-ours" }) : ours(i)));
@@ -475,7 +478,7 @@ test("listMachines fails on a list that is malformed, short, moving or too long"
     ["a row without a name", [page([instance({ id: "n", name: undefined })], 1)]],
     ["a row with a null name", [page([instance({ id: "n", name: null })], 1)]],
     ["a row with a numeric name", [page([instance({ id: "n", name: 42 })], 1)]],
-    ["a row with an array name", [page([instance({ id: "n", name: [`sbg-${MID}`] })], 1)]],
+    ["a row with an array name", [page([instance({ id: "n", name: [NAME] })], 1)]],
     ["a nameless row on page two", [page(full, 101), page([instance({ id: "n", name: null })], 101)]],
   ];
   for (const [what, replies] of bad) {

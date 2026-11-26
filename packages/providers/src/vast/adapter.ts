@@ -17,7 +17,7 @@
 import { driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, isSuccess, readBody, retryAfterSeconds, type Fetch } from "../http.ts";
-import { machineName, parseMachineName } from "../machine-name.ts";
+import { nameFields, parseMachineName, sameMachineName, specNameMatches } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
 import type {
   AdapterInfo,
@@ -242,7 +242,7 @@ export function instanceStatus(inst: unknown, observedAt: string): ProviderMachi
   return {
     provider: "vast",
     providerMachineId: String(id),
-    machineId: shortWord(inst["label"], 64) !== null ? parseMachineName(inst["label"] as string) : null,
+    ...nameFields(shortWord(inst["label"], 64)),
     state: vastState(actual, intended),
     rawStatus: `${statusWord(actual)}/${statusWord(intended)}`,
     gpuType: typeof inst["gpu_name"] === "string" ? gpuFromVast(inst["gpu_name"], inst["gpu_ram"]) : null,
@@ -514,9 +514,10 @@ export class VastAdapter implements ProviderAdapter {
     if (typeof spec.image !== "string" || !IMAGE_NAME.test(spec.image)) throw new ProviderError("vast", "invalid_request", "Vast: bad image name");
     if (spec.launcher.length === 0) throw new ProviderError("vast", "invalid_request", "empty launcher");
     if (!BOOT_TOKEN.test(spec.bootToken)) throw new ProviderError("vast", "invalid_request", "Vast: bad boot token");
+    if (!specNameMatches(spec)) throw new ProviderError("vast", "invalid_request", "Vast: the spec's name isn't its machine's");
     return {
       image: spec.image,
-      label: machineName(spec.machineId),
+      label: spec.name,
       disk: spec.diskGb,
       runtype: "args",
       args: [...spec.launcher],
@@ -666,7 +667,7 @@ export class VastAdapter implements ProviderAdapter {
         const s = instanceStatus(inst, observedAt);
         if (s.machineId === null) continue;
         // A filter Vast ignored must not widen a by-label answer.
-        if (label !== undefined && machineName(s.machineId) !== label) continue;
+        if (label !== undefined && !sameMachineName(s.parsedName, label)) continue;
         retained += retainedChars(s);
         if (retained > MAX_LIST_CHARS) throw new ProviderError("vast", "unknown", "Vast instance list is too large to keep");
         out.push(s);
@@ -697,6 +698,7 @@ function goneStatus(providerMachineId: string, observedAt: string): ProviderMach
     provider: "vast",
     providerMachineId,
     machineId: null,
+    parsedName: null,
     state: "terminated",
     rawStatus: "NOT_FOUND",
     gpuType: null,

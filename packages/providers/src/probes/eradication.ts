@@ -21,7 +21,6 @@
 import { BOOT_TOKEN_ENV, renderBootScript, renderProbePrologue } from "@sbgpu/machine";
 import { isDriftMarker, specDrift, expectedSpec, type CommandShape, type FieldShape } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { machineName } from "../machine-name.ts";
 import { terminateAndConfirm } from "../placement.ts";
 import type { LaunchSpec, ProviderAdapter, ProviderMachineStatus } from "../types.ts";
 
@@ -553,7 +552,7 @@ export async function runEradicationProbe(
     if (id !== null) {
       report.terminatedConfirmed = await terminateAndConfirm(adapter, id, clock.sleep, CONFIRM_POLLS, CONFIRM_INTERVAL_MS);
       if (!report.terminatedConfirmed) {
-        report.exposure = { providerMachineId: id, machineName: machineName(plan.spec.machineId), ratePerHour: rate };
+        report.exposure = { providerMachineId: id, machineName: plan.spec.name, ratePerHour: rate };
       }
     }
     report.estimatedSpendMicros = spend();
@@ -582,7 +581,7 @@ export async function runEradicationProbe(
     // that didn't finish, anything unexpected), a pod may exist that we can't name: say so.
     if (outcomeUnknown) {
       report.terminatedConfirmed = false;
-      report.exposure = { providerMachineId: null, machineName: machineName(plan.spec.machineId), ratePerHour: rate };
+      report.exposure = { providerMachineId: null, machineName: plan.spec.name, ratePerHour: rate };
     }
     return finish(null);
   }

@@ -13,7 +13,7 @@ import { bootScriptSha256 } from "@sbgpu/machine";
 
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, readBody, retryAfterSeconds, type Fetch } from "../http.ts";
-import { machineName, parseMachineName } from "../machine-name.ts";
+import { nameFields, sameMachineName, specNameMatches } from "../machine-name.ts";
 import { usdToMicros } from "../money.ts";
 import {
   COMMAND_UNOBSERVABLE,
@@ -221,7 +221,7 @@ export function vmStatus(vm: unknown, observedAt: string): ProviderMachineStatus
   return {
     provider: "hyperstack",
     providerMachineId: String(vm["id"]),
-    machineId: typeof vm["name"] === "string" ? parseMachineName(vm["name"]) : null,
+    ...nameFields(vm["name"]),
     state: Object.hasOwn(STATES, rawStatus) ? STATES[rawStatus]! : "unknown",
     rawStatus,
     gpuType: gpuFromHyperstack(flavor["gpu"]),
@@ -512,12 +512,8 @@ export class HyperstackAdapter implements ProviderAdapter {
     const cfg = this.#launch;
     if (cfg === undefined) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: VM launch is not enabled");
     const script = vmLaunchScript(spec);
-    let name: string;
-    try {
-      name = machineName(spec.machineId);
-    } catch {
-      throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: not a machine id");
-    }
+    if (!specNameMatches(spec)) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: the spec's name isn't its machine's");
+    const name = spec.name;
     const gpu = gpuToHyperstack(spec.gpuType);
     if (gpu === null) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: GPU type not offered");
     if (!Number.isSafeInteger(spec.gpuCount) || spec.gpuCount < 1) throw new ProviderError("hyperstack", "invalid_request", "Hyperstack: bad GPU count");
@@ -623,7 +619,7 @@ export class HyperstackAdapter implements ProviderAdapter {
     const kept = `keypair ${keyName} kept for reconciliation`;
     let found: ProviderMachineStatus[];
     try {
-      found = (await this.#list(RECOVERY_PAGES, stop)).filter((s) => s.machineId !== null && machineName(s.machineId) === name);
+      found = (await this.#list(RECOVERY_PAGES, stop)).filter((s) => sameMachineName(s.parsedName, name));
     } catch (e) {
       const why = e instanceof ProviderError && e.message === STOPPED ? "stopped at the caller's deadline" : "the VM list could not be read";
       throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; ${why}; ${kept}`);
@@ -803,6 +799,7 @@ function goneStatus(providerMachineId: string, observedAt: string): ProviderMach
     provider: "hyperstack",
     providerMachineId,
     machineId: null,
+    parsedName: null,
     state: "terminated",
     rawStatus: "NOT_FOUND",
     gpuType: null,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { machineName, parseMachineName } from "../machine-name.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -197,7 +198,7 @@ const agent = { agentUrl: "https://cdn.example.test/probe-agent.tar.gz", agentSh
 const SALT = "5".repeat(64);
 const LAUNCHER = probeLauncher(agent, SALT);
 const spec: LaunchSpec = {
-  machineId: "mch_pr0bepr0bepr0bepr0be", gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1",
+  machineId: "mch_pr0bepr0bepr0bepr0be", incarnation: 0, name: machineName("probe", "mch_pr0bepr0bepr0bepr0be", 0), gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1",
   image: "img", diskGb: 40, bootToken: TOKEN, launcher: LAUNCHER, maxProviderCostPerHour: 3_000_000,
 };
 const plan: ProbePlan = { approval: "William, msg 123", agent, saltHex: SALT, spec, maxSpendMicros: 3_000_000, maxMinutes: 60, stageMinutes: 15, pollSeconds: 30 };
@@ -310,7 +311,7 @@ test("outcomeOf", () => {
 
 function status(over: Partial<ProviderMachineStatus> = {}): ProviderMachineStatus {
   return {
-    provider: "runpod", providerMachineId: "pod1", machineId: spec.machineId, state: "running", rawStatus: "RUNNING",
+    provider: "runpod", providerMachineId: "pod1", machineId: spec.machineId, parsedName: parseMachineName(spec.name), state: "running", rawStatus: "RUNNING",
     gpuType: "RTX-A4000", gpuCount: 1, dataCenter: "EU-SE-1", image: "img", diskGb: 40, volumeGb: 0,
     envNames: ["SBGPU_BOOT_TOKEN"], exposedPorts: [], unexpectedSettings: [], command: LAUNCHER,
     providerCostPerHour: 250_000, observedAt: "", ...over,
@@ -508,7 +509,7 @@ test("LIMITS H2: an unconfirmed termination is reported as exposure", async () =
   const h = harness(w);
   const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
   assert.equal(r.terminatedConfirmed, false);
-  assert.deepEqual(r.exposure, { providerMachineId: "pod1", machineName: "sbg-mch_pr0bepr0bepr0bepr0be", ratePerHour: 3_000_000 });
+  assert.deepEqual(r.exposure, { providerMachineId: "pod1", machineName: "sbg-probe-pr0bepr0bepr0bepr0be-0", ratePerHour: 3_000_000 });
   assert.equal(r.outcome, "aborted");
 });
 

@@ -327,7 +327,7 @@ function containerEnv(ctx: Ctx): ContainerEnv | null {
   const c = ctx.deps.container;
   if (!c) return null;
   const { deps } = ctx;
-  return { db: deps.db, clock: deps.now, provider: c.provider, expect: c.expect, randomBytes: deps.randomBytes, elapsedMs: () => 0 };
+  return { db: deps.db, installation: deps.config.installation, clock: deps.now, provider: c.provider, expect: c.expect, randomBytes: deps.randomBytes, elapsedMs: () => 0 };
 }
 
 /**
