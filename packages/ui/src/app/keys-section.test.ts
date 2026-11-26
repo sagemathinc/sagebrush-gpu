@@ -189,6 +189,27 @@ test("the window is the shown organization's: read with its orgId, closed on lea
   await older;
   assert.equal(k.t.store.keys.windowOpen.value, false, "the older answer doesn't reopen it");
   k.b.signInAs(EMAILS.owner); // (a fresh sign-in opens the server's window again)
+  // Two reads overlapping in the same open organization, with no leave or open between them: the
+  // older one's answer, arriving last, doesn't reopen the window the newer one closed.
+  await k.t.store.keys.open(k.orgA.id);
+  assert.equal(k.t.store.keys.windowOpen.value, true);
+  const hold = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const first = k.t.store.keys.refreshWindow(); // (answer computed now: open)
+  k.b.advance(RECENT_AUTH_WINDOW_MS);
+  await k.t.store.keys.refreshWindow(); // the newer read: closed
+  assert.equal(k.t.store.keys.windowOpen.value, false);
+  hold();
+  await first;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "the older answer must not reopen the window");
+  k.b.signInAs(EMAILS.owner);
+  // A read still in flight when the page leaves (opening nothing else): its answer opens nothing.
+  await k.t.store.keys.open(k.orgA.id);
+  const held = k.t.gate(new RegExp(`GET /v1/me\\?orgId=${k.orgA.id}`));
+  const inFlight = k.t.store.keys.refreshWindow();
+  k.t.store.keys.leave();
+  held();
+  await inFlight;
+  assert.equal(k.t.store.keys.windowOpen.value, false, "no organization open, no window");
   // A failed read closes it.
   await k.t.store.keys.open(k.orgA.id);
   assert.equal(k.t.store.keys.windowOpen.value, true);

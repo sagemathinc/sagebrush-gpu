@@ -4089,13 +4089,8 @@
  },
  {
   "file": "src/app/provider-keys.ts",
-  "old": "    if (generation !== this.#generation || this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);",
+  "old": "    if (read !== this.#windowReads || this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);",
   "new": "    this.setWindow(sentAt, forMs);"
- },
- {
-  "file": "src/app/provider-keys.ts",
-  "old": "    if (generation !== this.#generation || this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);",
-  "new": "    if (this.orgId.value !== orgId) return;\n    this.setWindow(sentAt, forMs);"
  },
  {
   "file": "src/app/provider-keys.ts",
@@ -4116,5 +4111,17 @@
   "file": "src/app/store.ts",
   "old": "      await this.keys.refreshWindow();\n",
   "new": ""
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": "read !== this.#windowReads || ",
+  "new": "",
+  "note": "overlapping window reads in one organization (TESTS on #90)"
+ },
+ {
+  "file": "src/app/provider-keys.ts",
+  "old": " || this.orgId.value !== orgId) return;",
+  "new": ") return;",
+  "note": "an answer for an organization since left"
  }
 ]

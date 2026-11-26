@@ -103,6 +103,8 @@ export class ProviderKeys {
   readonly #clocks: KeyClocks;
   readonly #signedOut: () => void;
   #generation = 0;
+  /** Window reads asked so far: only the latest one's answer may set the window. */
+  #windowReads = 0;
   /** Credential changes ended so far (any outcome): a list read that saw this move is stale. */
   #writes = 0;
   readonly #controllers = new Set<AbortController>();
@@ -169,12 +171,14 @@ export class ProviderKeys {
 
   /**
    * Read the open organization's window again (an assurance is for one organization). An answer
-   * for an organization since left, or from an older read, changes nothing; a failed read closes it.
+   * for an organization since left, or from any read but the latest asked (even for the same
+   * organization), changes nothing; a failed read closes it.
    */
   async refreshWindow(): Promise<void> {
     const orgId = this.orgId.value;
     if (orgId == null) return; // (none open: the window closed when it was left, or was never opened)
-    const generation = this.#generation;
+    // (every open starts a newer read, and leaving clears orgId: this fence covers both)
+    const read = ++this.#windowReads;
     const sentAt = this.#clocks.monotonic();
     let forMs: unknown = null;
     try {
@@ -182,7 +186,7 @@ export class ProviderKeys {
     } catch {
       forMs = null;
     }
-    if (generation !== this.#generation || this.orgId.value !== orgId) return;
+    if (read !== this.#windowReads || this.orgId.value !== orgId) return;
     this.setWindow(sentAt, forMs);
   }
 
