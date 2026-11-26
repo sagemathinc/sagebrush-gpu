@@ -276,6 +276,51 @@ function recordingD1(failReads = false, pending: boolean | "fail" = false) {
   return { sqls, d1: { prepare: (sql: string) => stmt(sql), batch: async () => [] } };
 }
 
+/**
+ * Runs `f` with the global fetch answering RunPod's pod list as empty (or failing), recording each
+ * URL; the scheduled run's adapters use the global fetch.
+ */
+async function withRunPod<T>(f: (urls: string[]) => Promise<T>, fails = false): Promise<T> {
+  const real = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    urls.push(String(input instanceof Request ? input.url : input));
+    if (fails) return new Response("{}", { status: 503 });
+    return new Response(JSON.stringify({ pods: [], pagination: { hasNextPage: false } }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    return await f(urls);
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+test("scheduled: the orphan sweep reads RunPod's pod list whenever this deployment has an installation and a key, whatever the flag; a sweep that fails fails the run by name", async () => {
+  const KEYED = { SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" };
+  const cases: Array<[string, Record<string, string>, boolean]> = [
+    ["on and usable", { ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", ...KEYED }, true],
+    ["off, keyed, nothing due", { ...KEYED }, true],
+    ["off, no key", { SBGPU_INSTALLATION: "prod" }, false],
+    ["off, no installation", { RUNPOD_API_KEY: "k" }, false],
+  ];
+  for (const [why, vars, lists] of cases) {
+    const logs: string[] = [];
+    await withRunPod(async (urls) => {
+      await createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, { DB: recordingD1().d1, ...BASE_VARS, ...vars } as never, { waitUntil() {} });
+      assert.equal(urls.some((u) => /\/v2\/pods\?/.test(u)), lists, why);
+    });
+    assert.deepEqual(logs, [], why);
+  }
+  const logs: string[] = [];
+  await withRunPod(async () => {
+    await assert.rejects(
+      createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, { DB: recordingD1().d1, ...BASE_VARS, ...KEYED } as never, { waitUntil() {} }),
+      /scheduled jobs failed: container sweep$/,
+    );
+  }, true);
+  assert.deepEqual(logs, ["control: scheduled job container sweep failed (Error)"]);
+});
+
 test("scheduled: the container watchdog runs only when container launch is on and usable; on but unusable is one alert line a run", async () => {
   const cases: Array<[Record<string, string>, boolean, string[]]> = [
     [{}, false, []],
@@ -288,10 +333,12 @@ test("scheduled: the container watchdog runs only when container launch is on an
     const logs: string[] = [];
     const r = recordingD1();
     const other: string[] = [];
-    await createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [{ name: "other", run: async () => (other.push("ran"), 0) }] }).scheduled(
-      { scheduledTime: 0, cron: "" },
-      { DB: r.d1, ...BASE_VARS, ...vars } as never,
-      { waitUntil() {} },
+    await withRunPod(() =>
+      createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [{ name: "other", run: async () => (other.push("ran"), 0) }] }).scheduled(
+        { scheduledTime: 0, cron: "" },
+        { DB: r.d1, ...BASE_VARS, ...vars } as never,
+        { waitUntil() {} },
+      ),
     );
     assert.equal(r.sqls.includes(CONTAINER_WATCHDOG_SELECT), ran, JSON.stringify(vars));
     assert.deepEqual([logs, other], [lines, ["ran"]], JSON.stringify(vars));
@@ -299,13 +346,15 @@ test("scheduled: the container watchdog runs only when container launch is on an
   // a failing container watchdog fails the run by name, after the other jobs; a bad deploy config only skips it
   const logs: string[] = [];
   const failing = recordingD1(true);
-  await assert.rejects(
-    createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled(
-      { scheduledTime: 0, cron: "" },
-      { DB: failing.d1, ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" } as never,
-      { waitUntil() {} },
+  await withRunPod(() =>
+    assert.rejects(
+      createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled(
+        { scheduledTime: 0, cron: "" },
+        { DB: failing.d1, ...BASE_VARS, ...RELEASE, SBGPU_CONTAINER_LAUNCH: "on", SBGPU_INSTALLATION: "prod", RUNPOD_API_KEY: "k" } as never,
+        { waitUntil() {} },
+      ),
+      /scheduled jobs failed: container watchdog$/,
     ),
-    /scheduled jobs failed: container watchdog$/,
   );
   assert.deepEqual(logs, ["control: scheduled job container watchdog failed (Error)"]);
   const bad: string[] = [];
@@ -333,7 +382,7 @@ test("scheduled: switched off, the container watchdog still runs while a contain
   for (const [why, vars, pending, ran, lines] of cases) {
     const logs: string[] = [];
     const r = recordingD1(false, pending);
-    await createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, { DB: r.d1, ...BASE_VARS, ...vars } as never, { waitUntil() {} });
+    await withRunPod(() => createWorker({ now: () => 123, log: (l) => logs.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, { DB: r.d1, ...BASE_VARS, ...vars } as never, { waitUntil() {} }));
     assert.equal(r.sqls.includes(CONTAINER_WATCHDOG_SELECT), ran, why);
     assert.deepEqual(logs, lines, why);
   }
@@ -367,9 +416,10 @@ test("the wiring, end to end: on and usable, a container enroll reaches its toke
     assert.equal(r.sqls.some((q) => /FROM boot_tokens b[\s\S]*b\.mode = 'container'/.test(q)), reaches, JSON.stringify(vars));
   }
   // (2) the scheduled watchdog: a creating launch with no id is looked for by name, in RunPod's list,
-  // which needs the installation (without it, the name can't be built and nothing is read)
+  // which needs the installation (without it, the name can't be built and nothing is read): two
+  // reads by the watchdog (its recovery by name, then its termination's), and one by the orphan sweep
   const real = globalThis.fetch;
-  for (const [installation, reads] of [["prod", true], [undefined, false]] as const) {
+  for (const [installation, reads] of [["prod", 3], [undefined, 0]] as const) {
     const urls: string[] = [];
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       urls.push(String(input instanceof Request ? input.url : input));
@@ -386,7 +436,7 @@ test("the wiring, end to end: on and usable, a container enroll reaches its toke
       if (installation === undefined) delete env.SBGPU_INSTALLATION;
       const logs: string[] = [];
       await createWorker({ now: () => 10 ** 12, log: (l) => logs.push(l), jobs: [] }).scheduled({ scheduledTime: 0, cron: "" }, env as never, { waitUntil() {} }).catch(() => {});
-      assert.equal(urls.some((u) => u.startsWith("https://rest.runpod.io/") || u.startsWith("https://api.runpod.io/")), reads, `${String(installation)}: ${urls.join(" ")}`);
+      assert.equal(urls.filter((u) => /^https:\/\/(rest|api)\.runpod\.io\/v2\/pods\?/.test(u)).length, reads, `${String(installation)}: ${urls.join(" ")}`);
     } finally {
       globalThis.fetch = real;
     }

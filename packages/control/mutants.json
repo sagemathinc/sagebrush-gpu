@@ -4790,8 +4790,8 @@
  },
  {
   "file": "src/worker.ts",
-  "old": "              installation: config.installation,",
-  "new": "              installation: null,",
+  "old": "            const n = await runContainerWatchdog({\n              db,\n              installation: config.installation,",
+  "new": "            const n = await runContainerWatchdog({\n              db,\n              installation: null,",
   "note": "the scheduled watchdog without the installation"
  },
  {
@@ -5543,5 +5543,119 @@
   "old": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled') AND watchdog_version = ?`,",
   "new": "AND mode = 'container'\n         AND outcome IN ('creating', 'issued', 'enrolled')`,",
   "note": "the re-read ignores the version"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.outcome === \"terminate\") return null;\n",
+  "new": "  if (r.outcome === \"terminate\") return \"launch-terminated\";\n",
+  "note": "a pod the watchdog is ending taken as an orphan"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.outcome === \"terminated\") return \"launch-terminated\";\n",
+  "new": "  if (r.outcome === \"terminated\") return null;\n",
+  "note": "a terminated launch's pod kept"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.provider_machine_id === null || r.provider_machine_id === podId) return null;\n",
+  "new": "  if (r.provider_machine_id === podId) return null;\n",
+  "note": "a launch with no id yet loses its pod"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (r.provider_machine_id === null || r.provider_machine_id === podId) return null;\n",
+  "new": "  if (r.provider_machine_id === null) return null;\n",
+  "note": "a live launch's own pod ended"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (!r) return \"no-launch\";\n",
+  "new": "  if (!r) return null;\n",
+  "note": "a pod with no launch kept"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (n.installation !== env.installation) {\n",
+  "new": "    if (false) {\n",
+  "note": "another installation's pods swept"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (n === null || s.state === \"terminated\") continue;\n",
+  "new": "    if (n === null) continue;\n",
+  "note": "a listed pod already gone ended again"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (list === \"unavailable\") throw new Error(\"the pod list couldn't be read\");\n",
+  "new": "  if (list === \"unavailable\") return 0;\n",
+  "note": "an unread list passes silently"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    } catch {\n      problems.push(`${s.providerMachineId}: its launch couldn't be read`);\n      continue;\n    }\n",
+  "new": "    } catch {\n      why = \"no-launch\";\n    }\n",
+  "note": "a pod whose launch can't be read is ended"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (attempted >= SWEEP_END_BATCH) {\n",
+  "new": "    if (attempted > SWEEP_END_BATCH) {\n",
+  "note": "one more than the batch ended"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "      problems.push(`${s.providerMachineId}: its termination wasn't taken`);\n",
+  "new": "",
+  "note": "a termination not taken passes silently"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (problems.length > 0) throw new Error(problems.join(\"; \"));\n  return ended;\n}\n",
+  "new": "  return ended;\n}\n",
+  "note": "the sweep's problems not reported"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "          return \"deps\" in c ? c.deps : null;\n        })();\n        if (sweepDeps !== null) {",
+  "new": "          return \"deps\" in c ? null : null;\n        })();\n        if (sweepDeps !== null) {",
+  "note": "no sweep without the watchdog's adapter"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            failed.push(\"container sweep\");\n",
+  "new": "",
+  "note": "a failing sweep doesn't fail the run"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "            const n = await runContainerSweep({\n              db,\n              installation: config.installation,",
+  "new": "            const n = await runContainerSweep({\n              db,\n              installation: null,",
+  "note": "the sweep without the installation"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (attempted >= SWEEP_END_BATCH) {\n",
+  "new": "    if (ended >= SWEEP_END_BATCH) {\n",
+  "note": "the cap counts confirmed terminations only"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    attempted++; // (before the call: whatever the outcome, it may have ended the pod)\n",
+  "new": "",
+  "note": "attempts never counted"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) {\n",
+  "new": "    if (false) {\n",
+  "note": "the time budget ignored"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (env.elapsedMs() >= WATCHDOG_BUDGET_MS) {\n",
+  "new": "    if (env.elapsedMs() > WATCHDOG_BUDGET_MS) {\n",
+  "note": "one terminate at the spent budget"
  }
 ]

@@ -14,6 +14,7 @@ import { relayRoute, type RelayRouteEnv } from "@sbgpu/machine/relay/routes";
 import { RunPodAdapter } from "@sbgpu/providers";
 import { configFromEnv, createApp, withSecurityHeaders, type AppConfig } from "./app.ts";
 import { runContainerWatchdog, type ContainerDeps } from "./container.ts";
+import { runContainerSweep } from "./sweep.ts";
 import { d1Db, type D1Like, type Db } from "./db.ts";
 import { json } from "./http.ts";
 import { SCHEDULED_JOBS, type ScheduledJob } from "./jobs.ts";
@@ -215,6 +216,31 @@ export function createWorker(o: WorkerOptions = {}) {
           } catch (e) {
             failed.push("container watchdog");
             log(`control: scheduled job container watchdog failed (${e instanceof Error ? e.name : typeof e})`);
+          }
+        }
+        // The orphan sweep: with the watchdog's adapter, or, when there is none (off, nothing due),
+        // the cleanup adapter if this deployment has an installation and a key (pods it once
+        // launched may outlive the flag). With neither, there is nothing it could end.
+        const sweepDeps = deps ?? (() => {
+          const c = cleanupDeps(config, env.RUNPOD_API_KEY, fetch);
+          return "deps" in c ? c.deps : null;
+        })();
+        if (sweepDeps !== null) {
+          try {
+            const n = await runContainerSweep({
+              db,
+              installation: config.installation,
+              clock: now,
+              provider: sweepDeps.provider,
+              expect: sweepDeps.expect,
+              randomBytes: (k) => crypto.getRandomValues(new Uint8Array(k)),
+              elapsedMs: () => Date.now() - began,
+              alert: (line) => log(`control: alert: ${line}`),
+            });
+            if (n > 0) log(`control: container sweep: ${n}`);
+          } catch (e) {
+            failed.push("container sweep");
+            log(`control: scheduled job container sweep failed (${e instanceof Error ? e.name : typeof e})`);
           }
         }
       }
