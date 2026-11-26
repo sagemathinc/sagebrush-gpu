@@ -11,6 +11,7 @@ import { SESSION_COOKIE, sha256Hex } from "./http.ts";
 import { clearKeyCache } from "./workos.ts";
 import { openCredential } from "./credentials.ts";
 import { recordCheck, type CredentialCheck } from "./credential-routes.ts";
+import { reserveCheck } from "./credential-assurance.ts";
 import { CLIENT, CONFIG, FakeWorkos } from "./testing/fake-workos.ts";
 import { ORIGIN, T0, addMember, call, world, type World } from "./testing/world.ts";
 
@@ -219,6 +220,76 @@ test("put: only an ok check saves; a refused or failed check uses the assurance 
     assert.equal(await unused(p), 0, `${result}: the assurance is used`);
     assert.deepEqual(await openCredential(w.db, SECRETS, p.orgId, "runpod", w.clock.t), { ok: true, key: KEY1, credentialId: v1.id, version: 1 }, result);
   }
+});
+
+test("put: a refused check answers only once its assurance's use has committed; a failed or lost use is never the check's refusal", async () => {
+  // (1) the use's batch fails (a database error): checkUnavailable, the assurance still unused (rolled back), nothing written
+  const p = await owner();
+  const v1 = await setKey(p);
+  await assure(p);
+  checker.result = "rejected";
+  const real = w.deps.db;
+  w.deps.db = {
+    ...real,
+    async batch(stmts: Stmt[]) {
+      if (stmts.length === 2 && stmts[0]!.sql.includes("UPDATE credential_assurances")) {
+        w.deps.db = real;
+        return real.batch([stmts[0]!, { sql: `INSERT INTO no_such_table (x) VALUES (1)`, params: [] }]);
+      }
+      return real.batch(stmts);
+    },
+  };
+  const before = JSON.stringify([await rows(), await events()]);
+  refused(await put(p, KEY2, { id: v1.id, version: 1 }), "checkUnavailable", "the use failed");
+  w.deps.db = real;
+  assert.equal(JSON.stringify([await rows(), await events()]), before);
+  assert.equal(await unused(p), 1, "rolled back with its batch: still the one assurance, and no answer claimed it was used");
+  checker.result = "ok";
+  // (2) the assurance used by a concurrent change between the live check and the use: reauthenticate
+  const q = await owner();
+  const w1 = await setKey(q);
+  await assure(q);
+  checker.check = async (provider: string, key: string) => {
+    checker.calls.push(`${provider} ${key.length}`);
+    await w.db.batch([stmt(`UPDATE credential_assurances SET used_ms = ? WHERE session_sha256 = ? AND used_ms IS NULL`, w.clock.t, q.hash)]);
+    return "rejected";
+  };
+  refused(await put(q, KEY2, { id: w1.id, version: 1 }), "reauthenticate", "used meanwhile");
+  checker.check = MockCheck.prototype.check.bind(checker);
+  assert.equal(await unused(q), 0);
+  // (3) the ordinary refusal still uses the assurance
+  await assure(q);
+  checker.result = "rejected";
+  refused(await put(q, KEY2, { id: w1.id, version: 1 }), "rejected");
+  assert.equal(await unused(q), 0);
+  checker.result = "ok";
+});
+
+test("put: the 8 KiB body cap, on a valid body: 8192 bytes is taken; 8193 is refused before any quota, provider call, write or assurance use", async () => {
+  const send = (p: Owner, bytes: number) => {
+    const body = JSON.stringify({ key: KEY1, expected: null });
+    return w.app.fetch(new Request(`${ORIGIN}/v1/orgs/${p.orgId}/credentials/runpod`, {
+      method: "PUT", headers: { origin: ORIGIN, cookie: p.cookie, "content-type": "application/json" }, body: body + " ".repeat(bytes - body.length),
+    }));
+  };
+  const p = await owner();
+  await assure(p);
+  const q0 = await quota(p.orgId);
+  const over = await send(p, 8193);
+  assert.deepEqual([over.status, await over.json()], [ERROR_STATUS[CREDENTIAL_REFUSALS.badShape.code], credentialRefusalBody("badShape")]);
+  assert.deepEqual([await quota(p.orgId), checker.calls.length, (await rows()).length, await unused(p)], [q0, 0, 0, 1]);
+  const at = await send(p, 8192);
+  assert.equal(at.status, 200, "exactly 8192 bytes");
+  assert.equal((await rows()).length, 1);
+});
+
+test("put: at the quota's cap with a live assurance: tooManyChecks, no provider call, nothing written, the assurance unused", async () => {
+  const p = await owner();
+  await assure(p);
+  while (await reserveCheck(w.db, p.orgId, w.clock.t));
+  assert.equal(await quota(p.orgId), 10);
+  refused(await put(p, KEY1, null), "tooManyChecks");
+  assert.deepEqual([checker.calls.length, (await rows()).length, (await events()).length, await unused(p)], [0, 0, 0, 1]);
 });
 
 test("delete: each refusal in its place, writing nothing", async () => {

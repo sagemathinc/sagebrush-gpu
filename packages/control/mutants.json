@@ -6284,12 +6284,6 @@
  },
  {
   "file": "src/credential-routes.ts",
-  "old": "      await deps.db.batch(consumeAssurance(binding, deps.now())).catch(() => {});\n",
-  "new": "",
-  "note": "failed check keeps the assurance"
- },
- {
-  "file": "src/credential-routes.ts",
   "old": "      throw credentialRefusal(status === \"rejected\" || status === \"revoked\" ? \"rejected\" : \"checkUnavailable\");",
   "new": "      throw credentialRefusal(status === \"rejected\" ? \"rejected\" : \"checkUnavailable\");",
   "note": "revoked as unavailable"
@@ -6431,5 +6425,41 @@
   "old": "  const keks = typeof env.CREDENTIAL_KEKS === \"string\" ? env.CREDENTIAL_KEKS : undefined;",
   "new": "  const keks = undefined;",
   "note": "KEKs not read from the environment"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "      try {\n        await deps.db.batch(consumeAssurance(binding, deps.now()));\n      } catch (err) {\n        throw credentialRefusal(err instanceof Error && GUARD.test(err.message) ? \"reauthenticate\" : \"checkUnavailable\");\n      }",
+  "new": "      await deps.db.batch(consumeAssurance(binding, deps.now())).catch(() => {});",
+  "note": "a failed use swallowed (the check's refusal anyway)"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "        throw credentialRefusal(err instanceof Error && GUARD.test(err.message) ? \"reauthenticate\" : \"checkUnavailable\");",
+  "new": "        throw credentialRefusal(\"rejected\");",
+  "note": "every failed use reported as rejected"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "        throw credentialRefusal(err instanceof Error && GUARD.test(err.message) ? \"reauthenticate\" : \"checkUnavailable\");",
+  "new": "        throw credentialRefusal(\"checkUnavailable\");",
+  "note": "a concurrent use reported as unavailable"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "        await deps.db.batch(consumeAssurance(binding, deps.now()));\n",
+  "new": "",
+  "note": "failed check keeps the assurance"
+ },
+ {
+  "file": "src/app.ts",
+  "old": ", putCredential: PUT_MAX_BODY_BYTES",
+  "new": "",
+  "note": "the PUT body cap dropped"
+ },
+ {
+  "file": "src/credential-routes.ts",
+  "old": "    if (!(await reserveCheck(deps.db, orgId, deps.now()))) throw credentialRefusal(\"tooManyChecks\");",
+  "new": "    await reserveCheck(deps.db, orgId, deps.now());",
+  "note": "the quota reserved but its answer ignored"
  }
 ]

@@ -181,8 +181,15 @@ export const CREDENTIAL_HANDLERS: Handlers = {
       status = "error";
     }
     if (status !== "ok") {
-      // (the assurance is used all the same; no credential or event is written)
-      await deps.db.batch(consumeAssurance(binding, deps.now())).catch(() => {});
+      // The assurance is used all the same (no credential or event is written), and the check's
+      // answer is given only once that use has committed: an assurance used meanwhile is
+      // reauthenticate, any other failure checkUnavailable, so a live assurance never survives a
+      // refused check.
+      try {
+        await deps.db.batch(consumeAssurance(binding, deps.now()));
+      } catch (err) {
+        throw credentialRefusal(err instanceof Error && GUARD.test(err.message) ? "reauthenticate" : "checkUnavailable");
+      }
       throw credentialRefusal(status === "rejected" || status === "revoked" ? "rejected" : "checkUnavailable");
     }
     const e = expected as CredentialExpected | null;
