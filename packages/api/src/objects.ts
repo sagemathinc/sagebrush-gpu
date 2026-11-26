@@ -122,7 +122,11 @@ export interface ProjectPolicy {
   setupScript: string | null;
   storageQuotaBytesPerMember: number;
   storageQuotaBytesPerTeam: number;
-  /** Snapshots: the newest unnamed ones kept per area (named ones and the current one are kept besides). */
+  /**
+   * Snapshots: how many unnamed ones each area keeps, the newest. The current snapshot is always the
+   * newest, so when it is unnamed it is one of these; every named one is kept besides (within
+   * snapshotNamedMax), and so is a named current one.
+   */
   snapshotKeepLast: number;
   /** Snapshots: the most named ones per area. */
   snapshotNamedMax: number;

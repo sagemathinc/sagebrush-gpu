@@ -1,5 +1,6 @@
 // Workspace snapshots (contract r3.1, SEC DESIGN CLEAR): the saves of a member's or a team's
-// workspace area, kept as the last N plus named ones, and restored by writing a new snapshot.
+// workspace area, kept as the newest snapshotKeepLast unnamed ones (the current one among them when
+// it is unnamed) plus every named one, and restored by writing a new snapshot.
 //
 // - Storage is the machine design's (5.1): content-addressed chunks, immutable manifests and a
 //   HEAD only the storage gateway writes, by compare-and-swap. Control never stores which

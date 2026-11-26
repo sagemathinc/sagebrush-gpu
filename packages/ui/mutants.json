@@ -4013,13 +4013,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "(policy.snapshotKeepLast - 1)",
-  "new": "(policy.snapshotKeepLast)"
+  "old": "unnamed.length - policy.snapshotKeepLast)",
+  "new": "unnamed.length - (policy.snapshotKeepLast - 1))"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "x.name == null && x.id !== rec.id",
-  "new": "x.name == null"
+  "old": "const unnamed = list.filter((x) => x.name == null);\n    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - policy.snapshotKeepLast))",
+  "new": "const unnamed = list.filter((x) => x.name == null && x.id !== rec.id);\n    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - (policy.snapshotKeepLast - 1)))",
+  "note": "the reported bug (TESTS hold on #86): a named commit dropping one unnamed save too many"
  },
  {
   "file": "src/mock/backend.ts",
@@ -4060,5 +4061,10 @@
   "file": "src/mock/backend.ts",
   "old": "this.#pinAreas(rec, member);\n      this.#placeAndBoot(rec, offer);",
   "new": "this.#placeAndBoot(rec, offer);"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "Math.max(0, unnamed.length - policy.snapshotKeepLast)",
+  "new": "unnamed.length - policy.snapshotKeepLast"
  }
 ]

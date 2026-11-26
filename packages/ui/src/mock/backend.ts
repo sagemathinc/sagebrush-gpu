@@ -1076,7 +1076,9 @@ export class MockBackend {
 
   /**
    * Commit a snapshot to an area as the gateway does: it becomes the head, then retention keeps
-   * the newest snapshotKeepLast unnamed ones, every named one and the head's.
+   * the newest snapshotKeepLast unnamed ones, every named one and the head. The head is the newest
+   * snapshot, so it is one of those unnamed ones when it is unnamed; a named head leaves room for
+   * snapshotKeepLast unnamed ones besides.
    */
   #commitSnapshot(areaKey: string, init: Omit<SnapshotRec, "id" | "createdAt">): string {
     const list = this.snapshots.get(areaKey) ?? [];
@@ -1087,8 +1089,8 @@ export class MockBackend {
     const rec: SnapshotRec = { ...init, name, id: this.newId("snapshot"), createdAt: this.#now };
     list.push(rec);
     this.snapshotHeads.set(areaKey, rec.id);
-    const unnamed = list.filter((x) => x.name == null && x.id !== rec.id);
-    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - (policy.snapshotKeepLast - 1))).map((x) => x.id));
+    const unnamed = list.filter((x) => x.name == null);
+    const drop = new Set(unnamed.slice(0, Math.max(0, unnamed.length - policy.snapshotKeepLast)).map((x) => x.id));
     this.snapshots.set(areaKey, list.filter((x) => !drop.has(x.id)));
     return rec.id;
   }

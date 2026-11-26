@@ -161,6 +161,23 @@ test("retention: the newest snapshotKeepLast unnamed ones, every named one, and 
   assert.deepEqual((await w.list(ada, "member")).map((s) => s.id), [r.id, ids[3], ids[0]]);
 });
 
+test("retention counts the current snapshot among the unnamed ones only when it is unnamed: a named commit drops none", async () => {
+  const w = world();
+  const ada = w.emails.member;
+  await w.as(w.emails.manager).call("updateProject", { params: w.p, body: { policy: { snapshotKeepLast: 2 } } });
+  const key = w.mine(ada);
+  const a = w.b.seedSnapshot(key);
+  const b2 = w.b.seedSnapshot(key);
+  const c = w.b.seedSnapshot(key, { name: "named head" }); // a named commit: both unnamed ones stay
+  assert.deepEqual((await w.list(ada, "member")).map((s) => [s.id, s.current]), [[c, true], [b2, false], [a, false]]);
+  const d = w.b.seedSnapshot(key); // an unnamed commit: it is one of the 2 kept, so a goes
+  assert.deepEqual((await w.list(ada, "member")).map((s) => s.id), [d, c, b2]);
+  // under the limit, nothing goes
+  const fresh = world();
+  const many = Array.from({ length: 6 }, () => fresh.b.seedSnapshot(fresh.mine(ada)));
+  assert.deepEqual((await fresh.list(ada, "member")).map((s) => s.id), [...many].reverse());
+});
+
 test("restore: a new current snapshot from the target, while nothing writes the area; another restore undoes it", async () => {
   const w = world();
   const ada = w.emails.member;
