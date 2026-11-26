@@ -128,3 +128,27 @@ test("a start or restart with no offer left is refused credentialUnusable, namin
   // Other refusals carry no provider.
   await assert.rejects(c.call("startMachine", { params: w.p, body: { gpuType: "A6000" } }), (e: unknown) => e instanceof ApiError && e.code === "noCapacity" && e.provider === undefined);
 });
+
+test("a byok organization with no key for a provider: not a pause, but no offers there; with nothing else left, noCapacity", async () => {
+  const w = world();
+  w.b.credentials.delete(`${w.orgId}|runpod`); // status "none"
+  assert.deepEqual(await w.pauses(w.emails.manager), [], "no paused[] entry");
+  const l4 = await w.quote("L4"); // also on Hyperstack, which has a key
+  assert.deepEqual([l4.canStart, l4.offers.map((o) => o.provider)], [true, ["hyperstack"]]);
+  const a100 = await w.quote("A100-80GB"); // RunPod only
+  assert.deepEqual([a100.canStart, a100.reason, a100.reasonProvider, a100.offers], [false, "noCapacity", undefined, []]);
+  const items = (await w.as(w.emails.member).call("listGpuTypes", { params: w.p })).items;
+  assert.equal(items.find((i) => i.gpuType === "A100-80GB")?.pricePerHour, null);
+  assert.equal(items.find((i) => i.gpuType === "L4")?.pricePerHour?.providerCost, 550_000);
+  await assert.rejects(w.as(w.emails.member).call("startMachine", { params: w.p, body: { gpuType: "A100-80GB" } }), (e: unknown) => e instanceof ApiError && e.code === "noCapacity" && e.provider === undefined);
+  // One provider paused and the other keyless: not every offer was dropped for a pause, so noCapacity.
+  w.b.setKeyStatus(w.orgId, "hyperstack", "revoked");
+  const l4b = await w.quote("L4");
+  assert.deepEqual([l4b.reason, l4b.reasonProvider], ["noCapacity", undefined]);
+  assert.deepEqual((await w.pauses(w.emails.member)).map((x) => x.provider), ["hyperstack"]);
+  // Over the price limit: no keyless provider's offer is listed either.
+  w.b.setKeyStatus(w.orgId, "hyperstack", "ok");
+  w.b.projects.get(w.projectId)!.policy.maxPricePerHour = 100_000;
+  const dear = await w.quote("L4");
+  assert.deepEqual([dear.reason, dear.offers.map((o) => o.provider)], ["priceCap", ["hyperstack"]]);
+});

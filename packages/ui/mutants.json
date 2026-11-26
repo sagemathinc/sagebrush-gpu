@@ -66,8 +66,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "const withStock = underCap.filter((o) => o.stock !== \"none\");",
-  "new": "const withStock = underCap;"
+  "old": "const withStock = live.filter((o) => o.stock !== \"none\");",
+  "new": "const withStock = live;"
  },
  {
   "file": "src/mock/backend.ts",
@@ -276,7 +276,7 @@
  },
  {
   "file": "src/client.ts",
-  "old": "if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message);",
+  "old": "if (isApiErrorBody(body)) throw new ApiError(body.error.code, response.status, body.error.message, body.error.provider);",
   "new": ""
  },
  {
@@ -736,8 +736,8 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "? refusalText(quote.reason, labels) : item.stock === \"low\" ? \"Few left\" : \"\"",
-  "new": "? refusalText(quote.reason, labels) : \"\""
+  "old": "? refusalText(quote.reason, labels, quote.reasonProvider) : item.stock === \"low\" ? \"Few left\" : \"\"",
+  "new": "? refusalText(quote.reason, labels, quote.reasonProvider) : \"\""
  },
  {
   "file": "src/app/components.ts",
@@ -826,8 +826,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members",
-  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.members"
+  "old": "      this.meters.value = [];\n      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.paused.value = [];\n      this.members",
+  "new": "      this.machines.value = [];\n      this.gpuTypes.value = [];\n      this.quotes.value = {};\n      this.paused.value = [];\n      this.members"
  },
  {
   "file": "src/app/store.ts",
@@ -3545,13 +3545,13 @@
  },
  {
   "file": "src/view.ts",
-  "old": "      return \"Launches are paused: the organization's provider key isn't working.\";\n    case \"noCapacity\":",
+  "old": "      return provider\n        ? `Launches on ${PROVIDER_NAMES[provider]} are paused: the organization's key for it isn't working.`\n        : \"Launches are paused: the organization's provider key isn't working.\";\n    case \"noCapacity\":",
   "new": "    case \"noCapacity\":",
   "note": "refusalText: credentialUnusable reads as noCapacity"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "      return { items, asOf: toIso(this.#now), paused: [] };",
+  "old": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };",
   "new": "      return { items, asOf: toIso(this.#now) } as never;",
   "note": "mock listGpuTypes: no paused list"
  },
@@ -3665,8 +3665,8 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    if (this.#org(orgId).billingMode !== \"byok\") return out;\n",
-  "new": "",
+  "old": "    if (this.#org(orgId).billingMode !== \"byok\") return out;\n    for (const provider of PROVIDER_IDS) {\n      const rec",
+  "new": "    for (const provider of PROVIDER_IDS) {\n      const rec",
   "note": "mock: a resold organization pauses too"
  },
  {
@@ -3683,14 +3683,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    else if (live.length === 0) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
-  "new": "    else if (underCap.every((o) => o.stock === \"none\")) reason = \"noCapacity\";\n    else if (live.length === 0) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "old": "    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
+  "new": "    else if (underCap.every((o) => o.stock === \"none\")) reason = \"noCapacity\";\n    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";\n    else if (withStock.length === 0) reason = \"noCapacity\";",
   "note": "mock: noCapacity before credentialUnusable"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "    const live = underCap.filter((o) => !paused.has(o.provider));",
-  "new": "    const live = underCap;",
+  "old": "    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));",
+  "new": "    const live = underCap.filter((o) => !keyless.has(o.provider));",
   "note": "mock: paused offers kept"
  },
  {
@@ -3731,14 +3731,14 @@
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider));",
-  "new": "o.pricePerHour.total <= project.policy.maxPricePerHour);",
+  "old": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),",
+  "new": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !keyless.has(o.provider),",
   "note": "mock: price list prices a paused provider's offer"
  },
  {
   "file": "src/mock/backend.ts",
-  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider)),",
-  "new": "underCap.length > 0 ? [] : allowed,",
+  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),",
+  "new": "underCap.length > 0 ? [] : allowed.filter((o) => !keyless.has(o.provider)),",
   "note": "mock: over the limit, paused offers listed"
  },
  {
@@ -3752,5 +3752,41 @@
   "old": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, user ? this.#projectRole(project.id, user.id) : null) };",
   "new": "      return { items, asOf: toIso(this.#now), paused: this.#pausesFor(project, \"owner\") };",
   "note": "mock: everyone gets the reason"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    for (const provider of PROVIDER_IDS) if (!this.credentials.has(`${orgId}|${provider}`)) out.add(provider);\n",
+  "new": "",
+  "note": "mock: a byok provider without a key keeps its offers"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "  #keylessProviders(orgId: string): Set<ProviderId> {\n    const out = new Set<ProviderId>();\n    if (this.#org(orgId).billingMode !== \"byok\") return out;",
+  "new": "  #keylessProviders(orgId: string): Set<ProviderId> {\n    const out = new Set<ProviderId>();",
+  "note": "mock: a resold organization needs keys too"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = \"credentialUnusable\";",
+  "new": "    else if (live.length === 0) reason = \"credentialUnusable\";",
+  "note": "mock: a keyless provider counts as a pause"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),",
+  "new": "(o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider),",
+  "note": "mock: price list prices a keyless provider's offer"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),",
+  "new": "underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider)),",
+  "note": "mock: over the limit, keyless offers listed"
+ },
+ {
+  "file": "src/mock/backend.ts",
+  "old": "    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));",
+  "new": "    const live = underCap.filter((o) => !paused.has(o.provider));",
+  "note": "mock: a keyless provider's offers kept in quotes"
  }
 ]

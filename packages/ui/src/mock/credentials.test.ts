@@ -179,6 +179,8 @@ test("runningMachines counts the organization's machines on that provider that s
   const rows = async () =>
     Object.fromEntries((await owner.call("listCredentials", { params: { orgId: s.org.id } })).items.map((i) => [i.provider, i.runningMachines]));
   assert.deepEqual(await rows(), { shadeform: 0, hyperstack: 0, vast: 0 });
+  // (a byok organization launches only where it has a key)
+  b.credentials.set(`${s.org.id}|hyperstack`, { fingerprint: "0badf00d", setBy: s.demo.emails.owner, setAt: b.now(), lastCheckedAt: b.now(), status: "ok" });
   // Ada starts one in the byok organization and one in the seed's (which isn't counted).
   b.currentUserId = ada.id;
   const started = b.request("POST", `/v1/projects/${s.project.id}/machines`, {}, { gpuType: "L4" });

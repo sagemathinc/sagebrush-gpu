@@ -709,6 +709,17 @@ export class MockBackend {
   }
 
   /**
+   * The providers a byok organization has no key for: not a pause (no paused[] entry), but
+   * there is nothing to launch with, so their offers are dropped too.
+   */
+  #keylessProviders(orgId: string): Set<ProviderId> {
+    const out = new Set<ProviderId>();
+    if (this.#org(orgId).billingMode !== "byok") return out;
+    for (const provider of PROVIDER_IDS) if (!this.credentials.has(`${orgId}|${provider}`)) out.add(provider);
+    return out;
+  }
+
+  /**
    * The pauses a project's price list shows: the project's own providers only, in PROVIDER_IDS
    * order, with the reason only for manager and above.
    */
@@ -771,7 +782,8 @@ export class MockBackend {
     const underCap = allowed.filter((o) => o.pricePerHour.total <= project.policy.maxPricePerHour);
     // Offers on a provider whose organization key is paused are dropped.
     const paused = this.#pausedProviders(project.orgId);
-    const live = underCap.filter((o) => !paused.has(o.provider));
+    const keyless = this.#keylessProviders(project.orgId);
+    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));
     const withStock = live.filter((o) => o.stock !== "none");
     const cheapest = withStock[0] ?? null;
     let required: Micros | null = null;
@@ -802,7 +814,8 @@ export class MockBackend {
     else if (this.#now >= Date.parse(project.endsAt)) reason = "projectEnded";
     else if (allowed.length === 0 || allocation == null) reason = "policy";
     else if (underCap.length === 0) reason = "priceCap";
-    else if (live.length === 0) reason = "credentialUnusable";
+    // Only when every offer was dropped for a pause; a provider without a key isn't one.
+    else if (live.length === 0 && underCap.every((o) => paused.has(o.provider))) reason = "credentialUnusable";
     else if (withStock.length === 0) reason = "noCapacity";
     else if (
       accruing.length >= project.policy.maxConcurrentMachines ||
@@ -813,7 +826,7 @@ export class MockBackend {
     const quote: Quote = {
       gpuType,
       gpuCount,
-      offers: withStock.length > 0 ? withStock : live.length > 0 ? live : underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider)),
+      offers: withStock.length > 0 ? withStock : live.length > 0 ? live : underCap.length > 0 ? [] : allowed.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider)),
       allocationId: allocation?.id ?? null,
       remaining: allocation ? this.#meter(allocation).remaining : 0,
       requiredToStart: required,
@@ -1342,8 +1355,11 @@ export class MockBackend {
     listGpuTypes: ({ params, user }) => {
       const project = this.#project(params.projectId);
       const paused = this.#pausedProviders(project.orgId);
+      const keyless = this.#keylessProviders(project.orgId);
       const items: PriceListItem[] = project.policy.allowedGpuTypes.map((gpuType) => {
-        const offers = this.#allowedOffers(project, gpuType, 1).filter((o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider));
+        const offers = this.#allowedOffers(project, gpuType, 1).filter(
+          (o) => o.pricePerHour.total <= project.policy.maxPricePerHour && !paused.has(o.provider) && !keyless.has(o.provider),
+        );
         const best = offers.find((o) => o.stock !== "none") ?? null;
         return {
           gpuType,
