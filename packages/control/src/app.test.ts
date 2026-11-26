@@ -169,10 +169,10 @@ test("unknown paths and methods are notFound, in the contract's error shape", as
 
 test("a known route without a handler yet is notFound, after its access check", async () => {
   const w = await world();
-  const r = await call(w, "GET", `/v1/projects/${w.projectId}/spend`);
+  const r = await call(w, "GET", `/v1/projects/${w.projectId}/gpu-types`);
   assert.equal(code(r), "unauthenticated"); // the check comes first
   const cookie = await signIn(w, (await invite(w, "a@example.com"), "a@example.com"));
-  const r2 = await call(w, "GET", `/v1/projects/${w.projectId}/spend`, { cookie });
+  const r2 = await call(w, "GET", `/v1/projects/${w.projectId}/gpu-types`, { cookie });
   assert.equal(code(r2), "notFound");
 });
 

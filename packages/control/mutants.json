@@ -6857,5 +6857,161 @@
   "old": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) <= ?`,",
   "new": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) >= 0 AND ? IS NOT NULL`,",
   "note": "the save estimate unbound"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "      if (open.endMs !== null) {\n        reserved = checkedAdd(reserved, pendingCharge(m));",
+  "new": "      if (open.endMs !== null) {\n        reserved = checkedAdd(reserved, 0 * pendingCharge(m));",
+  "note": "a stopped machine's unbilled minutes not held"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "      const from = Math.min(m.billedThroughMs, now);",
+  "new": "      const from = now;",
+  "note": "unbilled minutes not held (from the current minute)"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "reserveSeconds(policy.finalSaveReserveMinutes, estimate)), 60);",
+  "new": "reserveSeconds(policy.finalSaveReserveMinutes, 0)), 60);",
+  "note": "the save estimate ignored"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "reserveSeconds(policy.finalSaveReserveMinutes, estimate)), 60);",
+  "new": "reserveSeconds(policy.finalSaveReserveMinutes, estimate)), 0);",
+  "note": "the reserve's extra minute dropped"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "      asOf = Math.min(asOf, m.billedThroughMs);",
+  "new": "      asOf = asOf;",
+  "note": "asOf ignores billing lag"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "      remaining: meterRemaining(amount, Math.max(0, spent.total), reserved),",
+  "new": "      remaining: meterRemaining(amount, Math.max(0, spent.total), 0),",
+  "note": "remaining without reserved"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "      rates.push(entrySplit(open.providerCostPerHour, 3600, open.marginBps));",
+  "new": "      rates.push(entrySplit(open.providerCostPerHour, 3600, 0));",
+  "note": "the hourly rate without margin"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "    if (a.kind !== \"alloc\" || (ids !== null && !ids.includes(a.allocation_id))) continue;",
+  "new": "    if (a.kind !== \"alloc\") continue;",
+  "note": "visibility filter ignored"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "      if (m.allocationId !== a.allocation_id) continue;",
+  "new": "",
+  "note": "machines charged to another allocation counted"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "for (const x of machines.values()) x.m.intervals.sort((a, b) => a.incarnation - b.incarnation);",
+  "new": "for (const x of machines.values()) x.m.intervals.sort((a, b) => b.incarnation - a.incarnation);",
+  "note": "intervals out of order"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "WHERE a.project_id = ? AND ((a.holder_kind = 'member' AND a.holder_id = m.id) OR (a.holder_kind = 'team' AND a.holder_id = m.team_id))`,",
+  "new": "WHERE a.project_id = ?`,",
+  "note": "a member sees every allocation"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "    const all = projectRoleAtLeast(ctx.projectRole as ProjectRole, \"assistant\");",
+  "new": "    const all = projectRoleAtLeast(ctx.projectRole as ProjectRole, \"member\");",
+  "note": "members see all meters"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "    if (!(SPEND_CSV_GROUPINGS as readonly (string | null)[]).includes(by)) throw new HttpError(\"badRequest\", \"by must be member, team or day\");\n",
+  "new": "",
+  "note": "csv grouping unchecked"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "const usd = (micros: number): number => Number((micros / 1_000_000).toFixed(6));",
+  "new": "const usd = (micros: number): number => Number((micros / 1_000_000).toFixed(2));",
+  "note": "csv dollars rounded to cents"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "       WHERE m.project_id = ? AND m.status <> 'removed' ORDER BY m.email, m.id`,",
+  "new": "       WHERE m.project_id = ? ORDER BY m.email, m.id`,",
+  "note": "csv lists removed members"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "(SELECT COUNT(*) FROM members m WHERE m.team_id = t.id AND m.status <> 'removed') AS members",
+  "new": "(SELECT COUNT(*) FROM members m WHERE m.team_id = t.id) AS members",
+  "note": "csv team count includes removed"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "       WHERE t.project_id = ? AND t.deleted_ms IS NULL ORDER BY t.name, t.id`,",
+  "new": "       WHERE t.project_id = ? ORDER BY t.name, t.id`,",
+  "note": "csv lists deleted teams"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "FROM ledger_entries WHERE project_id = ? GROUP BY day ORDER BY day`,",
+  "new": "FROM ledger_entries WHERE ? IS NOT NULL GROUP BY day ORDER BY day`,",
+  "note": "csv by day across projects"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "    if (!m || !Number.isSafeInteger(Number(m[1]))) throw new HttpError(\"badRequest\", \"bad cursor\");",
+  "new": "    if (!m) throw new HttpError(\"badRequest\", \"bad cursor\");",
+  "note": "cursor past the safe range accepted"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "const CURSOR = /^(\\d{1,16})\\.([a-z]{3}_[0-9a-z]{20})$/;",
+  "new": "const CURSOR = /^(\\d{1,16})\\.(.*)$/;",
+  "note": "cursor id unchecked"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": " AND (created_ms < ? OR (created_ms = ? AND id < ?))\"}",
+  "new": " AND (created_ms < ? OR (created_ms = ? AND id <= ?))\"}",
+  "note": "cursor repeats an entry"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": " AND (created_ms < ? OR (created_ms = ? AND id < ?))\"}",
+  "new": " AND (created_ms < ? OR (created_ms = ? AND ? IS NOT NULL))\"}",
+  "note": "cursor skips the tie-break"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "     ORDER BY created_ms DESC, id DESC LIMIT ?`,",
+  "new": "     ORDER BY created_ms DESC LIMIT ?`,",
+  "note": "unstable order"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "  return { items, next: rows.length > LEDGER_PAGE_SIZE && last ? `${last.created_ms}.${last.id}` : null };",
+  "new": "  return { items, next: rows.length >= LEDGER_PAGE_SIZE && last ? `${last.created_ms}.${last.id}` : null };",
+  "note": "a next cursor on the last page"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "export const LEDGER_PAGE_SIZE = 200;",
+  "new": "export const LEDGER_PAGE_SIZE = 250;",
+  "note": "page size"
+ },
+ {
+  "file": "src/app.ts",
+  "old": "...PROJECT_HANDLERS, ...SPEND_HANDLERS,",
+  "new": "...PROJECT_HANDLERS,",
+  "note": "spend handlers not wired"
  }
 ]

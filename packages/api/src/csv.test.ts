@@ -31,6 +31,20 @@ test("csvCell neutralises formula starts in text", () => {
   assert.equal(csvCell("a-b"), "a-b");
 });
 
+test("csvCell neutralises a formula start after leading spaces, tabs, CR or LF", () => {
+  for (const lead of [" ", "  ", "\t ", "\r\n", "\n", " \t"]) {
+    for (const f of ["=", "+", "-", "@", "\uFF1D", "\uFF0B", "\uFF0D", "\uFF20"]) {
+      const v = `${lead}${f}1+1`;
+      const out = csvCell(v);
+      assert.ok(out === `'${v}` || out === `"'${v.replace(/"/g, '""')}"`, JSON.stringify([v, out]));
+    }
+  }
+  // (spaces before ordinary text: quoted for the spaces, never an apostrophe)
+  assert.equal(csvCell(" plain"), '" plain"');
+  assert.equal(csvCell("  a=b"), '"  a=b"');
+  assert.equal(csvCell("\n x"), "\"'\n x\""); // (a leading line feed is itself a formula start)
+});
+
 test("csvCell quotes per RFC 4180", () => {
   assert.equal(csvCell("plain"), "plain");
   assert.equal(csvCell("a,b"), '"a,b"');

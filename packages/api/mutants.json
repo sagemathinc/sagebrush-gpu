@@ -1531,5 +1531,11 @@
   "old": "\"key-file\", \"ssh-access\", \"other\"] as const;",
   "new": "\"key-file\", \"other\"] as const;",
   "note": "abort reasons: ssh-access dropped"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "    if (FORMULA_START.has(text.charAt(0)) || FORMULA_START.has(first)) text = \"'\" + text;",
+  "new": "    if (FORMULA_START.has(text.charAt(0))) text = \"'\" + text;",
+  "note": "a formula after leading spaces not neutralised"
  }
 ]
