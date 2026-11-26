@@ -80,7 +80,11 @@ class PinnedHTTPS(http.client.HTTPSConnection):
             left = self.deadline - boottime.boottime_ms()
             if left <= 0:
                 raise Late()  # (no time for another address)
-            sock = socket.socket(family, socket.SOCK_STREAM)
+            try:
+                sock = socket.socket(family, socket.SOCK_STREAM)
+            except OSError as e:
+                error = e  # (this family can't be used here, e.g. no IPv6: the next address, if any)
+                continue
             try:
                 sock.settimeout(min(self.timeout, left / 1000))
                 sock.connect(sockaddr)

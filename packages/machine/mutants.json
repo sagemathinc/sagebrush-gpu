@@ -3388,5 +3388,11 @@
   "old": "                sock.settimeout(min(self.timeout, left / 1000))",
   "new": "                sock.settimeout(self.timeout)",
   "note": "PR C: connect: the TCP timeout not capped at what is left"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            try:\n                sock = socket.socket(family, socket.SOCK_STREAM)\n            except OSError as e:\n                error = e  # (this family can't be used here, e.g. no IPv6: the next address, if any)\n                continue\n",
+  "new": "            sock = socket.socket(family, socket.SOCK_STREAM)\n",
+  "note": "PR C: connect: socket creation outside the per-address handling"
  }
 ]

@@ -329,6 +329,47 @@ class TestAddresses(unittest.TestCase):
         with self.assertRaises(ConnectionRefusedError):
             conn.connect()
 
+    def creating(self, fails):
+        """socket.socket failing (EAFNOSUPPORT) for the families in `fails`; every created socket connects."""
+        made = []
+
+        class Sock:
+            def __init__(self, family):
+                self.family = family
+
+            def settimeout(self, t):
+                pass
+
+            def connect(self, addr):
+                made.append(("connect", self.family, addr))
+
+            def close(self):
+                made.append(("close", self.family))
+
+        def create(family, *rest):
+            if family in fails:
+                made.append(("refused", family))
+                raise OSError(97, "Address family not supported by protocol")
+            return Sock(family)
+        return made, create
+
+    def test_a_family_that_cant_be_created_moves_on_to_the_next(self):
+        made, create = self.creating({socket.AF_INET6})
+        with mock.patch.object(socket, "socket", create):
+            conn = B.PinnedHTTPS("control.example.com", 443, [ADDR6, ADDR], boottime.boottime_ms() + 5_000, 5, self.Plain())
+            conn.connect()
+        self.assertEqual(made, [("refused", socket.AF_INET6), ("connect", socket.AF_INET, ADDR[1])])  # (nothing closed)
+        self.assertEqual(conn.sock.family, socket.AF_INET)
+
+    def test_every_creation_failing_raises_the_last_error(self):
+        made, create = self.creating({socket.AF_INET6, socket.AF_INET})
+        with mock.patch.object(socket, "socket", create):
+            conn = B.PinnedHTTPS("control.example.com", 443, [ADDR6, ADDR], boottime.boottime_ms() + 5_000, 5, self.Plain())
+            with self.assertRaises(OSError) as e:
+                conn.connect()
+        self.assertEqual(e.exception.errno, 97)
+        self.assertEqual(made, [("refused", socket.AF_INET6), ("refused", socket.AF_INET)])
+
     def test_an_address_that_uses_the_budget_leaves_none_for_the_next(self):
         clock = Clock(T0)
         tried = []
