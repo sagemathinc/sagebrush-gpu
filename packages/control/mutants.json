@@ -1533,8 +1533,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
-  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);",
+  "new": "Object.freeze([pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);"
  },
  {
   "file": "migrations/0007_sessions.sql",
@@ -1916,8 +1916,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, vmWatchdog]);"
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, heartbeatWatchdog, containerLifetime, vmWatchdog]);"
  },
  {
   "file": "src/jobs.ts",
@@ -1971,8 +1971,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog]);",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog]);",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog]);",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime]);",
   "note": "the VM watchdog left out of the cron"
  },
  {
@@ -3061,8 +3061,8 @@
  },
  {
   "file": "src/jobs.ts",
-  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, vmWatchdog])",
-  "new": "Object.freeze([pruneSessions, pruneAuthStates, vmWatchdog])",
+  "old": "Object.freeze([pruneSessions, pruneAuthStates, heartbeatWatchdog, containerLifetime, vmWatchdog])",
+  "new": "Object.freeze([pruneSessions, pruneAuthStates, containerLifetime, vmWatchdog])",
   "note": "heartbeat watchdog not scheduled"
  },
  {
@@ -5363,5 +5363,59 @@
   "old": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`, params: [r.machine_id, r.incarnation]",
   "new": "`UPDATE machines SET state = 'stopped' WHERE id = ? AND ? > 0 AND state = 'stopping'`, params: [r.machine_id, r.incarnation]",
   "note": "the machine stopped at any incarnation once the pod is gone"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "     WHERE outcome = 'enrolled' AND mode = 'container' AND max_end_ms <= ?\n",
+  "new": "     WHERE outcome = 'enrolled' AND mode = 'container' AND max_end_ms < ?\n",
+  "note": "the lifetime found only after max_end_ms"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "     ORDER BY max_end_ms, machine_id, incarnation\n     LIMIT ?`;\n\n/**\n * The hard lifetime",
+  "new": "     ORDER BY max_end_ms DESC, machine_id, incarnation\n     LIMIT ?`;\n\n/**\n * The hard lifetime",
+  "note": "the latest lifetime first"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "     WHERE outcome = 'enrolled' AND mode = 'container' AND max_end_ms <= ?\n",
+  "new": "     WHERE outcome = 'enrolled' AND max_end_ms <= ?\n",
+  "note": "the search without the index's mode term"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "terminate_reason = 'max-session', next_ms = ?",
+  "new": "terminate_reason = 'heartbeat-lost', next_ms = ?",
+  "note": "another reason"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "        TOOK,\n        stopMachineStmt(r.machine_id, r.incarnation),\n      ]);\n      marked++;",
+  "new": "        stopMachineStmt(r.machine_id, r.incarnation),\n      ]);\n      marked++;",
+  "note": "a mark that changed nothing still counts and moves the machine"
+ },
+ {
+  "file": "src/container.ts",
+  "old": "        TOOK,\n        stopMachineStmt(r.machine_id, r.incarnation),\n      ]);\n      marked++;",
+  "new": "        TOOK,\n      ]);\n      marked++;",
+  "note": "the lifetime mark leaves the machine running"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "heartbeatWatchdog, containerLifetime, vmWatchdog]",
+  "new": "heartbeatWatchdog, vmWatchdog]",
+  "note": "the lifetime never scheduled"
+ },
+ {
+  "file": "migrations/0020_container_lifetime.sql",
+  "old": "CREATE INDEX launches_container_lifetime ON launches (max_end_ms, machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'container';",
+  "new": "CREATE INDEX launches_container_lifetime ON launches (machine_id, incarnation) WHERE outcome = 'enrolled' AND mode = 'container';",
+  "note": "the lifetime index without max_end_ms"
+ },
+ {
+  "file": "src/jobs.ts",
+  "old": "export const containerLifetime: ScheduledJob = { name: \"container lifetime\", run: runContainerLifetime };",
+  "new": "export const containerLifetime: ScheduledJob = { name: \"container lifetime\", run: async () => 0 };",
+  "note": "the scheduled lifetime entry runs nothing"
  }
 ]
