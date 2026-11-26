@@ -141,6 +141,24 @@ class TestEnroll(VmTest):
         with mock.patch.object(vmboot, "HTTPS", server.factory), self.assertRaises(ControlError):
             main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)
         server.on_response = None
+        # (the body's EOF returning at the timeout, or past it, is late; just before it is not)
+        from test_vmboot import FakeResponse
+        original = FakeResponse.read1
+        for at, late in ((T0 + 7_500, True), (T0 + 7_501, True), (T0 + 7_499, False)):
+            self.clock.ms = T0
+
+            def held(resp, n, at=at):
+                out = original(resp, n)
+                if not out:
+                    self.clock.ms = at
+                return out
+            with mock.patch.object(vmboot, "HTTPS", server.factory), mock.patch.object(FakeResponse, "read1", held):
+                if late:
+                    with self.assertRaises(ControlError):
+                        main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)
+                else:
+                    self.assertEqual(main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)[0], 200)
+        self.clock.ms = T0
         server.connect_error = OSError("x")
         with mock.patch.object(vmboot, "HTTPS", server.factory), self.assertRaises(ControlError):
             main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)

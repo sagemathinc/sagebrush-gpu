@@ -3232,5 +3232,11 @@
   "old": "  ring: 1024 * 1024, // scrollback per session",
   "new": "  ring: 128 * 1024, // scrollback per session",
   "note": "credit: a ring smaller than the high-water mark (a takeover of a paused session stalls)"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            chunk = resp.read1(cap + 1 - got)\n            check(deadline)  # (a read that returns at or past the deadline, EOF included, is late)\n",
+  "new": "            chunk = resp.read1(cap + 1 - got)\n",
+  "note": "PR C: no deadline check after a read returns (EOF included)"
  }
 ]

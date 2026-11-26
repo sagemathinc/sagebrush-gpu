@@ -113,8 +113,9 @@ def _no_dups(pairs):
 # ---- the one POST
 def post(url, headers, body, deadline, cap):
     """(status, body, CLOCK_BOOTTIME ms when the status arrived) of one https POST; no redirect is followed (a 3xx is
-    just a status).  Each socket operation's timeout is the time left to `deadline`, checked again between steps, so
-    the whole request is bounded by it.  At most cap + 1 bytes of the body are read."""
+    just a status).  Each socket operation's timeout is the time left to `deadline`, checked again between steps and
+    after every read returns (its EOF included), so the whole request is bounded by it.  At most cap + 1 bytes of the
+    body are read."""
     u = urllib.parse.urlsplit(url)
     if u.scheme != "https" or not u.hostname or u.query or u.fragment:
         raise Refused("url")
@@ -137,6 +138,7 @@ def post(url, headers, body, deadline, cap):
         while got <= cap:
             conn.sock.settimeout(timeout())
             chunk = resp.read1(cap + 1 - got)
+            check(deadline)  # (a read that returns at or past the deadline, EOF included, is late)
             if not chunk:
                 break
             chunks.append(chunk)

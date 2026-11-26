@@ -331,6 +331,34 @@ class TestAnnounce(Base):
             else:
                 self.assert_refused(at)
 
+    def returning_at(self, delta, on_eof):
+        """The announce, with one read of the body (the EOF, or the first piece of it) returning at T0 + delta."""
+        original = FakeResponse.read1
+        first = []
+
+        def held(resp, n):
+            out = original(resp, n)
+            if (not out) if on_eof else not first:
+                self.clock.ms = T0 + delta
+            first.append(1)
+            return out
+        with mock.patch.object(FakeResponse, "read1", held):
+            return self.announce()
+
+    def test_a_read_returning_at_the_budget_is_late(self):
+        for on_eof in (True, False):
+            for delta in (30_000, 30_001):
+                self.tearDown()
+                self.root = make_root()
+                self.clock.ms = T0
+                code, out = self.returning_at(delta, on_eof)
+                self.assertEqual((code, out), (3, ""), (delta, on_eof))
+                self.assertFalse(os.path.exists(self.root + "/run/sbgpu"), (delta, on_eof))
+            self.tearDown()
+            self.root = make_root()
+            self.clock.ms = T0
+            self.assertEqual(self.returning_at(29_999, on_eof)[0], 0, on_eof)
+
     def test_a_non_https_url_never_connects(self):
         for url in ("http://control.example.com", "https://", "https://c.example.com/?x=1", "https://c.example.com/#x"):
             code, out = self.announce(url=url)
