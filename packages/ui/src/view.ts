@@ -159,6 +159,26 @@ export interface MeterView {
   /** "about 3 h 20 min left at $0.62/h", or null when nothing is running. */
   timeLeft: string | null;
   storage: string;
+  /** How full the storage is: "near" from 90% of the quota, "full" at or over it. */
+  storageLevel: StorageLevel;
+}
+
+export type StorageLevel = "ok" | "near" | "full";
+
+/** From this fraction of the quota, storage is "near" full. */
+export const STORAGE_NEAR_FRACTION = 0.9;
+
+/** At or over the quota is "full" (so is a quota of 0: there is no room); from 90% of it, "near". */
+export function storageLevel(usedBytes: number, quotaBytes: number): StorageLevel {
+  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return "full";
+  return usedBytes >= STORAGE_NEAR_FRACTION * quotaBytes ? "near" : "ok";
+}
+
+/** What the member's meter says about it; null while there is room. */
+export function storageWarning(level: StorageLevel, labels: ProjectLabels): string | null {
+  if (level === "near") return `Storage is nearly full. Delete files you don't need, or ask ${withArticle(labels.manager)} to raise the limit.`;
+  if (level === "full") return `Storage is full: your workspace can't grow until you delete files or ${withArticle(labels.manager)} raises the limit.`;
+  return null;
 }
 
 export function meterView(meter: SpendMeter, mode: BillingMode = "resold"): MeterView {
@@ -180,6 +200,7 @@ export function meterView(meter: SpendMeter, mode: BillingMode = "resold"): Mete
     rate: running ? formatPriceSplit(rate.providerCost, rate.margin, mode) : null,
     timeLeft: running && m.secondsLeft != null ? `about ${formatDuration(m.secondsLeft)} left at ${formatRate(rate.total)}` : null,
     storage: `${formatBytes(meter.storage.usedBytes)} of ${formatBytes(meter.storage.quotaBytes)}`,
+    storageLevel: storageLevel(meter.storage.usedBytes, meter.storage.quotaBytes),
   };
 }
 

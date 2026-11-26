@@ -2717,8 +2717,8 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "meter=${mine} now=${now} mode=${store.billingMode.value} />",
-  "new": "meter=${mine} now=${now} />"
+  "old": "meter=${mine} now=${now} mode=${store.billingMode.value} labels=${labels} />",
+  "new": "meter=${mine} now=${now} labels=${labels} />"
  },
  {
   "file": "src/app/components.ts",
@@ -3788,5 +3788,107 @@
   "old": "    const live = underCap.filter((o) => !paused.has(o.provider) && !keyless.has(o.provider));",
   "new": "    const live = underCap.filter((o) => !paused.has(o.provider));",
   "note": "mock: a keyless provider's offers kept in quotes"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return \"full\";",
+  "new": "  if (usedBytes >= quotaBytes && quotaBytes > 0) return \"full\";",
+  "note": "storageLevel: a quota of 0 isn't full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (!(quotaBytes > 0) || usedBytes >= quotaBytes) return \"full\";",
+  "new": "  if (!(quotaBytes > 0) || usedBytes > quotaBytes) return \"full\";",
+  "note": "storageLevel: exactly at the quota isn't full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  return usedBytes >= STORAGE_NEAR_FRACTION * quotaBytes ? \"near\" : \"ok\";",
+  "new": "  return usedBytes > STORAGE_NEAR_FRACTION * quotaBytes ? \"near\" : \"ok\";",
+  "note": "storageLevel: exactly 90% isn't near"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "export const STORAGE_NEAR_FRACTION = 0.9;",
+  "new": "export const STORAGE_NEAR_FRACTION = 0.8;",
+  "note": "storageLevel: near from 80%"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (level === \"near\") return `Storage is nearly full. Delete files you don't need, or ask ${withArticle(labels.manager)} to raise the limit.`;\n",
+  "new": "",
+  "note": "storageWarning: nothing when nearly full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  if (level === \"full\") return `Storage is full: your workspace can't grow until you delete files or ${withArticle(labels.manager)} raises the limit.`;\n",
+  "new": "",
+  "note": "storageWarning: nothing when full"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "    storageLevel: storageLevel(meter.storage.usedBytes, meter.storage.quotaBytes),",
+  "new": "    storageLevel: \"ok\",",
+  "note": "meterView: storage always ok"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "    ${storageNote ? html`<p class=${`warn storage-${v.storageLevel}`} role=\"status\">${storageNote}</p>` : null}\n",
+  "new": "",
+  "note": "MeterCard: no storage warning"
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "mode=${store.billingMode.value} labels=${labels} />` : null}\n      ${team",
+  "new": "mode=${store.billingMode.value} />` : null}\n      ${team",
+  "note": "ProjectPage: the meter's warning in generic words"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        storageQuotaBytes: meter?.storage.quotaBytes ?? null,",
+  "new": "        storageQuotaBytes: meter?.storage.quotaBytes ?? 0,",
+  "note": "memberRows: no meter reads as a quota of 0"
+ },
+ {
+  "file": "src/manage.ts",
+  "old": "        storageQuotaBytes: meter?.storage.quotaBytes ?? null,",
+  "new": "        storageQuotaBytes: null,",
+  "note": "memberRows: the quota never shown"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  const level = quota == null ? \"ok\" : storageLevel(row.storageBytes, quota);",
+  "new": "  const level = storageLevel(row.storageBytes, quota ?? 0);",
+  "note": "StorageCell: no meter flags full"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "new": "${level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "note": "StorageCell: nearly full not flagged"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : level === \"full\" ? html` <span class=\"badge danger\">full</span>` : null}",
+  "new": "${level === \"near\" ? html` <span class=\"badge warn\">nearly full</span>` : null}",
+  "note": "StorageCell: full not flagged"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "  return html`<td class=${level === \"ok\" ? undefined : `storage-${level}`}>",
+  "new": "  return html`<td>",
+  "note": "StorageCell: no row class"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    ${formatBytes(row.storageBytes)}${quota == null ? null : ` of ${formatBytes(quota)}`}",
+  "new": "    ${formatBytes(row.storageBytes)}",
+  "note": "StorageCell: the quota not shown"
+ },
+ {
+  "file": "src/app/manage-page.ts",
+  "old": "    <${PauseBanner} store=${store} nav=${nav} />\n    <${Summary}",
+  "new": "    <${Summary}",
+  "note": "ManagePage: no pause banner"
  }
 ]
