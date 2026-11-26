@@ -1056,8 +1056,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n      });\n    }\n    const generation",
-  "new": "      });\n    }\n    const generation"
+  "old": "        this.members.value = [];\n        this.teams.value = [];\n        this.allMachines.value = [];\n        this.saves.value = { member: null, team: null };\n      });\n    }\n    const generation",
+  "new": "        this.saves.value = { member: null, team: null };\n      });\n    }\n    const generation"
  },
  {
   "file": "src/app/store.ts",
@@ -2391,8 +2391,8 @@
  },
  {
   "file": "src/app/store.ts",
-  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n      this.orgId.value = null;",
-  "new": "      this.orgId.value = null;"
+  "old": "      this.members.value = [];\n      this.teams.value = [];\n      this.allMachines.value = [];\n      this.saves.value = { member: null, team: null };\n      this.orgId.value = null;",
+  "new": "      this.saves.value = { member: null, team: null };\n      this.orgId.value = null;"
  },
  {
   "file": "src/app/router.ts",
@@ -4123,5 +4123,125 @@
   "old": " || this.orgId.value !== orgId) return;",
   "new": ") return;",
   "note": "an answer for an organization since left"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  periodic: \"Saved automatically\",",
+  "new": "  periodic: \"Saved\","
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "kind: s.kind === \"restore\" && from ?",
+  "new": "kind: s.kind === \"restore\" ?"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const WRITING: ReadonlySet<Machine[\"state\"]> = new Set([\"starting\", \"running\", \"saving\", \"stopping\"]);",
+  "new": "const WRITING: ReadonlySet<Machine[\"state\"]> = new Set([\"starting\", \"running\", \"saving\"]);"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  return !machines.some((m) => WRITING.has(m.state));",
+  "new": "  return !machines.some((m) => m.state === \"running\");"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  const name = text.trim();",
+  "new": "  const name = text;"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "list.items.filter((s) => s.id !== selfId && s.name != null)",
+  "new": "list.items.filter((s) => s.name != null)"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  if (self?.name == null && others.length >= list.namedMax) {",
+  "new": "  if (others.length >= list.namedMax) {"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "  if (self?.name == null && others.length >= list.namedMax) {",
+  "new": "  if (self?.name == null && others.length > list.namedMax) {"
+ },
+ {
+  "file": "src/saves.ts",
+  "old": "const which = row.name ? `\"${row.name}\" (saved ${row.when})` : `the save from ${row.when}`;",
+  "new": "const which = `the save from ${row.when}`;"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      if (err instanceof ApiError && err.code === \"notFound\") return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { area } });\n      await this.#reloadSaves(area);",
+  "new": "body: { area } });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "body: { area, name } });\n      await this.#reloadSaves(area);",
+  "new": "body: { area, name } });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "    const list = await this.#savesOf(projectId, area);\n    if (generation !== this.#generation) return;",
+  "new": "    const list = await this.#savesOf(projectId, area);"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "\"saveMachine\", { params: { machineId }, body: { name } });",
+  "new": "\"saveMachine\", { params: { machineId }, body: {} });"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "        this.saves.value = { member: null, team: null };\n      });\n    }\n    const generation",
+  "new": "      });\n    }\n    const generation"
+ },
+ {
+  "file": "src/app/store.ts",
+  "old": "      this.saves.value = { member: memberSaves, team: teamSaves };",
+  "new": "      this.saves.value = { member: memberSaves, team: null };"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "${row.current || !restorable",
+  "new": "${!restorable"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "${row.current || !restorable",
+  "new": "${row.current"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    ${restoring ? html`<p class=\"small\" role=\"status\">",
+  "new": "    ${false ? html`<p class=\"small\" role=\"status\">"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    if (window.confirm(restoreConfirmText(row))) void store.restoreSave(area, row.id);",
+  "new": "    void store.restoreSave(area, row.id);"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "disabled=${restoring} aria-label=",
+  "new": "aria-label="
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    <button disabled=${!check.ok || busy} onClick=${save}>Save name</button>",
+  "new": "    <button disabled=${busy} onClick=${save}>Save name</button>"
+ },
+ {
+  "file": "src/app/saves-section.ts",
+  "old": "    ${team ? html`<${SavesCard} store=${store} area=\"team\"",
+  "new": "    ${false ? html`<${SavesCard} store=${store} area=\"team\""
+ },
+ {
+  "file": "src/app/components.ts",
+  "old": "      ${actions.save ? html`<${SaveWithName} store=${store} machineId=${m.id} />` : null}\n",
+  "new": ""
  }
 ]
