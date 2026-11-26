@@ -2791,12 +2791,6 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
-  "old": "            conn.sock.settimeout(timeout())\n            chunk",
-  "new": "            chunk",
-  "note": "PR C: reads unbounded"
- },
- {
-  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
   "old": "{\"machineId\": machine_id, \"nonce\": nonce, \"bootScriptSha256\": script_sha}",
   "new": "{\"nonce\": nonce, \"machineId\": machine_id, \"bootScriptSha256\": script_sha}",
   "note": "PR C: key order"
@@ -3235,8 +3229,14 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
-  "old": "            chunk = resp.read1(cap + 1 - got)\n            check(deadline)  # (a read that returns at or past the deadline, EOF included, is late)\n",
-  "new": "            chunk = resp.read1(cap + 1 - got)\n",
-  "note": "PR C: no deadline check after a read returns (EOF included)"
+  "old": "        out = call()\n        check(deadline)\n",
+  "new": "        out = call()\n",
+  "note": "PR C: no deadline check after a blocking call returns"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            conn.sock.settimeout(timeout())\n",
+  "new": "            pass\n",
+  "note": "PR C: a blocking call's socket timeout not the time left"
  }
 ]

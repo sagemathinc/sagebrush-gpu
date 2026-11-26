@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sbgpu_agent import boottime, main, vmboot  # noqa: E402
 from sbgpu_agent.control import ControlError  # noqa: E402
 from test_agent import ENROLLED, FakeControl, no_gpu  # noqa: E402
-from test_vmboot import Clock, Server  # noqa: E402
+from test_vmboot import CALLS, Clock, Server, returning_at  # noqa: E402
 
 TOKEN = "A" * 20 + "b-_" + "9" * 20
 T0 = 5_000_000
@@ -141,23 +141,16 @@ class TestEnroll(VmTest):
         with mock.patch.object(vmboot, "HTTPS", server.factory), self.assertRaises(ControlError):
             main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)
         server.on_response = None
-        # (the body's EOF returning at the timeout, or past it, is late; just before it is not)
-        from test_vmboot import FakeResponse
-        original = FakeResponse.read1
-        for at, late in ((T0 + 7_500, True), (T0 + 7_501, True), (T0 + 7_499, False)):
-            self.clock.ms = T0
-
-            def held(resp, n, at=at):
-                out = original(resp, n)
-                if not out:
-                    self.clock.ms = at
-                return out
-            with mock.patch.object(vmboot, "HTTPS", server.factory), mock.patch.object(FakeResponse, "read1", held):
-                if late:
-                    with self.assertRaises(ControlError):
-                        main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)
-                else:
-                    self.assertEqual(main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)[0], 200)
+        # (each blocking call returning exactly at the timeout, or 1 ms past it, is late; 1 ms before it is not)
+        for call in CALLS:
+            for at, late in ((T0 + 7_500, True), (T0 + 7_501, True), (T0 + 7_499, False)):
+                self.clock.ms = T0
+                with mock.patch.object(vmboot, "HTTPS", server.factory), returning_at(server, self.clock, call, at):
+                    if late:
+                        with self.assertRaises(ControlError, msg=(call, at)):
+                            main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)
+                    else:
+                        self.assertEqual(main.vm_transport("POST", "https://c.example.com/v1/agent/enroll", {}, b"{}", 7.5)[0], 200)
         self.clock.ms = T0
         server.connect_error = OSError("x")
         with mock.patch.object(vmboot, "HTTPS", server.factory), self.assertRaises(ControlError):

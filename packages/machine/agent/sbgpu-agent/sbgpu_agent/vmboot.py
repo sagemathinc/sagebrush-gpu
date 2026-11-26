@@ -113,9 +113,10 @@ def _no_dups(pairs):
 # ---- the one POST
 def post(url, headers, body, deadline, cap):
     """(status, body, CLOCK_BOOTTIME ms when the status arrived) of one https POST; no redirect is followed (a 3xx is
-    just a status).  Each socket operation's timeout is the time left to `deadline`, checked again between steps and
-    after every read returns (its EOF included), so the whole request is bounded by it.  At most cap + 1 bytes of the
-    body are read."""
+    just a status).  Every blocking call (the connect with its TLS handshake, sending the request, reading the status
+    and headers, each read of the body, its EOF included) runs through bounded(): its socket timeout is the time left
+    to `deadline` (none left: Late, and the call isn't made), and a call that returns at or past `deadline` is Late.
+    So the whole request is bounded by it.  At most cap + 1 bytes of the body are read."""
     u = urllib.parse.urlsplit(url)
     if u.scheme != "https" or not u.hostname or u.query or u.fragment:
         raise Refused("url")
@@ -127,18 +128,24 @@ def post(url, headers, body, deadline, cap):
         return ms / 1000
 
     conn = HTTPS(u.hostname, u.port or 443, timeout=timeout(), context=tls())
+
+    def bounded(call):
+        if conn.sock is None:
+            conn.timeout = timeout()  # (the connect makes the socket with this timeout)
+        else:
+            conn.sock.settimeout(timeout())
+        out = call()
+        check(deadline)
+        return out
+
     try:
-        conn.connect()
-        conn.sock.settimeout(timeout())
-        conn.request("POST", u.path or "/", body=body, headers=headers)
-        conn.sock.settimeout(timeout())
-        resp = conn.getresponse()
+        bounded(conn.connect)
+        bounded(lambda: conn.request("POST", u.path or "/", body=body, headers=headers))
+        resp = bounded(conn.getresponse)
         received = boottime.boottime_ms()
         chunks, got = [], 0
         while got <= cap:
-            conn.sock.settimeout(timeout())
-            chunk = resp.read1(cap + 1 - got)
-            check(deadline)  # (a read that returns at or past the deadline, EOF included, is late)
+            chunk = bounded(lambda: resp.read1(cap + 1 - got))
             if not chunk:
                 break
             chunks.append(chunk)

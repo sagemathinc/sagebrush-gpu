@@ -72,6 +72,8 @@ class Server:
         self.conns = []
         self.requests = []
         self.connect_error = None
+        self.on_connect = None  # (each called as that call returns: a test moves the clock there)
+        self.on_request = None
         self.chunk = 1000  # (bytes per read of the body)
         self.on_response = None  # (called as the status arrives: a test moves the clock here)
 
@@ -84,6 +86,7 @@ class Server:
         class Conn:
             def __init__(self):
                 self.host, self.port, self.timeouts = host, port, [timeout]
+                self.timeout = timeout
                 self.sock = None
                 server.conns.append(self)
 
@@ -91,9 +94,13 @@ class Server:
                 if server.connect_error:
                     raise server.connect_error
                 self.sock = FakeSock(self)
+                if server.on_connect:
+                    server.on_connect()
 
             def request(self, method, path, body, headers):
                 server.requests.append((method, self.host, self.port, path, body, headers))
+                if server.on_request:
+                    server.on_request()
 
             def getresponse(self):
                 if server.on_response:
@@ -104,6 +111,43 @@ class Server:
                 pass
 
         return Conn()
+
+
+CALLS = ("connect", "request", "getresponse", "first read", "EOF")
+
+
+class returning_at:
+    """While active, the server's `call` returns with the stub CLOCK_BOOTTIME moved to `at`."""
+
+    def __init__(self, server, clock, call, at):
+        self.server, self.clock, self.call, self.at = server, clock, call, at
+        self.patch = None
+
+    def __enter__(self):
+        move = lambda: setattr(self.clock, "ms", self.at)  # noqa: E731
+        if self.call == "connect":
+            self.server.on_connect = move
+        elif self.call == "request":
+            self.server.on_request = move
+        elif self.call == "getresponse":
+            self.server.on_response = move
+        else:
+            original, seen = FakeResponse.read1, []
+
+            def held(resp, n):
+                out = original(resp, n)
+                if (not out) if self.call == "EOF" else not seen:
+                    move()
+                seen.append(1)
+                return out
+            self.patch = mock.patch.object(FakeResponse, "read1", held)
+            self.patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.server.on_connect = self.server.on_request = self.server.on_response = None
+        if self.patch:
+            self.patch.stop()
 
 
 def make_root(tmpfs=True):
@@ -331,33 +375,26 @@ class TestAnnounce(Base):
             else:
                 self.assert_refused(at)
 
-    def returning_at(self, delta, on_eof):
-        """The announce, with one read of the body (the EOF, or the first piece of it) returning at T0 + delta."""
-        original = FakeResponse.read1
-        first = []
-
-        def held(resp, n):
-            out = original(resp, n)
-            if (not out) if on_eof else not first:
-                self.clock.ms = T0 + delta
-            first.append(1)
-            return out
-        with mock.patch.object(FakeResponse, "read1", held):
-            return self.announce()
-
-    def test_a_read_returning_at_the_budget_is_late(self):
-        for on_eof in (True, False):
-            for delta in (30_000, 30_001):
+    def test_each_blocking_call_returning_at_the_budget_is_late(self):
+        """The connect, the request, the status, the first piece of the body and its EOF: each returning exactly at the
+        30 s budget, or 1 ms past it, exits 3 with nothing written; 1 ms before it, the announce goes on."""
+        for call in CALLS:
+            for delta, want in ((30_000, 3), (30_001, 3), (29_999, 0)):
                 self.tearDown()
                 self.root = make_root()
                 self.clock.ms = T0
-                code, out = self.returning_at(delta, on_eof)
-                self.assertEqual((code, out), (3, ""), (delta, on_eof))
-                self.assertFalse(os.path.exists(self.root + "/run/sbgpu"), (delta, on_eof))
-            self.tearDown()
-            self.root = make_root()
-            self.clock.ms = T0
-            self.assertEqual(self.returning_at(29_999, on_eof)[0], 0, on_eof)
+                with returning_at(self.server, self.clock, call, T0 + delta):
+                    code, out = self.announce()
+                self.assertEqual(code, want, (call, delta))
+                if want == 3:
+                    self.assertEqual(out, "", (call, delta))
+                    self.assertFalse(os.path.exists(self.root + "/run/sbgpu"), (call, delta))
+
+    def test_no_time_left_makes_no_call(self):
+        self.clock.ms = T0
+        self.server.on_connect = lambda: setattr(self.clock, "ms", T0 + 30_000)
+        self.assertEqual(self.announce()[0], 3)
+        self.assertEqual(self.server.requests, [])  # (no time left after the connect: no request is sent)
 
     def test_a_non_https_url_never_connects(self):
         for url in ("http://control.example.com", "https://", "https://c.example.com/?x=1", "https://c.example.com/#x"):
