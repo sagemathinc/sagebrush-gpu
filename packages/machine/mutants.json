@@ -3259,8 +3259,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
-  "old": "    addr = resolve(u.hostname, u.port or 443, deadline)\n",
-  "new": "    addr = (socket.AF_INET, (u.hostname, u.port or 443))\n",
+  "old": "    addrs = resolve(u.hostname, u.port or 443, deadline, family)\n",
+  "new": "    addrs = [(socket.AF_INET, (u.hostname, u.port or 443))]\n",
   "note": "PR C: post: no bounded resolution"
  },
  {
@@ -3277,8 +3277,8 @@
  },
  {
   "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
-  "old": "            if left <= 0:\n                raise Late()",
-  "new": "            if left < 0:\n                raise Late()",
+  "old": "            if left <= 0:\n                raise Late()  # (the TCP connect used it all: no handshake)",
+  "new": "            if left < 0:\n                raise Late()  # (the TCP connect used it all: no handshake)",
   "note": "PR C: pinned: exactly nothing left still handshakes"
  },
  {
@@ -3352,5 +3352,41 @@
   "old": "    (\"files\", \"key-file\"),\n    (\"ssh\", \"ssh-access\"),\n",
   "new": "    (\"ssh\", \"ssh-access\"),\n    (\"files\", \"key-file\"),\n",
   "note": "container ssh gate: the checks in another order than the contract's"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "RESPONSE_MAX, socket.AF_INET)  # (IPv4 only",
+  "new": "RESPONSE_MAX, socket.AF_UNSPEC)  # (IPv4 only",
+  "note": "PR C: announce: any address family"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        if (family == socket.AF_UNSPEC or fam == family) and (fam, sockaddr) not in addrs:",
+  "new": "        if (fam, sockaddr) not in addrs:",
+  "note": "PR C: resolve: another family kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "        if (family == socket.AF_UNSPEC or fam == family) and (fam, sockaddr) not in addrs:",
+  "new": "        if family == socket.AF_UNSPEC or fam == family:",
+  "note": "PR C: resolve: repeats kept"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "                error = e  # (refused, unreachable, or timed out: the next address, if any)",
+  "new": "                raise",
+  "note": "PR C: connect: no next address"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "            if left <= 0:\n                raise Late()  # (no time for another address)\n",
+  "new": "",
+  "note": "PR C: connect: another address tried with no time left"
+ },
+ {
+  "file": "agent/sbgpu-agent/sbgpu_agent/vmboot.py",
+  "old": "                sock.settimeout(min(self.timeout, left / 1000))",
+  "new": "                sock.settimeout(self.timeout)",
+  "note": "PR C: connect: the TCP timeout not capped at what is left"
  }
 ]

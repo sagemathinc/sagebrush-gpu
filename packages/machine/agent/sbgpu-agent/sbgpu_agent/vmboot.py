@@ -62,23 +62,38 @@ RESOLVE_SLICE_S = 0.05  # (how often a wait for the resolver looks at CLOCK_BOOT
 
 
 class PinnedHTTPS(http.client.HTTPSConnection):
-    """An HTTPSConnection to an address resolved beforehand (resolve()), so its connect does no name lookup of its own.
-    The TLS server name, the certificate's name check and the Host header are still the URL's host.  The connect is
-    two blocking steps, TCP then the TLS handshake: the handshake gets only what the TCP connect left of `deadline`
-    (CLOCK_BOOTTIME ms), and none left means no handshake (Late)."""
+    """An HTTPSConnection to addresses resolved beforehand (resolve()), so its connect does no name lookup of its own.
+    The TLS server name, the certificate's name check and the Host header are still the URL's host.  The connect
+    tries each address in turn, as socket.create_connection would, each attempt with what is left of `deadline`
+    (CLOCK_BOOTTIME ms; none left: Late); then the TLS handshake gets only what the TCP connect left, and none left
+    means no handshake (Late)."""
 
-    def __init__(self, host, port, addr, deadline, timeout, context):
+    def __init__(self, host, port, addrs, deadline, timeout, context):
         http.client.HTTPSConnection.__init__(self, host, port, timeout=timeout, context=context)
-        self.addr = addr  # (family, sockaddr)
+        self.addrs = addrs  # [(family, sockaddr), ...]
         self.deadline = deadline
         self.tls = context
 
     def connect(self):
-        family, sockaddr = self.addr
-        sock = socket.socket(family, socket.SOCK_STREAM)
+        error = OSError("no address")
+        for family, sockaddr in self.addrs:
+            left = self.deadline - boottime.boottime_ms()
+            if left <= 0:
+                raise Late()  # (no time for another address)
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            try:
+                sock.settimeout(min(self.timeout, left / 1000))
+                sock.connect(sockaddr)
+                break
+            except OSError as e:
+                sock.close()
+                error = e  # (refused, unreachable, or timed out: the next address, if any)
+            except BaseException:
+                sock.close()
+                raise
+        else:
+            raise error
         try:
-            sock.settimeout(self.timeout)
-            sock.connect(sockaddr)
             left = self.deadline - boottime.boottime_ms()
             if left <= 0:
                 raise Late()  # (the TCP connect used it all: no handshake)
@@ -144,8 +159,9 @@ def _no_dups(pairs):
 
 
 # ---- the one POST
-def resolve(host, port, deadline):
-    """(family, sockaddr): the first TCP address getaddrinfo gives for host:port.  The lookup runs in a daemon thread;
+def resolve(host, port, deadline, family=socket.AF_UNSPEC):
+    """[(family, sockaddr), ...]: the TCP addresses getaddrinfo gives for host:port, in its order, without repeats, and
+    only of `family` unless it is AF_UNSPEC (none: Refused).  The lookup runs in a daemon thread;
     this waits for it in slices of at most RESOLVE_SLICE_S, reading CLOCK_BOOTTIME after each, and at `deadline` it
     abandons the lookup (Late): nothing connects to anything it answers later."""
     box = {}
@@ -153,7 +169,7 @@ def resolve(host, port, deadline):
 
     def lookup():
         try:
-            box["addrs"] = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+            box["addrs"] = socket.getaddrinfo(host, port, family, socket.SOCK_STREAM)
         except BaseException as e:  # (any failure is reported to the waiter, never raised in the thread)
             box["error"] = e
         finally:
@@ -164,14 +180,20 @@ def resolve(host, port, deadline):
     check(deadline)  # (an answer that arrives at or past the deadline is not used)
     if "error" in box:
         raise Refused("dns")
-    family, _, _, _, sockaddr = box["addrs"][0]  # (no address at all: an IndexError, which refuses too)
-    return family, sockaddr
+    addrs = []
+    for fam, _, _, _, sockaddr in box["addrs"]:
+        if (family == socket.AF_UNSPEC or fam == family) and (fam, sockaddr) not in addrs:
+            addrs.append((fam, sockaddr))
+    if not addrs:
+        raise Refused("dns")
+    return addrs
 
 
-def post(url, headers, body, deadline, cap):
+def post(url, headers, body, deadline, cap, family=socket.AF_UNSPEC):
     """(status, body, CLOCK_BOOTTIME ms when the status arrived) of one https POST; no redirect is followed (a 3xx is
     just a status).  The host's address is resolved first, by resolve(), which gives up at `deadline` however long
-    the resolver takes, and the connection goes to that address.  Every blocking call after it (the connect with its
+    the resolver takes, and the connection goes to those addresses (of `family` only, unless AF_UNSPEC), one at a
+    time.  Every blocking call after it (the connect with its
     TLS handshake, sending the request, reading the status and headers, each read of the body, its EOF included) runs
     through bounded(): its socket timeout is the time left to `deadline` (none left: Late, and the call isn't made),
     and a call that returns at or past `deadline` is Late.  So the whole request is bounded by it.  At most cap + 1
@@ -186,8 +208,8 @@ def post(url, headers, body, deadline, cap):
             raise Late()
         return ms / 1000
 
-    addr = resolve(u.hostname, u.port or 443, deadline)
-    conn = HTTPS(u.hostname, u.port or 443, addr, deadline, timeout=timeout(), context=tls())
+    addrs = resolve(u.hostname, u.port or 443, deadline, family)
+    conn = HTTPS(u.hostname, u.port or 443, addrs, deadline, timeout=timeout(), context=tls())
 
     def bounded(call):
         if conn.sock is None:
@@ -369,7 +391,7 @@ def announce(prefix, control_url, machine_id, script_sha, agent_sha, stdin, out)
         status, data, received = post(control_url.rstrip("/") + ANNOUNCE_PATH,
                                       {"content-type": "application/json", "accept": "application/json"},
                                       announce_body(machine_id, nonce, script_sha), start + ANNOUNCE_BUDGET_MS,
-                                      RESPONSE_MAX)
+                                      RESPONSE_MAX, socket.AF_INET)  # (IPv4 only: control binds the announce to the VM's IPv4)
         token, expires = parse_issued(status, data)
         if not LIFE_MIN_S <= expires - wall_s() <= LIFE_MAX_S:
             raise Refused("lifetime")

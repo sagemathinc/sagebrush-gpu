@@ -36,11 +36,18 @@ def iso(t):
 
 
 ADDR = (socket.AF_INET, ("192.0.2.7", 443))
+ADDR6 = (socket.AF_INET6, ("2001:db8::7", 443, 0, 0))
+LOOKUPS = []  # (every stub lookup: (host, port, family))
 
 
 def fake_getaddrinfo(host, port, family=0, type=0, *rest):
-    """The stub resolver: every name is 192.0.2.7 (a documentation address)."""
-    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.7", port))]
+    """The stub resolver: every name is dual-stack, IPv6 first (as glibc orders "localhost" on a host whose
+    /etc/hosts lists ::1 for it), then IPv4, each documentation address listed twice (getaddrinfo repeats an address
+    once per socket type); a family asks for that family's only."""
+    LOOKUPS.append((host, port, family))
+    v6 = (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::7", port, 0, 0))
+    v4 = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.7", port))
+    return [r for r in (v6, v4, v6, v4) if family in (0, r[0])]
 
 
 class HeldResolver:
@@ -259,7 +266,7 @@ class TestPinnedHTTPS(unittest.TestCase):
                 wrapped.append(server_hostname)
                 return sock
         with mock.patch.object(socket, "getaddrinfo", mock.Mock(side_effect=AssertionError("no lookup in connect"))):
-            conn = B.PinnedHTTPS("control.example.com", 8443, (socket.AF_INET, ("127.0.0.1", port)),
+            conn = B.PinnedHTTPS("control.example.com", 8443, [(socket.AF_INET, ("127.0.0.1", port))],
                                  boottime.boottime_ms() + 5_000, 5, Plain())
             conn.connect()
             conn.request("POST", "/v1/agent/announce", body=b"{}", headers={})
@@ -275,12 +282,81 @@ class TestPinnedHTTPS(unittest.TestCase):
         self.assertEqual(conn.sock.getpeername(), ("127.0.0.1", port))
 
 
+class TestAddresses(unittest.TestCase):
+    """resolve() keeps every address, in order and without repeats, of the family asked for; the connect tries them
+    in turn, as socket.create_connection would, and gives up at the deadline."""
+
+    def test_resolve_order_repeats_and_family(self):
+        clock = Clock(T0)
+        with mock.patch.object(boottime, "boottime_ms", clock), mock.patch.object(socket, "getaddrinfo", fake_getaddrinfo):
+            self.assertEqual(B.resolve("c.example.com", 443, T0 + 1000), [ADDR6, ADDR])
+            self.assertEqual(B.resolve("c.example.com", 443, T0 + 1000, socket.AF_INET), [ADDR])
+            self.assertEqual(LOOKUPS[-1], ("c.example.com", 443, socket.AF_INET))
+            with mock.patch.object(socket, "getaddrinfo", lambda *a: [fake_getaddrinfo("x", 443, socket.AF_INET6)[0]]), \
+                    self.assertRaises(B.Refused):
+                B.resolve("c.example.com", 443, T0 + 1000, socket.AF_INET)  # (an answer of another family only)
+
+    def listener(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        self.addCleanup(s.close)
+        return s.getsockname()[1]
+
+    def closed_port(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()  # (nothing listens there now: a connect is refused)
+        return port
+
+    class Plain:
+        def wrap_socket(self, sock, server_hostname=None):
+            return sock
+
+    def test_a_refused_address_moves_on_to_the_next(self):
+        good, bad = self.listener(), self.closed_port()
+        conn = B.PinnedHTTPS("control.example.com", 443, [(socket.AF_INET, ("127.0.0.1", bad)),
+                                                          (socket.AF_INET, ("127.0.0.1", good))],
+                             boottime.boottime_ms() + 5_000, 5, self.Plain())
+        self.addCleanup(conn.close)
+        conn.connect()
+        self.assertEqual(conn.sock.getpeername(), ("127.0.0.1", good))
+
+    def test_every_address_refused(self):
+        conn = B.PinnedHTTPS("control.example.com", 443, [(socket.AF_INET, ("127.0.0.1", self.closed_port()))] * 2,
+                             boottime.boottime_ms() + 5_000, 5, self.Plain())
+        with self.assertRaises(ConnectionRefusedError):
+            conn.connect()
+
+    def test_an_address_that_uses_the_budget_leaves_none_for_the_next(self):
+        clock = Clock(T0)
+        tried = []
+
+        class Sock:
+            def settimeout(self, t):
+                pass
+
+            def connect(self, addr):
+                tried.append(addr)
+                clock.ms = T0 + 100
+                raise TimeoutError()
+
+            def close(self):
+                pass
+        with mock.patch.object(boottime, "boottime_ms", clock), mock.patch.object(socket, "socket", lambda *a: Sock()):
+            conn = B.PinnedHTTPS("control.example.com", 443, [ADDR6, ADDR], T0 + 100, 0.1, self.Plain())
+            with self.assertRaises(B.Late):
+                conn.connect()
+        self.assertEqual(tried, [ADDR6[1]])
+
+
 class TestConnectBudget(unittest.TestCase):
     """The TCP connect and the TLS handshake share one budget: after TCP returns, the time left is read again from
     CLOCK_BOOTTIME; none left closes the socket with no handshake, and otherwise the handshake's timeout is what is
     left.  (A deadline 100 ms out; TCP returns at the clock given.)"""
 
-    def connect_with_tcp_ending_at(self, at):
+    def connect_with_tcp_ending_at(self, at, timeout=0.1):
         clock = Clock(T0)
         log = []
 
@@ -300,7 +376,7 @@ class TestConnectBudget(unittest.TestCase):
                 log.append(("tls", server_hostname))
                 return sock
         with mock.patch.object(boottime, "boottime_ms", clock), mock.patch.object(socket, "socket", lambda *a: Sock()):
-            conn = B.PinnedHTTPS("control.example.com", 443, ADDR, T0 + 100, 0.1, Tls())
+            conn = B.PinnedHTTPS("control.example.com", 443, [ADDR], T0 + 100, timeout, Tls())
             try:
                 conn.connect()
                 return log, None
@@ -312,6 +388,10 @@ class TestConnectBudget(unittest.TestCase):
             log, late = self.connect_with_tcp_ending_at(at)
             self.assertIsNone(late, at)
             self.assertEqual(log, [("timeout", 0.1), ("tcp", ADDR[1]), ("timeout", left), ("tls", "control.example.com")], at)
+
+    def test_the_tcp_timeout_is_never_more_than_what_is_left(self):
+        log, late = self.connect_with_tcp_ending_at(T0 + 50, timeout=5)
+        self.assertEqual(log[0], ("timeout", 0.1))  # (the connection's own 5 s, capped at the 100 ms left)
 
     def test_tcp_using_all_of_it_means_no_handshake(self):
         for at in (T0 + 100, T0 + 101, T0 + 5_000):
@@ -500,7 +580,8 @@ class TestAnnounce(Base):
 
     def test_the_connection_goes_to_the_resolved_address(self):
         self.assertEqual(self.announce()[0], 0)
-        self.assertEqual(self.server.addrs, [ADDR])
+        self.assertEqual(self.server.addrs, [[ADDR]])  # (the announce asks for IPv4 alone: control binds it to the VM's IPv4)
+        self.assertEqual(LOOKUPS[-1], ("control.example.com", 443, socket.AF_INET))
 
     def test_a_held_resolver_is_abandoned_at_the_deadline(self):
         """H2: the lookup held while BOOTTIME reaches the budget, or 1 ms past it: post gives up at once (it doesn't
@@ -546,7 +627,7 @@ class TestAnnounce(Base):
                     with self.assertRaises(B.Late, msg=delta):
                         B.resolve("control.example.com", 443, T0 + 30_000)
                 else:
-                    self.assertEqual(B.resolve("control.example.com", 443, T0 + 30_000), ADDR)
+                    self.assertEqual(B.resolve("control.example.com", 443, T0 + 30_000), [ADDR6, ADDR])
 
     def test_an_answer_at_the_deadline_is_not_used(self):
         for delta in (30_000, 30_001):
