@@ -6987,5 +6987,210 @@
   "file": "src/stripe-webhook.ts",
   "old": "/^whsec_[A-Za-z0-9]{8,}$/",
   "new": "/^whsec_[A-Za-z0-9]{9,}$/"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "pi, gross - fee, gross, fee, e.eventId, e.nowMs, c,",
+  "new": "pi, gross, gross, fee, e.eventId, e.nowMs, c,"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (fee >= gross) throw new RangeError(\"the fee must be less than the amount paid\");\n  return run(scopedDb(db, LEDGER_TABLES), e, [\n    stmt(\n      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, event_id, created_ms)\n       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout'",
+  "new": "  return run(scopedDb(db, LEDGER_TABLES), e, [\n    stmt(\n      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, event_id, created_ms)\n       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout'"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "       AND EXISTS (SELECT 1 FROM balance_entries m WHERE m.kind = 'pending' AND m.stripe_key = ? AND m.iss = c.iss AND m.sub = c.sub)`,",
+  "new": "       AND EXISTS (SELECT 1 FROM balance_entries m WHERE m.kind = 'pending' AND m.stripe_key = ?)`,"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "id(\"refund\", r.id), -micros(r.amountMicros, 1)",
+  "new": "id(\"refund\", r.id), micros(r.amountMicros, 1)"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "-micros(r.amountMicros, 1)",
+  "new": "-micros(r.amountMicros, 0)"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "-COALESCE((SELECT t.amount FROM balance_entries t WHERE t.kind = 'topup'",
+  "new": "-COALESCE((SELECT t.gross FROM balance_entries t WHERE t.kind = 'topup'"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "AND COALESCE((SELECT f.frozen FROM account_freezes f WHERE f.iss = c.iss AND f.sub = c.sub ORDER BY f.seq DESC LIMIT 1), 0) = 0`",
+  "new": "`"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "SELECT r.iss, r.sub, 'restore', ?, -r.amount,",
+  "new": "SELECT r.iss, r.sub, 'restore', ?, -2 * r.amount,"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "WHERE c.customer_id = ? AND r.kind = 'reversal' AND r.stripe_key = ?`",
+  "new": "WHERE c.customer_id = ? AND r.kind = 'reversal'`"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if ((await db.all(`SELECT 1 FROM stripe_events WHERE event_id = ?`, [e.eventId])).length > 0) return \"replay\";\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "SELECT f.frozen FROM account_freezes f WHERE",
+  "new": "SELECT f.frozen FROM account_freezes f WHERE f.seq < 0 AND"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "FROM account_freezes WHERE iss = ? AND sub = ? ORDER BY seq DESC LIMIT 1",
+  "new": "FROM account_freezes WHERE iss = ? AND sub = ? ORDER BY seq ASC LIMIT 1"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (r.length === 0) throw new Error(\"that Customer belongs to another person\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (!Number.isSafeInteger(v) || v < min)",
+  "new": "  if (v < min)"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "AND (SELECT g.state_sha256 FROM gpu_plans g WHERE g.subscription_id = ? ORDER BY g.seq DESC LIMIT 1) IS NOT ?`",
+  "new": "`"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "ORDER BY g.seq DESC LIMIT 1) IS NOT ?",
+  "new": "ORDER BY g.seq ASC LIMIT 1) IS NOT ?"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "JSON.stringify([s.status, s.currentPeriodEndMs, s.cancelAtPeriodEnd])",
+  "new": "JSON.stringify([s.status, s.currentPeriodEndMs])"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "JSON.stringify([s.status, s.currentPeriodEndMs, s.cancelAtPeriodEnd])",
+  "new": "JSON.stringify([s.status, s.cancelAtPeriodEnd])"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (s.cancelAtPeriodEnd && !inPeriod) return false;\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  const inPeriod = nowMs < s.currentPeriodEndMs;",
+  "new": "  const inPeriod = nowMs <= s.currentPeriodEndMs;"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (s.status === \"past_due\") return inPeriod;",
+  "new": "  if (s.status === \"past_due\") return true;"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "if (s.status === \"active\" || s.status === \"trialing\") return true;",
+  "new": "if (s.status === \"active\") return true;"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "if (s.status === \"active\" || s.status === \"trialing\") return true;",
+  "new": "if (s.status === \"active\" || s.status === \"trialing\" || s.status === \"paused\") return true;"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (!STATUSES.includes(p.status)) throw new RangeError(\"not a Subscription status\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"balance_entries\", \"account_freezes\"])",
+  "new": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"balance_entries\", \"account_freezes\", \"gpu_plans\"])"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"gpu_plans\"])",
+  "new": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"gpu_plans\", \"balance_entries\", \"account_freezes\"])"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "/\\b(?:FROM|INTO|UPDATE|JOIN)\\s+",
+  "new": "/\\b(?:FROM|INTO|UPDATE)\\s+"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "      for (const s of stmts) check(s.sql);\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  AND NOT EXISTS (SELECT 1 FROM balance_entries WHERE kind = 'pending' AND stripe_key = NEW.stripe_key AND iss = NEW.iss AND sub = NEW.sub)\n",
+  "new": "  AND 0\n"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "AND amount = -NEW.amount)",
+  "new": "AND amount <= 0)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "fee < gross AND amount = gross - fee",
+  "new": "fee <= gross AND amount = gross - fee"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "AND amount = gross - fee AND",
+  "new": "AND"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "(substr(stripe_key, 1, 3) = 're_' AND amount < 0)",
+  "new": "(substr(stripe_key, 1, 3) = 're_' AND amount <= 0)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "(substr(stripe_key, 1, 3) = 'ch_' AND amount <= 0)),\n  CHECK (kind <> 'restore'",
+  "new": "(substr(stripe_key, 1, 3) = 'ch_')),\n  CHECK (kind <> 'restore'"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  UNIQUE (kind, stripe_key),\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  CHECK (frozen = 1 OR by_user IS NOT NULL)\n",
+  "new": "  CHECK (1)\n"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "CREATE TRIGGER balance_entries_kept BEFORE DELETE ON balance_entries BEGIN SELECT RAISE(ABORT, 'balance entries are never deleted'); END;",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "CREATE TRIGGER gpu_plans_immutable BEFORE UPDATE ON gpu_plans BEGIN SELECT RAISE(ABORT, 'gpu plans are never updated'); END;",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "CREATE TRIGGER stripe_customers_immutable BEFORE UPDATE ON stripe_customers BEGIN SELECT RAISE(ABORT, 'stripe customers are never updated'); END;",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "CHECK (kind = 'topup' OR (gross IS NULL AND fee IS NULL AND via IS NULL))",
+  "new": "CHECK (1)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "(substr(stripe_key, 1, 3) = 'pi_' AND amount = 0)",
+  "new": "(substr(stripe_key, 1, 3) = 'pi_')"
  }
 ]
