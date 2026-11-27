@@ -6857,5 +6857,135 @@
   "old": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) <= ?`,",
   "new": "WHERE m.allocation_id = allocations.id AND EXISTS (SELECT 1 FROM machine_accruals a WHERE a.machine_id = m.id AND a.end_ms IS NULL)) >= 0 AND ? IS NOT NULL`,",
   "note": "the save estimate unbound"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "  if (Math.abs(Math.floor(opts.nowMs / 1000) - h.t) > TOLERANCE_SECONDS) return { ok: false, reason: \"stale\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "> TOLERANCE_SECONDS) return { ok: false, reason: \"stale\" };",
+  "new": "> TOLERANCE_SECONDS + 1) return { ok: false, reason: \"stale\" };"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "  if (!matched) return { ok: false, reason: \"signature\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "for (const v of h.v1) if (sameHex(v, want)) matched = true;",
+  "new": "for (const v of h.v1) if (sameHex(v, want) || v === h.v1[0]) matched = true;"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (!/^whsec_[A-Za-z0-9]{8,}$/.test(s)) continue;",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "  if (e[\"livemode\"] !== opts.livemode) return { ok: false, reason: \"livemode\" };\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES) return { ok: false, reason: \"size\" };",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "    e[\"object\"] !== \"event\" ||\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "typeof e[\"livemode\"] !== \"boolean\" ||",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "      if (t != null || !/^[0-9]{1,12}$/.test(v)) return null;",
+  "new": "      if (!/^[0-9]{1,12}$/.test(v)) return null;"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "  return t == null || v1.length === 0 ? null : { t, v1 };",
+  "new": "  return t == null ? null : { t, v1 };"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (h == null || h.length > 4096) return null;",
+  "new": "if (h == null) return null;"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "  if (LEDGER_EVENTS.includes(type)) return \"ledger\";",
+  "new": "  if (LEDGER_EVENTS.includes(type) || type.startsWith(\"invoice.\")) return \"ledger\";"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "  \"charge.refunded\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "  \"customer.subscription.deleted\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "    typeof e[\"created\"] !== \"number\" || !Number.isSafeInteger(e[\"created\"]) || e[\"created\"] < 0 ||",
+  "new": "    typeof e[\"created\"] !== \"number\" ||"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
+  "new": "if (rawBody.length > MAX_BODY_BYTES)"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
+  "new": "if (enc.encode(rawBody).length >= MAX_BODY_BYTES)"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "h.length > 4096",
+  "new": "h.length >= 4096"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "Math.floor(opts.nowMs / 1000)",
+  "new": "Math.round(opts.nowMs / 1000)"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "obj[\"id\"] === \"\" ||",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "obj[\"id\"].length > 255",
+  "new": "obj[\"id\"].length > 256"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "    typeof obj[\"object\"] !== \"string\"\n",
+  "new": "    false\n"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (i <= 0) return null;",
+  "new": "if (i < 0) return null;"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "/^whsec_[A-Za-z0-9]{8,}$/",
+  "new": "/^whsec_[A-Za-z0-9]{7,}$/"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "/^whsec_[A-Za-z0-9]{8,}$/",
+  "new": "/^whsec_[A-Za-z0-9]{9,}$/"
  }
 ]
