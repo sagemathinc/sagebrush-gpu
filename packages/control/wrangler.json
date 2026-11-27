@@ -16,10 +16,26 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MachineRelay"] }],
   "triggers": { "crons": ["* * * * *"] },
   "vars": {
-    "APP_ORIGIN": "https://gpu.example.com",
+    "APP_ORIGIN": "https://gpu-dev.sagebrush.space",
     "MACHINE_DOMAIN": "machines.example.com",
     "WORKOS_CLIENT_ID": "client_00000000000000000000000000",
     "WORKOS_ISSUER": "https://api.workos.com/user_management/client_00000000000000000000000000",
     "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_00000000000000000000000000"
+  },
+  "env": {
+    "prod": {
+      "d1_databases": [
+        { "binding": "DB", "database_name": "sbgpu-control-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+      ],
+      "durable_objects": { "bindings": [{ "name": "MACHINE_RELAY", "class_name": "MachineRelay" }] },
+      "triggers": { "crons": ["* * * * *"] },
+      "vars": {
+        "APP_ORIGIN": "https://gpu.sagebrush.space",
+        "MACHINE_DOMAIN": "machines.example.com",
+        "WORKOS_CLIENT_ID": "client_00000000000000000000000000",
+        "WORKOS_ISSUER": "https://api.workos.com/user_management/client_00000000000000000000000000",
+        "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_00000000000000000000000000"
+      }
+    }
   }
 }
