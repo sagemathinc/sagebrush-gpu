@@ -19,7 +19,7 @@ import { d1Db, type D1Like } from "./db.ts";
 const WRANGLER = JSON.parse(readFileSync(new URL("../wrangler.json", import.meta.url), "utf8")) as {
   main: string;
   assets: { binding: string; not_found_handling: "single-page-application"; run_worker_first: boolean };
-  d1_databases: Array<{ binding: string; migrations_dir: string }>;
+  d1_databases: Array<{ binding: string; database_name: string; migrations_dir: string }>;
   durable_objects: { bindings: Array<{ name: string; class_name: string }> };
   triggers: { crons: string[] };
   vars: Record<string, string>;
@@ -69,12 +69,23 @@ test("the deploy config: the Worker runs before every asset, the SPA fallback, a
   const text = readFileSync(new URL("../wrangler.json", import.meta.url), "utf8");
   assert.doesNotMatch(text, /account_id/);
   for (const id of text.match(/"database_id":\s*"([^"]*)"/g) ?? []) assert.match(id, /"0{8}-0{4}-0{4}-0{4}-0{12}"/);
-  // hosts are example.com; WorkOS ids are the all-zero placeholder (the issuer and JWKS are the environment's, set at deploy)
-  for (const [k, v] of Object.entries(WRANGLER.vars)) {
-    if (k.startsWith("WORKOS_")) assert.match(v, /client_0{26}$/, k);
-    else assert.match(v, /example\.com$/, k);
+  // the app's origin is decided per environment (top level is DEV, env.prod is PROD); the machine domain is still
+  // example.com; WorkOS ids are the all-zero placeholder (the issuer and JWKS are the environment's, set at deploy)
+  const prod = (WRANGLER as unknown as { env: { prod: typeof WRANGLER } }).env.prod;
+  assert.deepEqual(Object.keys((WRANGLER as unknown as { env: object }).env), ["prod"]);
+  for (const [vars, origin] of [[WRANGLER.vars, "https://gpu-dev.sagebrush.space"], [prod.vars, "https://gpu.sagebrush.space"]] as const) {
+    assert.deepEqual(Object.keys(vars).sort(), ["APP_ORIGIN", "MACHINE_DOMAIN", "WORKOS_CLIENT_ID", "WORKOS_ISSUER", "WORKOS_JWKS_URL"]);
+    for (const [k, v] of Object.entries(vars)) {
+      if (k === "APP_ORIGIN") assert.equal(v, origin, k);
+      else if (k.startsWith("WORKOS_")) assert.match(v, /client_0{26}$/, k);
+      else assert.match(v, /example\.com$/, k);
+    }
   }
-  assert.deepEqual(Object.keys(WRANGLER.vars).sort(), ["APP_ORIGIN", "MACHINE_DOMAIN", "WORKOS_CLIENT_ID", "WORKOS_ISSUER", "WORKOS_JWKS_URL"]);
+  // PROD repeats DEV's bindings (wrangler doesn't inherit them into an env), with its own database
+  assert.deepEqual(prod.durable_objects, WRANGLER.durable_objects);
+  assert.deepEqual(prod.triggers, WRANGLER.triggers);
+  assert.deepEqual(prod.d1_databases.map((d) => ({ ...d, database_name: "" })), WRANGLER.d1_databases.map((d) => ({ ...d, database_name: "" })));
+  assert.notEqual(prod.d1_databases[0]!.database_name, WRANGLER.d1_databases[0]!.database_name);
 });
 
 test("static assets: the app's files and its paths, each with the security headers", async () => {
