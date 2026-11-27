@@ -6937,5 +6937,55 @@
   "file": "src/stripe-webhook.ts",
   "old": "    typeof e[\"created\"] !== \"number\" || !Number.isSafeInteger(e[\"created\"]) || e[\"created\"] < 0 ||",
   "new": "    typeof e[\"created\"] !== \"number\" ||"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
+  "new": "if (rawBody.length > MAX_BODY_BYTES)"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
+  "new": "if (enc.encode(rawBody).length >= MAX_BODY_BYTES)"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "h.length > 4096",
+  "new": "h.length >= 4096"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "Math.floor(opts.nowMs / 1000)",
+  "new": "Math.round(opts.nowMs / 1000)"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "obj[\"id\"] === \"\" ||",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "obj[\"id\"].length > 255",
+  "new": "obj[\"id\"].length > 256"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "    typeof obj[\"object\"] !== \"string\"\n",
+  "new": "    false\n"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "if (i <= 0) return null;",
+  "new": "if (i < 0) return null;"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "/^whsec_[A-Za-z0-9]{8,}$/",
+  "new": "/^whsec_[A-Za-z0-9]{7,}$/"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "/^whsec_[A-Za-z0-9]{8,}$/",
+  "new": "/^whsec_[A-Za-z0-9]{9,}$/"
  }
 ]

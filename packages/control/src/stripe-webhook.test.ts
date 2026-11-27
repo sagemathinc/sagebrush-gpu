@@ -79,3 +79,42 @@ test("routing: payments to the ledger, subscriptions to plans, the rest ignored"
   }
   for (const e of ["invoice.paid", "customer.created", "payment_intent.succeeded", ""]) assert.equal(routeEvent(e), "ignore", e);
 });
+
+test("caps: bytes not characters; exactly the cap passes; a header of exactly 4096 is read", async () => {
+  const wide = event({ pad: "é".repeat(MAX_BODY_BYTES / 2) });
+  assert.ok(wide.length < MAX_BODY_BYTES && new TextEncoder().encode(wide).length > MAX_BODY_BYTES);
+  assert.deepEqual(await verify(wide, header(wide)), { ok: false, reason: "size" }, "multi-byte body over the cap in bytes"); // T1
+  const base = event({ pad: "" });
+  const exact = event({ pad: "x".repeat(MAX_BODY_BYTES - new TextEncoder().encode(base).length) });
+  assert.equal(new TextEncoder().encode(exact).length, MAX_BODY_BYTES);
+  assert.ok((await verify(exact, header(exact))).ok, "exactly the cap"); // T2
+  const b = event();
+  const h0 = header(b) + ",v0=";
+  const h4096 = h0 + "0".repeat(4096 - h0.length);
+  assert.equal(h4096.length, 4096);
+  assert.ok((await verify(b, h4096)).ok, "a header of exactly 4096"); // T3
+});
+
+test("the window uses whole seconds of our clock (floor)", async () => {
+  const b = event();
+  assert.ok((await verify(b, header(b), [SECRET], { nowMs: NOW + TOLERANCE_SECONDS * 1000 + 999 })).ok, "300.999 s is still 300"); // T4
+  assert.deepEqual(await verify(b, header(b), [SECRET], { nowMs: NOW + (TOLERANCE_SECONDS + 1) * 1000 }), { ok: false, reason: "stale" });
+});
+
+test("the event object: id non-empty and at most 255, object a string", async () => {
+  for (const o of [{ id: "", object: "charge" }, { id: "x".repeat(256), object: "charge" }, { id: "ch_1" }, { id: "ch_1", object: 5 }]) {
+    const b = event({ data: { object: o } });
+    assert.deepEqual(await verify(b, header(b)), { ok: false, reason: "body" }, JSON.stringify(o).slice(0, 40)); // T5, T6, T7
+  }
+  const ok = event({ data: { object: { id: "x".repeat(255), object: "charge" } } });
+  assert.ok((await verify(ok, header(ok))).ok, "255 is allowed");
+});
+
+test("a header part with an empty key is refused; a secret shorter than whsec_ plus 8 is never used", async () => {
+  const b = event();
+  assert.deepEqual(await verify(b, `t=${t},=x,v1=${sign(b)}`), { ok: false, reason: "header" });
+  const short = "whsec_1234567";
+  assert.deepEqual(await verify(b, header(b, t, short), [short]), { ok: false, reason: "signature" });
+  const eight = "whsec_12345678";
+  assert.ok((await verify(b, header(b, t, eight), [eight])).ok, "eight characters after whsec_ is allowed");
+});
