@@ -273,6 +273,16 @@ test("every way out of our launch shape drifts, and unreadable fields fail close
   assert.throws(() => instanceStatus(null, T), ProviderError);
 });
 
+test("G02-3: a price token a double can't hold exactly is no offer; an exact one is rounded exactly", async () => {
+  const offers = async (token: string) => {
+    const body = JSON.stringify({ offers: [offer({ dph_total: 0.777777 })] }).replace("0.777777", token);
+    return adapter([{ status: 200, body }]).a.listOffers({ gpuCount: 1 });
+  };
+  assert.deepEqual(await offers("0.1234564999999999999999"), [], "the float path made this 123457");
+  assert.equal((await offers("0.1234565"))[0]!.providerCostPerHour, 123457);
+  assert.equal((await offers("0.1234564"))[0]!.providerCostPerHour, 123456);
+});
+
 // ---------------------------------------------------------------- offers
 
 test("offers: one search with every hard rule, each checked again on the reply", async () => {

@@ -538,6 +538,17 @@ test("listOffers: a price that rounds to no micros is no price", async () => {
   assert.equal((await offers("5e-7"))[0]!.providerCostPerHour, 1);
 });
 
+test("G02-3: a price token a double can't hold exactly is no price; an exact one is rounded exactly", async () => {
+  const offers = async (value: string) => {
+    const { a } = adapter([{ status: 200, body: flavors([flavor()]) }, { status: 200, body: `[{"name":"RTX-A6000","value":${value}}]` }]);
+    return a.listOffers({ gpuCount: 1 });
+  };
+  assert.deepEqual(await offers("0.1234564999999999999999"), [], "the float path made this 123457");
+  assert.deepEqual(await offers("0.00000049999999999999999"), [], "the float path made this 1");
+  assert.equal((await offers("0.1234565"))[0]!.providerCostPerHour, 123457);
+  assert.equal((await offers("0.1234564"))[0]!.providerCostPerHour, 123456);
+});
+
 test("listOffers: a non-finite price is no price", async () => {
   const { a } = adapter([{ status: 200, body: flavors([flavor()]) }, { status: 200, body: '[{"name":"RTX-A6000","value":1e400}]' }]);
   assert.deepEqual(await a.listOffers({ gpuCount: 1 }), []);

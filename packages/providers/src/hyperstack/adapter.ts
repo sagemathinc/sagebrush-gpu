@@ -14,7 +14,7 @@ import { bootScriptSha256 } from "@sbgpu/machine";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, readBody, retryAfterSeconds, type Fetch } from "../http.ts";
 import { nameFields, sameMachineName, specNameMatches } from "../machine-name.ts";
-import { usdToMicros } from "../money.ts";
+import { parseProviderJson, usdToMicros } from "../money.ts";
 import {
   COMMAND_UNOBSERVABLE,
   type AdapterInfo,
@@ -434,7 +434,7 @@ export class HyperstackAdapter implements ProviderAdapter {
     const text = read.text;
     if (text === "") return null;
     try {
-      return JSON.parse(text);
+      return parseProviderJson(text);
     } catch {
       // A change (POST, DELETE) succeeded but its reply is unreadable: it may have happened.
       const kind: ProviderErrorKind = method === "GET" ? "unknown" : "outcome_unknown";

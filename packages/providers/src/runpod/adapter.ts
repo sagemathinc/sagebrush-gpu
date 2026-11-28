@@ -8,7 +8,7 @@ import { commandShape, driftMarkers, specDrift, expectedSpec } from "../drift.ts
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, isSuccess, readPrefix, retryAfterSeconds, type Fetch } from "../http.ts";
 import { nameFields, sameMachineName, specNameMatches } from "../machine-name.ts";
-import { usdToMicros } from "../money.ts";
+import { parseProviderJson, usdToMicros } from "../money.ts";
 import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
 import type {
   AdapterInfo,
@@ -365,7 +365,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     }
     if (text === "") return { status: res.status, json: null };
     try {
-      return { status: res.status, json: JSON.parse(text) };
+      return { status: res.status, json: parseProviderJson(text) };
     } catch {
       // A request that changes something (POST, DELETE) succeeded but its reply is unreadable:
       // the change may have happened. Only a read can be called a plain failure.

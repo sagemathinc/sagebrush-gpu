@@ -170,6 +170,18 @@ test("listOffers skips what it can't offer safely", async () => {
   await assert.rejects(a.listOffers({ gpuCount: 1.5 }), RangeError);
 });
 
+test("G02-3: a price token a double can't hold exactly is no offer; an exact one is rounded exactly", async () => {
+  const offers = async (token: string) => {
+    const body = JSON.stringify({
+      gpus: [{ id: "NVIDIA A40", name: "NVIDIA A40", secure: true, price: { secure: 0.777777, community: 0.3 }, dataCenters: [{ id: "EU-FR-1", name: "EU-FR-1", availability: "HIGH" }] }],
+    }).replace("0.777777", token);
+    return adapter([{ status: 200, body }]).a.listOffers({ gpuCount: 1 });
+  };
+  assert.deepEqual(await offers("0.1234564999999999999999"), [], "the float path made this 123457");
+  assert.equal((await offers("0.1234565"))[0]!.providerCostPerHour, 123457);
+  assert.equal((await offers("0.1234564"))[0]!.providerCostPerHour, 123456);
+});
+
 test("listOffers rejects a malformed catalog rather than reporting no offers", async () => {
   for (const body of [{}, { gpus: "x" }, [], "<html>"]) {
     await assert.rejects(adapter([{ status: 200, body }]).a.listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "unknown");
