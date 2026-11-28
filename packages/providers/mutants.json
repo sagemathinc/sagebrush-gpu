@@ -5,16 +5,6 @@
   "new": "usd < -1) {"
  },
  {
-  "file": "src/money.ts",
-  "old": "Math.round(usd * 1_000_000)",
-  "new": "Math.floor(usd * 1_000_000)"
- },
- {
-  "file": "src/money.ts",
-  "old": "if (!Number.isSafeInteger(micros)) throw",
-  "new": "if (false) throw"
- },
- {
   "file": "src/machine-name.ts",
   "old": "if (!isId(\"machine\", machineId)) throw",
   "new": "if (false) throw"
@@ -1262,14 +1252,9 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
-  "new": "      const kind: ProviderErrorKind = \"unknown\";",
+  "old": "    const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "    const kind: ProviderErrorKind = \"unknown\";",
   "note": "TESTS T3: an unreadable create reply may have created a pod"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
-  "new": "      const kind: ProviderErrorKind = \"outcome_unknown\";"
  },
  {
   "file": "src/availability.ts",
@@ -3425,13 +3410,9 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "\"outcome_unknown\", `RunPod ${method} ${path.split(\"?\")[0]}: reply cut off",
-  "new": "\"unknown\", `RunPod ${method} ${path.split(\"?\")[0]}: reply cut off"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "reply cut off (${failureName(e)})",
-  "new": "reply cut off (${String(e)})"
+  "old": "if (!read.ok) throw new ProviderError(\"runpod\", kind,",
+  "new": "if (!read.ok) throw new ProviderError(\"runpod\", \"unknown\",",
+  "note": "an unreadable create reply (cut off, too large, stalled) may have created a pod"
  },
  {
   "file": "src/probes/cli.ts",
@@ -5157,5 +5138,55 @@
   "old": "if (json[\"pods\"].length > POD_PAGE_LIMIT) {",
   "new": "if (json[\"pods\"].length >= POD_PAGE_LIMIT) {",
   "note": "G03-4: a full page refused"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      return { status: res.status, json: parseProviderJson(read.text) };",
+  "new": "      return { status: res.status, json: JSON.parse(read.text) };"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      return parseProviderJson(read.text);",
+  "new": "      return JSON.parse(read.text);"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      return parseProviderJson(text);",
+  "new": "      return JSON.parse(text);"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "    return token !== null && held !== null && normalized(token) === normalized(held) ? value : Number.NaN;",
+  "new": "    return value;"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "normalized(token) === normalized(held)",
+  "new": "token.digits === held.digits"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "    if ((p.digits % d) * 2n >= d) micros += 1n;",
+  "new": "    if ((p.digits % d) * 2n > d) micros += 1n;"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "    if ((p.digits % d) * 2n >= d) micros += 1n;\n",
+  "new": ""
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (micros > BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (false) throw"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  while (digits % 10n === 0n) {",
+  "new": "  while (false) {"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  const exponent = Number(m[4] ?? \"0\") - frac.length;",
+  "new": "  const exponent = Number(m[4] ?? \"0\");"
  }
 ]

@@ -20,7 +20,7 @@ import { driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, isSuccess, readBody, retryAfterSeconds, type Fetch } from "../http.ts";
 import { nameFields, parseMachineName, sameMachineName, specNameMatches } from "../machine-name.ts";
-import { usdToMicros } from "../money.ts";
+import { parseProviderJson, usdToMicros } from "../money.ts";
 import type {
   AdapterInfo,
   LaunchOptions,
@@ -448,7 +448,7 @@ export class VastAdapter implements ProviderAdapter {
     if (!read.ok) throw new ProviderError("vast", changes ? "outcome_unknown" : "unknown", `${where}: reply not read (${read.why})`, res.status);
     if (read.text === "") return null;
     try {
-      return JSON.parse(read.text);
+      return parseProviderJson(read.text);
     } catch {
       throw new ProviderError("vast", changes ? "outcome_unknown" : "unknown", `${where}: response is not JSON`, res.status);
     }

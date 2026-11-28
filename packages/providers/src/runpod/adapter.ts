@@ -8,7 +8,7 @@ import { commandShape, driftMarkers, specDrift, expectedSpec } from "../drift.ts
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
 import { failureName, isSuccess, readBody, readPrefix, retryAfterSeconds, type Fetch } from "../http.ts";
 import { nameFields, sameMachineName, specNameMatches } from "../machine-name.ts";
-import { usdToMicros } from "../money.ts";
+import { parseProviderJson, usdToMicros } from "../money.ts";
 import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
 import type {
   AdapterInfo,
@@ -371,7 +371,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     if (!read.ok) throw new ProviderError("runpod", kind, `RunPod ${method} ${path.split("?")[0]}: reply not read (${read.why})`, res.status);
     if (read.text === "") return { status: res.status, json: null };
     try {
-      return { status: res.status, json: JSON.parse(read.text) };
+      return { status: res.status, json: parseProviderJson(read.text) };
     } catch {
       throw new ProviderError("runpod", kind, `RunPod ${method} ${path.split("?")[0]}: response is not JSON`, res.status);
     }
