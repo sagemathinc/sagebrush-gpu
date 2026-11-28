@@ -7737,5 +7737,10 @@
   "file": "migrations/0023_allocation_commitments.sql",
   "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
   "new": "WHEN EXISTS (SELECT 1 FROM allocations WHERE (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))"
+ },
+ {
+  "file": "migrations/0026_allocations_kept.sql",
+  "old": "  SELECT RAISE(ABORT, 'committed: an allocation is never deleted');",
+  "new": "  SELECT 1;"
  }
 ]
