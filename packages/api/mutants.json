@@ -1512,8 +1512,8 @@
  },
  {
   "file": "src/objects.ts",
-  "old": "export const START_FAILURES = [\"createDeadline\", \"podExited\"] as const;",
-  "new": "export const START_FAILURES = [\"createDeadline\"] as const;"
+  "old": "export const START_FAILURES = [\"createDeadline\", \"podExited\", \"providerRefused\", \"setupFailed\"] as const;",
+  "new": "export const START_FAILURES = [\"createDeadline\", \"podExited\", \"providerRefused\"] as const;"
  },
  {
   "file": "src/objects.ts",
@@ -1579,5 +1579,10 @@
   "old": "  \"maxGpusPerTeam\",\n  \"idleStopMinutes\",",
   "new": "  \"idleStopMinutes\",",
   "note": "team GPU cap an unknown field"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "export const START_FAILURES = [\"createDeadline\", \"podExited\", \"providerRefused\", \"setupFailed\"] as const;",
+  "new": "export const START_FAILURES = [\"createDeadline\", \"podExited\", \"setupFailed\"] as const;"
  }
 ]

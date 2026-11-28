@@ -31,6 +31,8 @@ export function machineStateLabel(m: Machine): string {
 export const START_FAILURE_WORDS: { readonly [K in StartFailure]: string } = {
   createDeadline: "the provider didn't have it ready in time",
   podExited: "it stopped on its own before it was ready",
+  providerRefused: "the provider couldn't start this GPU",
+  setupFailed: "it started but didn't finish setting up",
 };
 
 /**
