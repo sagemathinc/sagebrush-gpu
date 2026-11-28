@@ -266,6 +266,7 @@ export class StripeApi {
       customer: optRefId("customer", c["customer"]),
       paymentIntent: optRefId("paymentIntent", c["payment_intent"]),
       amountMicros: cents(c["amount"], "the charge's amount"),
+      capturedMicros: cents(c["amount_captured"], "the charge's captured amount"),
       feeMicros: fee(this.#expanded(c["balance_transaction"], "the balance transaction")),
       refunds: list["data"].map((x) => {
         const r = this.#sameMode(obj(x, "a refund"), "a refund");
@@ -334,6 +335,8 @@ export interface ChargeFacts {
   readonly customer: string | null;
   readonly paymentIntent: string | null;
   readonly amountMicros: number;
+  /** What was captured: less than the amount under a manual or partial capture. */
+  readonly capturedMicros: number;
   readonly feeMicros: number | null;
   readonly refunds: ReadonlyArray<{ readonly id: string; readonly amountMicros: number; readonly status: "pending" | "requires_action" | "succeeded" | "failed" | "canceled" }>;
 }

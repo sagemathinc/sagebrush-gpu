@@ -44,7 +44,7 @@ type Facts = {
   efw?: { charge: string; paymentIntent: string | null };
   subscription?: Partial<SubscriptionFacts>;
 };
-const CHARGE: ChargeFacts = { id: "ch_1", customer: "cus_A", paymentIntent: "pi_1", amountMicros: 20_000_000, feeMicros: 880_000, refunds: [] };
+const CHARGE: ChargeFacts = { id: "ch_1", customer: "cus_A", paymentIntent: "pi_1", amountMicros: 20_000_000, capturedMicros: 20_000_000, feeMicros: 880_000, refunds: [] };
 function reader(f: Facts, calls: string[] = []): StripeReader {
   const or = <T>(v: T | Error | undefined, what: string): T => {
     if (v === undefined) throw new Error(`unexpected fetch: ${what}`);
@@ -192,6 +192,15 @@ test("checkout: unpaid or not a payment credits nothing; the fee unknown writes 
   assert.equal(await balanceOf(db, A), 19_120_000);
 });
 
+test("SEC N2 on #124: charge.updated credits only a charge captured whole; a partial capture is refused, never over-credited", async () => {
+  await post(deps(reader({ checkout: { payment: { paymentIntent: "pi_1", grossMicros: 20_000_000, chargeId: null, feeMicros: null } } })), "checkout.session.completed");
+  assert.equal((await post(deps(reader({ charges: { ch_1: { capturedMicros: 15_000_000 } } })), "charge.updated")).status, 400);
+  assert.equal(await balanceOf(db, A), 0);
+  assert.deepEqual(alerts, ["stripe webhook: charge.updated refused: the charge wasn't captured whole"]);
+  assert.equal((await post(deps(reader({ charges: { ch_1: {} } })), "charge.updated")).status, 200);
+  assert.equal(await balanceOf(db, A), 19_120_000);
+});
+
 test("an unknown Customer, or none: 200, nothing written, and an alert", async () => {
   assert.equal((await post(deps(reader({ checkout: { customer: "cus_Nobody" } })), "checkout.session.completed")).status, 200);
   assert.equal((await post(deps(reader({ checkout: { customer: null } })), "checkout.session.completed")).status, 200);
@@ -217,6 +226,25 @@ test("Stripe unavailable is 503 (retried, no alert); an answer we won't act on i
   assert.equal((await post(deps(reader({ checkout: {} }), { db: broken }), "checkout.session.completed")).status, 500);
   assert.deepEqual(alerts, ["stripe webhook: checkout.session.completed: the write failed (Error); Stripe retries"], "the error's message is never in the line");
   assert.equal(await balanceOf(db, A), 0);
+});
+
+test("SEC N1 on #124: Stripe redelivers a refused event (400) and a failed write (500); each alerts once an hour per event type", async () => {
+  const throttle = new AlertThrottle();
+  const refused = deps(reader({ checkout: new StripeError("invalid", "the session isn't in USD") }), { throttle });
+  const body = eventBody("checkout.session.completed");
+  for (let i = 0; i < 3; i++) assert.equal((await handleStripeWebhook(signed(body), refused)).status, 400, "redelivered, refused again");
+  assert.deepEqual(alerts, ["stripe webhook: checkout.session.completed refused: the session isn't in USD"]);
+  const broken = { ...db, batch: async () => { throw new Error("D1_ERROR"); } };
+  const failing = deps(reader({ charges: { ch_1: { refunds: [] } } }), { throttle, db: broken });
+  for (let i = 0; i < 3; i++) assert.equal((await post(failing, "charge.refunded")).status, 500);
+  assert.equal(alerts.length, 2, "one line for the failed writes");
+  // another event type is its own kind; after an hour, the first pages again
+  assert.equal((await post(deps(reader({ dispute: {}, charges: { ch_1: { feeMicros: 20_000_000 } } }), { throttle }), "charge.dispute.created")).status, 400);
+  assert.equal(alerts.length, 3);
+  clock += ALERT_WINDOW_MS;
+  await handleStripeWebhook(signed(body), refused);
+  assert.equal(alerts.length, 4);
+  assert.equal(count(`SELECT COUNT(*) AS k FROM stripe_events`), 0, "nothing recorded: a fix on our side is acted on by a later delivery");
 });
 
 test("an event whose object is another kind than its type names is refused, unfetched", async () => {

@@ -7907,5 +7907,30 @@
   "file": "src/worker.ts",
   "old": "  const stripeThrottle = new AlertThrottle();\n",
   "new": "  const stripeThrottle = { allow: () => true } as unknown as AlertThrottle;\n"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe event refused ${e.type}`, `stripe webhook: ${e.type} refused: ${x.message}`);",
+  "new": "d.alert(`stripe webhook: ${e.type} refused: ${x.message}`);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe event refused ${e.type}`,",
+  "new": "repeated(`stripe event refused`,"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe write failed ${e.type}`, `stripe webhook: ${e.type}: the write failed",
+  "new": "d.alert(`stripe webhook: ${e.type}: the write failed"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (c.capturedMicros !== c.amountMicros) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "capturedMicros: cents(c[\"amount_captured\"], \"the charge's captured amount\"),",
+  "new": "capturedMicros: cents(c[\"amount\"], \"the charge's captured amount\"),"
  }
 ]

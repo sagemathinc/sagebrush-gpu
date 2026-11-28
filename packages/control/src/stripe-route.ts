@@ -4,15 +4,19 @@
 //
 // - The body is counted before it is kept: a declared length over the cap is refused unread, and the
 //   stream is cancelled at the first chunk past it. The signature is checked over those exact bytes.
-// - What Stripe is told decides whether it retries (it retries any answer but 2xx for three days):
-//   - 200: recorded, a replay, or nothing for us to do;
-//   - 400: refused for good, a delivery that isn't Stripe's, or an answer from Stripe we won't act on;
+// - Stripe redelivers every answer but 2xx, 4xx included, for up to three days. The status says why:
+//   - 200: recorded, a replay, or nothing for us to do (Stripe stops);
+//   - 400: a delivery that isn't Stripe's, or an answer from Stripe we won't act on. Stripe redelivers
+//     it, which is kept on purpose: a refusal that a fix on our side clears is then acted on by a later
+//     delivery, and one nobody fixes ends with Stripe's own failure notice;
 //   - 503: try again, when Stripe couldn't be asked, refused our key, or we're not configured;
 //   - 500: the write failed.
-//   Every 400 after verification, every 500 and every unknown Customer alerts the operator.
-// - Alerts are fixed lines, never a key, a secret, an id or an amount. The ones a retried event would
-//   repeat (our key refused, the route unconfigured, deliveries refused) go out at most once per hour per
-//   kind (SEC's note on #119), so a revoked key pages once, not once per event.
+//   A refusal after verification, a failed write and an unknown Customer alert the operator.
+// - Alerts are fixed lines, never a key, a secret, an id or an amount. Every alert a redelivery would
+//   repeat goes out at most once per hour per kind (SEC's notes on #119 and #124): our key refused, the
+//   route unconfigured, deliveries refused (per reason), and an event refused or its write failed (per
+//   event type). So a revoked key, or one bad event retried for three days, pages once an hour, not once
+//   per delivery.
 // - TEST mode only: livemode is fixed false here. LIVE comes with its own reviewed PR, after William has
 //   seen TEST work.
 
@@ -150,10 +154,10 @@ export async function handleStripeWebhook(req: Request, d: StripeRouteDeps): Pro
     if (x instanceof StripeError && x.kind === "unavailable") return answer(503, "unavailable", "try again");
     if (x instanceof StripeError || x instanceof RangeError) {
       // (both carry only our own fixed wording: never a value from Stripe)
-      d.alert(`stripe webhook: ${e.type} refused: ${x.message}`);
+      repeated(`stripe event refused ${e.type}`, `stripe webhook: ${e.type} refused: ${x.message}`);
       return answer(400, "badRequest", "refused");
     }
-    d.alert(`stripe webhook: ${e.type}: the write failed (${x instanceof Error ? x.name : typeof x}); Stripe retries`);
+    repeated(`stripe write failed ${e.type}`, `stripe webhook: ${e.type}: the write failed (${x instanceof Error ? x.name : typeof x}); Stripe retries`);
     return answer(500, "internal", "the write failed");
   }
 }
@@ -215,6 +219,9 @@ export async function handleEvent(e: StripeEvent, stripe: StripeReader, d: Pick<
       // The second credit path (d3.2): only a PaymentIntent holding a pending marker is credited, by the writer.
       const c = await stripe.charge(e.object.id);
       if (c.customer === null || c.paymentIntent === null || c.feeMicros === null) return "ignored";
+      // (the credit's gross is the charge's amount only while it was captured whole: Checkout captures
+      // automatically, so a partial or manual capture is refused rather than over-credited; SEC N2 on #124)
+      if (c.capturedMicros !== c.amountMicros) throw new StripeError("invalid", "the charge wasn't captured whole");
       return creditPending(d.db, ref, { customerId: c.customer, paymentIntent: c.paymentIntent, chargeId: c.id, grossMicros: c.amountMicros, feeMicros: c.feeMicros, via: "charge" });
     }
     case "charge.refunded": {
