@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { sqliteDb, type TestDb } from "./testing/sqlite.ts";
 import { balanceOf, creditCheckout, creditPending, recordCustomer, type EventRef, type Who } from "./stripe-ledger.ts";
 import { StripeError, type PaymentIntentFacts } from "./stripe-api.ts";
-import { RECONCILE_BATCH, RECONCILE_WINDOW_MS, STUCK_MS, reconcilePendingTopups } from "./stripe-reconcile.ts";
+import { RECONCILE_BATCH, RECONCILE_WINDOW_MS, STUCK_MS, reconcilePendingTopups, rotationStart } from "./stripe-reconcile.ts";
 import { handleEvent } from "./stripe-route.ts";
 
 const T = 1_800_000_000_000;
@@ -119,12 +119,18 @@ test("Stripe unavailable stops the run, crediting nothing more; the next run cre
   assert.equal(await balanceOf(db, A), 2 * 19_120_000);
 });
 
-test("bounded: at most a batch a run, newest first; past the window it isn't fetched, and alerts for a human", async () => {
+test("bounded and fair: a batch a run, rotating through every open marker; past the window it isn't fetched, and alerts for a human", async () => {
   for (let i = 0; i < RECONCILE_BATCH + 3; i++) await paidWithoutFee(`pi_b${i}`, T + i);
-  const calls: string[] = [];
-  await reconcilePendingTopups(deps((id) => pi({ id, feeMicros: null }), T + 60_000, calls));
-  assert.equal(calls.length, RECONCILE_BATCH);
-  assert.equal(calls[0], `pi_b${RECONCILE_BATCH + 2}`, "newest first");
+  // two consecutive runs: a batch each, no repeats within a run, and between them every open marker
+  const seen = new Set<string>();
+  for (const at of [T + 60_000, T + 120_000]) {
+    const calls: string[] = [];
+    await reconcilePendingTopups(deps((id) => pi({ id, feeMicros: null }), at, calls));
+    assert.equal(calls.length, RECONCILE_BATCH);
+    assert.equal(new Set(calls).size, RECONCILE_BATCH, "no marker twice in one run");
+    for (const c of calls) seen.add(c);
+  }
+  assert.equal(seen.size, RECONCILE_BATCH + 3, "all of them within ceil(23 / 20) = 2 runs");
   const old = sqliteDb();
   db = old;
   db.raw.prepare(`INSERT INTO users (id, email, name, created_ms) VALUES ('usr_1', 'a@example.com', NULL, ?)`).run(T);
@@ -137,6 +143,53 @@ test("bounded: at most a batch a run, newest first; past the window it isn't fet
   assert.deepEqual(alerts, ["stripe reconcile: 1 paid top-up(s) still uncredited after 7 days; a human must settle them"]);
   alerts = [];
   assert.equal(await reconcilePendingTopups(deps((id) => pi({ id }), T + RECONCILE_WINDOW_MS, late)), 1, "exactly 7 days: still fetched");
+});
+
+test("Codex cx3 P2 on #128: twenty newer markers with no fee yet can't keep an older payable one from being credited", async () => {
+  await paidWithoutFee("pi_payable", T);
+  for (let i = 0; i < RECONCILE_BATCH; i++) await paidWithoutFee(`pi_wait${i}`, T + 1 + i);
+  const facts = (id: string) => (id === "pi_payable" ? pi({ id }) : pi({ id, feeMicros: null }));
+  const bound = Math.ceil((RECONCILE_BATCH + 1) / RECONCILE_BATCH);
+  let runs = 0;
+  for (let m = 1; m <= bound && (await balanceOf(db, A)) === 0; m++, runs++) await reconcilePendingTopups(deps(facts, T + m * 60_000));
+  assert.equal(await balanceOf(db, A), 19_120_000, `credited within ${bound} runs (took ${runs})`);
+  // and over many runs at any starting minute, every open marker is fetched within the bound
+  for (const startMinute of [0, 7, 9_999]) {
+    const seen = new Set<string>();
+    for (let m = 0; m < bound; m++) {
+      const calls: string[] = [];
+      await reconcilePendingTopups(deps(facts, T + (startMinute + m) * 60_000, calls));
+      for (const c of calls) seen.add(c);
+    }
+    assert.equal(seen.size, RECONCILE_BATCH, `start minute ${startMinute}: all ${RECONCILE_BATCH} still open are fetched`);
+  }
+});
+
+test("many open markers: never more than a batch a run, none twice, and all of them within ceil(open / batch) runs", async () => {
+  const open = 50;
+  for (let i = 0; i < open; i++) await paidWithoutFee(`pi_m${i}`, T + i);
+  const bound = Math.ceil(open / RECONCILE_BATCH);
+  for (const startMinute of [0, 1, 2, 5]) {
+    const seen = new Set<string>();
+    for (let m = 0; m < bound; m++) {
+      const calls: string[] = [];
+      await reconcilePendingTopups(deps((id) => pi({ id, feeMicros: null }), T + (startMinute + m) * 60_000, calls));
+      assert.equal(calls.length, RECONCILE_BATCH, `minute ${startMinute + m}`);
+      assert.equal(new Set(calls).size, RECONCILE_BATCH);
+      for (const c of calls) seen.add(c);
+    }
+    assert.equal(seen.size, open, `from minute ${startMinute}: all ${open} within ${bound} runs`);
+  }
+});
+
+test("rotationStart: 0 while one batch holds them all; a full batch further each minute, wrapping", () => {
+  assert.equal(rotationStart(T, RECONCILE_BATCH), 0);
+  assert.equal(rotationStart(T, 0), 0);
+  const open = 3 * RECONCILE_BATCH + 7;
+  const m = Math.floor(T / 60_000);
+  assert.equal(rotationStart(T, open), (m * RECONCILE_BATCH) % open);
+  assert.equal(rotationStart(T + 60_000, open), ((m + 1) * RECONCILE_BATCH) % open);
+  for (let i = 0; i < 200; i++) assert.ok(rotationStart(T + i * 60_000, open) < open);
 });
 
 test("a credited marker isn't fetched again; the re-fetch path needs no event, and an event-less charge credit is refused", async () => {
