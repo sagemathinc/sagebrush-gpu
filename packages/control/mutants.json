@@ -8127,5 +8127,10 @@
   "file": "src/stripe-reconcile.ts",
   "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
   "new": "m === r"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": " || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`",
+  "new": ""
  }
 ]

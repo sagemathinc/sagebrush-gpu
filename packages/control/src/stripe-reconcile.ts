@@ -61,20 +61,26 @@ const checked = (key: string, nowMs: number) =>
  * nothing is right. They refuse that marker alone, like a RangeError, while any other database error still
  * fails the run.
  */
-const LEDGER_REFUSALS: readonly string[] = Object.freeze([
+export const LEDGER_REFUSALS: readonly string[] = Object.freeze([
   "a later credit needs the PaymentIntent's pending marker",
   "a top-up must match its charge's reversal",
   "a balance must stay within 2^53 - 1 micro-USD either way",
   "a balance entry is never replaced",
 ]);
 /**
- * The refusal, when `e` is exactly one of those, in the database's own shape: the trigger's text alone (SQLite)
- * or as D1 reports it ("D1_ERROR: <text>: SQLITE_CONSTRAINT"). A message that merely quotes one of the texts
- * (any other prefix or suffix) is not a refusal, and fails the run.
+ * The refusal, when `e` is exactly one of those, in the database's own shape: the trigger's text alone (SQLite),
+ * or as D1 reports it, "D1_ERROR: <text>: SQLITE_CONSTRAINT", with or without " (extended:
+ * SQLITE_CONSTRAINT_TRIGGER)" (the form the pinned local D1 runtime emits; a contract row checks it against that
+ * runtime). A message that merely quotes one of the texts (any other prefix or suffix) is not a refusal, and
+ * fails the run.
  */
-const ledgerRefusal = (e: unknown): string | null => {
+export const ledgerRefusal = (e: unknown): string | null => {
   const m = e instanceof Error ? e.message : "";
-  return LEDGER_REFUSALS.find((r) => m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`) ?? null;
+  return (
+    LEDGER_REFUSALS.find(
+      (r) => m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT` || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`,
+    ) ?? null
+  );
 };
 
 /** One run: how many top-ups it credited. */

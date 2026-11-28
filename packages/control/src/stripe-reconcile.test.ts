@@ -349,12 +349,22 @@ test("the quiet-failure alert: a paid top-up the ledger refuses, or drops quietl
 test("the ledger's refusals are recognised only in the database's own shape; a message that merely quotes one fails the run", async () => {
   await paidWithoutFee("pi_1");
   const failing = (message: string) => ({ ...db, batch: async (stmts: Parameters<typeof db.batch>[0]) => (stmts.some((x) => x.sql.includes("INSERT OR IGNORE INTO balance_entries")) ? Promise.reject(new Error(message)) : db.batch(stmts)) });
-  for (const m of ["a balance entry is never replaced", "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT"]) {
+  for (const m of [
+    "a balance entry is never replaced",
+    "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT",
+    "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)",
+  ]) {
     alerts = [];
     assert.equal(await reconcilePendingTopups({ ...deps((id) => pi({ id }), T + 60_000), db: failing(m) }), 0, m);
     assert.deepEqual(alerts, ["stripe reconcile: a pending top-up's figures can't be credited (a balance entry is never replaced)"], m);
   }
-  for (const m of ["upstream said: a balance entry is never replaced", "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT (and more)", "a balance entry is never replaced, maybe"]) {
+  for (const m of [
+    "upstream said: a balance entry is never replaced",
+    "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT (and more)",
+    "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER) x",
+    "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_UNIQUE)",
+    "a balance entry is never replaced, maybe",
+  ]) {
     await assert.rejects(reconcilePendingTopups({ ...deps((id) => pi({ id }), T + 60_000), db: failing(m) }), (e: Error) => e.message === m, m);
   }
 });
