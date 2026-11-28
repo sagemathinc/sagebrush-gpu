@@ -61,11 +61,6 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "if (!policy.allowedGpuTypes.includes(request.gpuType)) return [];",
-  "new": ""
- },
- {
-  "file": "src/placement.ts",
   "old": "a.providerCostPerHour - b.providerCostPerHour ||",
   "new": "b.providerCostPerHour - a.providerCostPerHour ||"
  },

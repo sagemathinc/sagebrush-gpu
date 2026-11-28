@@ -34,3 +34,4 @@ PR (a test checks that every file in this directory is listed).
 | 0026_allocations_kept.sql | An allocation is never deleted (money). |
 | 0027_org_payments.sql | Organization payments through Stripe, credited net (money; with #125). |
 | 0028_pending_checks.sql | When the pending top-up re-fetch last asked Stripe about each marker. Holds no money; nothing credits from it. |
+| 0030_sweep_attempts.sql | When the orphan sweep last tried to end each orphan machine, for its back-off. Scheduling only: holds no money; nothing launches or charges from it. |

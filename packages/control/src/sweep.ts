@@ -17,6 +17,12 @@
 // outcome (a rejection or a lost reply doesn't prove the pod wasn't ended), and none once the
 // run's time budget is spent; orphans left over are reported, for the next run. A pod whose name
 // doesn't parse isn't listed by the adapter, so it is outside this sweep.
+//
+// Back-off (0030's sweep_attempts; William's fleet rule): an orphan is tried at once the first time it
+// is seen; after n attempts the next waits backoffMs(n) from the last one, so a provider that keeps
+// refusing isn't asked every run. Each attempt is recorded before the call. An orphan still waiting
+// isn't a failure of the run: they are alerted as one count a run. A run that read the list whole
+// forgets the attempts of machines that are no longer orphans.
 
 import type { ProviderMachineStatus } from "@sbgpu/providers";
 import type { ContainerEnv } from "./container.ts";
@@ -24,6 +30,18 @@ import { WATCHDOG_BUDGET_MS, withDeadline } from "./vm.ts";
 
 /** Terminations the sweep attempts a run, at most (attempts, not confirmations). */
 export const SWEEP_END_BATCH = 20;
+/** The wait after an orphan's first attempt; it doubles with each attempt, up to the cap. */
+export const SWEEP_BACKOFF_BASE_MS = 60_000;
+export const SWEEP_BACKOFF_CAP_MS = 60 * 60_000;
+/** The provider this sweep's attempts are recorded under (container mode is RunPod's). */
+const SWEEP_PROVIDER = "runpod";
+
+/** How long after an orphan's n-th attempt (n >= 1) the next may be made: deterministic, capped. */
+export function backoffMs(attempts: number): number {
+  if (!Number.isSafeInteger(attempts) || attempts < 1) throw new RangeError("attempts is a count of at least 1");
+  // (2^(n-1) reaches the cap long before it could lose precision)
+  return Math.min(SWEEP_BACKOFF_CAP_MS, SWEEP_BACKOFF_BASE_MS * 2 ** Math.min(attempts - 1, 30));
+}
 
 export interface SweepEnv extends ContainerEnv {
   alert(line: string): void;
@@ -47,6 +65,18 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
   let foreign = 0;
   let attempted = 0;
   let ended = 0;
+  let waiting = 0;
+  const orphans = new Set<string>();
+  const now = env.clock();
+  // (read once a pod of ours is listed: a run with none touches no table)
+  let tried: Map<string, { attempts: number; last_ms: number }> | null = null;
+  const attemptsSoFar = async () =>
+    (tried ??= new Map(
+      (await env.db.all<{ provider_machine_id: string; attempts: number; last_ms: number }>(
+        `SELECT provider_machine_id, attempts, last_ms FROM sweep_attempts WHERE provider = ?`,
+        [SWEEP_PROVIDER],
+      )).map((r) => [r.provider_machine_id, r]),
+    ));
   for (const s of list) {
     const n = s.parsedName;
     if (n === null || s.state === "terminated") continue;
@@ -55,13 +85,20 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
       continue;
     }
     let why: OrphanReason | null;
+    let before: { attempts: number; last_ms: number } | undefined;
     try {
       why = await orphanReason(env, n.machineId, n.incarnation, s.providerMachineId);
+      before = (await attemptsSoFar()).get(s.providerMachineId);
     } catch {
       problems.push(`${s.providerMachineId}: its launch couldn't be read`);
       continue;
     }
     if (why === null) continue;
+    orphans.add(s.providerMachineId);
+    if (before !== undefined && now < before.last_ms + backoffMs(before.attempts)) {
+      waiting++;
+      continue;
+    }
     if (attempted >= SWEEP_END_BATCH) {
       problems.push("more orphans than one run ends");
       break;
@@ -71,6 +108,11 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
       break;
     }
     attempted++; // (before the call: whatever the outcome, it may have ended the pod)
+    await env.db.run(
+      `INSERT INTO sweep_attempts (provider, provider_machine_id, attempts, last_ms) VALUES (?, ?, 1, ?)
+       ON CONFLICT (provider, provider_machine_id) DO UPDATE SET attempts = min(attempts + 1, 1000000), last_ms = excluded.last_ms`,
+      [SWEEP_PROVIDER, s.providerMachineId, now],
+    );
     const took = await withDeadline(() => p.terminate(s.providerMachineId).then(() => true), false);
     if (took) {
       ended++;
@@ -80,6 +122,11 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
     }
   }
   if (foreign > 0) env.alert(`${foreign} pod(s) of another installation; left as they are`);
+  if (waiting > 0) env.alert(`${waiting} orphan pod(s) waiting to be tried again (back-off)`);
+  // The list was read whole: attempts of machines that are no longer orphans are forgotten (once a pod of
+  // ours was listed; a run with none leaves the rows for the next that has one).
+  const gone = tried === null ? [] : [...(tried as Map<string, unknown>).keys()].filter((id) => !orphans.has(id));
+  for (const id of gone) await env.db.run(`DELETE FROM sweep_attempts WHERE provider = ? AND provider_machine_id = ?`, [SWEEP_PROVIDER, id]);
   if (problems.length > 0) throw new Error(problems.join("; "));
   return ended;
 }

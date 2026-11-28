@@ -6,7 +6,7 @@ import type { ProviderMachineStatus, LaunchSpec } from "@sbgpu/providers";
 import { machineName, nameFields } from "@sbgpu/providers";
 import { stmt } from "./db.ts";
 import { recordContainerId, recordContainerIntent, type ContainerProvider } from "./container.ts";
-import { SWEEP_END_BATCH, runContainerSweep, type SweepEnv } from "./sweep.ts";
+import { SWEEP_BACKOFF_BASE_MS, SWEEP_BACKOFF_CAP_MS, SWEEP_END_BATCH, backoffMs, runContainerSweep, type SweepEnv } from "./sweep.ts";
 import { T0, addMember, world, type World } from "./testing/world.ts";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -153,7 +153,7 @@ test("a list that can't be read ends nothing and fails the run; a launch row tha
   assert.deepEqual(rp.terminated, ["pod-b"]);
 });
 
-test("a termination the provider doesn't take is reported after the others; the next run tries it again", async () => {
+test("a termination the provider doesn't take is reported after the others; it is tried again once its back-off has passed", async () => {
   const a = newId("machine");
   const b = newId("machine");
   rp.add("pod-a", name(a));
@@ -162,8 +162,64 @@ test("a termination the provider doesn't take is reported after the others; the 
   await assert.rejects(runContainerSweep(env()), /^Error: pod-a: its termination wasn't taken$/);
   assert.deepEqual(rp.terminated, ["pod-b"]);
   rp.terminateFails.clear();
+  // the next run within the back-off doesn't ask again: one count, not a failure
+  w.clock.t += SWEEP_BACKOFF_BASE_MS - 1;
+  alerts = [];
+  assert.equal(await runContainerSweep(env()), 0);
+  assert.equal(rp.calls, 2);
+  assert.deepEqual(alerts, ["1 orphan pod(s) waiting to be tried again (back-off)"]);
+  w.clock.t += 1;
   assert.equal(await runContainerSweep(env()), 1);
   assert.deepEqual(rp.terminated, ["pod-b", "pod-a"]);
+});
+
+test("back-off (0030): a new orphan is tried at once; each refused attempt doubles the wait, from the last attempt, up to the cap", async () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 1000].map(backoffMs), [1, 2, 4, 8, 16, 32, 60, 60, 60].map((m) => m * 60_000));
+  assert.equal(backoffMs(7), SWEEP_BACKOFF_CAP_MS);
+  for (const n of [0, -1, 1.5, NaN]) assert.throws(() => backoffMs(n), RangeError, String(n));
+  rp.add("pod-x", name(newId("machine")));
+  rp.terminateFails.add("pod-x");
+  const t0 = w.clock.t;
+  const asked: number[] = [];
+  // a run every minute for three hours: asked only at each back-off's end
+  for (let minute = 0; minute <= 180; minute++) {
+    w.clock.t = t0 + minute * 60_000;
+    const before = rp.calls;
+    await runContainerSweep(env()).catch(() => {});
+    if (rp.calls > before) asked.push(minute);
+  }
+  assert.deepEqual(asked, [0, 1, 3, 7, 15, 31, 63, 123]);
+  const row = await w.db.all<{ attempts: number; last_ms: number }>(`SELECT attempts, last_ms FROM sweep_attempts WHERE provider_machine_id = 'pod-x'`);
+  assert.deepEqual(row.map((r) => ({ ...r })), [{ attempts: 8, last_ms: t0 + 123 * 60_000 }]);
+  // another orphan seen meanwhile is tried at once, not behind the first one's back-off
+  rp.add("pod-y", name(newId("machine")));
+  const before = rp.calls;
+  await runContainerSweep(env()).catch(() => {});
+  assert.equal(rp.calls, before + 1);
+  assert.deepEqual(rp.terminated, ["pod-y"]);
+});
+
+test("back-off (0030): the attempt is recorded before the call; a machine no longer an orphan is forgotten; an unreadable list forgets nothing", async () => {
+  rp.add("pod-a", name(newId("machine")));
+  rp.failAll = "lost"; // (ended, then the reply is lost)
+  await assert.rejects(runContainerSweep(env()));
+  assert.equal((await w.db.all(`SELECT 1 FROM sweep_attempts WHERE provider_machine_id = 'pod-a'`)).length, 1, "recorded though the call failed");
+  rp.failAll = null;
+  rp.add("pod-b", name(newId("machine")));
+  rp.terminateFails.add("pod-b");
+  await assert.rejects(runContainerSweep(env()));
+  // pod-a is gone from the list: its row goes; pod-b's stays
+  assert.deepEqual((await w.db.all<{ id: string }>(`SELECT provider_machine_id AS id FROM sweep_attempts ORDER BY id`)).map((r) => r.id), ["pod-b"]);
+  rp.listFails = true;
+  rp.pods.clear();
+  await assert.rejects(runContainerSweep(env()), /couldn't be read/);
+  assert.deepEqual((await w.db.all<{ id: string }>(`SELECT provider_machine_id AS id FROM sweep_attempts`)).map((r) => r.id), ["pod-b"]);
+  // a kept machine (its launch's own pod) is no orphan: never recorded
+  rp.listFails = false;
+  const m = await launch("pod-own");
+  rp.add("pod-own", name(m));
+  await runContainerSweep(env());
+  assert.deepEqual((await w.db.all<{ id: string }>(`SELECT provider_machine_id AS id FROM sweep_attempts`)).map((r) => r.id), []);
 });
 
 test("at most a batch of orphans ended a run; the rest wait for the next, and the run says so", async () => {

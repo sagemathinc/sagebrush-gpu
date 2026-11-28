@@ -77,7 +77,7 @@ test("no provider CHECK in the schema admits 'vast'", () => {
   // of its own: a compute entry must match its machine's accrual, which refuses 'vast' above.)
   const db = sqliteDb();
   const tables = db.raw.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE '%provider IN (%'").all() as Array<{ name: string; sql: string }>;
-  assert.deepEqual(tables.map((t) => t.name).sort(), ["availability_observations", "machine_accruals", "machines", "launches", "provider_credentials", "credential_events"].sort());
+  assert.deepEqual(tables.map((t) => t.name).sort(), ["availability_observations", "machine_accruals", "machines", "launches", "provider_credentials", "credential_events", "sweep_attempts"].sort());
   for (const t of tables) {
     for (const m of t.sql.matchAll(/provider IN \(([^)]*)\)/g)) assert.ok(!m[1]!.includes("'vast'"), t.name);
   }
