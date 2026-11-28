@@ -7503,12 +7503,6 @@
  },
  {
   "file": "src/spend.ts",
-  "old": "const usd = (micros: number): number => Number((micros / 1_000_000).toFixed(6));",
-  "new": "const usd = (micros: number): number => Number((micros / 1_000_000).toFixed(2));",
-  "note": "csv dollars rounded to cents"
- },
- {
-  "file": "src/spend.ts",
   "old": "       WHERE m.project_id = ? AND m.status <> 'removed' ORDER BY m.email, m.id`,",
   "new": "       WHERE m.project_id = ? ORDER BY m.email, m.id`,",
   "note": "csv lists removed members"
