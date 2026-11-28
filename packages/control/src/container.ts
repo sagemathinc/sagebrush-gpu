@@ -26,6 +26,7 @@ import { ProviderError, machineName, sameMachineName } from "@sbgpu/providers";
 import type { Db, Stmt } from "./db.ts";
 import { base64url, sha256Hex } from "./http.ts";
 import { closeAccrual } from "./ledger.ts";
+import { failStartStmts } from "./start.ts";
 import { BOOT_TOKEN_TTL_MS, CREATE_DEADLINE_MS, WATCHDOG_BATCH, WATCHDOG_BUDGET_MS, withDeadline, type JobEnv } from "./vm.ts";
 
 /** The calls container mode needs from a provider adapter (the RunPod adapter has them). */
@@ -389,6 +390,8 @@ export async function terminateContainerAttempt(env: ContainerEnv, r: ContainerR
         params: [at, r.machine_id, r.incarnation],
       },
       { sql: `UPDATE machines SET state = 'stopped' WHERE id = ? AND incarnation = ? AND state = 'stopping'`, params: [r.machine_id, r.incarnation] },
+      // (a launch that ended before it enrolled: its machine, still starting, fails, releasing its liability)
+      ...failStartStmts(r.machine_id, r.incarnation),
       ...closeAccrual(r.machine_id, r.incarnation, at),
     ]);
   }

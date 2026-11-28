@@ -372,7 +372,7 @@ test("definitive: an eradication report that doesn't pass uses the token, marks 
     assert.equal(rp.statusCalls, calls + 1, "the termination's own confirmation only: no read before the failure");
     const s = await state(l.machineId);
     assert.equal(typeof s.token.used_ms, "number");
-    assert.deepEqual([s.launch.outcome, s.launch.terminate_reason, s.machine.state], ["terminated", "eradication-failed", "starting"], JSON.stringify(eradication));
+    assert.deepEqual([s.launch.outcome, s.launch.terminate_reason, s.machine.state], ["terminated", "eradication-failed", "failed"], JSON.stringify(eradication));
     assert.deepEqual([w.alerts, rp.terminated], [["container-enroll: eradication-failed"], [l.pid]]);
   }
 });
@@ -388,7 +388,7 @@ test("definitive: a fresh read that disagrees ends the launch (token revoked fir
     assert.equal(typeof s.token.used_ms, "number");
     assert.ok(["terminate", "terminated"].includes(s.launch.outcome as string));
     assert.ok(["provider-facts", "pod-exited"].includes(s.launch.terminate_reason as string), JSON.stringify(over));
-    assert.equal(s.machine.state, "starting");
+    assert.equal(s.machine.state, "failed", "ended before enroll: the start fails");
   }
 });
 
@@ -440,7 +440,7 @@ test("definitive: two holders racing: the token used meanwhile, during the read 
       w.db.batch = batch;
     }
     const s = await state(l.machineId);
-    assert.deepEqual([s.launch.outcome, s.launch.terminate_reason, s.machine.state], ["terminated", "second-enroll", "starting"]);
+    assert.deepEqual([s.launch.outcome, s.launch.terminate_reason, s.machine.state], ["terminated", "second-enroll", "failed"]);
   }
 });
 

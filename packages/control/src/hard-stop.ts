@@ -14,13 +14,11 @@
 import type { Stmt } from "./db.ts";
 import { stopMachineStmt } from "./container.ts";
 import { accrueAll, findHardStops } from "./ledger.ts";
+import { HARD_STOP_PERIODS } from "./start.ts";
 import type { JobEnv } from "./vm.ts";
 
-/**
- * The hard stop's check and safety periods: the same as admission's (the start path's
- * HARD_STOP_PERIODS), so admission and the scheduled stop agree on the edge.
- */
-export const HARD_STOP_PERIODS = Object.freeze({ checkIntervalSeconds: 60, safetySeconds: 60 });
+/** The hard stop's check and safety periods are admission's own, so admission and the scheduled stop agree on the edge. */
+export { HARD_STOP_PERIODS };
 
 const TOOK: Stmt = { sql: `INSERT INTO enroll_guard (ok) SELECT 0 WHERE changes() <> 1`, params: [] };
 

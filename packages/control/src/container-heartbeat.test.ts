@@ -232,7 +232,8 @@ test("revocation leaves a starting machine for the start path (no workspace or p
   const seen = watchRevocation(s.machineId);
   assert.equal(await runContainerWatchdog(cenv()), 1);
   assert.deepEqual(seen, [[true, "starting"]]);
-  assert.deepEqual([(await launch(s.machineId)).outcome, await machineState(s.machineId)], ["terminated", "starting"]);
+  // (starting until the pod is confirmed gone; then the terminated batch fails it, releasing its liability)
+  assert.deepEqual([(await launch(s.machineId)).outcome, await machineState(s.machineId)], ["terminated", "failed"]);
   // the machine moved on to another incarnation: the old launch's end leaves it running
   const o = await container();
   await w.db.run(`UPDATE machines SET incarnation = 2 WHERE id = ?`, [o.machineId]);
