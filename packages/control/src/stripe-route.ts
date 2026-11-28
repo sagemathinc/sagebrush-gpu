@@ -84,7 +84,7 @@ export interface StripeEnv {
 export function stripeFromEnv(
   env: StripeEnv,
   o: { now(): number; alert(line: string): void; throttle: AlertThrottle; fetch: Fetch },
-): Pick<StripeRouteDeps, "secrets" | "stripe"> {
+): { readonly secrets: readonly string[]; readonly stripe: StripeApi | { readonly unusable: string } } {
   const raw = env.STRIPE_WEBHOOK_SECRETS;
   const secrets = typeof raw === "string" ? raw.split(",").map((s) => s.trim()).filter((s) => s !== "") : [];
   const key = env.STRIPE_API_KEY;
