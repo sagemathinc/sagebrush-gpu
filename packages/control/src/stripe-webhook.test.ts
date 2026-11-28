@@ -11,8 +11,8 @@ const sign = (body: string, ts = t, secret = SECRET) => createHmac("sha256", sec
 const header = (body: string, ts = t, secret = SECRET) => `t=${ts},v1=${sign(body, ts, secret)}`;
 const event = (o: Record<string, unknown> = {}) =>
   JSON.stringify({ id: "evt_1Abc", object: "event", type: "checkout.session.completed", livemode: false, created: t, data: { object: { id: "cs_test_1", object: "checkout.session" } }, ...o });
-const verify = (body: string, h: string | null, secrets = [SECRET], o: Partial<{ nowMs: number; livemode: boolean }> = {}) =>
-  verifyStripeEvent(body, h, secrets, { nowMs: NOW, livemode: false, ...o });
+const verify = (body: string | Uint8Array, h: string | null, secrets = [SECRET], o: Partial<{ nowMs: number; livemode: boolean }> = {}) =>
+  verifyStripeEvent(typeof body === "string" ? new TextEncoder().encode(body) : body, h, secrets, { nowMs: NOW, livemode: false, ...o });
 
 test("a correctly signed TEST event in the window is accepted", async () => {
   const b = event();
@@ -117,4 +117,17 @@ test("a header part with an empty key is refused; a secret shorter than whsec_ p
   assert.deepEqual(await verify(b, header(b, t, short), [short]), { ok: false, reason: "signature" });
   const eight = "whsec_12345678";
   assert.ok((await verify(b, header(b, t, eight), [eight])).ok, "eight characters after whsec_ is allowed");
+});
+
+test("the signature is over the bytes as received; only then are they decoded, strictly", async () => {
+  // a body that isn't UTF-8, signed over its own bytes: the signature holds, and the body is refused
+  const text = event();
+  const at = text.indexOf("cs_test_1");
+  const raw = new Uint8Array([...new TextEncoder().encode(text.slice(0, at)), 0xff, ...new TextEncoder().encode(text.slice(at))]);
+  const macRaw = createHmac("sha256", SECRET).update(Buffer.concat([Buffer.from(`${t}.`), raw])).digest("hex");
+  assert.deepEqual(await verify(raw, `t=${t},v1=${macRaw}`), { ok: false, reason: "body" });
+  // the same bytes decoded leniently (U+FFFD) and signed as text: not what was received, so not ours
+  const lenient = new TextDecoder("utf-8").decode(raw);
+  assert.ok(lenient.includes("\uFFFD"));
+  assert.deepEqual(await verify(raw, header(lenient)), { ok: false, reason: "signature" });
 });

@@ -131,7 +131,7 @@ test("an answer is read to at most 256 KiB, declared or streamed", async () => {
 });
 
 const charge = (o: Record<string, unknown> = {}) => ({
-  object: "charge", id: "ch_1", livemode: false, currency: "usd", amount: 5000, customer: "cus_A", payment_intent: "pi_1", balance_transaction: bt({ fee: 175 }),
+  object: "charge", id: "ch_1", livemode: false, currency: "usd", amount: 5000, amount_captured: 5000, customer: "cus_A", payment_intent: "pi_1", balance_transaction: bt({ fee: 175 }),
   refunds: { object: "list", has_more: false, data: [
     { object: "refund", id: "re_1", currency: "usd", amount: 1000, status: "succeeded" },
     { object: "refund", id: "re_2", currency: "usd", amount: 500, status: "pending" },
@@ -144,10 +144,12 @@ test("T2: a charge with every refund, each in micro-USD with its status", async 
   const c = await stripe(f).charge("ch_1");
   assert.equal(calls[0]!.url, `${API}/v1/charges/ch_1?expand[]=balance_transaction&expand[]=refunds`);
   assert.deepEqual(c, {
-    id: "ch_1", customer: "cus_A", paymentIntent: "pi_1", amountMicros: 50_000_000, feeMicros: 1_750_000,
+    id: "ch_1", customer: "cus_A", paymentIntent: "pi_1", amountMicros: 50_000_000, capturedMicros: 50_000_000, feeMicros: 1_750_000,
     refunds: [{ id: "re_1", amountMicros: 10_000_000, status: "succeeded" }, { id: "re_2", amountMicros: 5_000_000, status: "pending" }],
   });
   assert.equal(await kind(stripe(fake(() => ok(charge({ refunds: { object: "list", has_more: true, data: [] } }))).f).charge("ch_1")), "invalid", "a second page is never silently dropped");
+  assert.equal(await kind(stripe(fake(() => ok(charge({ amount_captured: undefined }))).f).charge("ch_1")), "invalid", "the captured amount is required (SEC N2 on #124)");
+  assert.equal((await stripe(fake(() => ok(charge({ amount_captured: 3000 }))).f).charge("ch_1")).capturedMicros, 30_000_000);
   assert.equal(await kind(stripe(fake(() => ok(charge({ refunds: "x" }))).f).charge("ch_1")), "invalid");
   assert.equal(await kind(stripe(fake(() => ok(charge({ refunds: { object: "list", has_more: false, data: [{ id: "ch_9", currency: "usd", amount: 1, status: "succeeded" }] } }))).f).charge("ch_1")), "invalid");
   assert.equal(await kind(stripe(fake(() => ok(charge({ refunds: { object: "list", has_more: false, data: [{ id: "re_9", currency: "usd", amount: 1, status: "done" }] } }))).f).charge("ch_1")), "invalid");

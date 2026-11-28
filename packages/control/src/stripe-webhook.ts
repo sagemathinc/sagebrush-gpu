@@ -70,9 +70,14 @@ function parseHeader(h: string | null): { t: number; v1: string[] } | null {
   return t == null || v1.length === 0 ? null : { t, v1 };
 }
 
-async function hmacHex(secret: string, text: string): Promise<string> {
+/** HMAC-SHA256 of "<t>." followed by the body's bytes exactly as received (never a decoded and re-encoded copy). */
+async function hmacHex(secret: string, t: number, body: Uint8Array): Promise<string> {
+  const prefix = enc.encode(`${t}.`);
+  const signed = new Uint8Array(prefix.byteLength + body.byteLength);
+  signed.set(prefix, 0);
+  signed.set(body, prefix.byteLength);
   const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(text)));
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, signed));
   return Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -86,29 +91,31 @@ function sameHex(a: string, b: string): boolean {
 }
 
 /**
- * The event, or why it was refused. `secrets` are the endpoint's signing secrets (whsec_…), the current one
- * first; an empty list refuses everything. `livemode` is this deployment's mode.
+ * The event, or why it was refused. `rawBody` is the delivery's bytes as received: the signature is checked
+ * over exactly those, and only then are they decoded (UTF-8, strictly) and parsed. `secrets` are the
+ * endpoint's signing secrets (whsec_…), the current one first; an empty list refuses everything. `livemode`
+ * is this deployment's mode.
  */
 export async function verifyStripeEvent(
-  rawBody: string,
+  rawBody: Uint8Array,
   signatureHeader: string | null,
   secrets: readonly string[],
   opts: { nowMs: number; livemode: boolean },
 ): Promise<{ ok: true; event: StripeEvent } | { ok: false; reason: Refusal }> {
-  if (enc.encode(rawBody).length > MAX_BODY_BYTES) return { ok: false, reason: "size" };
+  if (rawBody.byteLength > MAX_BODY_BYTES) return { ok: false, reason: "size" };
   const h = parseHeader(signatureHeader);
   if (h == null) return { ok: false, reason: "header" };
   if (Math.abs(Math.floor(opts.nowMs / 1000) - h.t) > TOLERANCE_SECONDS) return { ok: false, reason: "stale" };
   let matched = false;
   for (const s of secrets) {
     if (!/^whsec_[A-Za-z0-9]{8,}$/.test(s)) continue;
-    const want = await hmacHex(s, `${h.t}.${rawBody}`);
+    const want = await hmacHex(s, h.t, rawBody);
     for (const v of h.v1) if (sameHex(v, want)) matched = true;
   }
   if (!matched) return { ok: false, reason: "signature" };
   let j: unknown;
   try {
-    j = JSON.parse(rawBody);
+    j = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(rawBody));
   } catch {
     return { ok: false, reason: "body" };
   }
