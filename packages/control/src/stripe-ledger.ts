@@ -5,10 +5,16 @@
 // - Who: a Stripe object's person is the stripe_customers row for its Customer (N3), found in SQL; an
 //   unknown Customer writes nothing.
 // - Once: every row is keyed by its Stripe object (migration 0022), and written with OR IGNORE, so a
-//   replayed, retried or reordered event adds nothing. The event itself is recorded once in
-//   stripe_events; a replay is reported, not an error.
+//   replayed or retried event adds nothing, and the amounts are Stripe's, so the order events arrive in
+//   doesn't change the sum. The same key with a different person or amount is refused by the database.
+//   The event itself is recorded once in stripe_events; a replay is reported, not an error.
 // - Two writers, two scopes: the ledger writer can't name gpu_plans and the plan writer can't name
 //   balance_entries or account_freezes (d3's per-writer pin). Each runs through scopedDb.
+
+// Money is exact (William's rule): integer micro-USD only, checked to be safe integers where it comes in
+// (micros()) and where a sum goes out (balanceOf), with no floating point, no division and so no rounding
+// here: a top-up's net is gross minus fee and a reversal is a negation. (The per-minute ceiling of T5 is
+// the usage meter's, not this module's.)
 
 import { stmt, type Db, type SqlValue, type Stmt } from "./db.ts";
 
@@ -87,8 +93,9 @@ async function run(db: Db, e: EventRef, money: Stmt[]): Promise<Outcome> {
 // ---- customers (N3)
 
 /**
- * The person's Customer: the first one recorded is kept, so two concurrent first top-ups end with one.
- * Throws if `customerId` already belongs to someone else.
+ * The person's Customer (one per person, N3). Customer creation is idempotent at Stripe (a key derived
+ * from the person), so two concurrent first top-ups record the same Customer once. Throws if the person
+ * already has another Customer, or `customerId` already belongs to someone else.
  */
 export async function recordCustomer(db: Db, who: Who, customerId: string, nowMs: number): Promise<string> {
   const l = scopedDb(db, LEDGER_TABLES);
@@ -168,13 +175,16 @@ export async function recordRefunds(db: Db, e: EventRef, p: { customerId: string
 }
 
 /**
- * A dispute or an early fraud warning on a charge: the charge's net credit is reversed once, whichever
- * comes first (d3 T3, T4); a later signal adds a row with no amount. Either freezes the account.
+ * A dispute or an early fraud warning on a charge: the charge's net (its amount minus its fee, from the
+ * re-fetched charge, never from our rows) is reversed once, whichever comes first (d3 T3, T4); a later
+ * signal adds a row with no amount. Either freezes the account. Because the amount is Stripe's, a reversal
+ * that arrives before its top-up is still right: the two sum to zero in either order. While the charge's
+ * fee isn't known the caller defers (Stripe retries), as for a top-up.
  */
-export async function recordReversal(db: Db, e: EventRef, p: { customerId: string; chargeId: string; paymentIntent: string; reason: "dispute" | "early fraud warning" }): Promise<Outcome> {
+export async function recordReversal(db: Db, e: EventRef, p: { customerId: string; chargeId: string; netMicros: number; reason: "dispute" | "early fraud warning" }): Promise<Outcome> {
   const c = id("customer", p.customerId);
   const ch = id("charge", p.chargeId);
-  const pi = id("paymentIntent", p.paymentIntent);
+  const net = micros(p.netMicros, 1);
   if (p.reason !== "dispute" && p.reason !== "early fraud warning") throw new RangeError("a reversal is for a dispute or an early fraud warning");
   return run(scopedDb(db, LEDGER_TABLES), e, [
     // (before the reversal, so it sees only an earlier one)
@@ -185,8 +195,8 @@ export async function recordReversal(db: Db, e: EventRef, p: { customerId: strin
     ),
     stmt(
       `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, event_id, created_ms)
-       SELECT c.iss, c.sub, 'reversal', ?, -COALESCE((SELECT t.amount FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = ? AND t.iss = c.iss AND t.sub = c.sub), 0), ?, ? ${PERSON}`,
-      ch, pi, e.eventId, e.nowMs, c,
+       SELECT c.iss, c.sub, 'reversal', ?, ?, ?, ? ${PERSON}`,
+      ch, -net, e.eventId, e.nowMs, c,
     ),
     stmt(
       `INSERT INTO account_freezes (iss, sub, frozen, reason, by_user, created_ms) SELECT c.iss, c.sub, 1, ?, NULL, ? ${PERSON}
@@ -211,8 +221,11 @@ export async function recordDisputeWon(db: Db, e: EventRef, p: { customerId: str
 
 /** The person's balance in micro-USD: the sum of their rows; negative after a dispute (T4). */
 export async function balanceOf(db: Db, who: Who): Promise<number> {
-  const r = await scopedDb(db, LEDGER_TABLES).all<{ b: number }>(`SELECT COALESCE(SUM(amount), 0) AS b FROM balance_entries WHERE iss = ? AND sub = ?`, [who.iss, who.sub]);
-  return r[0]!.b;
+  const r = await scopedDb(db, LEDGER_TABLES).all<{ b: unknown }>(`SELECT COALESCE(SUM(amount), 0) AS b FROM balance_entries WHERE iss = ? AND sub = ?`, [who.iss, who.sub]);
+  // (0022 keeps every person's sum within the safe range; checked again here, never trusted)
+  const b = r[0]!.b;
+  if (typeof b !== "number" || !Number.isSafeInteger(b)) throw new RangeError("a balance outside the exact integer range");
+  return b;
 }
 
 export async function isFrozen(db: Db, who: Who): Promise<boolean> {

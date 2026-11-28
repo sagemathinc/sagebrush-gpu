@@ -7015,11 +7015,6 @@
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "-COALESCE((SELECT t.amount FROM balance_entries t WHERE t.kind = 'topup'",
-  "new": "-COALESCE((SELECT t.gross FROM balance_entries t WHERE t.kind = 'topup'"
- },
- {
-  "file": "src/stripe-ledger.ts",
   "old": "AND COALESCE((SELECT f.frozen FROM account_freezes f WHERE f.iss = c.iss AND f.sub = c.sub ORDER BY f.seq DESC LIMIT 1), 0) = 0`",
   "new": "`"
  },
@@ -7155,11 +7150,6 @@
  },
  {
   "file": "migrations/0022_stripe_ledger.sql",
-  "old": "(substr(stripe_key, 1, 3) = 'ch_' AND amount <= 0)),\n  CHECK (kind <> 'restore'",
-  "new": "(substr(stripe_key, 1, 3) = 'ch_')),\n  CHECK (kind <> 'restore'"
- },
- {
-  "file": "migrations/0022_stripe_ledger.sql",
   "old": "  UNIQUE (kind, stripe_key),\n",
   "new": ""
  },
@@ -7192,5 +7182,95 @@
   "file": "migrations/0022_stripe_ledger.sql",
   "old": "(substr(stripe_key, 1, 3) = 'pi_' AND amount = 0)",
   "new": "(substr(stripe_key, 1, 3) = 'pi_')"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "ch, -net, e.eventId, e.nowMs, c,",
+  "new": "ch, 0 - 1, e.eventId, e.nowMs, c,"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  const net = micros(p.netMicros, 1);",
+  "new": "  const net = micros(p.netMicros, 0);"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "(substr(stripe_key, 1, 3) = 'ch_' AND amount < 0)),\n  CHECK (kind <> 'restore'",
+  "new": "(substr(stripe_key, 1, 3) = 'ch_' AND amount <= 0)),\n  CHECK (kind <> 'restore'"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM stripe_customers WHERE iss = NEW.iss AND sub = NEW.sub AND customer_id = NEW.customer_id)\nBEGIN SELECT RAISE(IGNORE); END;",
+  "new": "WHEN 0\nBEGIN SELECT RAISE(IGNORE); END;"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM stripe_customers WHERE (iss = NEW.iss AND sub = NEW.sub) <> (customer_id = NEW.customer_id)",
+  "new": "WHEN 0 AND EXISTS (SELECT 1 FROM stripe_customers WHERE (iss = NEW.iss AND sub = NEW.sub) <> (customer_id = NEW.customer_id)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  AND ((iss = NEW.iss AND sub = NEW.sub) OR customer_id = NEW.customer_id))",
+  "new": "  AND (customer_id = NEW.customer_id))"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM stripe_events WHERE event_id = NEW.event_id AND type <> NEW.type)",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "    AND NOT (iss = NEW.iss AND sub = NEW.sub AND amount = NEW.amount AND gross IS NEW.gross AND fee IS NEW.fee))",
+  "new": "    AND NOT (iss = NEW.iss AND sub = NEW.sub AND gross IS NEW.gross AND fee IS NEW.fee))"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN (NEW.seq IS NOT NULL AND EXISTS (SELECT 1 FROM balance_entries WHERE seq = NEW.seq))\n  OR",
+  "new": "WHEN"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN NEW.seq IS NOT NULL AND EXISTS (SELECT 1 FROM account_freezes WHERE seq = NEW.seq)",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN NEW.seq IS NOT NULL AND EXISTS (SELECT 1 FROM gpu_plans WHERE seq = NEW.seq)",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM gpu_plans WHERE subscription_id = NEW.subscription_id AND (iss <> NEW.iss OR sub <> NEW.sub))",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "AND NOT EXISTS (SELECT 1 FROM balance_entries WHERE kind = 'pending' AND stripe_key = NEW.stripe_key AND iss = NEW.iss AND sub = NEW.sub)",
+  "new": "AND NOT EXISTS (SELECT 1 FROM balance_entries WHERE kind = 'pending' AND stripe_key = NEW.stripe_key)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "AND NOT EXISTS (SELECT 1 FROM balance_entries WHERE kind = 'reversal' AND stripe_key = NEW.stripe_key AND iss = NEW.iss AND sub = NEW.sub AND amount = -NEW.amount)",
+  "new": "AND NOT EXISTS (SELECT 1 FROM balance_entries WHERE kind = 'reversal' AND stripe_key = NEW.stripe_key AND amount = -NEW.amount)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  AND abs(COALESCE((SELECT SUM(amount) FROM balance_entries WHERE iss = NEW.iss AND sub = NEW.sub), 0) + NEW.amount) > 9007199254740991",
+  "new": "  AND 0"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  AND abs(COALESCE((SELECT SUM(amount) FROM balance_entries WHERE iss = NEW.iss AND sub = NEW.sub), 0) + NEW.amount) > 9007199254740991",
+  "new": "  AND COALESCE((SELECT SUM(amount) FROM balance_entries WHERE iss = NEW.iss AND sub = NEW.sub), 0) + NEW.amount > 9007199254740991"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  AND abs(COALESCE((SELECT SUM(amount) FROM balance_entries WHERE iss = NEW.iss AND sub = NEW.sub), 0) + NEW.amount) > 9007199254740991",
+  "new": "  AND abs(COALESCE((SELECT SUM(amount) FROM balance_entries WHERE iss = NEW.iss AND sub = NEW.sub), 0) + NEW.amount) > 9007199254740992"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (typeof b !== \"number\" || !Number.isSafeInteger(b)) throw new RangeError(\"a balance outside the exact integer range\");\n",
+  "new": ""
  }
 ]
