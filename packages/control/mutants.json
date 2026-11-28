@@ -6602,7 +6602,7 @@
  },
  {
   "file": "src/start.ts",
-  "old": "      pending += pendingCharge(m);\n",
+  "old": "      pendings.push(pendingCharge(m));\n",
   "new": "",
   "note": "pending charge ignored"
  },
@@ -6620,8 +6620,8 @@
  },
  {
   "file": "src/start.ts",
-  "old": "  const unspent = alloc.amount - alloc.spent - pending;",
-  "new": "  const unspent = alloc.amount - pending;",
+  "old": "  const unspent = exactUnspent(alloc.amount, alloc.spent, pendings);",
+  "new": "  const unspent = exactUnspent(alloc.amount, 0, pendings);",
   "note": "ledger entries ignored"
  },
  {
@@ -7937,6 +7937,31 @@
   "file": "src/stripe-route.ts",
   "old": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n      await known(c.customer);\n",
   "new": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  const unspent = exactUnspent(alloc.amount, alloc.spent, pendings);",
+  "new": "  const unspent = alloc.amount - alloc.spent - pendings.reduce((x, y) => x + y, 0);"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (left > BigInt(Number.MAX_SAFE_INTEGER) || left < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (left < -BigInt(Number.MAX_SAFE_INTEGER)) throw"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (left > BigInt(Number.MAX_SAFE_INTEGER) || left < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (left > BigInt(Number.MAX_SAFE_INTEGER)) throw"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  for (const v of [amount, spent, ...pendings]) if (!Number.isSafeInteger(v)) throw new RangeError(\"unspent: a figure is not a safe integer\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  for (const p of pendings) left -= BigInt(p);",
+  "new": "  for (const p of pendings.slice(1)) left -= BigInt(p);"
  },
  {
   "file": "src/stripe-reconcile.ts",
