@@ -134,3 +134,32 @@ test("a team that spent more than its allocation keeps its whole allocation when
   assert.equal(code(await call(w, "DELETE", `${TP}/${u.id}`, { cookie: mgr.cookie })), "ok");
   assert.equal((await w.db.all<{ amount: number }>(`SELECT amount FROM allocations WHERE id = ?`, [u.allocationId]))[0]!.amount, 0);
 });
+
+test("REPLACE can't lower an allocation either (it deletes and re-inserts, skipping the update triggers)", async () => {
+  const w = await world({ budget: 1000 });
+  const own = await person(w, "own@example.com", "owner");
+  const a = await person(w, "a@example.com", "member");
+  const b = await person(w, "b@example.com", "member");
+  const set = (id: string, amount: number) => call(w, "PUT", `${M(w)}/${id}/allocation`, { cookie: own.cookie, body: { amount } });
+  await set(a.memberId, 600);
+  await set(b.memberId, 400);
+  const al = (await allocationOf(w, a.memberId)).id;
+  await spend(w, al, 500);
+  for (const verb of ["INSERT OR REPLACE", "REPLACE", "INSERT OR IGNORE", "INSERT"]) {
+    await assert.rejects(
+      w.db.batch([stmt(`${verb} INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) SELECT id, project_id, holder_kind, holder_id, 100, updated_ms FROM allocations WHERE id = ?`, al)]),
+      /never replaced/, `${verb}, same id`,
+    );
+    await assert.rejects(
+      w.db.batch([stmt(`${verb} INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) SELECT ?, project_id, holder_kind, holder_id, 100, updated_ms FROM allocations WHERE id = ?`, newId("allocation"), al)]),
+      /never replaced/, `${verb}, same holder`,
+    );
+  }
+  // the same id for another holder is refused on the id alone
+  await assert.rejects(
+    w.db.batch([stmt(`INSERT OR REPLACE INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'team', ?, 0, ?)`, al, w.projectId, newId("team"), T0)]),
+    /never replaced/, "same id, new holder",
+  );
+  assert.equal((await allocationOf(w, a.memberId)).amount, 600);
+  assert.equal(code(await set(b.memberId, 900)), "conflict", "so B can't be raised into A's spent credit");
+});

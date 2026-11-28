@@ -22,3 +22,13 @@ WHEN NEW.amount < OLD.amount AND NEW.amount < (SELECT COALESCE(SUM(e.total), 0) 
 BEGIN
   SELECT RAISE(ABORT, 'committed: the allocation would fall below what it has spent');
 END;
+
+-- REPLACE deletes the old row and inserts the new one without firing the UPDATE triggers above, so no
+-- insert may meet an existing allocation, by either of its keys: an allocation is written once, then only
+-- updated (the routes only ever insert new ones).
+CREATE TRIGGER allocations_never_replaced BEFORE INSERT ON allocations
+WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id
+             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))
+BEGIN
+  SELECT RAISE(ABORT, 'committed: an allocation is never replaced');
+END;

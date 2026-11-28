@@ -7492,5 +7492,20 @@
   "file": "src/projects.ts",
   "old": "    )) spent.set(s.project_id, { p: exactSum(s.p), m: exactSum(s.m), t: exactSum(s.t) });",
   "new": "    )) spent.set(s.project_id, { p: s.p as number, m: s.m as number, t: s.t as number });"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
+  "new": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id)"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
+  "new": "WHEN EXISTS (SELECT 1 FROM allocations WHERE (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))"
  }
 ]
