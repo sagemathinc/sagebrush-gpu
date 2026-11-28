@@ -6602,7 +6602,7 @@
  },
  {
   "file": "src/start.ts",
-  "old": "      pending += pendingCharge(m);\n",
+  "old": "      pendings.push(pendingCharge(m));\n",
   "new": "",
   "note": "pending charge ignored"
  },
@@ -6620,8 +6620,8 @@
  },
  {
   "file": "src/start.ts",
-  "old": "  const unspent = alloc.amount - alloc.spent - pending;",
-  "new": "  const unspent = alloc.amount - pending;",
+  "old": "  const unspent = exactUnspent(alloc.amount, alloc.spent, pendings);",
+  "new": "  const unspent = exactUnspent(alloc.amount, 0, pendings);",
   "note": "ledger entries ignored"
  },
  {
@@ -6890,7 +6890,7 @@
  },
  {
   "file": "src/stripe-webhook.ts",
-  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES) return { ok: false, reason: \"size\" };",
+  "old": "if (rawBody.byteLength > MAX_BODY_BYTES) return { ok: false, reason: \"size\" };",
   "new": ""
  },
  {
@@ -6940,13 +6940,13 @@
  },
  {
   "file": "src/stripe-webhook.ts",
-  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
-  "new": "if (rawBody.length > MAX_BODY_BYTES)"
+  "old": "j = JSON.parse(new TextDecoder(\"utf-8\", { fatal: true }).decode(rawBody));",
+  "new": "j = JSON.parse(new TextDecoder(\"utf-8\").decode(rawBody));"
  },
  {
   "file": "src/stripe-webhook.ts",
-  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
-  "new": "if (enc.encode(rawBody).length >= MAX_BODY_BYTES)"
+  "old": "if (rawBody.byteLength > MAX_BODY_BYTES)",
+  "new": "if (rawBody.byteLength >= MAX_BODY_BYTES)"
  },
  {
   "file": "src/stripe-webhook.ts",
@@ -7355,7 +7355,7 @@
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "  return stale ? \"stale\" : \"nothing\";",
+  "old": "  return later[0]!.k > 0 ? \"stale\" : \"nothing\";",
   "new": "  return \"nothing\";"
  },
  {
@@ -7422,6 +7422,236 @@
   "file": "migrations/0022_stripe_ledger.sql",
   "old": "AND via IS NOT NULL AND ref IS NOT NULL AND substr(ref, 1, 3) = 'ch_')),",
   "new": "AND via IS NOT NULL AND ref IS NOT NULL)),"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "test: /^rk_test_[A-Za-z0-9]{10,247}$/",
+  "new": "test: /^(rk|sk)_test_[A-Za-z0-9]{10,247}$/"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (!(c.livemode ? KEY.live : KEY.test).test(c.apiKey))",
+  "new": "if (!KEY.test.test(c.apiKey) && !KEY.live.test(c.apiKey))"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (bad !== null) throw new Error(bad);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (o[\"livemode\"] !== this.#c.livemode) throw invalid(\"the answer's mode isn't this deployment's\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (o[\"object\"] !== object) throw invalid(`the answer is not a ${object}`);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "redirect: \"manual\",",
+  "new": "redirect: \"follow\","
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "\"stripe-version\": STRIPE_VERSION",
+  "new": "\"stripe-version\": \"2025-03-31.basil\""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        signal: AbortSignal.timeout(DEADLINE_MS),\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (r.status === 429 || r.status >= 500)",
+  "new": "if (r.status >= 500)"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (r.status === 429 || r.status >= 500)",
+  "new": "if (r.status === 429 || r.status >= 400)"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (r.status !== 200) {",
+  "new": "if (r.status >= 400) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "BigInt(declared) > BigInt(ANSWER_MAX_BYTES)",
+  "new": "false"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (n > ANSWER_MAX_BYTES) {",
+  "new": "    if (n > ANSWER_MAX_BYTES * 4) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (n > ANSWER_MAX_BYTES) {",
+  "new": "    if (n >= ANSWER_MAX_BYTES) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "new TextDecoder(\"utf-8\", { fatal: true })",
+  "new": "new TextDecoder(\"utf-8\")"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (o[\"currency\"] !== \"usd\") throw invalid(`${what} isn't in USD`);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "wasn't expanded\");\n    usd(p, \"the PaymentIntent\");\n",
+  "new": "wasn't expanded\");\n"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  usd(b, \"the balance transaction\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "v < 0 ||",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "return v * MICROS_PER_CENT;",
+  "new": "return v * 100;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "!Number.isSafeInteger(v) || v < 0",
+  "new": "v < 0"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "|| v > Number.MAX_SAFE_INTEGER / MICROS_PER_CENT",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (b[\"status\"] === \"pending\") return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (v === null || v === undefined || typeof v === \"string\") return null;",
+  "new": "  if (v === null || v === undefined) return null;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (list[\"has_more\"] !== false) throw invalid(\"the charge has more refunds than one page\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (p[\"object\"] !== \"payment_intent\") throw invalid(\"the PaymentIntent wasn't expanded\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "currentPeriodEndMs: end * 1000,",
+  "new": "currentPeriodEndMs: end,"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (typeof s[\"cancel_at_period_end\"] !== \"boolean\") throw invalid(\"cancel_at_period_end is not a boolean\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (typeof v !== \"string\" || !ID[kind].test(v)) throw invalid(`not a Stripe ${kind} id`);",
+  "new": "  if (typeof v !== \"string\") throw invalid(`not a Stripe ${kind} id`);"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "checkoutSession: /^cs_(test|live)_[A-Za-z0-9]{1,240}$/",
+  "new": "checkoutSession: /^cs_(test|live)_[A-Za-z0-9/.]{1,240}$/"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "[\"balance_transaction\", \"refunds\"]",
+  "new": "[\"balance_transaction\"]"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "const INTEGER_TOKEN = /^(0|-?[1-9][0-9]{0,15})$/;",
+  "new": "const INTEGER_TOKEN = /^-?[0-9.eE+-]+$/;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "const INTEGER_TOKEN = /^(0|-?[1-9][0-9]{0,15})$/;",
+  "new": "const INTEGER_TOKEN = /^-?(0|[1-9][0-9]{0,15})$/;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  return b > BigInt(Number.MAX_SAFE_INTEGER) || b < -BigInt(Number.MAX_SAFE_INTEGER) ? new Inexact(src) : value;",
+  "new": "  return value;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (!INTEGER_TOKEN.test(src)) return new Inexact(src);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      throw new StripeError(\"unavailable\", \"the answer was cut off\");",
+  "new": "      throw new TypeError(\"cut off\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (\"livemode\" in o && o[\"livemode\"] !== this.#c.livemode) throw invalid(`${what}'s mode isn't this deployment's`);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    const p = this.#sameMode(obj(pi, \"the PaymentIntent\"), \"the PaymentIntent\");",
+  "new": "    const p = obj(pi, \"the PaymentIntent\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": " : this.#sameMode(obj(p[\"latest_charge\"], \"the charge\"), \"the charge\");",
+  "new": " : obj(p[\"latest_charge\"], \"the charge\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        const r = this.#sameMode(obj(x, \"a refund\"), \"a refund\");",
+  "new": "        const r = obj(x, \"a refund\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    const list = this.#sameMode(obj(c[\"refunds\"], \"the refunds\"), \"the refunds\");",
+  "new": "    const list = obj(c[\"refunds\"], \"the refunds\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      feeMicros: fee(this.#expanded(c[\"balance_transaction\"], \"the balance transaction\")),",
+  "new": "      feeMicros: fee(c[\"balance_transaction\"]),"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        feeMicros: charge === null ? null : fee(this.#expanded(charge[\"balance_transaction\"], \"the balance transaction\")),",
+  "new": "        feeMicros: charge === null ? null : fee(charge[\"balance_transaction\"]),"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (r.status === 401 || r.status === 403) {",
+  "new": "    if (false) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        this.#c.keyRefused?.(r.status, `${this.#c.livemode ? \"live\" : \"test\"} \u2026${this.#c.apiKey.slice(-4)}`);",
+  "new": "        void 0;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      try {\n        this.#c.keyRefused?.(r.status, `${this.#c.livemode ? \"live\" : \"test\"} \u2026${this.#c.apiKey.slice(-4)}`);\n      } catch {\n        // (an alert hook that fails must not turn a retry into a refusal)\n      }",
+  "new": "      this.#c.keyRefused?.(r.status, `${this.#c.livemode ? \"live\" : \"test\"} \u2026${this.#c.apiKey.slice(-4)}`);"
  },
  {
   "file": "migrations/0023_allocation_commitments.sql",
@@ -7507,6 +7737,426 @@
   "file": "migrations/0023_allocation_commitments.sql",
   "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
   "new": "WHEN EXISTS (SELECT 1 FROM allocations WHERE (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))"
+ },
+ {
+  "file": "migrations/0026_allocations_kept.sql",
+  "old": "  SELECT RAISE(ABORT, 'committed: an allocation is never deleted');",
+  "new": "  SELECT 1;"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "fetched_ms = ?) - 1 AS k`",
+  "new": "fetched_ms = ?) AS k`"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "WHERE subscription_id = ? AND fetched_ms > ?) +",
+  "new": "WHERE subscription_id = ? AND fetched_ms > ? + 1000) +"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "signed.set(body, prefix.byteLength);",
+  "new": "signed.set(body.subarray(0, Math.max(0, body.byteLength - 1)), prefix.byteLength);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (last !== undefined && nowMs - last < this.#windowMs) return false;",
+  "new": "if (false) return false;"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "nowMs - last < this.#windowMs",
+  "new": "nowMs - last <= this.#windowMs"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (o.throttle.allow(\"stripe key refused\", o.now())) o.alert(",
+  "new": "if (true) o.alert("
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "return answer(503, \"unavailable\", \"not configured\");",
+  "new": "return answer(200, null, \"\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (d.secrets.length === 0 || \"unusable\" in d.stripe) {",
+  "new": "if (\"unusable\" in d.stripe) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "BigInt(declared) > BigInt(MAX_BODY_BYTES)) {",
+  "new": "false) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "body = await readCapped(req.body, MAX_BODY_BYTES);",
+  "new": "body = await readCapped(req.body, MAX_BODY_BYTES * 64);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "    return answer(400, \"badRequest\", \"refused\");\n  }\n  const e = v.event;",
+  "new": "    return answer(200, null, \"\");\n  }\n  const e = v.event;"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe refused ${v.reason}`,",
+  "new": "repeated(`stripe refused`,"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (x instanceof StripeError && x.kind === \"unavailable\") return answer(503, \"unavailable\", \"try again\");",
+  "new": "if (x instanceof StripeError && x.kind === \"unavailable\") return answer(400, \"badRequest\", \"try again\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (x instanceof StripeError || x instanceof RangeError) {",
+  "new": "if (x instanceof RangeError) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "return answer(500, \"internal\", \"the write failed\");",
+  "new": "return answer(200, null, \"\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (e.object.object !== expected) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (s.mode !== \"payment\" || s.paymentStatus !== \"paid\") return \"ignored\";",
+  "new": "if (s.mode !== \"payment\") return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (s.mode !== \"payment\" || s.paymentStatus !== \"paid\") return \"ignored\";",
+  "new": "if (s.paymentStatus !== \"paid\") return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (c.customer === null || c.paymentIntent === null || c.feeMicros === null) return \"ignored\";",
+  "new": "if (c.customer === null || c.paymentIntent === null) return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "const out = c.refunds.filter((r) => r.status !== \"failed\" && r.status !== \"canceled\");",
+  "new": "const out = c.refunds.filter((r) => r.status !== \"failed\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (out.length < c.refunds.length) d.alert(",
+  "new": "if (false) d.alert("
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (e.type === \"charge.dispute.closed\" && dp.status === \"won\") {",
+  "new": "if (e.type === \"charge.dispute.closed\" && dp.status === \"lost\") {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (e.type === \"charge.dispute.closed\" && dp.status === \"warning_closed\") {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (c.feeMicros === null) throw new StripeError(\"unavailable\", \"the charge's fee isn't known yet\");",
+  "new": "if (c.feeMicros === null) return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "const pi = c.paymentIntent ?? paymentIntent;",
+  "new": "const pi = c.paymentIntent;"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "  if (r.length === 0) d.alert(`stripe webhook: ${e.type} names a Customer we don't know; nothing written`);",
+  "new": "  if (r.length > 1) d.alert(`stripe webhook: ${e.type} names a Customer we don't know; nothing written`);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "      if (s.customer === null) {\n        d.alert(\"stripe webhook: a paid checkout without a Customer; nothing credited\");\n        return \"ignored\";\n      }\n",
+  "new": "      if (s.customer === null) return \"ignored\";\n"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": ".map((s) => s.trim()).filter((s) => s !== \"\")",
+  "new": ".map((s) => s.trim())"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "        keyRefused: (status, hint) => {",
+  "new": "        keyRefusedUnwired: (status: number, hint: string) => {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "chargeId: c.id, grossMicros: c.amountMicros, feeMicros: c.feeMicros, via: \"charge\" });",
+  "new": "chargeId: c.id, grossMicros: c.amountMicros + 1, feeMicros: c.feeMicros, via: \"charge\" });"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "netMicros: c.amountMicros - c.feeMicros, reason });",
+  "new": "netMicros: c.amountMicros, reason });"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (url.pathname === STRIPE_WEBHOOK_PATH) {",
+  "new": "if (url.pathname === `${STRIPE_WEBHOOK_PATH}/`) {"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  const stripeThrottle = new AlertThrottle();\n",
+  "new": "  const stripeThrottle = { allow: () => true } as unknown as AlertThrottle;\n"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe event refused ${e.type}`, `stripe webhook: ${e.type} refused: ${x.message}`);",
+  "new": "d.alert(`stripe webhook: ${e.type} refused: ${x.message}`);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe event refused ${e.type}`,",
+  "new": "repeated(`stripe event refused`,"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe write failed ${e.type}`, `stripe webhook: ${e.type}: the write failed",
+  "new": "d.alert(`stripe webhook: ${e.type}: the write failed"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (c.capturedMicros !== c.amountMicros) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "capturedMicros: cents(c[\"amount_captured\"], \"the charge's captured amount\"),",
+  "new": "capturedMicros: cents(c[\"amount\"], \"the charge's captured amount\"),"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n      await known(c.customer);\n",
+  "new": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  const unspent = exactUnspent(alloc.amount, alloc.spent, pendings);",
+  "new": "  const unspent = alloc.amount - alloc.spent - pendings.reduce((x, y) => x + y, 0);"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (left > BigInt(Number.MAX_SAFE_INTEGER) || left < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (left < -BigInt(Number.MAX_SAFE_INTEGER)) throw"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  if (left > BigInt(Number.MAX_SAFE_INTEGER) || left < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (left > BigInt(Number.MAX_SAFE_INTEGER)) throw"
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  for (const v of [amount, spent, ...pendings]) if (!Number.isSafeInteger(v)) throw new RangeError(\"unspent: a figure is not a safe integer\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/start.ts",
+  "old": "  for (const p of pendings) left -= BigInt(p);",
+  "new": "  for (const p of pendings.slice(1)) left -= BigInt(p);"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (e instanceof StripeError && e.kind === \"unavailable\") break;",
+  "new": "      if (e instanceof StripeError && e.kind === \"unavailable\") continue;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (p.customer !== r.customer_id) {",
+  "new": "    if (false) {"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (p.status !== \"succeeded\" || p.chargeId === null || p.feeMicros === null) {",
+  "new": "    if (p.chargeId === null || p.feeMicros === null) {"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (d.nowMs - r.created_ms >= STUCK_MS) stuck++;",
+  "new": "      if (d.nowMs - r.created_ms > STUCK_MS) stuck++;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  if (stuck > 0) d.alert(",
+  "new": "  if (false) d.alert("
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  if (expired[0]!.k > 0) d.alert(",
+  "new": "  if (false) d.alert("
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  WHERE m.kind = 'pending' AND m.created_ms >= ?\n",
+  "new": "  WHERE m.kind = 'pending' AND m.created_ms > ?\n"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    usd(p, \"the PaymentIntent\");\n    const status = oneOf(p[\"status\"], [\"requires_payment_method\"",
+  "new": "    const status = oneOf(p[\"status\"], [\"requires_payment_method\""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (charge !== null && charge[\"object\"] !== \"charge\") throw invalid(\"the charge wasn't expanded\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "\"payment_intent\", [\"latest_charge.balance_transaction\"]);",
+  "new": "\"payment_intent\", []);"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      feeMicros: charge === null ? null : fee(this.#expanded(charge[\"balance_transaction\"], \"the balance transaction\")),\n    };\n  }\n\n  /** A charge",
+  "new": "      feeMicros: charge === null ? null : 0,\n    };\n  }\n\n  /** A charge"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if ((e.eventId === null) !== (p.via === \"refetch\")) throw",
+  "new": "  if (false) throw"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (e.eventId === null) {\n    const r = await db.batch(money);",
+  "new": "  if (e.eventId === null && false) {\n    const r = await db.batch(money);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "      if (!(\"unusable\" in stripe)) {\n        try {\n          const n = await reconcilePendingTopups",
+  "new": "      if (false) {\n        try {\n          const n = await reconcilePendingTopups"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": " : this.#sameMode(obj(latest, \"the charge\"), \"the charge\");",
+  "new": " : obj(latest, \"the charge\");"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      d.alert(\"stripe pending refused\", `stripe reconcile: a pending top-up's figures can't be credited (${refused})`);\n      continue;",
+  "new": "      throw e;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  ORDER BY COALESCE(k.checked_ms, m.created_ms), m.seq LIMIT ?`;",
+  "new": "  ORDER BY m.created_ms DESC, m.seq DESC LIMIT ?`;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  ORDER BY COALESCE(k.checked_ms, m.created_ms), m.seq LIMIT ?`;",
+  "new": "  ORDER BY COALESCE(k.checked_ms, 0), m.seq LIMIT ?`;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    // (outside the try: a failure to record it is the database's, and fails the run)\n    await l.batch([checked(r.stripe_key, d.nowMs)]);\n",
+  "new": "\n"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      await l.batch([checked(r.stripe_key, d.nowMs)]);\n      d.alert(\"stripe pending refused\"",
+  "new": "      d.alert(\"stripe pending refused\""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  ({ sql: `INSERT OR REPLACE INTO pending_checks (stripe_key, checked_ms) VALUES (?, ?)`, params: [key, nowMs] });",
+  "new": "  ({ sql: `INSERT OR IGNORE INTO pending_checks (stripe_key, checked_ms) VALUES (?, ?)`, params: [key, nowMs] });"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)\n  ORDER BY COALESCE",
+  "new": "  ORDER BY COALESCE"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  WHERE m.kind = 'pending' AND m.created_ms >= ?\n    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)\n  ORDER BY",
+  "new": "  WHERE m.kind = 'pending' AND m.created_ms > ?\n    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)\n  ORDER BY"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "[d.nowMs - RECONCILE_WINDOW_MS, RECONCILE_BATCH]);",
+  "new": "[d.nowMs - RECONCILE_WINDOW_MS, RECONCILE_BATCH * 2]);"
+ },
+ {
+  "file": "migrations/PROD-CHECKLIST.md",
+  "old": "| 0028_pending_checks.sql |",
+  "new": "| 0028 |"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (done.length === 0) d.alert(\"stripe pending not credited\"",
+  "new": "    if (false) d.alert(\"stripe pending not credited\""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (done.length === 0) d.alert(\"stripe pending not credited\"",
+  "new": "    if (true) d.alert(\"stripe pending not credited\""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  \"a balance entry is never replaced\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (refused === null) throw e;",
+  "new": "      if (false) throw e;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      const refused = e instanceof RangeError ? e.message : ledgerRefusal(e);",
+  "new": "      const refused = e instanceof RangeError ? e.message : null;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "       EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = k.stripe_key)\n       OR NOT EXISTS",
+  "new": "       0\n       OR NOT EXISTS"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "       OR NOT EXISTS (SELECT 1 FROM balance_entries m WHERE m.kind = 'pending' AND m.stripe_key = k.stripe_key AND m.created_ms >= ?)\n     LIMIT ?)`,",
+  "new": "       OR 0 AND ?\n     LIMIT ?)`,"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    [d.nowMs - RECONCILE_WINDOW_MS, PRUNE_BATCH],",
+  "new": "    [d.nowMs - RECONCILE_WINDOW_MS, PRUNE_BATCH * 2],"
+ },
+ {
+  "file": "wrangler.json",
+  "old": "  \"triggers\": { \"crons\": [\"* * * * *\"] },\n  \"vars\"",
+  "new": "  \"triggers\": { \"crons\": [\"*/2 * * * *\"] },\n  \"vars\""
+ },
+ {
+  "file": "wrangler.json",
+  "old": "      \"triggers\": { \"crons\": [\"* * * * *\"] },",
+  "new": "      \"triggers\": { \"crons\": [\"*/5 * * * *\"] },"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m.includes(r)"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m === r"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": " || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`",
+  "new": ""
  },
  {
   "file": "src/spend.ts",

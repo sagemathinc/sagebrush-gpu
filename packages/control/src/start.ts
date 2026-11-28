@@ -151,7 +151,7 @@ interface Context {
   billing_mode: string;
 }
 
-interface MoneyRow {
+export interface MoneyRow {
   kind: "alloc" | "interval" | "pending";
   allocation_id: string;
   amount: number | null;
@@ -211,8 +211,22 @@ interface Money {
   saveEstimateSeconds: number;
 }
 
+/**
+ * What an allocation has left: its amount, less what was spent, less each closed machine's charge not yet
+ * billed. Exact (William's exact-money rule; Codex audit G01 P1): every figure is a safe integer of
+ * micro-USD, but their sum need not be, and a float difference near 2^53 rounds. So the sum is taken in
+ * BigInt, and a result outside the safe range is refused rather than rounded.
+ */
+export function exactUnspent(amount: number, spent: number, pendings: readonly number[]): number {
+  for (const v of [amount, spent, ...pendings]) if (!Number.isSafeInteger(v)) throw new RangeError("unspent: a figure is not a safe integer");
+  let left = BigInt(amount) - BigInt(spent);
+  for (const p of pendings) left -= BigInt(p);
+  if (left > BigInt(Number.MAX_SAFE_INTEGER) || left < -BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError("unspent");
+  return Number(left);
+}
+
 /** The money, or null if there is no such allocation. Throws on any figure it can't trust (the caller refuses). */
-function money(rows: MoneyRow[], nowMs: number): Money | null {
+export function money(rows: MoneyRow[], nowMs: number): Money | null {
   const alloc = rows.find((r) => r.kind === "alloc");
   if (!alloc) return null;
   if (!isCount(alloc.amount) || !isCount(alloc.start_version) || typeof alloc.spent !== "number" || !Number.isSafeInteger(alloc.spent) || typeof alloc.adjusted !== "number" || !Number.isSafeInteger(alloc.adjusted)) {
@@ -227,7 +241,7 @@ function money(rows: MoneyRow[], nowMs: number): Money | null {
     }
     m.intervals.push({ incarnation: r.incarnation!, provider: r.provider!, providerCostPerHour: r.provider_cost_per_hour!, marginBps: r.margin_bps!, startMs: r.start_ms!, endMs: r.end_ms });
   }
-  let pending = 0;
+  const pendings: number[] = [];
   const commitments: MeteredMachine[] = [];
   let w0 = Math.floor(nowMs / MINUTE_MS) * MINUTE_MS;
   let saveEstimateSeconds = 0;
@@ -235,7 +249,7 @@ function money(rows: MoneyRow[], nowMs: number): Money | null {
     m.intervals.sort((a, b) => a.startMs - b.startMs);
     const open = m.intervals.at(-1)?.endMs === null;
     if (!open) {
-      pending += pendingCharge(m);
+      pendings.push(pendingCharge(m));
       continue;
     }
     // (an accruing machine at the highest rate and margin among its unbilled intervals: never below what the ledger will charge)
@@ -247,8 +261,7 @@ function money(rows: MoneyRow[], nowMs: number): Money | null {
     saveEstimateSeconds = Math.max(saveEstimateSeconds, m.saveEstimate);
   }
   for (const r of rows.filter((x) => x.kind === "pending")) commitments.push({ providerCostPerHour: r.provider_cost_per_hour!, marginBps: r.margin_bps! });
-  const unspent = alloc.amount - alloc.spent - pending;
-  if (!Number.isSafeInteger(unspent)) throw new RangeError("unspent");
+  const unspent = exactUnspent(alloc.amount, alloc.spent, pendings);
   return { allocationId: alloc.allocation_id, startVersion: alloc.start_version, amount: alloc.amount, adjusted: alloc.adjusted, unspent, commitments, unbilledSeconds: Math.ceil((nowMs - w0) / 1000), saveEstimateSeconds };
 }
 

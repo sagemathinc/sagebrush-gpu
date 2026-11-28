@@ -73,6 +73,12 @@ export interface EventRef {
   readonly nowMs: number;
 }
 
+/** A scheduled re-fetch, which no Stripe event prompted (d3.2; Codex audit G01 P2). */
+export interface Refetch {
+  readonly eventId: null;
+  readonly nowMs: number;
+}
+
 const eventStmt = (e: EventRef) => stmt(`INSERT OR IGNORE INTO stripe_events (event_id, type, received_ms) VALUES (?, ?, ?)`, id("event", e.eventId), e.type, e.nowMs);
 
 /**
@@ -86,7 +92,12 @@ export type Outcome = "written" | "nothing" | "replay" | "stale";
  * the rows' own keys then keep the money exactly-once, which is the guarantee: the event check is the
  * replay row, not what the ledger rests on.)
  */
-async function run(db: Db, e: EventRef, money: Stmt[]): Promise<Outcome> {
+async function run(db: Db, e: EventRef | Refetch, money: Stmt[]): Promise<Outcome> {
+  // (a scheduled re-fetch has no event: its rows' own keys keep it exactly-once)
+  if (e.eventId === null) {
+    const r = await db.batch(money);
+    return r.some((x) => x.changes > 0) ? "written" : "nothing";
+  }
   const ev = eventStmt(e);
   if ((await db.all(`SELECT 1 FROM stripe_events WHERE event_id = ?`, [e.eventId])).length > 0) return "replay";
   const r = await db.batch([ev, ...money]);
@@ -148,7 +159,7 @@ export async function creditCheckout(
  */
 export async function creditPending(
   db: Db,
-  e: EventRef,
+  e: EventRef | Refetch,
   p: { customerId: string; paymentIntent: string; chargeId: string; grossMicros: number; feeMicros: number; via: "charge" | "refetch" },
 ): Promise<Outcome> {
   const pi = id("paymentIntent", p.paymentIntent);
@@ -157,6 +168,7 @@ export async function creditPending(
   const fee = micros(p.feeMicros, 0);
   if (fee >= gross) throw new RangeError("the fee must be less than the amount paid");
   if (p.via !== "charge" && p.via !== "refetch") throw new RangeError("a later credit comes from charge.updated or a re-fetch");
+  if ((e.eventId === null) !== (p.via === "refetch")) throw new RangeError("a re-fetch has no event, and charge.updated has one");
   return run(scopedDb(db, LEDGER_TABLES), e, [
     stmt(
       `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, event_id, created_ms)
@@ -278,8 +290,13 @@ export async function planStateHash(s: PlanState): Promise<string> {
  * Stripe's current state of a Subscription, as fetched after any of its events (or the daily re-fetch):
  * appended only if it differs from the latest row, so a replayed or late event adds nothing. `fetchedMs` is
  * when the request was sent. Every fetch is recorded (gpu_plan_fetches), changed or not, and a state is
- * appended only from a fetch later than all of them: an older fetch that commits late is `stale`, never the
- * latest state.
+ * appended only from a fetch later than all of them: an older fetch that commits late is never the latest
+ * state.
+ *
+ * When nothing is appended, the outcome is `stale` if, by the time the batch has committed, another fetch
+ * of that subscription at or after this one is recorded, and `nothing` otherwise. It is read after the
+ * batch, so a newer fetch that committed while this batch waited is seen (a review finding on #117: a read before
+ * the batch missed it and said `nothing`).
  */
 export async function recordPlanState(
   db: Db,
@@ -301,11 +318,15 @@ export async function recordPlanState(
   // (after the plan row, so the fence it reads is the earlier fetches only)
   const fetch = stmt(`INSERT INTO gpu_plan_fetches (subscription_id, fetched_ms) VALUES (?, ?)`, sub, fetched);
   const scoped = scopedDb(db, PLAN_TABLES);
-  const stale = (await scoped.all(`SELECT 1 FROM gpu_plan_fetches WHERE subscription_id = ? AND fetched_ms >= ?`, [sub, fetched])).length > 0;
   if (e !== null && (await scoped.all(`SELECT 1 FROM stripe_events WHERE event_id = ?`, [e.eventId])).length > 0) return "replay";
   const r = await scoped.batch(e === null ? [plan, fetch] : [eventStmt(e), plan, fetch]);
   if (r[e === null ? 0 : 1]!.changes > 0) return "written";
-  return stale ? "stale" : "nothing";
+  // (this fetch's own row is one of those at fetched_ms; any other at or after it makes this one stale)
+  const later = await scoped.all<{ k: number }>(
+    `SELECT (SELECT COUNT(*) FROM gpu_plan_fetches WHERE subscription_id = ? AND fetched_ms > ?) + (SELECT COUNT(*) FROM gpu_plan_fetches WHERE subscription_id = ? AND fetched_ms = ?) - 1 AS k`,
+    [sub, fetched, sub, fetched],
+  );
+  return later[0]!.k > 0 ? "stale" : "nothing";
 }
 
 /** The person's latest plan row (across their subscriptions), or null. */

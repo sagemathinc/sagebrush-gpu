@@ -7,14 +7,16 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 
 import { BOOT_SCRIPT_VECTOR, renderBootScript, VM_HEADER } from "./boot.ts";
-import { VM_LAUNCHER_SH } from "./bootstrap-script.ts";
+// (the script's own text, so a mutant of vm-launcher.sh is what runs; check.sh's gen-bootstrap --check keeps the
+// generated copy equal to it)
+const LAUNCHER = readFileSync(new URL("vm-launcher.sh", import.meta.url), "utf8");
 
 const TOKEN = "T".repeat(20) + "o-_" + "k".repeat(20); // 43 base64url characters
 const NONCE = "N".repeat(10) + "-_" + "n".repeat(10); // 22
@@ -166,6 +168,16 @@ before(async () => {
 
 def unused(prefix,`));
   }));
+  // (a gate-file writer that hangs: only its hard bound ends it)
+  files.set("/hang-gatefile.tgz", tarball("hang-gatefile", (d) => {
+    const p = join(d, "sbgpu-agent/sbgpu_agent/vmboot.py");
+    writeFileSync(p, readFileSync(p, "utf8").replace("def gatefile(prefix, deadline, dev, ino, stdin):", `def gatefile(prefix, deadline, dev, ino, stdin):
+    import time
+    time.sleep(600)
+
+
+def unused_gatefile(prefix, deadline, dev, ino, stdin):`));
+  }));
 });
 
 after(() => {
@@ -201,6 +213,31 @@ function binDir(): string {
   return bin;
 }
 
+let oldBin: string | undefined;
+/**
+ * binDir, but with an older GNU timeout's way of ending a child (coreutils 9.1, Debian 12's): with
+ * -s KILL it signals its own process group, itself included, so it dies by SIGKILL (137) and a shell
+ * waiting on it may report "Killed" on its stderr. Newer versions exit 124 quietly.
+ */
+function oldTimeoutBin(): string {
+  if (oldBin) return oldBin;
+  oldBin = mkdtempSync(join(root, "bin-old-"));
+  for (const c of readdirSync(binDir())) if (c !== "timeout") symlinkSync(readlinkSync(join(binDir(), c)), join(oldBin, c));
+  writeFileSync(join(oldBin, "timeout"), `#!${PYTHON} -I
+import os, signal, subprocess, sys
+a = sys.argv[1:]
+if a[:2] != ["-s", "KILL"]:
+    sys.exit(125)
+os.setpgid(0, 0)
+p = subprocess.Popen(a[3:])
+try:
+    sys.exit(p.wait(timeout=float(a[2])))
+except subprocess.TimeoutExpired:
+    os.killpg(0, signal.SIGKILL)
+`, { mode: 0o755 });
+  return oldBin;
+}
+
 function newPrefix(): string {
   const prefix = join(root, `p${++runs}`);
   for (const d of ["run", "var/lib/cloud/instance/scripts", "proc/self"]) mkdirSync(join(prefix, d), { recursive: true });
@@ -222,6 +259,8 @@ async function launch(opts: {
   scriptMode?: number;
   append?: string;
   via?: "file" | "link" | "dash-c";
+  /** The PATH directory: binDir() unless given (oldTimeoutBin() for an older timeout). */
+  bin?: string;
 } = {}): Promise<Run> {
   const prefix = opts.prefix ?? newPrefix();
   current = prefix;
@@ -234,7 +273,7 @@ async function launch(opts: {
     mode: "vm",
     machineId: MACHINE,
     nonce: NONCE,
-  }, { prefix, body: VM_LAUNCHER_SH });
+  }, { prefix, body: LAUNCHER });
   if (opts.edit) script = opts.edit(script);
   if (opts.append) script += opts.append;
   const scriptPath = join(prefix, SCRIPT_PATH);
@@ -252,7 +291,7 @@ async function launch(opts: {
   } else if (opts.via === "dash-c") {
     argv = ["/bin/sh", "-c", script];
   }
-  const env = { PATH: binDir(), CURL_CA_BUNDLE: ca, SSL_CERT_FILE: ca };
+  const env = { PATH: opts.bin ?? binDir(), CURL_CA_BUNDLE: ca, SSL_CERT_FILE: ca };
   const before = announces.length;
   const child = spawn(argv[0]!, argv.slice(1), { env, stdio: ["ignore", "ignore", "pipe"], cwd: prefix });
   let stderr = "";
@@ -346,6 +385,8 @@ test("once: a second run stops at rerun (exit 4) before any request; an ambiguou
   assert.deepEqual([hits, announces.length], [h, n]);
   for (const setup of [
     (p: string) => symlinkSync(join(p, "run"), join(p, "var/lib/sbgpu")),
+    // (a link to a directory that would pass every other check: only the no-follow open refuses it)
+    (p: string) => { mkdirSync(join(p, "var/lib/sbgpu-real"), { mode: 0o700 }); symlinkSync("sbgpu-real", join(p, "var/lib/sbgpu")); },
     (p: string) => mkdirSync(join(p, "var/lib/sbgpu"), { mode: 0o755 }),
     (p: string) => writeFileSync(join(p, "var/lib/sbgpu"), ""),
   ]) {
@@ -377,6 +418,7 @@ test("values: each in its exact shape, checked before anything is fetched", asyn
     [`SBGPU_NONCE='${NONCE}'`, `SBGPU_NONCE='${NONCE.slice(1)}+'`],
     [`SBGPU_NONCE='${NONCE}'`, `SBGPU_NONCE='${NONCE}A'`],
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='prj_${MACHINE.slice(4)}'`],
+    [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='mchx${MACHINE.slice(4)}'`], // (in the id alphabet: only the prefix check refuses it)
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='${MACHINE.slice(0, -1)}i'`],
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='${MACHINE}0'`],
     ["SBGPU_CONTROL_URL='https://", "SBGPU_CONTROL_URL='http://"],
@@ -459,13 +501,16 @@ test("announce: anything but a fresh 200 exits 3 after exactly one POST, with no
   }
 });
 
-test("the announce child is killed at 45 s, whatever it is doing, and what it wrote is removed", { timeout: 90_000 }, async () => {
-  const started = Date.now();
-  const r = await launch({ path: "/hang.tgz" });
-  assert.ok(Date.now() - started >= 44_000 && Date.now() - started < 80_000);
-  assertStopped(r, "announce", "announce", 3);
-  assert.deepEqual(readdirSync(join(r.prefix, "run/sbgpu")), []);
-  assertSecretsKept(r);
+test("the announce child is killed at 45 s, whatever it is doing, and what it wrote is removed; an older timeout too", { timeout: 180_000 }, async () => {
+  for (const bin of [binDir(), oldTimeoutBin()]) {
+    const started = Date.now();
+    const r = await launch({ path: "/hang.tgz", bin });
+    assert.ok(Date.now() - started >= 44_000 && Date.now() - started < 80_000);
+    // (one line of fixed words on stderr, whichever timeout: no "Killed" from the shell)
+    assertStopped(r, "announce", "announce", 3);
+    assert.deepEqual(readdirSync(join(r.prefix, "run/sbgpu")), []);
+    assertSecretsKept(r);
+  }
 });
 
 test("bootfile (H2): /run/sbgpu already there stops the boot, and nothing there is touched", async () => {
@@ -483,14 +528,27 @@ test("bootfile (H2): /run/sbgpu already there stops the boot, and nothing there 
 });
 
 test("gate 2: a failing or overrunning gate stops the boot, and boot.json is removed", { timeout: 60_000 }, async () => {
-  for (const [conf, clock] of [
-    [{ line: 'SBGPU-GATE {"v":1,"pass":false,"fail":["known-value"]}', rc: 1 }, {}],
-    [{ line: PASS, rc: 1 }, {}],
-    [{ sleep: 5 }, { "remaining:30": D - 32_000 }], // (2 s to run in: killed)
+  for (const [conf, clock, bin] of [
+    [{ line: 'SBGPU-GATE {"v":1,"pass":false,"fail":["known-value"]}', rc: 1 }, {}, "new"],
+    [{ line: PASS, rc: 1 }, {}, "new"],
+    [{ sleep: 5 }, { "remaining:30": D - 32_000 }, "new"], // (2 s to run in: killed)
+    [{ sleep: 5 }, { "remaining:30": D - 32_000 }, "old"], // (the same, with an older timeout: no "Killed" either)
   ] as const) {
-    const r = await launch({ clock, setup: (p) => writeFileSync(join(p, "gate2.json"), JSON.stringify(conf)) });
+    const r = await launch({ clock, bin: bin === "old" ? oldTimeoutBin() : binDir(), setup: (p) => writeFileSync(join(p, "gate2.json"), JSON.stringify(conf)) });
     assertStopped(r, "gate2", "gate2");
     assert.deepEqual(readdirSync(join(r.prefix, "run/sbgpu")), []);
+    assertSecretsKept(r);
+  }
+});
+
+test("gate 2's file writer is killed at its bound, and the boot stops with one line, whichever timeout", { timeout: 60_000 }, async () => {
+  for (const bin of [binDir(), oldTimeoutBin()]) {
+    const started = Date.now();
+    const r = await launch({ path: "/hang-gatefile.tgz", bin, clock: { "remaining:25": D - 27_000 } }); // (2 s to run in: killed)
+    assert.ok(Date.now() - started < 30_000);
+    assertStopped(r, "gate2", "gate2");
+    assert.deepEqual(readdirSync(join(r.prefix, "run/sbgpu")), []);
+    assert.equal(r.agent, null);
     assertSecretsKept(r);
   }
 });
@@ -521,9 +579,8 @@ test("suspend across D (H7): held during gate 2, its result is never written and
   assert.ok(twin.agent);
 });
 
-test("vm-launcher.sh is what VM_LAUNCHER_SH holds, and the rendered VM script begins with the two protections", () => {
-  assert.equal(VM_LAUNCHER_SH, readFileSync(new URL("vm-launcher.sh", import.meta.url), "utf8"));
-  const s = renderBootScript(BOOT_SCRIPT_VECTOR.values, { body: VM_LAUNCHER_SH });
+test("the rendered VM script begins with the two protections", () => {
+  const s = renderBootScript(BOOT_SCRIPT_VECTOR.values, { body: LAUNCHER });
   assert.ok(s.startsWith("#!/bin/sh\n" + VM_HEADER + "SBGPU_AGENT_URL='"));
 });
 

@@ -73,7 +73,7 @@ test("d3.2: fee absent at checkout gives a marker, then one credit, by either la
   assert.equal(await creditCheckout(db, ev(), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: null }), "written");
   assert.equal(await balanceOf(db, A), 0, "a marker is no credit");
   assert.equal(await creditPending(db, ev("charge.updated"), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000, via: "charge" }), "written");
-  assert.equal(await creditPending(db, ev(), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000, via: "refetch" }), "nothing", "both paths: still one");
+  assert.equal(await creditPending(db, { eventId: null, nowMs: T }, { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000, via: "refetch" }), "nothing", "both paths: still one");
   assert.equal(await creditCheckout(db, ev(), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000 }), "nothing", "and the checkout path too");
   assert.equal(await balanceOf(db, A), 9_410_000);
   // no marker
@@ -195,7 +195,7 @@ test("H2: appended only on a change; a replay or a late event adds nothing; a de
   assert.equal(await recordPlanState(db, null, { ...plan({ sub: "sub_3" }), customerId: "cus_nobody" }), "nothing", "an unknown Customer");
 });
 
-test("tests4's note: the idempotency hash covers the compared fields only", async () => {
+test("the idempotency hash covers the compared fields only", async () => {
   const s = { status: "active" as const, currentPeriodEndMs: T, cancelAtPeriodEnd: false };
   assert.equal(await planStateHash(s), await planStateHash({ ...s }));
   assert.notEqual(await planStateHash(s), await planStateHash({ ...s, status: "past_due" }));
@@ -241,7 +241,7 @@ test("an invalid Stripe id or status is refused before any SQL", async () => {
   assert.deepEqual(rows(), []);
 });
 
-// tests6's rows (TESTS on this PR): the triggers' person scoping, and append-only against REPLACE
+// The triggers' person scoping, and append-only against REPLACE
 test("the triggers are per person: another person's marker or reversal doesn't let a raw insert through", async () => {
   await creditCheckout(db, ev(), { customerId: "cus_B", paymentIntent: "pi_b", chargeId: "ch_b", grossMicros: 10_000_000, feeMicros: null });
   assert.throws(() => db.raw.prepare(`INSERT INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, created_ms) VALUES (?, ?, 'topup', 'pi_b', 9, 10, 1, 'charge', 'ch_b', ?)`).run(ISS, "user_A", T), /pending marker/, "B's marker, A's credit");
@@ -344,8 +344,9 @@ test("exact money: a person's balance stays a safe integer at both ends; the SUM
 
 test("exact money: no float parsing or rounding in the money modules", async () => {
   const { readFileSync } = await import("node:fs");
-  // (the modules money flows through; the webhook verifier reads only a timestamp and ids)
-  for (const f of ["stripe-ledger.ts"]) {
+  // (the modules money flows through: the ledger, and the Stripe client that converts cents; the webhook
+  // verifier reads only a timestamp and ids)
+  for (const f of ["stripe-ledger.ts", "stripe-api.ts"]) {
     const code = readFileSync(new URL(`./${f}`, import.meta.url), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     for (const bad of [/parseFloat/, /parseInt/, /toFixed/, /toPrecision/, /\bNumber\(/, /Math\.(round|floor|ceil|trunc)/, /\*\s*100\b/, /\b1e\d/, /\/\s*100\b/]) {
       assert.doesNotMatch(code, bad, `${f}: ${bad}`);
@@ -419,6 +420,35 @@ test("a plan state from an older fetch never becomes the latest, even when the n
   assert.throws(() => db.raw.prepare(`INSERT INTO gpu_plans (iss, sub, subscription_id, status, current_period_end_ms, cancel_at_period_end, state_sha256, fetched_ms) VALUES (?, 'user_A', 'sub_2', 'unpaid', 0, 0, ?, ?)`).run(ISS, "2".repeat(64), T + 55), /older fetch/);
   assert.throws(() => db.raw.exec(`DELETE FROM gpu_plan_fetches`), /never deleted/);
   assert.throws(() => db.raw.exec(`UPDATE gpu_plan_fetches SET fetched_ms = 0`), /never updated/);
+});
+
+test("a newer fetch that commits while this batch waits makes this one stale, not nothing", async () => {
+  const at = (ms: number, status: PlanStatus) => ({ ...plan({ status }), fetchedMs: ms });
+  assert.equal(await recordPlanState(db, null, at(T + 10, "active")), "written");
+  // the older fetch (T + 20) reads, then its batch is held until a newer fetch (T + 30) has committed
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let held = false;
+  const gated: typeof db = {
+    ...db,
+    all: (sql, params) => db.all(sql, params),
+    run: (sql, params) => db.run(sql, params),
+    async batch(stmts) {
+      if (!held) {
+        held = true;
+        await gate;
+      }
+      return db.batch(stmts);
+    },
+  };
+  const older = recordPlanState(gated, ev("customer.subscription.updated"), at(T + 20, "past_due"));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(await recordPlanState(db, ev("customer.subscription.deleted"), at(T + 30, "canceled")), "written");
+  release();
+  assert.equal(await older, "stale");
+  assert.equal((await latestPlan(db, A))!.status, "canceled");
+  // with no other fetch at or after it, an unchanged state is nothing
+  assert.equal(await recordPlanState(db, null, at(T + 40, "canceled")), "nothing");
 });
 
 test("the indexes the triggers' lookups use are there: a unique one per Stripe key and per ref", () => {
