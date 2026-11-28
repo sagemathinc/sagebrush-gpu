@@ -8,11 +8,12 @@
 //   whichever of charge.updated and this job comes first; a re-run adds nothing.
 // - Only Stripe's facts: the amount, charge and fee come from the re-fetched PaymentIntent, and it must still
 //   be the marker's person's Customer and succeeded; anything else credits nothing and alerts.
-// - Bounded and fair: at most RECONCILE_BATCH markers a run, none older than RECONCILE_WINDOW_MS. The batch
-//   rotates through the open markers (newest first, starting each run where the minute puts it), so every
-//   open marker is fetched at least once in any ceil(open / RECONCILE_BATCH) consecutive runs, and markers
-//   whose fee isn't known yet can't hold every slot (Codex cx3's P2 on #128, sec2's N2). Stripe unavailable
-//   stops the run; the next run tries again.
+// - Bounded and fair: at most RECONCILE_BATCH markers a run, none older than RECONCILE_WINDOW_MS, taken in
+//   the order they were last checked (0028's pending_checks; a marker never checked counts as checked when it
+//   was created). The oldest-served go first, so a marker waits behind at most the markers served before it,
+//   whatever the run times or how many new markers arrive, and markers whose fee isn't known yet can't hold
+//   every slot (Codex cx3's P2 and TESTS H2 on #128). Stripe unavailable stops the run; the next run tries
+//   again.
 // - Loud: a marker still open after STUCK_MS, or one past the window, alerts (throttled by the caller).
 
 import type { Db } from "./db.ts";
@@ -31,31 +32,29 @@ export interface ReconcileDeps {
   alert(key: string, line: string): void;
 }
 
-/** An open marker: pending, within the window, and no topup for its PaymentIntent. */
-const OPEN = `FROM balance_entries m JOIN stripe_customers c ON c.iss = m.iss AND c.sub = m.sub
-  WHERE m.kind = 'pending' AND m.created_ms >= ?
-    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)`;
-/** The open markers in a fixed order (newest first), a page at a time. */
-export const OPEN_MARKERS = `SELECT m.stripe_key, m.created_ms, c.customer_id ${OPEN}
-  ORDER BY m.created_ms DESC, m.seq DESC LIMIT ? OFFSET ?`;
+/** The tables the job reads and writes: the ledger's, and its own scheduling record. */
+export const RECONCILE_TABLES: readonly string[] = Object.freeze([...LEDGER_TABLES, "pending_checks"]);
 
-/** Where this run's batch starts among `open` markers: a full batch further each minute, wrapping. */
-export function rotationStart(nowMs: number, open: number): number {
-  if (open <= RECONCILE_BATCH) return 0;
-  return (Math.floor(nowMs / 60_000) * RECONCILE_BATCH) % open;
-}
+/**
+ * The open markers (pending, within the window, no topup for the PaymentIntent) checked longest ago, a batch:
+ * never checked counts as checked at creation; ties go to the older marker.
+ */
+export const OPEN_MARKERS = `SELECT m.stripe_key, m.created_ms, c.customer_id FROM balance_entries m
+  JOIN stripe_customers c ON c.iss = m.iss AND c.sub = m.sub
+  LEFT JOIN pending_checks k ON k.stripe_key = m.stripe_key
+  WHERE m.kind = 'pending' AND m.created_ms >= ?
+    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)
+  ORDER BY COALESCE(k.checked_ms, m.created_ms), m.seq LIMIT ?`;
+
+/** That a marker's PaymentIntent was asked about now (Stripe answered, whatever it said). */
+const checked = (key: string, nowMs: number) =>
+  // (a plain replace: this record has no triggers and no other key, and is rewritten in place by design)
+  ({ sql: `INSERT OR REPLACE INTO pending_checks (stripe_key, checked_ms) VALUES (?, ?)`, params: [key, nowMs] });
 
 /** One run: how many top-ups it credited. */
 export async function reconcilePendingTopups(d: ReconcileDeps): Promise<number> {
-  const l = scopedDb(d.db, LEDGER_TABLES);
-  const since = d.nowMs - RECONCILE_WINDOW_MS;
-  const open = (await l.all<{ k: number }>(`SELECT COUNT(*) AS k ${OPEN}`, [since]))[0]!.k;
-  const start = rotationStart(d.nowMs, open);
-  type Row = { stripe_key: string; created_ms: number; customer_id: string };
-  const rows = await l.all<Row>(OPEN_MARKERS, [since, RECONCILE_BATCH, start]);
-  // (past the end: wrap to the start for the rest of the batch. With more than a batch open, the rest is
-  // fewer than `start`, so no marker is taken twice)
-  if (rows.length < RECONCILE_BATCH && start > 0) rows.push(...(await l.all<Row>(OPEN_MARKERS, [since, RECONCILE_BATCH - rows.length, 0])));
+  const l = scopedDb(d.db, RECONCILE_TABLES);
+  const rows = await l.all<{ stripe_key: string; created_ms: number; customer_id: string }>(OPEN_MARKERS, [d.nowMs - RECONCILE_WINDOW_MS, RECONCILE_BATCH]);
   const expired = await l.all<{ k: number }>(
     `SELECT COUNT(*) AS k FROM balance_entries m WHERE m.kind = 'pending' AND m.created_ms < ?
      AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)`,
@@ -71,9 +70,12 @@ export async function reconcilePendingTopups(d: ReconcileDeps): Promise<number> 
     } catch (e) {
       // (Stripe down or our key refused: stop, and the next run tries again; anything else is this one's)
       if (e instanceof StripeError && e.kind === "unavailable") break;
+      await l.batch([checked(r.stripe_key, d.nowMs)]);
       d.alert("stripe pending refused", `stripe reconcile: a pending top-up's PaymentIntent was refused (${e instanceof StripeError ? e.message : "an error"})`);
       continue;
     }
+    // (outside the try: a failure to record it is the database's, and fails the run)
+    await l.batch([checked(r.stripe_key, d.nowMs)]);
     if (p.customer !== r.customer_id) {
       d.alert("stripe pending customer", "stripe reconcile: a pending top-up's PaymentIntent names another Customer; nothing credited");
       continue;
