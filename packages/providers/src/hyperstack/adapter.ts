@@ -574,7 +574,7 @@ export class HyperstackAdapter implements ProviderAdapter {
     // A key this launch's earlier attempt left (a lost import, a stop, a failed removal) would make
     // the import a duplicate name: one is removed first; several are refused, for a human.
     stopBefore();
-    const stale = await this.#clearKeypair(keyName);
+    const stale = await this.#clearKeypair(keyName, stop);
     if (stale !== "") throw new ProviderError("hyperstack", "unknown", `Hyperstack: no VM was requested${stale}`);
     stopBefore();
     let keyId: number;
@@ -584,7 +584,7 @@ export class HyperstackAdapter implements ProviderAdapter {
       if (e instanceof ProviderError && e.kind === "outcome_unknown") {
         // No VM was requested; only a key (public half only) may be left: found by its exact name
         // and removed (G03-3), unless the caller stopped.
-        const left = stop?.() === true ? `; stopped at the caller's deadline; keypair ${keyName} kept` : await this.#clearKeypair(keyName);
+        const left = stop?.() === true ? `; stopped at the caller's deadline; keypair ${keyName} kept` : await this.#clearKeypair(keyName, stop);
         throw new ProviderError("hyperstack", "unknown", `Hyperstack: keypair ${keyName} import has an unknown outcome; no VM was requested${left}`);
       }
       throw e;
@@ -836,19 +836,23 @@ export class HyperstackAdapter implements ProviderAdapter {
   }
 
   /**
-   * Remove the keypair with exactly this name, if there is one. "" when none is left; otherwise why
-   * one is, for the error to carry: the list couldn't be read, the delete failed, or several have
-   * the name (refused: which one is ours isn't known).
+   * Remove the keypair with exactly this name, if there is one. "" when none is left; otherwise why one
+   * is, for the error to carry: the list couldn't be read, the delete failed, several have the name
+   * (refused: which one is ours isn't known), or the caller stopped. No request after the stop: the
+   * list checks it before each page, and it is checked again before the delete.
    */
-  async #clearKeypair(name: string): Promise<string> {
+  async #clearKeypair(name: string, stop: (() => boolean) | undefined): Promise<string> {
+    const stopped = `; stopped at the caller's deadline; keypair ${name} may be left`;
     let named: Keypair[];
     try {
-      named = (await this.listKeypairs()).filter((k) => k.name === name);
-    } catch {
+      named = (await this.listKeypairs(stop)).filter((k) => k.name === name);
+    } catch (e) {
+      if (e instanceof ProviderError && e.message === STOPPED) return stopped;
       return `; the keypair list could not be read; keypair ${name} may be left`;
     }
     if (named.length > 1) return `; ${named.length} keypairs are named ${name} (${named.map((k) => k.id).join(", ")}); none removed`;
     if (named.length === 0) return "";
+    if (stop?.() === true) return stopped;
     try {
       await this.deleteKeypair(named[0]!.id);
       return "";
@@ -877,6 +881,8 @@ export class HyperstackAdapter implements ProviderAdapter {
         out.refused.push(name);
         continue;
       }
+      // (again after keep, which awaits: no request after the caller's stop)
+      if (shouldStop?.() === true) break;
       try {
         await this.deleteKeypair(keys[0]!.id);
         out.deleted.push(name);

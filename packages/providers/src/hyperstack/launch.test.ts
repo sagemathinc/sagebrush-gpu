@@ -827,7 +827,67 @@ test("G03-3: the keypair sweep deletes launch keys whose launch isn't kept; refu
   const stopAfterOne = launcher(route);
   del.length = 0;
   let n = 0;
-  const s = await stopAfterOne.a.sweepKeypairs(async () => false, () => del.length >= 1 && ++n > 0);
+  let kept = 0;
+  const s = await stopAfterOne.a.sweepKeypairs(async () => (kept++, false), () => del.length >= 1 && ++n > 0);
   assert.deepEqual(s.deleted, [KEY_NAME]);
   assert.deepEqual(del, ["/core/keypair/1"]);
+  assert.equal(kept, 1, "no launch is even looked up after the stop");
+});
+
+test("G03-3: no request after the caller's stop in the key lookup: a stop during the list sends no delete, before the import or after a lost one", async () => {
+  let stopNow = false;
+  const stale = keys([{ id: 56, name: KEY_NAME }]);
+  const base = routes({ keys: stale });
+  const route: Route = (method, path, n) => {
+    if (method === "GET" && path.startsWith("/core/keypairs?")) stopNow = true; // (the stop comes while the list is read)
+    return base(method, path, n);
+  };
+  const pre = launcher(route);
+  await assert.rejects(pre.a.launch(spec, { shouldStop: () => stopNow }), fails("unknown", { id: null, message: new RegExp(`stopped at the caller's deadline; keypair ${KEY_NAME} may be left$`) }));
+  assert.deepEqual(trail(pre.calls), ["GET /core/flavors", "GET /core/keypairs"]);
+  // after a lost import: the lookup's own stop, then no delete
+  let lists = 0;
+  stopNow = false;
+  const lostBase = routes({ import: new Error("reset") });
+  const lost: Route = (method, path, n) => {
+    if (method === "GET" && path.startsWith("/core/keypairs?")) {
+      if (lists++ === 0) return keys([]);
+      stopNow = true;
+      return stale;
+    }
+    return lostBase(method, path, n);
+  };
+  const after = launcher(lost);
+  await assert.rejects(after.a.launch(spec, { shouldStop: () => stopNow }), fails("unknown", { message: /may be left$/ }));
+  assert.deepEqual(trail(after.calls), ["GET /core/flavors", "GET /core/keypairs", "POST /core/keypairs", "GET /core/keypairs"]);
+  // a stop between pages: no next page
+  let pages = 0;
+  const pageOf = (from: number, n: number) => Array.from({ length: n }, (_, i) => ({ id: from + i, name: `k${from + i}` }));
+  const paged: Route = (method, path, n) => {
+    if (method === "GET" && path.startsWith("/core/keypairs?")) return pages++ === 0 ? keys(pageOf(1, 100), 150) : keys(pageOf(101, 50), 150);
+    return routes()(method, path, n);
+  };
+  const two = launcher(paged);
+  await assert.rejects(two.a.launch(spec, { shouldStop: () => pages >= 1 }), fails("unknown", { message: new RegExp(`stopped at the caller's deadline; keypair ${KEY_NAME} may be left$`) }));
+  assert.equal(pages, 1);
+});
+
+test("G03-3: the keypair sweep sends no delete after a stop that came while keep was deciding", async () => {
+  const del: string[] = [];
+  const route: Route = (method, path) => {
+    if (method === "GET" && path.startsWith("/core/keypairs?")) return keys([{ id: 77, name: OTHER_INCARNATION }]);
+    if (method === "DELETE") {
+      del.push(path);
+      return { status: 200, body: { status: true } };
+    }
+    throw new Error(`unexpected ${method} ${path}`);
+  };
+  let stopNow = false;
+  const { a } = launcher(route);
+  const r = await a.sweepKeypairs(async () => {
+    stopNow = true;
+    return false;
+  }, () => stopNow);
+  assert.deepEqual(r, { deleted: [], refused: [] });
+  assert.deepEqual(del, []);
 });
