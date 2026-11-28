@@ -8208,8 +8208,8 @@
  },
  {
   "file": "src/sweep.ts",
-  "old": "  if (waiting > 0) env.alert(`${waiting} orphan pod(s) waiting to be tried again (back-off)`);\n",
-  "new": "",
+  "old": "  if (waiting > 0) env.alert(",
+  "new": "  if (false) env.alert(",
   "note": "back-off: waiting orphans not reported"
  },
  {
@@ -8220,13 +8220,13 @@
  },
  {
   "file": "src/sweep.ts",
-  "old": "filter((id) => !orphans.has(id));",
+  "old": "filter((id) => !liveOurs.has(id) || kept.has(id));",
   "new": "filter(() => true);",
   "note": "back-off: a still-orphan machine's attempts forgotten"
  },
  {
   "file": "src/sweep.ts",
-  "old": "    orphans.add(s.providerMachineId);\n",
+  "old": "      kept.add(s.providerMachineId);\n",
   "new": "",
   "note": "back-off: every orphan forgotten each run"
  },
@@ -8247,5 +8247,29 @@
   "old": "| 0030_sweep_attempts.sql |",
   "new": "| 0030 |",
   "note": "0030 left off the PROD checklist"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    list.filter((s) => s.parsedName !== null && s.state !== \"terminated\" && s.parsedName.installation === env.installation).map((s) => s.providerMachineId),",
+  "new": "    [].map((s: ProviderMachineStatus) => s.providerMachineId),",
+  "note": "#136 H1: rows pruned for orphans the run didn't reach or couldn't read"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "filter((id) => !liveOurs.has(id) || kept.has(id));",
+  "new": "filter((id) => !liveOurs.has(id));",
+  "note": "#136: a row of a machine its launch now keeps never forgotten"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "      mostAttempts = Math.max(mostAttempts, before.attempts);\n",
+  "new": "",
+  "note": "N2: the waiting line's most attempts never counted"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "${backoffMs(mostAttempts) >= SWEEP_BACKOFF_CAP_MS ? \", at the hourly cap\" : \"\"}",
+  "new": "",
+  "note": "N2: an orphan at the cap not said"
  }
 ]

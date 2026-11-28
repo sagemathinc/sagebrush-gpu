@@ -20,9 +20,13 @@
 //
 // Back-off (0030's sweep_attempts; William's fleet rule): an orphan is tried at once the first time it
 // is seen; after n attempts the next waits backoffMs(n) from the last one, so a provider that keeps
-// refusing isn't asked every run. Each attempt is recorded before the call. An orphan still waiting
-// isn't a failure of the run: they are alerted as one count a run. A run that read the list whole
-// forgets the attempts of machines that are no longer orphans.
+// refusing isn't asked every run. Each attempt is recorded before the call; if that record can't be
+// written the run fails there and ends nothing more until the database answers (fewer calls, not
+// more, though an orphan keeps billing meanwhile). An orphan still waiting isn't a failure of the
+// run: they are alerted as one line a run, with the most attempts any has had. A machine's attempts
+// are forgotten only when the run proved it isn't an orphan: it isn't listed live at all (the list is
+// read whole), or its launch keeps it. Never for an orphan the run didn't reach (the batch or the
+// time budget) or whose launch row couldn't be read: those keep their back-off.
 
 import type { ProviderMachineStatus } from "@sbgpu/providers";
 import type { ContainerEnv } from "./container.ts";
@@ -66,7 +70,13 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
   let attempted = 0;
   let ended = 0;
   let waiting = 0;
-  const orphans = new Set<string>();
+  let mostAttempts = 0;
+  // (the machines this run proved aren't orphans: kept by their launch)
+  const kept = new Set<string>();
+  // (every live pod of ours in the whole list, reached by the loop or not)
+  const liveOurs = new Set(
+    list.filter((s) => s.parsedName !== null && s.state !== "terminated" && s.parsedName.installation === env.installation).map((s) => s.providerMachineId),
+  );
   const now = env.clock();
   // (read once a pod of ours is listed: a run with none touches no table)
   let tried: Map<string, { attempts: number; last_ms: number }> | null = null;
@@ -93,10 +103,13 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
       problems.push(`${s.providerMachineId}: its launch couldn't be read`);
       continue;
     }
-    if (why === null) continue;
-    orphans.add(s.providerMachineId);
+    if (why === null) {
+      kept.add(s.providerMachineId);
+      continue;
+    }
     if (before !== undefined && now < before.last_ms + backoffMs(before.attempts)) {
       waiting++;
+      mostAttempts = Math.max(mostAttempts, before.attempts);
       continue;
     }
     if (attempted >= SWEEP_END_BATCH) {
@@ -122,10 +135,10 @@ export async function runContainerSweep(env: SweepEnv): Promise<number> {
     }
   }
   if (foreign > 0) env.alert(`${foreign} pod(s) of another installation; left as they are`);
-  if (waiting > 0) env.alert(`${waiting} orphan pod(s) waiting to be tried again (back-off)`);
-  // The list was read whole: attempts of machines that are no longer orphans are forgotten (once a pod of
+  if (waiting > 0) env.alert(`${waiting} orphan pod(s) waiting to be tried again (back-off; most attempts ${mostAttempts}${backoffMs(mostAttempts) >= SWEEP_BACKOFF_CAP_MS ? ", at the hourly cap" : ""})`);
+  // Forgotten only when proved no orphan: not listed live at all, or kept by its launch (once a pod of
   // ours was listed; a run with none leaves the rows for the next that has one).
-  const gone = tried === null ? [] : [...(tried as Map<string, unknown>).keys()].filter((id) => !orphans.has(id));
+  const gone = tried === null ? [] : [...(tried as Map<string, unknown>).keys()].filter((id) => !liveOurs.has(id) || kept.has(id));
   for (const id of gone) await env.db.run(`DELETE FROM sweep_attempts WHERE provider = ? AND provider_machine_id = ?`, [SWEEP_PROVIDER, id]);
   if (problems.length > 0) throw new Error(problems.join("; "));
   return ended;

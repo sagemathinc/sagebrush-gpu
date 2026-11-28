@@ -31,8 +31,11 @@ class FakeRunPod implements ContainerProvider {
   async status(id: string): Promise<ProviderMachineStatus> {
     throw new Error(`no status reads here (${id})`);
   }
+  /** Terminate calls per pod. */
+  callsById = new Map<string, number>();
   async terminate(id: string): Promise<void> {
     this.calls++;
+    this.callsById.set(id, (this.callsById.get(id) ?? 0) + 1);
     if (this.failAll === "lost") this.pods.delete(id);
     if (this.failAll !== null) throw new Error("provider down");
     if (this.terminateFails.has(id)) throw new Error("provider down");
@@ -167,7 +170,7 @@ test("a termination the provider doesn't take is reported after the others; it i
   alerts = [];
   assert.equal(await runContainerSweep(env()), 0);
   assert.equal(rp.calls, 2);
-  assert.deepEqual(alerts, ["1 orphan pod(s) waiting to be tried again (back-off)"]);
+  assert.deepEqual(alerts, ["1 orphan pod(s) waiting to be tried again (back-off; most attempts 1)"]);
   w.clock.t += 1;
   assert.equal(await runContainerSweep(env()), 1);
   assert.deepEqual(rp.terminated, ["pod-b", "pod-a"]);
@@ -253,4 +256,88 @@ test("the sweep needs its adapter and this installation", async () => {
   await assert.rejects(runContainerSweep({ ...env(), provider: null }), /no adapter or installation/);
   await assert.rejects(runContainerSweep({ ...env(), installation: null }), /no adapter or installation/);
   assert.equal(rp.terminated.length, 0);
+});
+
+// ---------------------------------------------------------------- back-off kept for orphans a run didn't reach (#136 H1)
+
+const rows = async () =>
+  new Map((await w.db.all<{ id: string; attempts: number; last_ms: number }>(`SELECT provider_machine_id AS id, attempts, last_ms FROM sweep_attempts`)).map((r) => [r.id, { attempts: r.attempts, last_ms: r.last_ms }]));
+const seed = (id: string, attempts: number, lastMs: number) =>
+  w.db.run(`INSERT INTO sweep_attempts (provider, provider_machine_id, attempts, last_ms) VALUES ('runpod', ?, ?, ?)`, [id, attempts, lastMs]);
+
+test("back-off: 25 refusing orphans over 10 runs a minute apart: each pod's calls are its recorded attempts, none past the schedule", async () => {
+  const ids = Array.from({ length: SWEEP_END_BATCH + 5 }, (_, i) => `pod-${String(i).padStart(2, "0")}`);
+  for (const id of ids) {
+    rp.add(id, name(newId("machine")));
+    rp.terminateFails.add(id);
+  }
+  const t0 = w.clock.t;
+  for (let minute = 0; minute < 10; minute++) {
+    w.clock.t = t0 + minute * 60_000;
+    await runContainerSweep(env()).catch(() => {});
+  }
+  const r = await rows();
+  // (within 9 minutes the schedule allows attempts at 0, 1, 3 and 7 minutes after the first: at most 4)
+  for (const id of ids) {
+    const calls = rp.callsById.get(id) ?? 0;
+    assert.equal(r.get(id)?.attempts ?? 0, calls, `${id}: its row counts every call`);
+    assert.ok(calls >= 1 && calls <= 4, `${id}: ${calls} calls`);
+  }
+});
+
+test("back-off: a batch break keeps a later orphan's wait (21 new orphans, then one an hour into its back-off)", async () => {
+  for (let i = 0; i <= SWEEP_END_BATCH; i++) rp.add(`pod-${String(i).padStart(2, "0")}`, name(newId("machine")));
+  rp.add("pod-late", name(newId("machine")));
+  await seed("pod-late", 7, w.clock.t);
+  await assert.rejects(runContainerSweep(env()), /more orphans than one run ends/);
+  assert.deepEqual((await rows()).get("pod-late"), { attempts: 7, last_ms: w.clock.t });
+  w.clock.t += 60_000;
+  await runContainerSweep(env()).catch(() => {});
+  assert.equal(rp.callsById.get("pod-late") ?? 0, 0, "still waiting its hour");
+});
+
+test("back-off: a time budget spent before the first pod keeps every waiting orphan's row", async () => {
+  rp.add("pod-a", name(newId("machine")));
+  rp.add("pod-b", name(newId("machine")));
+  await seed("pod-b", 3, w.clock.t);
+  elapsed = 60_000;
+  await assert.rejects(runContainerSweep(env()), /time was spent/);
+  assert.deepEqual((await rows()).get("pod-b"), { attempts: 3, last_ms: w.clock.t });
+  assert.equal(rp.calls, 0);
+});
+
+test("back-off: a pod whose launch row can't be read keeps its row; one its launch now keeps, or no longer listed, is forgotten", async () => {
+  const a = newId("machine");
+  rp.add("pod-a", name(a));
+  rp.add("pod-c", name(newId("machine"))); // (a readable orphan beside it, so the run reads the table)
+  await seed("pod-a", 5, w.clock.t);
+  const all = w.db.all.bind(w.db);
+  w.db.all = (async (sql: string, params?: unknown[]) => {
+    if (/FROM launches WHERE machine_id = \? AND incarnation = \? AND mode = 'container'/.test(sql) && (params as unknown[])[0] === a) throw new Error("D1 down");
+    return all(sql, params as never);
+  }) as typeof w.db.all;
+  try {
+    await assert.rejects(runContainerSweep(env()), /pod-a: its launch couldn't be read/);
+  } finally {
+    w.db.all = all;
+  }
+  assert.deepEqual((await rows()).get("pod-a"), { attempts: 5, last_ms: w.clock.t });
+  // kept by its launch: forgotten
+  const m = await launch("pod-own");
+  rp.add("pod-own", name(m));
+  await seed("pod-own", 2, w.clock.t);
+  rp.pods.delete("pod-a"); // (no longer listed: forgotten too)
+  rp.pods.delete("pod-c");
+  await runContainerSweep(env());
+  assert.deepEqual([...(await rows()).keys()], []);
+});
+
+test("back-off: the waiting line names the most attempts, and says when an orphan is at the hourly cap", async () => {
+  rp.add("pod-a", name(newId("machine")));
+  rp.add("pod-b", name(newId("machine")));
+  await seed("pod-a", 2, w.clock.t);
+  await seed("pod-b", 9, w.clock.t);
+  alerts = [];
+  await runContainerSweep(env());
+  assert.deepEqual(alerts, ["2 orphan pod(s) waiting to be tried again (back-off; most attempts 9, at the hourly cap)"]);
 });

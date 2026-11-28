@@ -2422,8 +2422,8 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "  if (typeof kind !== \"string\" || !LAUNCH_ERROR_KINDS.has(kind)) return { left, outcomeUnknown: true, launchError: driverError };",
-  "new": "  if (typeof kind !== \"string\") return { left, outcomeUnknown: true, launchError: driverError };",
+  "old": "  if (typeof kind !== \"string\" || !LAUNCH_ERROR_KINDS.has(kind)) return { left, alsoLeft, outcomeUnknown: true, launchError: driverError };",
+  "new": "  if (typeof kind !== \"string\") return { left, alsoLeft, outcomeUnknown: true, launchError: driverError };",
   "note": "launchError driver-error"
  },
  {
@@ -2488,13 +2488,13 @@
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "  } catch {\n    return { left: null, outcomeUnknown: true, launchError: driverError };\n  }\n  let kind",
-  "new": "  } catch (x) {\n    throw x;\n  }\n  let kind",
+  "old": "  } catch {\n    return { left: null, alsoLeft: [], outcomeUnknown: true, launchError: driverError };\n  }\n  let alsoLeft",
+  "new": "  } catch (x) {\n    throw x;\n  }\n  let alsoLeft",
   "note": "id catch"
  },
  {
   "file": "src/probes/eradication.ts",
-  "old": "    kind = err.kind;\n  } catch {\n    return { left, outcomeUnknown: true, launchError: driverError };\n  }",
+  "old": "    kind = err.kind;\n  } catch {\n    return { left, alsoLeft, outcomeUnknown: true, launchError: driverError };\n  }",
   "new": "    kind = err.kind;\n  } catch (x) {\n    throw x;\n  }",
   "note": "kind catch"
  },
@@ -5276,5 +5276,47 @@
   "old": "notGone.push(id);",
   "new": "{ notGone.push(id); break; }",
   "note": "G03-1: one unconfirmed stops the others' cleanup"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      for (const other of alsoLeft ?? []) {",
+  "new": "      for (const other of [] as string[]) {",
+  "note": "#134 N1: the probe ends only the first machine left"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if ((unconfirmed !== null || alsoLeft === null) && r.exposure === null) {",
+  "new": "      if (alsoLeft === null && r.exposure === null) {",
+  "note": "#134 N1: an other machine not confirmed gone reported as terminated"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if ((unconfirmed !== null || alsoLeft === null) && r.exposure === null) {",
+  "new": "      if (unconfirmed !== null && r.exposure === null) {",
+  "note": "#134 N1: unreadable others reported as terminated"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (x !== left && !alsoLeft.includes(x)) alsoLeft.push(x);",
+  "new": "      alsoLeft.push(x);",
+  "note": "#134 N1: the first machine (or one twice) ended again as an other"
+ },
+ {
+  "file": "src/probes/eradication.ts",
+  "old": "      if (typeof x !== \"string\" || x === \"\") throw new TypeError(\"machinesLeft\");\n",
+  "new": "",
+  "note": "#134 N1: a malformed other machine accepted"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "        if (stop?.() === true) {\n          throw new ProviderError(\"vast\", \"outcome_unknown\", `${cause.message}; stopped at the caller's deadline; no instance labeled ${label} yet`, cause.httpStatus);\n        }\n",
+  "new": "",
+  "note": "#134 N2: a wait outlives the caller's stop"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "export const RECOVERY_SLICE_MS = 500;",
+  "new": "export const RECOVERY_SLICE_MS = 10_000;",
+  "note": "#134 N2: slices as long as a whole wait"
  }
 ]
