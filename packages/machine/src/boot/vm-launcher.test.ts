@@ -385,6 +385,8 @@ test("once: a second run stops at rerun (exit 4) before any request; an ambiguou
   assert.deepEqual([hits, announces.length], [h, n]);
   for (const setup of [
     (p: string) => symlinkSync(join(p, "run"), join(p, "var/lib/sbgpu")),
+    // (a link to a directory that would pass every other check: only the no-follow open refuses it)
+    (p: string) => { mkdirSync(join(p, "var/lib/sbgpu-real"), { mode: 0o700 }); symlinkSync("sbgpu-real", join(p, "var/lib/sbgpu")); },
     (p: string) => mkdirSync(join(p, "var/lib/sbgpu"), { mode: 0o755 }),
     (p: string) => writeFileSync(join(p, "var/lib/sbgpu"), ""),
   ]) {
@@ -416,6 +418,7 @@ test("values: each in its exact shape, checked before anything is fetched", asyn
     [`SBGPU_NONCE='${NONCE}'`, `SBGPU_NONCE='${NONCE.slice(1)}+'`],
     [`SBGPU_NONCE='${NONCE}'`, `SBGPU_NONCE='${NONCE}A'`],
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='prj_${MACHINE.slice(4)}'`],
+    [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='mchx${MACHINE.slice(4)}'`], // (in the id alphabet: only the prefix check refuses it)
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='${MACHINE.slice(0, -1)}i'`],
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='${MACHINE}0'`],
     ["SBGPU_CONTROL_URL='https://", "SBGPU_CONTROL_URL='http://"],
