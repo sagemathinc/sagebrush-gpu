@@ -428,10 +428,14 @@ export type StopReason = (typeof STOP_REASONS)[number];
 /**
  * Why a machine never started (it is then failed, with stoppedAt when charging ended):
  * createDeadline, the provider didn't have it running in time; podExited, its container exited
- * before it was ready. Control maps them from its launch record (terminate_reason
- * create-deadline and pod-exited).
+ * before it was ready; providerRefused, the provider refused to create it; setupFailed, it ran but
+ * never finished setting up (it didn't enroll in time, or its setup couldn't be verified). Control
+ * maps them from its launch record's terminate_reason: create-deadline, pod-exited, create-failed and
+ * duplicate-name (providerRefused), and connect-deadline, eradication-failed, provider-facts,
+ * second-enroll and sign-failed (setupFailed). A stop (member-stop, abort, hard-stop, max-session,
+ * heartbeat-lost) is no start failure: stopReason carries it.
  */
-export const START_FAILURES = ["createDeadline", "podExited"] as const;
+export const START_FAILURES = ["createDeadline", "podExited", "providerRefused", "setupFailed"] as const;
 export type StartFailure = (typeof START_FAILURES)[number];
 
 export function isStartFailure(x: unknown): x is StartFailure {

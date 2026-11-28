@@ -273,7 +273,18 @@ test("a start that never came up: its own label, why in plain words, what it cos
     assert.equal(startFailureText(lost, mode), null, mode);
     assert.equal(startFailureText(machine(), mode), null, mode);
   }
-  assert.deepEqual(START_FAILURE_WORDS, { createDeadline: "the provider didn't have it ready in time", podExited: "it stopped on its own before it was ready" });
+  assert.deepEqual(START_FAILURE_WORDS, {
+    createDeadline: "the provider didn't have it ready in time",
+    podExited: "it stopped on its own before it was ready",
+    providerRefused: "the provider couldn't start this GPU",
+    setupFailed: "it started but didn't finish setting up",
+  });
+  // the two newer reasons read the same way, and the charge sentence covers the wait to start too
+  const refused = machine({ state: "failed", startFailure: "providerRefused", spent, startedAt: null });
+  const setup = machine({ state: "failed", startFailure: "setupFailed", spent, startedAt: null });
+  assert.equal(startFailureText(refused, "resold"), "The machine didn't start: the provider couldn't start this GPU. This machine was charged $0.01 while it was starting, and nothing after that. You can start a new one.");
+  assert.equal(startFailureText(setup, "resold"), "The machine didn't start: it started but didn't finish setting up. This machine was charged $0.01 while it was starting, and nothing after that. You can start a new one.");
+  assert.equal(machineStateLabel(setup), "Didn't start");
   assert.deepEqual([machineActions(deadline).stop, machineActions(deadline).delete, machineActions(deadline).restart], [false, true, false]);
   assert.deepEqual([machineActions(lost).stop, machineActions(lost).delete], [true, true], "a machine that failed later may still need stopping");
 });

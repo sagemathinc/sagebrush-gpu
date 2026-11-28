@@ -716,12 +716,12 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": "${m.startedAt && m.state === \"running\" ? html` · started ${ago(m.startedAt, now)}` : null}",
+  "old": "${m.startedAt && m.state === \"running\" ? html` \u00b7 started ${ago(m.startedAt, now)}` : null}",
   "new": ""
  },
  {
   "file": "src/app/components.ts",
-  "old": "if (!store.meLoaded.value) page = html`<main><p class=\"muted\">Loading…</p></main>`;\n  else if",
+  "old": "if (!store.meLoaded.value) page = html`<main><p class=\"muted\">Loading\u2026</p></main>`;\n  else if",
   "new": "if"
  },
  {
@@ -1426,8 +1426,8 @@
  },
  {
   "file": "src/app/terminal-panel.ts",
-  "old": "      return `Connection lost. Reconnecting in ${Math.ceil(status.inMs / 1000)} s…`;",
-  "new": "      return `Connection lost. Reconnecting in ${Math.floor(status.inMs / 1000)} s…`;"
+  "old": "      return `Connection lost. Reconnecting in ${Math.ceil(status.inMs / 1000)} s\u2026`;",
+  "new": "      return `Connection lost. Reconnecting in ${Math.floor(status.inMs / 1000)} s\u2026`;"
  },
  {
   "file": "src/app/terminal-panel.ts",
@@ -1546,7 +1546,7 @@
  },
  {
   "file": "src/app/terminal-panel.ts",
-  "old": "  if (notice.kind === \"waiting\") return `Waiting for the machine to take ${formatBytes(notice.bytes)} of input…`;",
+  "old": "  if (notice.kind === \"waiting\") return `Waiting for the machine to take ${formatBytes(notice.bytes)} of input\u2026`;",
   "new": "  if (notice.kind === \"waiting\") return \"\";"
  },
  {
@@ -3455,7 +3455,7 @@
  },
  {
   "file": "src/app/keys-section.ts",
-  "old": "${set ? html` · fingerprint <code>${row.fingerprint}</code>` : null}",
+  "old": "${set ? html` \u00b7 fingerprint <code>${row.fingerprint}</code>` : null}",
   "new": "",
   "note": "row: no fingerprint"
  },
@@ -4462,7 +4462,7 @@
  },
  {
   "file": "src/app/components.ts",
-  "old": ".filter((x) => x != null).join(\" · \")",
+  "old": ".filter((x) => x != null).join(\" \u00b7 \")",
   "new": ".filter((x) => x != null).join(\" \")"
  },
  {
@@ -4522,5 +4522,10 @@
   "old": "form.maxGpusPerTeam, (f, v) => (f.maxGpusPerTeam = v))}",
   "new": "form.maxGpusPerTeam, () => undefined)}",
   "note": "typing in the team GPU cap field changes nothing"
+ },
+ {
+  "file": "src/view.ts",
+  "old": "  setupFailed: \"it started but didn't finish setting up\",",
+  "new": "  setupFailed: \"the provider couldn't start this GPU\","
  }
 ]

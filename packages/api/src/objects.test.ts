@@ -129,7 +129,7 @@ test("offer misses in the order a quote checks them, and the team GPU cap defaul
 });
 
 test("start failures: the two reasons a machine never starts, and nothing else", () => {
-  assert.deepEqual([...START_FAILURES], ["createDeadline", "podExited"]);
+  assert.deepEqual([...START_FAILURES], ["createDeadline", "podExited", "providerRefused", "setupFailed"]);
   for (const r of START_FAILURES) assert.equal(isStartFailure(r), true, r);
   for (const bad of ["create-deadline", "pod-exited", "provider", "", null, undefined, 1]) assert.equal(isStartFailure(bad), false, String(bad));
 });
