@@ -5188,5 +5188,29 @@
   "file": "src/money.ts",
   "old": "  const exponent = Number(m[4] ?? \"0\") - frac.length;",
   "new": "  const exponent = Number(m[4] ?? \"0\");"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  if (res.body === null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "new": "",
+  "note": "G03-4 TESTS H1: a native 204's null body refused as unreadable"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  if (res.body === null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "new": "  if (res.body === null) return { ok: true, text: \"\" };\n",
+  "note": "a null body on a status that should carry content taken as empty"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  if (res.body === null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "new": "  if (res.body == null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "note": "a missing body (not fetch's null) taken as empty"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "new Set([204, 205]);",
+  "new": "new Set([204]);",
+  "note": "205 forgotten"
  }
 ]

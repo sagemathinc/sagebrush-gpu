@@ -70,7 +70,10 @@ function mockFetch(replies: Reply[]) {
         if (r.textThrows === true) throw new Error(`stream cut ${KEY}`);
         return text;
       },
-      body: countingStream(bytes, reads.pulled, r.streamFails === true ? "fail" : r.stalls === true ? "stall" : "close"),
+      // (as fetch gives it: a no-content status has a null body)
+      body: (r.status === 204 || r.status === 205) && r.body === undefined && r.streamBytes === undefined && r.rawBytes === undefined
+        ? null
+        : countingStream(bytes, reads.pulled, r.streamFails === true ? "fail" : r.stalls === true ? "stall" : "close"),
     };
   };
   return { fetch, calls, reads };
@@ -612,6 +615,17 @@ test("status escapes the pod id", async () => {
   const { a, calls } = adapter([{ status: 200, body: { ...POD, id: "a/../b?c" } }]);
   await a.status("a/../b?c");
   assert.equal(calls[0]!.url, "https://api.runpod.io/v2/pods/a%2F..%2Fb%3Fc");
+});
+
+test("terminate (G03-4): a native fetch 204, null body and all, is a successful DELETE; a 200 without a body is not", async () => {
+  const replies: Array<() => Response> = [() => new Response(null, { status: 204 })];
+  const native: Fetch = async (_url, init) => {
+    assert.equal(init.redirect, "manual");
+    return replies.shift()!();
+  };
+  await new RunPodAdapter({ apiKey: KEY, fetch: native }).terminate("p1");
+  const bodiless: Fetch = async () => ({ status: 200, headers: { get: () => null }, text: async () => "", body: null });
+  await assert.rejects(new RunPodAdapter({ apiKey: KEY, fetch: bodiless }).terminate("p1"), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && /unreadable/.test(e.message));
 });
 
 test("terminate is idempotent and reports other failures", async () => {
