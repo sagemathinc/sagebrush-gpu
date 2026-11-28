@@ -269,7 +269,7 @@ test("append-only holds against INSERT OR REPLACE too: no row is replaced, no Cu
   assert.deepEqual(db.raw.prepare("SELECT sub FROM stripe_customers WHERE customer_id = 'cus_A'").all().map((r) => ({ ...r })), [{ sub: "user_A" }], "cus_A stays A's");
 });
 
-// SEC's rows (astra4b on this PR): the order of a reversal and its top-up, one owner per subscription, and
+// SEC's rows on this PR: the order of a reversal and its top-up, one owner per subscription, and
 // what a second write to a kept key does.
 test("a reversal before its top-up: the two still sum to zero, and a later signal adds nothing", async () => {
   await recordReversal(db, ev("charge.dispute.created"), { customerId: "cus_A", chargeId: "ch_1", netMicros: 9_999_999, reason: "dispute" });
