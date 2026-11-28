@@ -77,19 +77,30 @@ function policyOf(r: ProjectRow): ProjectPolicy {
   return { ...mergePolicy(DEFAULT_POLICY, JSON.parse(r.policy_json) as Partial<ProjectPolicy>), finalSaveReserveMinutes: r.final_save_reserve_minutes };
 }
 
+/**
+ * A summed money figure, only if it's exact (S10-F4): every row is a safe integer, but a SUM of them need
+ * not be, and a sum past 2^53 - 1 reads back as a Number of at least 2^53, which this refuses. Money is
+ * never shown rounded.
+ */
+export function exactSum(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  if (typeof v !== "number" || !Number.isSafeInteger(v)) throw new HttpError("internal", "a total is past the exact range");
+  return v;
+}
+
 /** Projects as the API returns them, with what is allocated and spent, from grouped queries per chunk. */
 async function toProjects(db: Db, rows: ProjectRow[]): Promise<Project[]> {
   const allocated = new Map<string, number>();
   const spent = new Map<string, { p: number; m: number; t: number }>();
   for (const ids of chunks(rows.map((r) => r.id), ID_CHUNK)) {
-    for (const a of await db.all<{ project_id: string; n: number }>(
+    for (const a of await db.all<{ project_id: string; n: unknown }>(
       `SELECT project_id, COALESCE(SUM(amount), 0) AS n FROM allocations WHERE project_id IN (${placeholders(ids.length)}) GROUP BY project_id`,
       ids,
-    )) allocated.set(a.project_id, a.n);
-    for (const s of await db.all<{ project_id: string; p: number; m: number; t: number }>(
+    )) allocated.set(a.project_id, exactSum(a.n));
+    for (const s of await db.all<{ project_id: string; p: unknown; m: unknown; t: unknown }>(
       `SELECT project_id, SUM(provider_cost) AS p, SUM(margin) AS m, SUM(total) AS t FROM ledger_entries WHERE project_id IN (${placeholders(ids.length)}) GROUP BY project_id`,
       ids,
-    )) spent.set(s.project_id, { p: s.p, m: s.m, t: s.t });
+    )) spent.set(s.project_id, { p: exactSum(s.p), m: exactSum(s.m), t: exactSum(s.t) });
   }
   return rows.map((r) => {
     const s = spent.get(r.id) ?? { p: 0, m: 0, t: 0 };
