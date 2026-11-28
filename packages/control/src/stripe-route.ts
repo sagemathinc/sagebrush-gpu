@@ -4,7 +4,8 @@
 //
 // - The body is counted before it is kept: a declared length over the cap is refused unread, and the
 //   stream is cancelled at the first chunk past it. The signature is checked over those exact bytes.
-// - Stripe redelivers every answer but 2xx, 4xx included, for up to three days. The status says why:
+// - Stripe redelivers every answer but 2xx, 4xx included: in LIVE mode for up to three days, in TEST (a
+//   sandbox) three times over a few hours. The status says why:
 //   - 200: recorded, a replay, or nothing for us to do (Stripe stops);
 //   - 400: a delivery that isn't Stripe's, or an answer from Stripe we won't act on. Stripe redelivers
 //     it, which is kept on purpose: a refusal that a fix on our side clears is then acted on by a later
@@ -15,7 +16,7 @@
 // - Alerts are fixed lines, never a key, a secret, an id or an amount. Every alert a redelivery would
 //   repeat goes out at most once per hour per kind (SEC's notes on #119 and #124): our key refused, the
 //   route unconfigured, deliveries refused (per reason), and an event refused or its write failed (per
-//   event type). So a revoked key, or one bad event retried for three days, pages once an hour, not once
+//   event type). So a revoked key, or one bad event retried for days, pages once an hour, not once
 //   per delivery.
 // - TEST mode only: livemode is fixed false here. LIVE comes with its own reviewed PR, after William has
 //   seen TEST work.
