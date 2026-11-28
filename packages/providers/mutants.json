@@ -3240,11 +3240,6 @@
  },
  {
   "file": "src/hyperstack/adapter.ts",
-  "old": "if (total !== null && t !== total) throw",
-  "new": "if (false) throw"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
   "old": "if (rows.length !== Math.max(0, Math.min(PAGE, total - read))) {",
   "new": "if (rows.length > PAGE) {"
  },
@@ -3267,11 +3262,6 @@
   "file": "src/hyperstack/adapter.ts",
   "old": "if (read >= total) return out;",
   "new": "if (rows.length < PAGE) return out;"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "(json[\"count\"] as number) < 0) {",
-  "new": "false) {"
  },
  {
   "file": "src/hyperstack/adapter.ts",
@@ -4033,11 +4023,6 @@
   "file": "src/http.ts",
   "old": "NO_BYTES : buf.subarray(0, size))",
   "new": "NO_BYTES : buf)"
- },
- {
-  "file": "src/hyperstack/adapter.ts",
-  "old": "    const { publicKey } = await perLaunchKeypair();\n    stopBefore();\n",
-  "new": "    const { publicKey } = await perLaunchKeypair();\n"
  },
  {
   "file": "src/http.ts",
@@ -5212,5 +5197,141 @@
   "old": "new Set([204, 205]);",
   "new": "new Set([204]);",
   "note": "205 forgotten"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "if (total !== null && t !== total) throw new ProviderError(\"hyperstack\", \"unknown\", \"Hyperstack VM list changed while it was read\");",
+  "new": "if (false) throw new ProviderError(\"hyperstack\", \"unknown\", \"Hyperstack VM list changed while it was read\");"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "(json[\"count\"] as number) < 0) {\n        throw new ProviderError(\"hyperstack\", \"unknown\", \"Hyperstack VM list is malformed\");",
+  "new": "false) {\n        throw new ProviderError(\"hyperstack\", \"unknown\", \"Hyperstack VM list is malformed\");"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (stale !== \"\") throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack: no VM was requested${stale}`);\n    stopBefore();\n",
+  "new": "    if (stale !== \"\") throw new ProviderError(\"hyperstack\", \"unknown\", `Hyperstack: no VM was requested${stale}`);\n",
+  "note": "the stop not checked right before the import"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const keyName = launchKeypairName(spec.machineId, spec.incarnation);",
+  "new": "const keyName = `sbg-k-${spec.machineId}`;",
+  "note": "G03-3: a key name without the incarnation"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    const stale = await this.#clearKeypair(keyName, stop);\n",
+  "new": "    const stale = \"\";\n",
+  "note": "G03-3: an earlier attempt's key not cleared before the import"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": ": await this.#clearKeypair(keyName, stop);",
+  "new": ": \"\";",
+  "note": "G03-3: a lost import's key left"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const left = stop?.() === true ? `; stopped at the caller's deadline; keypair ${keyName} kept` : await this.#clearKeypair(keyName, stop);",
+  "new": "const left = await this.#clearKeypair(keyName, stop);",
+  "note": "G03-3: a request after the caller's stop"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "named = (await this.listKeypairs(stop)).filter((k) => k.name === name);",
+  "new": "named = (await this.listKeypairs(stop)).filter((k) => parseKeypairName(k.name)?.machineId === parseKeypairName(name)?.machineId);",
+  "note": "G03-3: another incarnation's key taken for this one"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (named.length > 1) return",
+  "new": "    if (false) return",
+  "note": "G03-3: an ambiguous name deleted"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      if (total !== null && t !== total) throw new ProviderError(\"hyperstack\", \"unknown\", \"Hyperstack keypair list changed while it was read\");\n",
+  "new": "",
+  "note": "keypair list: a changed count accepted"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      if (rows.length !== Math.max(0, Math.min(KEY_PAGE, total - out.length))) {",
+  "new": "      if (rows.length > KEY_PAGE) {",
+  "note": "keypair list: a short or long page accepted"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "        if (seen.has(id as number)) throw new ProviderError(\"hyperstack\", \"unknown\", \"Hyperstack keypair list has a keypair twice\");\n",
+  "new": "",
+  "note": "keypair list: a key twice accepted"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const KEY_PAGES = 20;",
+  "new": "const KEY_PAGES = 21;",
+  "note": "keypair list: a longer page cap"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      if (keys.length > 1) {",
+  "new": "      if (false) {",
+  "note": "sweep: a shared name deleted"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      if (await keep(whose.machineId, whose.incarnation)) continue;",
+  "new": "      await keep(whose.machineId, whose.incarnation);",
+  "note": "sweep: a kept launch's key deleted"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    for (const [name, keys] of byName) {\n      if (shouldStop?.() === true) break;\n",
+  "new": "    for (const [name, keys] of byName) {\n",
+  "note": "sweep: past the caller's stop"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    for (const k of all) if (parseKeypairName(k.name) !== null)",
+  "new": "    for (const k of all) if (k.name.startsWith(\"sbg-k-\"))",
+  "note": "sweep: a key not named for a launch touched"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "const KEYPAIR_NAME = /^sbg-k-(mch_[0-9a-z]{20})-([1-9][0-9]{0,11})$/;",
+  "new": "const KEYPAIR_NAME = /^sbg-k-(mch_[0-9a-z]{20})-([0-9]{1,12})$/;",
+  "note": "key names: incarnation 0 or a leading zero"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    const { publicKey } = await perLaunchKeypair();\n    // A key this launch's earlier attempt left (a lost import, a stop, a failed removal) would make\n    // the import a duplicate name: one is removed first; several are refused, for a human.\n    stopBefore();\n",
+  "new": "    const { publicKey } = await perLaunchKeypair();\n    // A key this launch's earlier attempt left (a lost import, a stop, a failed removal) would make\n    // the import a duplicate name: one is removed first; several are refused, for a human.\n",
+  "note": "the stop not checked right before the key lookup"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "named = (await this.listKeypairs(stop)).filter((k) => k.name === name);",
+  "new": "named = (await this.listKeypairs()).filter((k) => k.name === name);",
+  "note": "TESTS H1: the key lookup's pages past the caller's stop"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "    if (named.length === 0) return \"\";\n    if (stop?.() === true) return stopped;\n",
+  "new": "    if (named.length === 0) return \"\";\n",
+  "note": "TESTS H1: a delete after a stop during the lookup"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      if (e instanceof ProviderError && e.message === STOPPED) return stopped;\n",
+  "new": "",
+  "note": "a stopped lookup reported as an unreadable list"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "      // (again after keep, which awaits: no request after the caller's stop)\n      if (shouldStop?.() === true) break;\n",
+  "new": "",
+  "note": "TESTS H1: the sweep deletes after a stop during keep"
  }
 ]
