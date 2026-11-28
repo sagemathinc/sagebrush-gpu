@@ -254,6 +254,28 @@ export class StripeApi {
     };
   }
 
+  /**
+   * A PaymentIntent with its latest charge and balance transaction: the scheduled re-fetch of a top-up whose
+   * fee wasn't known at checkout (d3.2's second credit path; Codex audit G01 P2). The fee is null while the
+   * balance transaction is absent or pending, as for a Checkout Session.
+   */
+  async paymentIntent(id: string): Promise<PaymentIntentFacts> {
+    const p = await this.#get(`/v1/payment_intents/${checkId("paymentIntent", id)}`, "payment_intent", ["latest_charge.balance_transaction"]);
+    usd(p, "the PaymentIntent");
+    const status = oneOf(p["status"], ["requires_payment_method", "requires_confirmation", "requires_action", "processing", "requires_capture", "canceled", "succeeded"] as const, "the PaymentIntent's status");
+    const latest = p["latest_charge"];
+    const charge = latest === null || latest === undefined ? null : this.#sameMode(obj(latest, "the charge"), "the charge");
+    if (charge !== null && charge["object"] !== "charge") throw invalid("the charge wasn't expanded");
+    return {
+      id,
+      status,
+      customer: optRefId("customer", p["customer"]),
+      grossMicros: cents(p["amount_received"], "the amount received"),
+      chargeId: charge === null ? null : checkId("charge", charge["id"]),
+      feeMicros: charge === null ? null : fee(this.#expanded(charge["balance_transaction"], "the balance transaction")),
+    };
+  }
+
   /** A charge with its balance transaction and every refund (T2: one debit per refund id). */
   async charge(id: string): Promise<ChargeFacts> {
     const c = await this.#get(`/v1/charges/${checkId("charge", id)}`, "charge", ["balance_transaction", "refunds"]);
@@ -329,6 +351,14 @@ export interface CheckoutFacts {
   readonly customer: string | null;
   /** For a payment session with its PaymentIntent: what the ledger credits from. */
   readonly payment: { readonly paymentIntent: string; readonly grossMicros: number; readonly chargeId: string | null; readonly feeMicros: number | null } | null;
+}
+export interface PaymentIntentFacts {
+  readonly id: string;
+  readonly status: "requires_payment_method" | "requires_confirmation" | "requires_action" | "processing" | "requires_capture" | "canceled" | "succeeded";
+  readonly customer: string | null;
+  readonly grossMicros: number;
+  readonly chargeId: string | null;
+  readonly feeMicros: number | null;
 }
 export interface ChargeFacts {
   readonly id: string;

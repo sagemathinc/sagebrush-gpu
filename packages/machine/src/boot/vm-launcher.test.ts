@@ -14,7 +14,9 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 
 import { BOOT_SCRIPT_VECTOR, renderBootScript, VM_HEADER } from "./boot.ts";
-import { VM_LAUNCHER_SH } from "./bootstrap-script.ts";
+// (the script's own text, so a mutant of vm-launcher.sh is what runs; check.sh's gen-bootstrap --check keeps the
+// generated copy equal to it)
+const LAUNCHER = readFileSync(new URL("vm-launcher.sh", import.meta.url), "utf8");
 
 const TOKEN = "T".repeat(20) + "o-_" + "k".repeat(20); // 43 base64url characters
 const NONCE = "N".repeat(10) + "-_" + "n".repeat(10); // 22
@@ -271,7 +273,7 @@ async function launch(opts: {
     mode: "vm",
     machineId: MACHINE,
     nonce: NONCE,
-  }, { prefix, body: VM_LAUNCHER_SH });
+  }, { prefix, body: LAUNCHER });
   if (opts.edit) script = opts.edit(script);
   if (opts.append) script += opts.append;
   const scriptPath = join(prefix, SCRIPT_PATH);
@@ -383,6 +385,8 @@ test("once: a second run stops at rerun (exit 4) before any request; an ambiguou
   assert.deepEqual([hits, announces.length], [h, n]);
   for (const setup of [
     (p: string) => symlinkSync(join(p, "run"), join(p, "var/lib/sbgpu")),
+    // (a link to a directory that would pass every other check: only the no-follow open refuses it)
+    (p: string) => { mkdirSync(join(p, "var/lib/sbgpu-real"), { mode: 0o700 }); symlinkSync("sbgpu-real", join(p, "var/lib/sbgpu")); },
     (p: string) => mkdirSync(join(p, "var/lib/sbgpu"), { mode: 0o755 }),
     (p: string) => writeFileSync(join(p, "var/lib/sbgpu"), ""),
   ]) {
@@ -414,6 +418,7 @@ test("values: each in its exact shape, checked before anything is fetched", asyn
     [`SBGPU_NONCE='${NONCE}'`, `SBGPU_NONCE='${NONCE.slice(1)}+'`],
     [`SBGPU_NONCE='${NONCE}'`, `SBGPU_NONCE='${NONCE}A'`],
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='prj_${MACHINE.slice(4)}'`],
+    [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='mchx${MACHINE.slice(4)}'`], // (in the id alphabet: only the prefix check refuses it)
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='${MACHINE.slice(0, -1)}i'`],
     [`SBGPU_MACHINE_ID='${MACHINE}'`, `SBGPU_MACHINE_ID='${MACHINE}0'`],
     ["SBGPU_CONTROL_URL='https://", "SBGPU_CONTROL_URL='http://"],
@@ -574,9 +579,8 @@ test("suspend across D (H7): held during gate 2, its result is never written and
   assert.ok(twin.agent);
 });
 
-test("vm-launcher.sh is what VM_LAUNCHER_SH holds, and the rendered VM script begins with the two protections", () => {
-  assert.equal(VM_LAUNCHER_SH, readFileSync(new URL("vm-launcher.sh", import.meta.url), "utf8"));
-  const s = renderBootScript(BOOT_SCRIPT_VECTOR.values, { body: VM_LAUNCHER_SH });
+test("the rendered VM script begins with the two protections", () => {
+  const s = renderBootScript(BOOT_SCRIPT_VECTOR.values, { body: LAUNCHER });
   assert.ok(s.startsWith("#!/bin/sh\n" + VM_HEADER + "SBGPU_AGENT_URL='"));
 });
 

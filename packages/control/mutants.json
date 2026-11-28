@@ -7505,8 +7505,8 @@
  },
  {
   "file": "src/stripe-api.ts",
-  "old": "    usd(p, \"the PaymentIntent\");\n",
-  "new": ""
+  "old": "wasn't expanded\");\n    usd(p, \"the PaymentIntent\");\n",
+  "new": "wasn't expanded\");\n"
  },
  {
   "file": "src/stripe-api.ts",
@@ -7962,5 +7962,135 @@
   "file": "src/start.ts",
   "old": "  for (const p of pendings) left -= BigInt(p);",
   "new": "  for (const p of pendings.slice(1)) left -= BigInt(p);"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (e instanceof StripeError && e.kind === \"unavailable\") break;",
+  "new": "      if (e instanceof StripeError && e.kind === \"unavailable\") continue;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (p.customer !== r.customer_id) {",
+  "new": "    if (false) {"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (p.status !== \"succeeded\" || p.chargeId === null || p.feeMicros === null) {",
+  "new": "    if (p.chargeId === null || p.feeMicros === null) {"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (d.nowMs - r.created_ms >= STUCK_MS) stuck++;",
+  "new": "      if (d.nowMs - r.created_ms > STUCK_MS) stuck++;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  if (stuck > 0) d.alert(",
+  "new": "  if (false) d.alert("
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  if (expired[0]!.k > 0) d.alert(",
+  "new": "  if (false) d.alert("
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  WHERE m.kind = 'pending' AND m.created_ms >= ?\n",
+  "new": "  WHERE m.kind = 'pending' AND m.created_ms > ?\n"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    usd(p, \"the PaymentIntent\");\n    const status = oneOf(p[\"status\"], [\"requires_payment_method\"",
+  "new": "    const status = oneOf(p[\"status\"], [\"requires_payment_method\""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (charge !== null && charge[\"object\"] !== \"charge\") throw invalid(\"the charge wasn't expanded\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "\"payment_intent\", [\"latest_charge.balance_transaction\"]);",
+  "new": "\"payment_intent\", []);"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      feeMicros: charge === null ? null : fee(this.#expanded(charge[\"balance_transaction\"], \"the balance transaction\")),\n    };\n  }\n\n  /** A charge",
+  "new": "      feeMicros: charge === null ? null : 0,\n    };\n  }\n\n  /** A charge"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if ((e.eventId === null) !== (p.via === \"refetch\")) throw",
+  "new": "  if (false) throw"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (e.eventId === null) {\n    const r = await db.batch(money);",
+  "new": "  if (e.eventId === null && false) {\n    const r = await db.batch(money);"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "      if (!(\"unusable\" in stripe)) {\n        try {\n          const n = await reconcilePendingTopups",
+  "new": "      if (false) {\n        try {\n          const n = await reconcilePendingTopups"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": " : this.#sameMode(obj(latest, \"the charge\"), \"the charge\");",
+  "new": " : obj(latest, \"the charge\");"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (!(e instanceof RangeError)) throw e;\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      d.alert(\"stripe pending refused\", `stripe reconcile: a pending top-up's figures can't be credited (${e.message})`);\n      continue;",
+  "new": "      throw e;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  ORDER BY COALESCE(k.checked_ms, m.created_ms), m.seq LIMIT ?`;",
+  "new": "  ORDER BY m.created_ms DESC, m.seq DESC LIMIT ?`;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  ORDER BY COALESCE(k.checked_ms, m.created_ms), m.seq LIMIT ?`;",
+  "new": "  ORDER BY COALESCE(k.checked_ms, 0), m.seq LIMIT ?`;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    // (outside the try: a failure to record it is the database's, and fails the run)\n    await l.batch([checked(r.stripe_key, d.nowMs)]);\n",
+  "new": "\n"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      await l.batch([checked(r.stripe_key, d.nowMs)]);\n      d.alert(\"stripe pending refused\"",
+  "new": "      d.alert(\"stripe pending refused\""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  ({ sql: `INSERT OR REPLACE INTO pending_checks (stripe_key, checked_ms) VALUES (?, ?)`, params: [key, nowMs] });",
+  "new": "  ({ sql: `INSERT OR IGNORE INTO pending_checks (stripe_key, checked_ms) VALUES (?, ?)`, params: [key, nowMs] });"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)\n  ORDER BY COALESCE",
+  "new": "  ORDER BY COALESCE"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  WHERE m.kind = 'pending' AND m.created_ms >= ?\n    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)\n  ORDER BY",
+  "new": "  WHERE m.kind = 'pending' AND m.created_ms > ?\n    AND NOT EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = m.stripe_key)\n  ORDER BY"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "[d.nowMs - RECONCILE_WINDOW_MS, RECONCILE_BATCH]);",
+  "new": "[d.nowMs - RECONCILE_WINDOW_MS, RECONCILE_BATCH * 2]);"
+ },
+ {
+  "file": "migrations/PROD-CHECKLIST.md",
+  "old": "| 0028_pending_checks.sql |",
+  "new": "| 0028 |"
  }
 ]
