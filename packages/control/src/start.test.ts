@@ -13,6 +13,9 @@ import { MIGRATIONS_DIR } from "./testing/sqlite.ts";
 import { SCHEDULED_JOBS, staleStarts } from "./jobs.ts";
 import { T0, addMember, signIn, world, type World } from "./testing/world.ts";
 import {
+  exactUnspent,
+  money,
+  type MoneyRow,
   HARD_STOP_PERIODS,
   OFFER_FRESH_MS,
   START_INTENT_GRACE_MS,
@@ -711,4 +714,43 @@ test("schema: the start version only steps up by 1; the admitted rate is both or
   for (const [c, mg] of [[1, null], [null, 1], [-1, 0], [1_000_000_001, 0], [1, -1], [1, 1_000_001]] as const) await assert.rejects(ins(c, mg), /CHECK/, `${c} ${mg}`);
   await ins(1_000_000_000, 1_000_000);
   await ins(null, null);
+});
+
+// ---- exact money (Codex audit G01 P1): the allocation's unspent figure in BigInt, refused rather than rounded
+
+const MAX = Number.MAX_SAFE_INTEGER;
+
+test("G01 P1: unspent is exact near 2^53; a float difference would be off by one", () => {
+  assert.equal(exactUnspent(MAX, -2, [2]), MAX, "MAX - (-2) - 2: a float gives MAX - 1");
+  assert.notEqual(MAX - -2 - 2, MAX, "(the float this replaces)");
+  assert.equal(exactUnspent(MAX, 0, []), MAX);
+  assert.equal(exactUnspent(0, MAX, []), -MAX);
+  assert.equal(exactUnspent(MAX, -1, [1]), MAX);
+  assert.equal(exactUnspent(1, 0, [MAX]), -(MAX - 1));
+  for (const [a, s, p] of [[MAX, -1, []], [0, MAX, [1]], [MAX, -MAX, []]] as const) {
+    assert.throws(() => exactUnspent(a, s, p), /unspent/, `${a} ${s} ${p}: outside the safe range, refused`);
+  }
+  for (const bad of [0.5, MAX + 1, Number.NaN, Infinity]) assert.throws(() => exactUnspent(bad, 0, []), /safe integer/);
+  assert.throws(() => exactUnspent(1, 0, [0.5]), /safe integer/);
+  // near-boundary sweep against a BigInt reference: exact, or refused (never a rounded value)
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31), seed);
+  for (let i = 0; i < 5000; i++) {
+    const a = MAX - (rnd() % 64);
+    const s = (rnd() % 64) - 32;
+    const ps = Array.from({ length: rnd() % 4 }, () => rnd() % 64);
+    const want = BigInt(a) - BigInt(s) - ps.reduce((x, y) => x + BigInt(y), 0n);
+    if (want > BigInt(MAX) || want < -BigInt(MAX)) assert.throws(() => exactUnspent(a, s, ps), /unspent/);
+    else assert.equal(BigInt(exactUnspent(a, s, ps)), want, `${a} ${s} ${ps}`);
+  }
+});
+
+test("G01 P1: the admission's money reads use the exact figure (an allocation of 2^53 - 1, an adjustment of -2, a stopped machine owing 2)", () => {
+  const base = { allocation_id: "alc_1", machine_id: null, billed_through_ms: null, incarnation: null, provider: null, provider_cost_per_hour: null, margin_bps: null, start_ms: null, end_ms: null, save_estimate_seconds: null };
+  const alloc: MoneyRow = { ...base, kind: "alloc", amount: MAX, start_version: 0, spent: -2, adjusted: -2 };
+  // one whole minute at 120 micro-USD an hour: 2 micro-USD owed, not yet billed
+  const interval: MoneyRow = { ...base, kind: "interval", amount: null, start_version: null, spent: null, adjusted: null, machine_id: "mch_1", billed_through_ms: T0, incarnation: 1, provider: "runpod", provider_cost_per_hour: 120, margin_bps: 0, start_ms: T0, end_ms: T0 + 60_000, save_estimate_seconds: 0 };
+  const m = money([alloc, interval], T0 + 120_000)!;
+  assert.equal(m.unspent, MAX);
+  assert.throws(() => money([{ ...alloc, spent: -3 }], T0), /unspent/, "past the safe range: refused, so the start is refused");
 });
