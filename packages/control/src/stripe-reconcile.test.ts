@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { sqliteDb, type TestDb } from "./testing/sqlite.ts";
 import { balanceOf, creditCheckout, creditPending, recordCustomer, type EventRef, type Who } from "./stripe-ledger.ts";
 import { StripeError, type PaymentIntentFacts } from "./stripe-api.ts";
-import { RECONCILE_BATCH, RECONCILE_WINDOW_MS, STUCK_MS, reconcilePendingTopups } from "./stripe-reconcile.ts";
+import { PRUNE_BATCH, RECONCILE_BATCH, RECONCILE_WINDOW_MS, STUCK_MS, reconcilePendingTopups } from "./stripe-reconcile.ts";
 import { handleEvent } from "./stripe-route.ts";
 
 const T = 1_800_000_000_000;
@@ -307,6 +307,69 @@ test("the Worker's cron credits a pending top-up with the key set; without it, S
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test("sec2's N1 on #128: a paid top-up the ledger refuses, or drops quietly, alerts at once and the rest go on; one credited meanwhile doesn't", async () => {
+  // the ledger refuses: Stripe reports one charge for two PaymentIntents, and a charge funds one top-up
+  await paidWithoutFee("pi_1");
+  await paidWithoutFee("pi_2", T + 1);
+  await paidWithoutFee("pi_3", T + 2);
+  const facts = (id: string) => (id === "pi_3" ? pi({ id }) : pi({ id, chargeId: "ch_same" }));
+  assert.equal(await reconcilePendingTopups(deps(facts)), 2, "pi_1 and pi_3; pi_2 refused, and the run went on");
+  assert.deepEqual(alerts, ["stripe reconcile: a pending top-up's figures can't be credited (a balance entry is never replaced)"]);
+  alerts = [];
+  // dropped quietly (the writer reports nothing, and there's no top-up): alerted
+  await paidWithoutFee("pi_4", T + 3);
+  const quiet = { ...db, batch: async (stmts: Parameters<typeof db.batch>[0]) => (stmts.some((x) => x.sql.includes("INSERT OR IGNORE INTO balance_entries")) ? stmts.map(() => ({ changes: 0 })) : db.batch(stmts)) };
+  await reconcilePendingTopups({ ...deps((id) => pi({ id }), T + 120_000), db: quiet });
+  // (pi_2, still open after its refusal, and pi_4: both dropped, both alerted)
+  assert.deepEqual(alerts.filter((a) => a.includes("not credited")), Array(2).fill("stripe reconcile: a paid top-up with its fee known was not credited by the ledger; check it"));
+  alerts = [];
+  // credited by charge.updated between the fetch and the job's own credit: "nothing", and no alert
+  await paidWithoutFee("pi_5", T + 4);
+  const racing = {
+    db,
+    nowMs: T + 180_000,
+    stripe: {
+      async paymentIntent(id: string) {
+        if (id === "pi_5") await creditPending(db, ev("charge.updated"), { customerId: "cus_A", paymentIntent: id, chargeId: "ch_5", grossMicros: 20_000_000, feeMicros: 880_000, via: "charge" });
+        return pi({ id });
+      },
+    },
+    alert: (_k: string, line: string) => void alerts.push(line),
+  };
+  await reconcilePendingTopups(racing);
+  assert.deepEqual(alerts.filter((a) => a.includes("not credited")), [], "credited elsewhere: all is well");
+  // a database failure that isn't the ledger's refusal still fails the run
+  await paidWithoutFee("pi_6", T + 5);
+  const broken = { ...db, batch: async (stmts: Parameters<typeof db.batch>[0]) => (stmts.some((x) => x.sql.includes("balance_entries")) ? Promise.reject(new Error("D1_ERROR: network")) : db.batch(stmts)) };
+  await assert.rejects(reconcilePendingTopups({ ...deps((id) => pi({ id }), T + 240_000), db: broken }), /D1_ERROR/);
+});
+
+test("sec2's note on #128: the scheduling record keeps only open markers; credited and expired ones are removed, a bounded number a run", async () => {
+  await paidWithoutFee("pi_credited");
+  await paidWithoutFee("pi_open", T + 1);
+  await reconcilePendingTopups(deps((id) => (id === "pi_credited" ? pi({ id }) : pi({ id, feeMicros: null })), T + 60_000));
+  const keys = () => (db.raw.prepare(`SELECT stripe_key FROM pending_checks ORDER BY stripe_key`).all() as Array<{ stripe_key: string }>).map((r) => r.stripe_key);
+  assert.deepEqual(keys(), ["pi_open"], "the credited marker's row is gone in the same run");
+  // past the window: removed, and not fetched
+  await reconcilePendingTopups(deps((id) => pi({ id, feeMicros: null }), T + 1 + RECONCILE_WINDOW_MS + 1));
+  assert.deepEqual(keys(), []);
+  // bounded: at most PRUNE_BATCH a run
+  for (let i = 0; i < PRUNE_BATCH + 5; i++) db.raw.prepare(`INSERT INTO pending_checks (stripe_key, checked_ms) VALUES (?, ?)`).run(`pi_gone${i}`, T);
+  const gone = () => keys().filter((k) => k.startsWith("pi_gone")).length;
+  await reconcilePendingTopups(deps((id) => pi({ id, feeMicros: null }), T + 120_000));
+  assert.equal(gone(), 5, "a hundred removed; five left");
+  await reconcilePendingTopups(deps((id) => pi({ id, feeMicros: null }), T + 180_000));
+  assert.equal(gone(), 0);
+  assert.deepEqual(keys(), ["pi_open"], "the open marker's row is kept");
+});
+
+test("the job runs every minute: wrangler.json's crons are pinned at \"* * * * *\" in both environments (its throughput rests on it)", () => {
+  const w = JSON.parse(readFileSync(new URL("../wrangler.json", import.meta.url), "utf8")) as { triggers: { crons: string[] }; env: Record<string, { triggers?: { crons: string[] } }> };
+  assert.deepEqual(w.triggers.crons, ["* * * * *"], "the default (DEV) environment");
+  assert.ok(Object.keys(w.env).includes("prod"));
+  for (const [name, e] of Object.entries(w.env)) assert.deepEqual(e.triggers?.crons, ["* * * * *"], `the ${name} environment`);
 });
 
 test("every migration is on the PROD checklist (William's per-file OK before control's first PROD deploy)", () => {

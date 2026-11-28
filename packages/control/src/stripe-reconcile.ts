@@ -14,6 +14,9 @@
 //   whatever the run times or how many new markers arrive, and markers whose fee isn't known yet can't hold
 //   every slot (Codex cx3's P2 and TESTS H2 on #128). Stripe unavailable stops the run; the next run tries
 //   again.
+// - Every minute: the Worker's cron ("* * * * *" in both environments of wrangler.json, pinned by a test).
+//   The order doesn't depend on it, but the throughput does (a batch a minute: with N open, every marker is
+//   asked about within ceil(N / RECONCILE_BATCH) minutes), so a slower schedule needs a bigger batch first.
 // - Loud: a marker still open after STUCK_MS, or one past the window, alerts (throttled by the caller).
 
 import type { Db } from "./db.ts";
@@ -23,6 +26,8 @@ import { LEDGER_TABLES, creditPending, scopedDb } from "./stripe-ledger.ts";
 export const RECONCILE_BATCH = 20;
 export const STUCK_MS = 24 * 60 * 60 * 1000;
 export const RECONCILE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** At most this many scheduling rows removed a run. */
+export const PRUNE_BATCH = 100;
 
 export interface ReconcileDeps {
   readonly db: Db;
@@ -50,6 +55,22 @@ export const OPEN_MARKERS = `SELECT m.stripe_key, m.created_ms, c.customer_id FR
 const checked = (key: string, nowMs: number) =>
   // (a plain replace: this record has no triggers and no other key, and is rewritten in place by design)
   ({ sql: `INSERT OR REPLACE INTO pending_checks (stripe_key, checked_ms) VALUES (?, ?)`, params: [key, nowMs] });
+
+/**
+ * The ledger's own refusals of a top-up (0022's triggers on balance_entries): money-safety rules, so writing
+ * nothing is right. They refuse that marker alone, like a RangeError, while any other database error still
+ * fails the run.
+ */
+const LEDGER_REFUSALS: readonly string[] = Object.freeze([
+  "a later credit needs the PaymentIntent's pending marker",
+  "a top-up must match its charge's reversal",
+  "a balance must stay within 2^53 - 1 micro-USD either way",
+  "a balance entry is never replaced",
+]);
+const ledgerRefusal = (e: unknown): string | null => {
+  const m = e instanceof Error ? e.message : "";
+  return LEDGER_REFUSALS.find((r) => m.includes(r)) ?? null;
+};
 
 /** One run: how many top-ups it credited. */
 export async function reconcilePendingTopups(d: ReconcileDeps): Promise<number> {
@@ -93,12 +114,32 @@ export async function reconcilePendingTopups(d: ReconcileDeps): Promise<number> 
       // (Stripe's figures that can't be credited, such as a fee not less than the amount, are this marker's
       // alone, refused with our own wording, and the rest go on (TESTS H1 on #128); a database failure
       // still fails the run)
-      if (!(e instanceof RangeError)) throw e;
-      d.alert("stripe pending refused", `stripe reconcile: a pending top-up's figures can't be credited (${e.message})`);
+      const refused = e instanceof RangeError ? e.message : ledgerRefusal(e);
+      if (refused === null) throw e;
+      // (our own fixed wording only: the writer's RangeError texts and the ledger's trigger texts above)
+      d.alert("stripe pending refused", `stripe reconcile: a pending top-up's figures can't be credited (${refused})`);
       continue;
     }
-    if (o === "written") credited++;
+    if (o === "written") {
+      credited++;
+      continue;
+    }
+    // Succeeded, with a charge and a known fee, for this marker's own Customer, and still nothing written.
+    // charge.updated may have credited it a moment ago (then there's a top-up, and all is well); otherwise the
+    // ledger's INSERT OR IGNORE dropped it quietly, and it would be re-fetched every run until the 7-day alert,
+    // so a human hears now (sec2's N1 on #128).
+    const done = await l.all(`SELECT 1 FROM balance_entries WHERE kind = 'topup' AND stripe_key = ?`, [p.id]);
+    if (done.length === 0) d.alert("stripe pending not credited", "stripe reconcile: a paid top-up with its fee known was not credited by the ledger; check it");
   }
+  // The scheduling record keeps only open markers: a row whose marker is credited, or past the window (the
+  // 7-day alert takes it from there), is removed, a bounded number a run (sec2's note on #128).
+  await l.run(
+    `DELETE FROM pending_checks WHERE stripe_key IN (SELECT k.stripe_key FROM pending_checks k WHERE
+       EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = k.stripe_key)
+       OR NOT EXISTS (SELECT 1 FROM balance_entries m WHERE m.kind = 'pending' AND m.stripe_key = k.stripe_key AND m.created_ms >= ?)
+     LIMIT ?)`,
+    [d.nowMs - RECONCILE_WINDOW_MS, PRUNE_BATCH],
+  );
   if (stuck > 0) d.alert("stripe pending stuck", `stripe reconcile: ${stuck} paid top-up(s) still have no fee after a day`);
   return credited;
 }
