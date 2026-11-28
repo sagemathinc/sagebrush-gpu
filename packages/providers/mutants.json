@@ -5121,5 +5121,41 @@
   "old": " && isAmount(offer.providerCostPerHour))\n    .map(",
   "new": ")\n    .map(",
   "note": "an invalid price shown outside"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const read = await readBody(res, MAX_REPLY_BYTES, deadline);",
+  "new": "const read = { ok: true as const, text: await res.text(), why: \"\" };",
+  "note": "G03-4: back to the unbounded text()"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "const kind: ProviderErrorKind = \"outcome_unknown\";",
+  "note": "G03-4: a read's failure called a change's"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const deadline = Date.now() + this.#timeoutMs;",
+  "new": "const deadline = Date.now() + 60_000;",
+  "note": "G03-4: the body read outlives the request's deadline"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "export const MAX_REPLY_BYTES = 4 * 1024 * 1024;",
+  "new": "export const MAX_REPLY_BYTES = 64 * 1024 * 1024;",
+  "note": "G03-4: a bigger cap than the test pins (it reads the cap)"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (json[\"pods\"].length > POD_PAGE_LIMIT) {",
+  "new": "if (json[\"pods\"].length > POD_PAGE_LIMIT + 1) {",
+  "note": "G03-4: page bound off by one"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (json[\"pods\"].length > POD_PAGE_LIMIT) {",
+  "new": "if (json[\"pods\"].length >= POD_PAGE_LIMIT) {",
+  "note": "G03-4: a full page refused"
  }
 ]
