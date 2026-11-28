@@ -2,7 +2,7 @@
 // sends, what each answer must be, micro-USD, and "unavailable" kept apart from "invalid".
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ANSWER_MAX_BYTES, STRIPE_VERSION, StripeApi, StripeError, checkConfig, type Fetch } from "./stripe-api.ts";
+import { ANSWER_MAX_BYTES, STRIPE_VERSION, StripeApi, StripeError, checkConfig, isInexact, parseExact, type Fetch } from "./stripe-api.ts";
 
 const KEY = "rk_test_abcdefghij0123";
 const API = "https://stripe.example.test";
@@ -177,4 +177,62 @@ test("sharper edges: only 200 is an answer; a declared length past the cap is re
   assert.equal(await kind(stripe(fake(() => new Response(bytes, { status: 200 })).f).charge("ch_1")), "invalid");
   // a PaymentIntent that is an object but not an expanded PaymentIntent
   assert.equal(await kind(stripe(fake(() => ok(session({ payment_intent: { id: "pi_1", currency: "usd", amount_received: 2000, latest_charge: null } }))).f).checkoutSession("cs_test_a1")), "invalid");
+});
+
+/** The charge answer as text, with one numeric token swapped in on the wire (never a rounded JS number). */
+const wire = (from: string, to: string, base: string = JSON.stringify(charge())) => {
+  assert.ok(base.includes(from), from);
+  return new Response(base.replace(from, to), { status: 200 });
+};
+
+test("exact money on the wire: a money token that isn't a plain safe integer is refused, not rounded", async () => {
+  for (const tok of ["1.0000000000000001", "5000.0", "50e2", "1e-400", "-1e-400", "900719925474.00001", "9007199254740993", "-0", "5000.5"]) {
+    assert.equal(await kind(stripe(fake(() => wire('"amount":5000', `"amount":${tok}`)).f).charge("ch_1")), "invalid", `amount ${tok}`);
+  }
+  assert.equal(await kind(stripe(fake(() => wire('"fee":175', '"fee":175.00000000000001')).f).charge("ch_1")), "invalid", "a fee");
+  assert.equal(await kind(stripe(fake(() => wire('"amount":1000', '"amount":1e3')).f).charge("ch_1")), "invalid", "a refund");
+  const s = JSON.stringify(session());
+  assert.equal(await kind(stripe(fake(() => wire('"amount_received":2000', '"amount_received":2000.0000000000001', s)).f).checkoutSession("cs_test_a1")), "invalid", "amount received");
+  // a legitimate integer passes, and a fraction in a field we don't read is harmless
+  assert.equal(await kind(stripe(fake(() => wire('"amount":5000', '"amount":5000')).f).charge("ch_1")), "resolved");
+  assert.equal(await kind(stripe(fake(() => wire('"fee":175', '"fee":175,"exchange_rate":1.0825')).f).charge("ch_1")), "resolved");
+  // the period end too
+  const sub = JSON.stringify({ object: "subscription", id: "sub_1", livemode: false, customer: "cus_A", status: "active", current_period_end: 1800000000, cancel_at_period_end: false });
+  assert.equal(await kind(stripe(fake(() => wire('"current_period_end":1800000000', '"current_period_end":1800000000.5', sub)).f).subscription("sub_1")), "invalid");
+});
+
+test("a body cut off after the headers is unavailable (a retry), not a raw error", async () => {
+  const cut = (reason: unknown) => () => {
+    let sent = false;
+    return new Response(new ReadableStream<Uint8Array>({ pull(c) { if (!sent) { sent = true; c.enqueue(new TextEncoder().encode('{"object":"charge",')); } else c.error(reason); } }), { status: 200 });
+  };
+  assert.equal(await kind(stripe(fake(cut(new TypeError("socket reset"))).f).charge("ch_1")), "unavailable", "a disconnect");
+  assert.equal(await kind(stripe(fake(cut(new DOMException("The operation was aborted.", "AbortError"))).f).charge("ch_1")), "unavailable", "the deadline mid-body");
+});
+
+test("every expanded object that states a mode must be this deployment's (B4)", async () => {
+  const live = { livemode: true };
+  const c = charge();
+  const cases: Array<[string, unknown, "charge" | "checkoutSession"]> = [
+    ["the balance transaction", { ...c, balance_transaction: { ...bt(), ...live } }, "charge"],
+    ["a refund", { ...c, refunds: { ...c.refunds, data: [{ ...c.refunds.data[0], ...live }] } }, "charge"],
+    ["the refunds list", { ...c, refunds: { ...c.refunds, ...live } }, "charge"],
+    ["the PaymentIntent", session({}, live), "checkoutSession"],
+    ["the latest charge", session({}, {}, live), "checkoutSession"],
+    ["the charge's balance transaction", session({}, {}, { balance_transaction: { ...bt(), ...live } }), "checkoutSession"],
+  ];
+  for (const [what, body, m] of cases) {
+    const api = stripe(fake(() => ok(body)).f);
+    assert.equal(await kind(m === "charge" ? api.charge("ch_1") : api.checkoutSession("cs_test_a1")), "invalid", what);
+  }
+  // the same objects in this mode pass
+  assert.equal(await kind(stripe(fake(() => ok({ ...c, balance_transaction: { ...bt(), livemode: false } })).f).charge("ch_1")), "resolved");
+});
+
+test("parseExact: a number is kept only when its token is a plain integer in the safe range, whatever field it's in", () => {
+  const n = (tok: string) => (parseExact(`{"n":${tok}}`) as { n: unknown }).n;
+  for (const tok of ["0", "1", "-1", "9007199254740991", "-9007199254740991", "42"]) assert.equal(n(tok), Number(tok), tok);
+  for (const tok of ["9007199254740992", "9007199254740993", "-9007199254740992", "99999999999999999", "1.5", "1.0", "1e3", "-0", "0.0", "1E2"]) assert.ok(isInexact(n(tok)), tok);
+  assert.ok(isInexact((parseExact(`[{"a":{"b":[1.25]}}]`) as Array<{ a: { b: unknown[] } }>)[0]!.a.b[0]), "nested");
+  assert.deepEqual(parseExact(`{"s":"1.5","t":true,"z":null}`), { s: "1.5", t: true, z: null }, "only numbers are touched");
 });

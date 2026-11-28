@@ -74,6 +74,37 @@ function obj(v: unknown, what: string): Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v)) throw invalid(`${what} is not an object`);
   return v as Record<string, unknown>;
 }
+/**
+ * A number in an answer whose source token isn't a plain integer in the safe range (a fraction, an exponent,
+ * or past 2^53 - 1). JSON.parse would round it; the reviver below puts this in its place, so no money check
+ * ever sees a rounded value (William's exact-money rule). Fields we don't read may hold one harmlessly.
+ */
+class Inexact {
+  readonly source: string;
+  constructor(source: string) {
+    this.source = source;
+  }
+}
+// (no sign on zero: "-0" is not a plain integer token)
+const INTEGER_TOKEN = /^(0|-?[1-9][0-9]{0,15})$/;
+function exactNumbers(_key: string, value: unknown, context?: { source?: string }): unknown {
+  if (typeof value !== "number") return value;
+  const src = context?.source;
+  // (a runtime without the source text can't prove a number exact: fail closed)
+  if (typeof src !== "string") throw invalid("this runtime can't read numbers exactly");
+  if (!INTEGER_TOKEN.test(src)) return new Inexact(src);
+  const b = BigInt(src);
+  return b > BigInt(Number.MAX_SAFE_INTEGER) || b < -BigInt(Number.MAX_SAFE_INTEGER) ? new Inexact(src) : value;
+}
+
+/** JSON with every number either a safe integer as written or an Inexact (exported for its rows). */
+export function parseExact(text: string): unknown {
+  return JSON.parse(text, exactNumbers as (k: string, v: unknown) => unknown);
+}
+export function isInexact(v: unknown): boolean {
+  return v instanceof Inexact;
+}
+
 function cents(v: unknown, what: string): number {
   if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0 || v > Number.MAX_SAFE_INTEGER / MICROS_PER_CENT) throw invalid(`${what} is not an amount`);
   return v * MICROS_PER_CENT;
@@ -95,7 +126,14 @@ async function boundedJson(r: Response): Promise<unknown> {
   const parts: Uint8Array[] = [];
   let n = 0;
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk: Awaited<ReturnType<typeof reader.read>>;
+    try {
+      chunk = await reader.read();
+    } catch {
+      // (the connection dropped or the deadline hit after the headers: Stripe may be asked again)
+      throw new StripeError("unavailable", "the answer was cut off");
+    }
+    const { done, value } = chunk;
     if (done) break;
     n += value.byteLength;
     if (n > ANSWER_MAX_BYTES) {
@@ -111,8 +149,9 @@ async function boundedJson(r: Response): Promise<unknown> {
     at += p.byteLength;
   }
   try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(all));
-  } catch {
+    return parseExact(new TextDecoder("utf-8", { fatal: true }).decode(all));
+  } catch (e) {
+    if (e instanceof StripeError) throw e;
     throw invalid("the answer is not JSON");
   }
 }
@@ -156,6 +195,17 @@ export class StripeApi {
     return o;
   }
 
+  /** A field that may be an expanded object: its mode checked when it is one, passed through otherwise. */
+  #expanded(v: unknown, what: string): unknown {
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? this.#sameMode(v as Record<string, unknown>, what) : v;
+  }
+
+  /** An expanded object inside an answer: if it says which mode it's in, that's this deployment's too. */
+  #sameMode(o: Record<string, unknown>, what: string): Record<string, unknown> {
+    if ("livemode" in o && o["livemode"] !== this.#c.livemode) throw invalid(`${what}'s mode isn't this deployment's`);
+    return o;
+  }
+
   /**
    * A Checkout Session with its PaymentIntent's latest charge and balance transaction (T1). The fee is
    * null while the balance transaction is absent or still pending.
@@ -169,10 +219,10 @@ export class StripeApi {
     usd(s, "the session");
     const pi = s["payment_intent"];
     if (pi === null || pi === undefined) return { id, mode, paymentStatus, customer, payment: null };
-    const p = obj(pi, "the PaymentIntent");
+    const p = this.#sameMode(obj(pi, "the PaymentIntent"), "the PaymentIntent");
     if (p["object"] !== "payment_intent") throw invalid("the PaymentIntent wasn't expanded");
     usd(p, "the PaymentIntent");
-    const charge = p["latest_charge"] === null || p["latest_charge"] === undefined ? null : obj(p["latest_charge"], "the charge");
+    const charge = p["latest_charge"] === null || p["latest_charge"] === undefined ? null : this.#sameMode(obj(p["latest_charge"], "the charge"), "the charge");
     return {
       id,
       mode,
@@ -182,7 +232,7 @@ export class StripeApi {
         paymentIntent: checkId("paymentIntent", p["id"]),
         grossMicros: cents(p["amount_received"], "the amount received"),
         chargeId: charge === null ? null : checkId("charge", charge["id"]),
-        feeMicros: charge === null ? null : fee(charge["balance_transaction"]),
+        feeMicros: charge === null ? null : fee(this.#expanded(charge["balance_transaction"], "the balance transaction")),
       },
     };
   }
@@ -191,7 +241,7 @@ export class StripeApi {
   async charge(id: string): Promise<ChargeFacts> {
     const c = await this.#get(`/v1/charges/${checkId("charge", id)}`, "charge", ["balance_transaction", "refunds"]);
     usd(c, "the charge");
-    const list = obj(c["refunds"], "the refunds");
+    const list = this.#sameMode(obj(c["refunds"], "the refunds"), "the refunds");
     if (list["object"] !== "list" || !Array.isArray(list["data"])) throw invalid("the refunds are not a list");
     if (list["has_more"] !== false) throw invalid("the charge has more refunds than one page");
     return {
@@ -199,9 +249,9 @@ export class StripeApi {
       customer: optRefId("customer", c["customer"]),
       paymentIntent: optRefId("paymentIntent", c["payment_intent"]),
       amountMicros: cents(c["amount"], "the charge's amount"),
-      feeMicros: fee(c["balance_transaction"]),
+      feeMicros: fee(this.#expanded(c["balance_transaction"], "the balance transaction")),
       refunds: list["data"].map((x) => {
-        const r = obj(x, "a refund");
+        const r = this.#sameMode(obj(x, "a refund"), "a refund");
         usd(r, "a refund");
         return {
           id: checkId("refund", r["id"]),

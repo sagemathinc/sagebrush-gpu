@@ -7577,5 +7577,65 @@
   "file": "src/stripe-api.ts",
   "old": "[\"balance_transaction\", \"refunds\"]",
   "new": "[\"balance_transaction\"]"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "const INTEGER_TOKEN = /^(0|-?[1-9][0-9]{0,15})$/;",
+  "new": "const INTEGER_TOKEN = /^-?[0-9.eE+-]+$/;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "const INTEGER_TOKEN = /^(0|-?[1-9][0-9]{0,15})$/;",
+  "new": "const INTEGER_TOKEN = /^-?(0|[1-9][0-9]{0,15})$/;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  return b > BigInt(Number.MAX_SAFE_INTEGER) || b < -BigInt(Number.MAX_SAFE_INTEGER) ? new Inexact(src) : value;",
+  "new": "  return value;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (!INTEGER_TOKEN.test(src)) return new Inexact(src);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      throw new StripeError(\"unavailable\", \"the answer was cut off\");",
+  "new": "      throw new TypeError(\"cut off\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (\"livemode\" in o && o[\"livemode\"] !== this.#c.livemode) throw invalid(`${what}'s mode isn't this deployment's`);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    const p = this.#sameMode(obj(pi, \"the PaymentIntent\"), \"the PaymentIntent\");",
+  "new": "    const p = obj(pi, \"the PaymentIntent\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": " : this.#sameMode(obj(p[\"latest_charge\"], \"the charge\"), \"the charge\");",
+  "new": " : obj(p[\"latest_charge\"], \"the charge\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        const r = this.#sameMode(obj(x, \"a refund\"), \"a refund\");",
+  "new": "        const r = obj(x, \"a refund\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    const list = this.#sameMode(obj(c[\"refunds\"], \"the refunds\"), \"the refunds\");",
+  "new": "    const list = obj(c[\"refunds\"], \"the refunds\");"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      feeMicros: fee(this.#expanded(c[\"balance_transaction\"], \"the balance transaction\")),",
+  "new": "      feeMicros: fee(c[\"balance_transaction\"]),"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        feeMicros: charge === null ? null : fee(this.#expanded(charge[\"balance_transaction\"], \"the balance transaction\")),",
+  "new": "        feeMicros: charge === null ? null : fee(charge[\"balance_transaction\"]),"
  }
 ]
