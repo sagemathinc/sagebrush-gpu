@@ -189,8 +189,11 @@ g1=$(printf '{"known":[{"sha256":"%s","bytes":22}]}' "$noncesha" | "$py" -I -S -
 # 7, 8. announce, then boot.json: one child, under a hard bound, the nonce on its stdin.  It prints /run/sbgpu's device
 # and inode once it has made it (so a later failure can remove what it wrote, and nothing else), then the token's
 # digest and the deadline D.
-out=$(printf '%s\n' "$SBGPU_NONCE" | timeout -s KILL 45 "$py" -I -S -c "$load" "$agent" vmboot announce \
-  "$SBGPU_PREFIX" "$SBGPU_CONTROL_URL" "$SBGPU_MACHINE_ID" "$selfsha" "$SBGPU_AGENT_SHA256" 2>/dev/null)
+# Each `timeout -s KILL` runs in a { ...; } 2>/dev/null group: an older GNU timeout (coreutils 9.1) signals its own
+# process group too, so it dies by SIGKILL and the shell would report "Killed" on stderr, breaking the one-line rule.
+# The group sends that report nowhere; the children's own stderr already goes to /dev/null.
+out=$({ printf '%s\n' "$SBGPU_NONCE" | timeout -s KILL 45 "$py" -I -S -c "$load" "$agent" vmboot announce \
+  "$SBGPU_PREFIX" "$SBGPU_CONTROL_URL" "$SBGPU_MACHINE_ID" "$selfsha" "$SBGPU_AGENT_SHA256" 2>/dev/null; } 2>/dev/null)
 arc=$?
 dirid=$(printf '%s\n' "$out" | sed -n 's/^dir \([0-9][0-9]*\) \([0-9][0-9]*\)$/\1 \2/p')
 # After a failure past this point: boot.json, gate.json and their temp files are removed (and only those).
@@ -214,13 +217,13 @@ deadline=${okline#* }
 # 9. gate 2: both digests known; killed at D minus 30 s, and not started at all past it.  Its line becomes gate.json,
 # written by D (and killed at D minus 25 s).
 secs=$("$py" -I -S -c "$load" "$agent" vmboot remaining "$deadline" 30 2>/dev/null) || late gate2 gate2
-g2=$(printf '{"known":[{"sha256":"%s","bytes":22},{"sha256":"%s","bytes":43}]}' "$noncesha" "$tokensha" |
-  timeout -s KILL "$secs" "$py" -I -S -c "$load" "$agent" vmgate "$allow" 2>/dev/null) || late gate2 gate2
+g2=$({ printf '{"known":[{"sha256":"%s","bytes":22},{"sha256":"%s","bytes":43}]}' "$noncesha" "$tokensha" |
+  timeout -s KILL "$secs" "$py" -I -S -c "$load" "$agent" vmgate "$allow" 2>/dev/null; } 2>/dev/null) || late gate2 gate2
 [ "$g2" = "$pass1" ] || late gate2 gate2
 secs=$("$py" -I -S -c "$load" "$agent" vmboot remaining "$deadline" 25 2>/dev/null) || late gate2 gate2
 # shellcheck disable=SC2086 # (two numbers)
-printf '%s\n' "$g2" | timeout -s KILL "$secs" "$py" -I -S -c "$load" "$agent" vmboot gatefile "$SBGPU_PREFIX" \
-  "$deadline" $dirid >/dev/null 2>&1 || late gate2 gate2
+{ printf '%s\n' "$g2" | timeout -s KILL "$secs" "$py" -I -S -c "$load" "$agent" vmboot gatefile "$SBGPU_PREFIX" \
+  "$deadline" $dirid >/dev/null 2>&1; } 2>/dev/null || late gate2 gate2
 
 # 10. exec: the agent replaces this shell, with an environment built from nothing.  It reads both files once, removes
 # them, and holds to D itself.
