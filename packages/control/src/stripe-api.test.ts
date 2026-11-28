@@ -159,3 +159,22 @@ test("H2: a subscription's current state, the period end in ms", async () => {
     assert.equal(await kind(stripe(fake(() => ok(sub(o))).f).subscription("sub_1")), "invalid", what);
   }
 });
+
+test("sharper edges: only 200 is an answer; a declared length past the cap is refused unread; UTF-8 is strict; a PaymentIntent must be expanded", async () => {
+  // a 2xx that isn't 200, with a body that would otherwise pass
+  for (const st of [201, 202, 203]) {
+    assert.equal(await kind(stripe(fake(() => new Response(JSON.stringify(charge()), { status: st })).f).charge("ch_1")), "invalid", String(st));
+  }
+  // a small, valid body whose declared length is over the cap
+  const small = JSON.stringify(charge());
+  assert.equal(await kind(stripe(fake(() => new Response(small, { status: 200, headers: { "content-length": String(ANSWER_MAX_BYTES + 1) } })).f).charge("ch_1")), "unavailable");
+  // a malformed declared length is ignored: the streamed count decides
+  assert.equal(await kind(stripe(fake(() => new Response(small, { status: 200, headers: { "content-length": "12abc" } })).f).charge("ch_1")), "resolved");
+  // valid JSON carrying an invalid UTF-8 byte inside a string
+  const bytes = new TextEncoder().encode(JSON.stringify({ ...charge(), pad: "XX" }));
+  const at = bytes.indexOf(0x58);
+  bytes[at] = 0xff;
+  assert.equal(await kind(stripe(fake(() => new Response(bytes, { status: 200 })).f).charge("ch_1")), "invalid");
+  // a PaymentIntent that is an object but not an expanded PaymentIntent
+  assert.equal(await kind(stripe(fake(() => ok(session({ payment_intent: { id: "pi_1", currency: "usd", amount_received: 2000, latest_charge: null } }))).f).checkoutSession("cs_test_a1")), "invalid");
+});

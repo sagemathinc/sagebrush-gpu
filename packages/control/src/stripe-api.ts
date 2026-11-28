@@ -88,7 +88,8 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], what: string
 
 async function boundedJson(r: Response): Promise<unknown> {
   const declared = r.headers.get("content-length");
-  if (declared !== null && Number(declared) > ANSWER_MAX_BYTES) throw new StripeError("unavailable", "the answer is too large");
+  // (digits only, compared as BigInt: a malformed length is just not trusted, the streamed count decides)
+  if (declared !== null && /^[0-9]{1,20}$/.test(declared) && BigInt(declared) > BigInt(ANSWER_MAX_BYTES)) throw new StripeError("unavailable", "the answer is too large");
   if (!r.body) throw invalid("no answer body");
   const reader = r.body.getReader();
   const parts: Uint8Array[] = [];

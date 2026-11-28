@@ -344,8 +344,9 @@ test("exact money: a person's balance stays a safe integer at both ends; the SUM
 
 test("exact money: no float parsing or rounding in the money modules", async () => {
   const { readFileSync } = await import("node:fs");
-  // (the modules money flows through; the webhook verifier reads only a timestamp and ids)
-  for (const f of ["stripe-ledger.ts"]) {
+  // (the modules money flows through: the ledger, and the Stripe client that converts cents; the webhook
+  // verifier reads only a timestamp and ids)
+  for (const f of ["stripe-ledger.ts", "stripe-api.ts"]) {
     const code = readFileSync(new URL(`./${f}`, import.meta.url), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     for (const bad of [/parseFloat/, /parseInt/, /toFixed/, /toPrecision/, /\bNumber\(/, /Math\.(round|floor|ceil|trunc)/, /\*\s*100\b/, /\b1e\d/, /\/\s*100\b/]) {
       assert.doesNotMatch(code, bad, `${f}: ${bad}`);

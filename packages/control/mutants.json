@@ -7422,5 +7422,160 @@
   "file": "migrations/0022_stripe_ledger.sql",
   "old": "AND via IS NOT NULL AND ref IS NOT NULL AND substr(ref, 1, 3) = 'ch_')),",
   "new": "AND via IS NOT NULL AND ref IS NOT NULL)),"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "test: /^rk_test_[A-Za-z0-9]{10,247}$/",
+  "new": "test: /^(rk|sk)_test_[A-Za-z0-9]{10,247}$/"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (!(c.livemode ? KEY.live : KEY.test).test(c.apiKey))",
+  "new": "if (!KEY.test.test(c.apiKey) && !KEY.live.test(c.apiKey))"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (bad !== null) throw new Error(bad);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (o[\"livemode\"] !== this.#c.livemode) throw invalid(\"the answer's mode isn't this deployment's\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (o[\"object\"] !== object) throw invalid(`the answer is not a ${object}`);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "redirect: \"manual\",",
+  "new": "redirect: \"follow\","
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "\"stripe-version\": STRIPE_VERSION",
+  "new": "\"stripe-version\": \"2025-03-31.basil\""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        signal: AbortSignal.timeout(DEADLINE_MS),\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (r.status === 429 || r.status >= 500)",
+  "new": "if (r.status >= 500)"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (r.status === 429 || r.status >= 500)",
+  "new": "if (r.status === 429 || r.status >= 400)"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "if (r.status !== 200) {",
+  "new": "if (r.status >= 400) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "BigInt(declared) > BigInt(ANSWER_MAX_BYTES)",
+  "new": "false"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (n > ANSWER_MAX_BYTES) {",
+  "new": "    if (n > ANSWER_MAX_BYTES * 4) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (n > ANSWER_MAX_BYTES) {",
+  "new": "    if (n >= ANSWER_MAX_BYTES) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "new TextDecoder(\"utf-8\", { fatal: true })",
+  "new": "new TextDecoder(\"utf-8\")"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (o[\"currency\"] !== \"usd\") throw invalid(`${what} isn't in USD`);\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    usd(p, \"the PaymentIntent\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  usd(b, \"the balance transaction\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "v < 0 ||",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "return v * MICROS_PER_CENT;",
+  "new": "return v * 100;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "!Number.isSafeInteger(v) || v < 0",
+  "new": "v < 0"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "|| v > Number.MAX_SAFE_INTEGER / MICROS_PER_CENT",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (b[\"status\"] === \"pending\") return null;\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (v === null || v === undefined || typeof v === \"string\") return null;",
+  "new": "  if (v === null || v === undefined) return null;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (list[\"has_more\"] !== false) throw invalid(\"the charge has more refunds than one page\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (p[\"object\"] !== \"payment_intent\") throw invalid(\"the PaymentIntent wasn't expanded\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "currentPeriodEndMs: end * 1000,",
+  "new": "currentPeriodEndMs: end,"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (typeof s[\"cancel_at_period_end\"] !== \"boolean\") throw invalid(\"cancel_at_period_end is not a boolean\");\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "  if (typeof v !== \"string\" || !ID[kind].test(v)) throw invalid(`not a Stripe ${kind} id`);",
+  "new": "  if (typeof v !== \"string\") throw invalid(`not a Stripe ${kind} id`);"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "checkoutSession: /^cs_(test|live)_[A-Za-z0-9]{1,240}$/",
+  "new": "checkoutSession: /^cs_(test|live)_[A-Za-z0-9/.]{1,240}$/"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "[\"balance_transaction\", \"refunds\"]",
+  "new": "[\"balance_transaction\"]"
  }
 ]
