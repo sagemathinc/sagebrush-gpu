@@ -449,10 +449,14 @@ const LAUNCH_ERROR_KINDS: ReadonlySet<string> = new Set([
  * and it secures the pod id before touching anything else: the kind comes next, and the
  * diagnostics (status, drift, command shape) last, each read once in its own try, so an
  * unreadable diagnostic can only lose itself, never the cleanup. Anything that isn't a
- * ProviderError with a known kind is a driver error whose outcome is unknown (exposure).
+ * ProviderError with a known kind is a driver error whose outcome is unknown (exposure). The other
+ * machines the failure left (machinesLeft past the first; Codex audit G03-1) are read after the id,
+ * in their own try: null when they can't be read, so the driver reports exposure rather than
+ * "terminated, confirmed" while a machine it can't name may run.
  */
 export function launchFailure(e: unknown): {
   left: string | null;
+  alsoLeft: string[] | null;
   outcomeUnknown: boolean;
   launchError: NonNullable<ProbeReport["launchError"]>;
 } {
@@ -460,20 +464,32 @@ export function launchFailure(e: unknown): {
   let left: string | null = null;
   let err: ProviderError;
   try {
-    if (!(e instanceof ProviderError)) return { left: null, outcomeUnknown: true, launchError: driverError };
+    if (!(e instanceof ProviderError)) return { left: null, alsoLeft: [], outcomeUnknown: true, launchError: driverError };
     err = e;
     const id: unknown = err.providerMachineId;
     left = typeof id === "string" && id !== "" ? id : null;
   } catch {
-    return { left: null, outcomeUnknown: true, launchError: driverError };
+    return { left: null, alsoLeft: [], outcomeUnknown: true, launchError: driverError };
+  }
+  let alsoLeft: string[] | null;
+  try {
+    const all: unknown = err.machinesLeft;
+    if (!Array.isArray(all)) throw new TypeError("machinesLeft");
+    alsoLeft = [];
+    for (const x of all) {
+      if (typeof x !== "string" || x === "") throw new TypeError("machinesLeft");
+      if (x !== left && !alsoLeft.includes(x)) alsoLeft.push(x);
+    }
+  } catch {
+    alsoLeft = null;
   }
   let kind: unknown;
   try {
     kind = err.kind;
   } catch {
-    return { left, outcomeUnknown: true, launchError: driverError };
+    return { left, alsoLeft, outcomeUnknown: true, launchError: driverError };
   }
-  if (typeof kind !== "string" || !LAUNCH_ERROR_KINDS.has(kind)) return { left, outcomeUnknown: true, launchError: driverError };
+  if (typeof kind !== "string" || !LAUNCH_ERROR_KINDS.has(kind)) return { left, alsoLeft, outcomeUnknown: true, launchError: driverError };
   const read = (get: () => unknown): unknown => {
     try {
       return get();
@@ -486,6 +502,7 @@ export function launchFailure(e: unknown): {
   const shape = read(() => err.commandShape);
   return {
     left,
+    alsoLeft,
     outcomeUnknown: kind === "outcome_unknown",
     launchError: {
       kind: kind as ProviderErrorKind,
@@ -570,12 +587,23 @@ export async function runEradicationProbe(
     rate = Math.max(rate, launched.status.providerCostPerHour ?? rate);
   } catch (e) {
     report.aborts.push("launch-failed");
-    const { left, outcomeUnknown, launchError } = launchFailure(e);
+    const { left, alsoLeft, outcomeUnknown, launchError } = launchFailure(e);
     report.launchError = launchError;
-    // A failed launch may still have left a pod. With its id: clean it up.
+    // A failed launch may still have left a pod. With its id: clean it up, and every other one it
+    // left too (G03-1); one not confirmed gone, or others that can't be named, is exposure.
     if (left !== null) {
       report.providerMachineId = left;
-      return finish(left);
+      let unconfirmed: string | null = null;
+      for (const other of alsoLeft ?? []) {
+        if (!(await terminateAndConfirm(adapter, other, clock.sleep, CONFIRM_POLLS, CONFIRM_INTERVAL_MS))) unconfirmed ??= other;
+      }
+      const r = await finish(left);
+      if ((unconfirmed !== null || alsoLeft === null) && r.exposure === null) {
+        r.terminatedConfirmed = false;
+        r.exposure = { providerMachineId: unconfirmed, machineName: plan.spec.name, ratePerHour: rate };
+        r.outcome = outcomeOf(r);
+      }
+      return r;
     }
     // Without one, if the create request may have gone through (a lost response, a search
     // that didn't finish, anything unexpected), a pod may exist that we can't name: say so.

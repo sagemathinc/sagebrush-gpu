@@ -23,6 +23,7 @@ import {
   VastAdapter,
   vastError,
   vastState,
+  RECOVERY_SLICE_MS,
   RECOVERY_WAITS_MS,
 } from "./adapter.ts";
 import { gpuFromVast, gpuToVast, VAST_GPUS, vastCountry, vastDataCenter, vastFilterName, vastMachineId } from "./catalog.ts";
@@ -83,8 +84,10 @@ function adapter(replies: Reply[], keys: Reply[] = []) {
   const m = mockFetch(replies, keys);
   // (a lost create's recovery waits between its lists: recorded here, never waited)
   const sleeps: number[] = [];
-  const a = new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW, sleep: async (ms) => void sleeps.push(ms) });
-  return { a, calls: m.calls, keyCalls: m.keyCalls, reads: m.reads, sleeps };
+  // (each sleep with the requests made before it: one wait's slices all fall between the same two lists)
+  const slices: Array<[number, number]> = [];
+  const a = new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW, sleep: async (ms) => void (sleeps.push(ms), slices.push([m.calls.length, ms])) });
+  return { a, calls: m.calls, keyCalls: m.keyCalls, reads: m.reads, sleeps, slices };
 }
 
 /** An offer as Vast's search reference describes it. */
@@ -452,9 +455,9 @@ test("launch: a lost create reply is recovered by exact label, or stays unknown"
   }
   // none by the end of the recovery window: the unknown outcome stands
   {
-    const { a, sleeps } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), ...RECOVERY_LISTS.map(() => listed([]))]);
+    const { a, slices } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), ...RECOVERY_LISTS.map(() => listed([]))]);
     await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === null);
-    assert.deepEqual(sleeps, RECOVERY_WAITS_MS);
+    assert.deepEqual(waits(slices), RECOVERY_WAITS_MS);
   }
   // a filter Vast ignored: other labels never count
   {
@@ -485,20 +488,28 @@ test("launch: a lost create's recovery never takes an instance of this machine l
 /** Every list a lost create's recovery reads: one at once, then one after each wait. */
 const RECOVERY_LISTS = [0, ...RECOVERY_WAITS_MS];
 
+/** The recorded sleeps as whole waits: the slices between the same two requests, summed. */
+function waits(slices: ReadonlyArray<readonly [number, number]>): number[] {
+  const by = new Map<number, number>();
+  for (const [at, ms] of slices) by.set(at, (by.get(at) ?? 0) + ms);
+  return [...by.values()];
+}
+
 test("launch (G03-2): a create that may have reached Vast is never retried: an empty list stays unknown, and a late listing is found", async () => {
   const listed = (instances: unknown[]) => ok({ success: true, instances, next_token: null });
   // a 5xx (transient for any other call) whose instance never shows: outcome_unknown, not transient
   {
-    const { a, sleeps } = adapter([ok({ offers: [offer()] }), { status: 503 }, ...RECOVERY_LISTS.map(() => listed([]))]);
+    const { a, sleeps, slices } = adapter([ok({ offers: [offer()] }), { status: 503 }, ...RECOVERY_LISTS.map(() => listed([]))]);
     await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.httpStatus === 503 && /no instance labeled/.test(e.message));
-    assert.deepEqual(sleeps, [2_000, 5_000, 10_000], "growing waits, each list after one");
+    assert.deepEqual(waits(slices), [2_000, 5_000, 10_000], "growing waits, each list after one");
+    assert.ok(sleeps.every((ms) => ms > 0 && ms <= RECOVERY_SLICE_MS), "in slices of at most RECOVERY_SLICE_MS");
   }
   // listed only on the second or last read: that instance is the launch
   for (const late of [1, RECOVERY_WAITS_MS.length]) {
     const lists = RECOVERY_LISTS.slice(0, late + 1).map((_, i) => listed(i === late ? [inst()] : []));
-    const { a, sleeps } = adapter([ok({ offers: [offer()] }), { status: 502 }, ...lists, ok({ instances: inst() })]);
+    const { a, slices } = adapter([ok({ offers: [offer()] }), { status: 502 }, ...lists, ok({ instances: inst() })]);
     assert.equal((await a.launch(SPEC)).providerMachineId, "31337");
-    assert.deepEqual(sleeps, RECOVERY_WAITS_MS.slice(0, late));
+    assert.deepEqual(waits(slices), RECOVERY_WAITS_MS.slice(0, late));
   }
   // the caller's deadline ends the window: no wait, no list after it
   {
@@ -507,6 +518,15 @@ test("launch (G03-2): a create that may have reached Vast is never retried: an e
     await assert.rejects(a.launch(SPEC, { shouldStop: () => calls.length >= 3 && ++lists > 0 }), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
     assert.deepEqual(sleeps, []);
     assert.equal(calls.length, 3);
+  }
+  // a stop during a wait ends it within a slice, with no list after it (#134 SEC N2)
+  {
+    let slept = 0;
+    const m = mockFetch([ok({ offers: [offer()] }), { status: 503 }, listed([])]);
+    const a = new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW, sleep: async (ms) => void (slept += ms) });
+    await assert.rejects(a.launch(SPEC, { shouldStop: () => slept >= 1_000 }), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && /stopped at the caller's deadline; no instance labeled/.test(e.message));
+    assert.equal(slept, 1_000, "the 2 s wait ended at the first slice past the stop");
+    assert.equal(m.calls.length, 3, "the search, the create and one list: none after the stop");
   }
   // so placement makes one create, never a second beside one that may exist
   {

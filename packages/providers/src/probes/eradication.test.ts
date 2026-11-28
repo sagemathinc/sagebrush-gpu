@@ -324,6 +324,9 @@ interface World {
   statusOver?: (n: number) => Partial<ProviderMachineStatus> | Error;
   launchError?: Error;
   terminateFails?: boolean;
+  /** Terminate fails for just these ids; every id terminated is recorded. */
+  terminateFailsFor?: string[];
+  terminatedIds?: string[];
   /** Terminate takes this long. */
   terminateDelayMs?: number;
   /** Each status read takes this long. */
@@ -369,10 +372,11 @@ function harness(w: World) {
       if (stopped) return status({ state: "stopping", rawStatus: "RUNNING", ...over });
       return status(over);
     },
-    terminate: async () => {
+    terminate: async (id) => {
       w.log.push("terminate");
+      (w.terminatedIds ??= []).push(id);
       t += w.terminateDelayMs ?? 0;
-      if (w.terminateFails) throw new Error("503");
+      if (w.terminateFails || w.terminateFailsFor?.includes(id)) throw new Error("503");
       gone = true;
     },
   };
@@ -618,6 +622,41 @@ test("a launch that leaves a pod behind is cleaned up; one that doesn't isn't", 
   assert.equal(r2.providerMachineId, null);
   assert.deepEqual(r.launchError, { kind: "spec_mismatch", httpStatus: null, drift: null, commandShape: null });
   assert.deepEqual(r2.launchError, { kind: "no_capacity", httpStatus: null, drift: null, commandShape: null });
+});
+
+test("G03-1: a launch that leaves several machines ends and confirms every one; one not confirmed, or ones it can't name, is exposure", async () => {
+  const several = () => new ProviderError("runpod", "outcome_unknown", "2 pods carry the name", null, null, "podX", null, null, ["podY", "podZ"]);
+  const all: World = { log: [], stages: [], launchError: several() };
+  const h = harness(all);
+  const r = await runEradicationProbe(plan, h.adapter, h.api, h.clock);
+  assert.deepEqual(all.terminatedIds, ["podY", "podZ", "podX"]);
+  assert.deepEqual([r.providerMachineId, r.terminatedConfirmed, r.exposure], ["podX", true, null]);
+  // one of the others not confirmed gone: not "terminated, confirmed"
+  const stuck: World = { log: [], stages: [], launchError: several(), terminateFailsFor: ["podZ"] };
+  const h2 = harness(stuck);
+  const r2 = await runEradicationProbe(plan, h2.adapter, h2.api, h2.clock);
+  assert.deepEqual(stuck.terminatedIds, ["podY", "podZ", "podX"]);
+  assert.equal(r2.terminatedConfirmed, false);
+  assert.deepEqual(r2.exposure?.providerMachineId, "podZ");
+  assert.equal(r2.outcome, "aborted");
+  // the others can't be read: exposure, by the launch's name
+  const e = several();
+  Object.defineProperty(e, "machinesLeft", { get: () => { throw new Error("x"); } });
+  const unread: World = { log: [], stages: [], launchError: e };
+  const h3 = harness(unread);
+  const r3 = await runEradicationProbe(plan, h3.adapter, h3.api, h3.clock);
+  assert.deepEqual(unread.terminatedIds, ["podX"]);
+  assert.equal(r3.terminatedConfirmed, false);
+  assert.deepEqual(r3.exposure, { providerMachineId: null, machineName: plan.spec.name, ratePerHour: r3.exposure!.ratePerHour });
+  // launchFailure: the others, once each, never the first; unreadable or malformed is null
+  assert.deepEqual(launchFailure(several()).alsoLeft, ["podY", "podZ"]);
+  assert.deepEqual(launchFailure(new ProviderError("runpod", "spec_mismatch", "x", null, null, "podX")).alsoLeft, []);
+  for (const bad of [["podY", 7], ["podY", ""], "podY"]) {
+    const x = several();
+    Object.defineProperty(x, "machinesLeft", { get: () => bad });
+    assert.equal(launchFailure(x).alsoLeft, null, JSON.stringify(bad));
+    assert.equal(launchFailure(x).left, "podX");
+  }
 });
 
 test("a rejected pod's drift markers reach the report; only fixed-word markers, at most 32", async () => {
@@ -1250,7 +1289,7 @@ test("launchFailure secures the pod id first, and nothing it reads can lose it",
   assert.equal(launchFailure(new ProviderError("runpod", "transient", "x", 503)).launchError.httpStatus, 503);
   assert.equal(launchFailure(new ProviderError("runpod", "unknown", "x", 600)).launchError.httpStatus, null);
   assert.equal(launchFailure(new ProviderError("runpod", "unknown", "x", 99)).launchError.httpStatus, null);
-  assert.deepEqual(launchFailure("x"), { left: null, outcomeUnknown: true, launchError: { kind: "driver-error", httpStatus: null, drift: null, commandShape: null } });
+  assert.deepEqual(launchFailure("x"), { left: null, alsoLeft: [], outcomeUnknown: true, launchError: { kind: "driver-error", httpStatus: null, drift: null, commandShape: null } });
   assert.deepEqual(launchFailure(new ProviderError("runpod", "outcome_unknown", "x")).outcomeUnknown, true);
   assert.deepEqual(launchFailure(new ProviderError("runpod", "no_capacity", "x", null, null, "")).left, null);
 });

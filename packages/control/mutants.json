@@ -8163,5 +8163,113 @@
   "old": "\"create-failed\", e.machinesLeft);",
   "new": "\"create-failed\", [e.providerMachineId]);",
   "note": "G03-1: the container path ends only the first pod"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (before !== undefined && now < before.last_ms + backoffMs(before.attempts)) {",
+  "new": "    if (false) {",
+  "note": "back-off: a refused orphan asked again every run"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    if (before !== undefined && now < before.last_ms + backoffMs(before.attempts)) {",
+  "new": "    if (before === undefined || now < before.last_ms + backoffMs(before.attempts)) {",
+  "note": "back-off: a new orphan's first attempt delayed"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "return Math.min(SWEEP_BACKOFF_CAP_MS, SWEEP_BACKOFF_BASE_MS * 2 ** Math.min(attempts - 1, 30));",
+  "new": "return Math.min(SWEEP_BACKOFF_CAP_MS, SWEEP_BACKOFF_BASE_MS * attempts);",
+  "note": "back-off: linear, not doubling"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "return Math.min(SWEEP_BACKOFF_CAP_MS, SWEEP_BACKOFF_BASE_MS * 2 ** Math.min(attempts - 1, 30));",
+  "new": "return SWEEP_BACKOFF_BASE_MS * 2 ** Math.min(attempts - 1, 30);",
+  "note": "back-off: no cap"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "export const SWEEP_BACKOFF_CAP_MS = 60 * 60_000;",
+  "new": "export const SWEEP_BACKOFF_CAP_MS = 120 * 60_000;",
+  "note": "back-off: a longer cap than an hour"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "DO UPDATE SET attempts = min(attempts + 1, 1000000), last_ms = excluded.last_ms",
+  "new": "DO UPDATE SET attempts = min(attempts + 1, 1000000)",
+  "note": "back-off: measured from the first attempt, not the last"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "DO UPDATE SET attempts = min(attempts + 1, 1000000), last_ms = excluded.last_ms",
+  "new": "DO UPDATE SET last_ms = excluded.last_ms",
+  "note": "back-off: the count never grows"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (waiting > 0) env.alert(",
+  "new": "  if (false) env.alert(",
+  "note": "back-off: waiting orphans not reported"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  for (const id of gone) await env.db.run(",
+  "new": "  for (const id of [] as string[]) await env.db.run(",
+  "note": "back-off: rows of machines no longer orphans kept"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "filter((id) => !liveOurs.has(id) || kept.has(id));",
+  "new": "filter(() => true);",
+  "note": "back-off: a still-orphan machine's attempts forgotten"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "      kept.add(s.providerMachineId);\n",
+  "new": "",
+  "note": "back-off: every orphan forgotten each run"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "  if (!Number.isSafeInteger(attempts) || attempts < 1) throw new RangeError(\"attempts is a count of at least 1\");\n",
+  "new": "",
+  "note": "back-off: a bad count accepted"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "      before = (await attemptsSoFar()).get(s.providerMachineId);",
+  "new": "      before = undefined;",
+  "note": "back-off: never consulted"
+ },
+ {
+  "file": "migrations/PROD-CHECKLIST.md",
+  "old": "| 0030_sweep_attempts.sql |",
+  "new": "| 0030 |",
+  "note": "0030 left off the PROD checklist"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "    list.filter((s) => s.parsedName !== null && s.state !== \"terminated\" && s.parsedName.installation === env.installation).map((s) => s.providerMachineId),",
+  "new": "    [].map((s: ProviderMachineStatus) => s.providerMachineId),",
+  "note": "#136 H1: rows pruned for orphans the run didn't reach or couldn't read"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "filter((id) => !liveOurs.has(id) || kept.has(id));",
+  "new": "filter((id) => !liveOurs.has(id));",
+  "note": "#136: a row of a machine its launch now keeps never forgotten"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "      mostAttempts = Math.max(mostAttempts, before.attempts);\n",
+  "new": "",
+  "note": "N2: the waiting line's most attempts never counted"
+ },
+ {
+  "file": "src/sweep.ts",
+  "old": "${backoffMs(mostAttempts) >= SWEEP_BACKOFF_CAP_MS ? \", at the hourly cap\" : \"\"}",
+  "new": "",
+  "note": "N2: an orphan at the cap not said"
  }
 ]

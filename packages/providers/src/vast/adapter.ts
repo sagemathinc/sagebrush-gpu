@@ -40,6 +40,8 @@ export const BOOT_TOKEN_ENV = "SBGPU_BOOT_TOKEN";
 export const MAX_REPLY_BYTES = 4 * 1024 * 1024;
 /** A lost create's recovery waits, growing, between its label lists: Vast may list a new instance late. */
 export const RECOVERY_WAITS_MS: readonly number[] = Object.freeze([2_000, 5_000, 10_000]);
+/** The longest single sleep of those waits: a caller's stop ends a wait within this (#134 SEC N2). */
+export const RECOVERY_SLICE_MS = 500;
 /** Instances per page of the machine list (Vast's maximum). */
 const PAGE = 25;
 /** A list longer than this many pages fails: a partial list would hide machines. */
@@ -623,7 +625,14 @@ export class VastAdapter implements ProviderAdapter {
       if (i >= RECOVERY_WAITS_MS.length || stop?.() === true) {
         throw new ProviderError("vast", "outcome_unknown", `${cause.message}; no instance labeled ${label} yet`, cause.httpStatus);
       }
-      await this.#sleep(RECOVERY_WAITS_MS[i]!);
+      // (the wait is cut into slices with the stop checked between them, so a stop ends it within a
+      // slice, and no list follows a stop)
+      for (let left = RECOVERY_WAITS_MS[i]!; left > 0; left -= RECOVERY_SLICE_MS) {
+        if (stop?.() === true) {
+          throw new ProviderError("vast", "outcome_unknown", `${cause.message}; stopped at the caller's deadline; no instance labeled ${label} yet`, cause.httpStatus);
+        }
+        await this.#sleep(Math.min(left, RECOVERY_SLICE_MS));
+      }
     }
   }
 
