@@ -40,6 +40,11 @@ export class ProviderError extends Error {
   readonly retryAfterSeconds: number | null;
   /** Set when the failed call left a machine behind that the caller must clean up. */
   readonly providerMachineId: string | null;
+  /**
+   * Every machine the failed call left behind, providerMachineId first: a recovery that found several
+   * with the launch's name names them all (Codex audit G03-1), and the caller cleans up each one.
+   */
+  readonly machinesLeft: readonly string[];
   /** For a machine that didn't match its spec: where, as drift.ts's driftMarkers (fixed words only). */
   readonly drift: readonly string[] | null;
   /** For a machine whose command drifted: how the provider reported it (drift.ts's commandShape, no text). */
@@ -54,6 +59,7 @@ export class ProviderError extends Error {
     providerMachineId: string | null = null,
     drift: readonly string[] | null = null,
     commandShape: CommandShape | null = null,
+    alsoLeft: readonly string[] = [],
   ) {
     super(message);
     this.name = "ProviderError";
@@ -62,6 +68,8 @@ export class ProviderError extends Error {
     this.httpStatus = httpStatus;
     this.retryAfterSeconds = retryAfterSeconds;
     this.providerMachineId = providerMachineId;
+    if (alsoLeft.length > 0 && providerMachineId === null) throw new RangeError("machines left need a first one");
+    this.machinesLeft = Object.freeze(providerMachineId === null ? [] : [...new Set([providerMachineId, ...alsoLeft])]);
     this.drift = drift === null ? null : Object.freeze([...drift]);
     this.commandShape = commandShape;
   }
