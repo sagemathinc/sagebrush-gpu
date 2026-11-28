@@ -1533,6 +1533,54 @@
   "note": "abort reasons: ssh-access dropped"
  },
  {
+  "file": "src/objects.ts",
+  "old": "  maxGpusPerTeam: null,\n",
+  "new": "  maxGpusPerTeam: 2,\n",
+  "note": "team GPU cap default not one per member"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  \"overPrice\",\n  \"noStock\",\n] as const;",
+  "new": "  \"noStock\",\n  \"overPrice\",\n] as const;",
+  "note": "offer misses reordered"
+ },
+ {
+  "file": "src/objects.ts",
+  "old": "  \"gpuCount\",\n  \"gpuTooSmall\",",
+  "new": "  \"gpuTooSmall\",",
+  "note": "offer miss gpuCount dropped"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "export const MAX_GPUS_PER_TEAM = 1000;",
+  "new": "export const MAX_GPUS_PER_TEAM = 1001;",
+  "note": "team GPU cap bound widened"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "      if (v !== null && (typeof v !== \"number\"",
+  "new": "      if ((typeof v !== \"number\"",
+  "note": "team GPU cap null refused"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "!Number.isSafeInteger(v) || v < 0 || v > MAX_GPUS_PER_TEAM)) return { ok: false, reason: `maxGpusPerTeam",
+  "new": "v < 0 || v > MAX_GPUS_PER_TEAM)) return { ok: false, reason: `maxGpusPerTeam",
+  "note": "team GPU cap fractions accepted"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "v < 0 || v > MAX_GPUS_PER_TEAM)) return",
+  "new": "v < -1 || v > MAX_GPUS_PER_TEAM)) return",
+  "note": "team GPU cap negative accepted"
+ },
+ {
+  "file": "src/policy.ts",
+  "old": "  \"maxGpusPerTeam\",\n  \"idleStopMinutes\",",
+  "new": "  \"idleStopMinutes\",",
+  "note": "team GPU cap an unknown field"
+ },
+ {
   "file": "src/csv.ts",
   "old": "    if (FORMULA_START.has(text.charAt(0)) || FORMULA_START.has(first)) text = \"'\" + text;",
   "new": "    if (FORMULA_START.has(text.charAt(0))) text = \"'\" + text;",

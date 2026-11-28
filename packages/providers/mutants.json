@@ -76,31 +76,6 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "o.gpuCount === request.gpuCount &&",
-  "new": ""
- },
- {
-  "file": "src/placement.ts",
-  "old": "policy.allowedProviders.includes(o.provider) &&",
-  "new": ""
- },
- {
-  "file": "src/placement.ts",
-  "old": "countryAllowed(policy.locality, o.country) &&",
-  "new": ""
- },
- {
-  "file": "src/placement.ts",
-  "old": "o.providerCostPerHour <= policy.maxProviderCostPerHour &&",
-  "new": "o.providerCostPerHour < policy.maxProviderCostPerHour &&"
- },
- {
-  "file": "src/placement.ts",
-  "old": "o.stock !== \"none\",",
-  "new": "true,"
- },
- {
-  "file": "src/placement.ts",
   "old": "a.providerCostPerHour - b.providerCostPerHour ||",
   "new": "b.providerCostPerHour - a.providerCostPerHour ||"
  },
@@ -4954,5 +4929,197 @@
   "old": "        if (label !== undefined && !sameMachineName(s.parsedName, label)) continue;",
   "new": "        if (label !== undefined && s.machineId !== nameFields(label).machineId) continue;",
   "note": "Vast's label filter by machine id only"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  if (offer.gpuCount !== gpuCount) return \"gpuCount\";\n",
+  "new": "",
+  "note": "the GPU count never checked"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    if (v !== null && allowed.length > 0 && v < Math.min(...allowed)) return \"gpuTooSmall\";\n",
+  "new": "",
+  "note": "never too small"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    if (v !== null && allowed.length > 0 && v > Math.max(...allowed)) return \"gpuTooLarge\";\n",
+  "new": "",
+  "note": "never too large"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "v < Math.min(...allowed)) return \"gpuTooSmall\"",
+  "new": "v <= Math.min(...allowed)) return \"gpuTooSmall\"",
+  "note": "the smallest allowed size counted too small"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "v > Math.max(...allowed)) return \"gpuTooLarge\"",
+  "new": "v >= Math.max(...allowed)) return \"gpuTooLarge\"",
+  "note": "the largest allowed size counted too large"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    if (v !== null && allowed.length > 0 && v < Math.min",
+  "new": "    if (v !== null && v < Math.min",
+  "note": "too small with no allowed sizes"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  if (!policy.allowedProviders.includes(offer.provider)) return \"providerNotAllowed\";\n",
+  "new": "",
+  "note": "any provider"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  if (!countryAllowed(policy.locality, offer.country)) return \"locality\";\n",
+  "new": "",
+  "note": "any country"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  if (!(offer.providerCostPerHour <= policy.maxProviderCostPerHour)) return \"overPrice\";\n",
+  "new": "",
+  "note": "no price cap"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "!(offer.providerCostPerHour <= policy.maxProviderCostPerHour)",
+  "new": "!(offer.providerCostPerHour < policy.maxProviderCostPerHour)",
+  "note": "the cap itself over price"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  if (offer.stock === \"none\") return \"noStock\";\n",
+  "new": "",
+  "note": "sold-out offers kept"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
+  "new": "    compare(a.dataCenter, b.dataCenter)\n",
+  "note": "no type key"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||\n    compare(a.provider",
+  "new": "    compare(a.provider",
+  "note": "stock not ordered"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  return offers.filter((o) => policyMiss(o, policy, gpuCount) === null).sort(byRank);",
+  "new": "  return offers.filter((o) => policyMiss(o, policy, gpuCount) === null);",
+  "note": "rankAllowed unsorted"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "best: rankAllowed(offers, policy, gpuCount).slice(0, n)",
+  "new": "best: rankAllowed(offers, policy, gpuCount).slice(0, 3)",
+  "note": "n ignored"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    .filter((offer) => offer.stock !== \"none\" && offer.gpuCount === gpuCount && isAmount(offer.providerCostPerHour))\n",
+  "new": "    .filter((offer) => offer.gpuCount === gpuCount && isAmount(offer.providerCostPerHour))\n",
+  "note": "a sold-out offer shown outside"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    .filter((offer) => offer.stock !== \"none\" && offer.gpuCount === gpuCount && isAmount(offer.providerCostPerHour))\n",
+  "new": "    .filter((offer) => offer.stock !== \"none\" && isAmount(offer.providerCostPerHour))\n",
+  "note": "another GPU count shown outside"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    .sort((a, b) => byRank(a.offer, b.offer));\n  return {",
+  "new": "    ;\n  return {",
+  "note": "outside not the cheapest"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "outside: outside[0] ?? null",
+  "new": "outside: outside.at(-1) ?? null",
+  "note": "the dearest outside offer"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "n < 1 || n > 20",
+  "new": "n < 0 || n > 20",
+  "note": "n 0 accepted"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "n < 1 || n > 20",
+  "new": "n < 1 || n > 21",
+  "note": "n 21 accepted"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "!Number.isSafeInteger(n) || n < 1",
+  "new": "n < 1",
+  "note": "a fractional n accepted"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  if (!isAmount(offer.providerCostPerHour) || !isAmount(policy.maxProviderCostPerHour)) return \"overPrice\";\n",
+  "new": "",
+  "note": "amounts never validated"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "!isAmount(offer.providerCostPerHour) || !isAmount(policy",
+  "new": "!isAmount(policy",
+  "note": "the offer's price never validated"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "|| !isAmount(policy.maxProviderCostPerHour)) return",
+  "new": "|| false) return",
+  "note": "the policy's cap never validated"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0;",
+  "new": "  return typeof x === \"number\" && x >= 0;",
+  "note": "any number an amount"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0;",
+  "new": "  return typeof x === \"number\" && Number.isSafeInteger(x);",
+  "note": "a negative amount"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x >= 0;",
+  "new": "  return typeof x === \"number\" && Number.isSafeInteger(x) && x > 0;",
+  "note": "zero not an amount"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||\n    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
+  "new": "    compare(a.gpuType, b.gpuType) ||\n    STOCK_ORDER[a.stock] - STOCK_ORDER[b.stock] ||\n    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter)\n",
+  "note": "the type promoted right after price"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
+  "new": "    compare(a.gpuType, b.gpuType) ||\n    compare(a.provider, b.provider) ||\n    compare(a.dataCenter, b.dataCenter)\n",
+  "note": "the type before provider"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    compare(a.dataCenter, b.dataCenter) ||\n    compare(a.gpuType, b.gpuType)\n",
+  "new": "    compare(a.gpuType, b.gpuType) ||\n    compare(a.dataCenter, b.dataCenter)\n",
+  "note": "the type before data center"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": " && isAmount(offer.providerCostPerHour))\n    .map(",
+  "new": ")\n    .map(",
+  "note": "an invalid price shown outside"
  }
 ]

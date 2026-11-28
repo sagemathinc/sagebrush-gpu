@@ -114,6 +114,12 @@ export interface ProjectPolicy {
   maxPricePerHour: Micros;
   maxConcurrentMachines: number;
   maxMachinesPerMember: number;
+  /**
+   * The most GPUs a team's members may run at once, counted in GPUs (the sum of gpuCount),
+   * against the team a machine was admitted under. Null means the team's active member count
+   * at each admission. It only gates new starts; lowering it stops nothing.
+   */
+  maxGpusPerTeam: number | null;
   idleStopMinutes: number;
   maxSessionMinutes: number;
   /** The least a start must be able to pay for, beyond the reserve. */
@@ -143,6 +149,7 @@ export const DEFAULT_POLICY: Readonly<ProjectPolicy> = Object.freeze({
   maxPricePerHour: 2_000_000,
   maxConcurrentMachines: 10,
   maxMachinesPerMember: 1,
+  maxGpusPerTeam: null,
   idleStopMinutes: 30,
   maxSessionMinutes: 8 * 60,
   minStartMinutes: 15,
@@ -241,6 +248,23 @@ export interface SpendMeter {
   storage: { usedBytes: number; quotaBytes: number };
   /** The last ledger minute included. */
   asOf: IsoTime;
+  /**
+   * Set exactly when the holder is a team: who is spending. One line per member who has
+   * spent from this allocation or is running on it, former members included, marked so.
+   * Non-compute entries go in `other`; the members' spent plus `other` equals spent.total.
+   */
+  members?: MemberSpend[];
+  other?: Micros;
+}
+
+export interface MemberSpend {
+  memberId: MemberId;
+  /** No longer in this team (moved or removed); their spend stays here. */
+  former: boolean;
+  /** Total price, provider + margin. */
+  spent: Micros;
+  /** Their machines running on this allocation now. */
+  running: Array<{ machineId: MachineId; gpuType: GpuTypeId; gpuCount: number }>;
 }
 
 export const LEDGER_ENTRY_KINDS = ["compute", "storage", "egress", "adjustment"] as const;
@@ -311,18 +335,41 @@ export const QUOTE_REFUSALS = [
 ] as const;
 export type QuoteRefusal = (typeof QUOTE_REFUSALS)[number];
 
+/**
+ * Why an offer falls outside the project's policy, in the order a quote checks them; the
+ * first that applies is reported.
+ */
+export const OFFER_MISSES = [
+  "gpuCount",
+  "gpuTooSmall",
+  "gpuTooLarge",
+  "gpuTypeNotAllowed",
+  "providerNotAllowed",
+  "locality",
+  "overPrice",
+  "noStock",
+] as const;
+export type OfferMiss = (typeof OFFER_MISSES)[number];
+
 export interface QuoteRequest {
-  gpuType: GpuTypeId;
+  /** Absent: intent first, across every allowed type, with gpuCount 1 unless given. */
+  gpuType?: GpuTypeId;
   gpuCount?: number;
   /** Charge a team's allocation instead of the member's own. */
   chargeTo?: "member" | "team";
 }
 
 export interface Quote {
-  gpuType: GpuTypeId;
+  /** The requested type; for an intent-first quote, the first offer's type, or null with none. */
+  gpuType: GpuTypeId | null;
   gpuCount: number;
-  /** Allowed offers, cheapest first; placement tries them in this order. */
+  /** Allowed offers, cheapest first; placement tries them in this order. At most 3 when intent first. */
   offers: PricedOffer[];
+  /**
+   * Set exactly on an intent-first quote: the cheapest offer outside the policy with its
+   * reason, or null when there is none. Never a sold-out or wrong-count offer.
+   */
+  outside?: { offer: PricedOffer; reason: OfferMiss } | null;
   allocationId: AllocationId | null;
   remaining: Micros;
   /** What a start needs at the cheapest offer: minStartMinutes plus the final-save reserve. */
