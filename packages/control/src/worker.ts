@@ -19,9 +19,10 @@ import { d1Db, type D1Like, type Db } from "./db.ts";
 import { json } from "./http.ts";
 import { SCHEDULED_JOBS, type ScheduledJob } from "./jobs.ts";
 import { loadAgentPublicKeys, loadAgentSigner } from "./signer.ts";
+import { AlertThrottle, STRIPE_WEBHOOK_PATH, handleStripeWebhook, stripeFromEnv, type StripeEnv } from "./stripe-route.ts";
 import { errorBody, type ErrorCode } from "@sbgpu/api";
 
-export interface WorkerEnv extends RelayRouteEnv {
+export interface WorkerEnv extends RelayRouteEnv, StripeEnv {
   DB: D1Like;
   /** The UI's static assets (the deploy config's assets binding). */
   ASSETS: { fetch(req: Request): Promise<Response> };
@@ -102,12 +103,25 @@ export function createWorker(o: WorkerOptions = {}) {
   const now = o.now ?? (() => Date.now());
   const log = o.log ?? ((line: string) => console.error(line));
   const jobs = o.jobs ?? SCHEDULED_JOBS;
+  // (one per isolate: the Stripe route's repeated alerts go out once an hour per kind)
+  const stripeThrottle = new AlertThrottle();
 
   async function route(req: Request, env: WorkerEnv, ctx: WorkerContext, config: AppConfig): Promise<Response> {
     const url = new URL(req.url);
     // Only the app's origin. The machines' hosts (m-<id>.<machine domain>) will be answered
     // by the Jupyter proxy; until then they, and any other host, get nothing.
     if (url.origin !== config.appOrigin) return fail(404, "notFound", "no such host");
+    // Stripe's deliveries: signed, not a browser's, so not through the app's origin and session checks.
+    if (url.pathname === STRIPE_WEBHOOK_PATH) {
+      const alert = (line: string) => log(`control: alert: ${line}`);
+      return handleStripeWebhook(req, {
+        db: d1Db(env.DB),
+        now,
+        alert,
+        throttle: stripeThrottle,
+        ...stripeFromEnv(env, { now, alert, throttle: stripeThrottle, fetch: (input, init) => fetch(input, init) }),
+      });
+    }
     if (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) {
       const db = d1Db(env.DB);
       const app = createApp({

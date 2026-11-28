@@ -6890,7 +6890,7 @@
  },
  {
   "file": "src/stripe-webhook.ts",
-  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES) return { ok: false, reason: \"size\" };",
+  "old": "if (rawBody.byteLength > MAX_BODY_BYTES) return { ok: false, reason: \"size\" };",
   "new": ""
  },
  {
@@ -6940,13 +6940,13 @@
  },
  {
   "file": "src/stripe-webhook.ts",
-  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
-  "new": "if (rawBody.length > MAX_BODY_BYTES)"
+  "old": "j = JSON.parse(new TextDecoder(\"utf-8\", { fatal: true }).decode(rawBody));",
+  "new": "j = JSON.parse(new TextDecoder(\"utf-8\").decode(rawBody));"
  },
  {
   "file": "src/stripe-webhook.ts",
-  "old": "if (enc.encode(rawBody).length > MAX_BODY_BYTES)",
-  "new": "if (enc.encode(rawBody).length >= MAX_BODY_BYTES)"
+  "old": "if (rawBody.byteLength > MAX_BODY_BYTES)",
+  "new": "if (rawBody.byteLength >= MAX_BODY_BYTES)"
  },
  {
   "file": "src/stripe-webhook.ts",
@@ -7355,7 +7355,7 @@
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "  return stale ? \"stale\" : \"nothing\";",
+  "old": "  return later[0]!.k > 0 ? \"stale\" : \"nothing\";",
   "new": "  return \"nothing\";"
  },
  {
@@ -7742,5 +7742,170 @@
   "file": "migrations/0026_allocations_kept.sql",
   "old": "  SELECT RAISE(ABORT, 'committed: an allocation is never deleted');",
   "new": "  SELECT 1;"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "fetched_ms = ?) - 1 AS k`",
+  "new": "fetched_ms = ?) AS k`"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "WHERE subscription_id = ? AND fetched_ms > ?) +",
+  "new": "WHERE subscription_id = ? AND fetched_ms > ? + 1000) +"
+ },
+ {
+  "file": "src/stripe-webhook.ts",
+  "old": "signed.set(body, prefix.byteLength);",
+  "new": "signed.set(body.subarray(0, Math.max(0, body.byteLength - 1)), prefix.byteLength);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (last !== undefined && nowMs - last < this.#windowMs) return false;",
+  "new": "if (false) return false;"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "nowMs - last < this.#windowMs",
+  "new": "nowMs - last <= this.#windowMs"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (o.throttle.allow(\"stripe key refused\", o.now())) o.alert(",
+  "new": "if (true) o.alert("
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "return answer(503, \"unavailable\", \"not configured\");",
+  "new": "return answer(200, null, \"\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (d.secrets.length === 0 || \"unusable\" in d.stripe) {",
+  "new": "if (\"unusable\" in d.stripe) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "BigInt(declared) > BigInt(MAX_BODY_BYTES)) {",
+  "new": "false) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "body = await readCapped(req.body, MAX_BODY_BYTES);",
+  "new": "body = await readCapped(req.body, MAX_BODY_BYTES * 64);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "    return answer(400, \"badRequest\", \"refused\");\n  }\n  const e = v.event;",
+  "new": "    return answer(200, null, \"\");\n  }\n  const e = v.event;"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "repeated(`stripe refused ${v.reason}`,",
+  "new": "repeated(`stripe refused`,"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (x instanceof StripeError && x.kind === \"unavailable\") return answer(503, \"unavailable\", \"try again\");",
+  "new": "if (x instanceof StripeError && x.kind === \"unavailable\") return answer(400, \"badRequest\", \"try again\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (x instanceof StripeError || x instanceof RangeError) {",
+  "new": "if (x instanceof RangeError) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "return answer(500, \"internal\", \"the write failed\");",
+  "new": "return answer(200, null, \"\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (e.object.object !== expected) throw",
+  "new": "if (false) throw"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (s.mode !== \"payment\" || s.paymentStatus !== \"paid\") return \"ignored\";",
+  "new": "if (s.mode !== \"payment\") return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (s.mode !== \"payment\" || s.paymentStatus !== \"paid\") return \"ignored\";",
+  "new": "if (s.paymentStatus !== \"paid\") return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (c.customer === null || c.paymentIntent === null || c.feeMicros === null) return \"ignored\";",
+  "new": "if (c.customer === null || c.paymentIntent === null) return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "const out = c.refunds.filter((r) => r.status !== \"failed\" && r.status !== \"canceled\");",
+  "new": "const out = c.refunds.filter((r) => r.status !== \"failed\");"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (out.length < c.refunds.length) d.alert(",
+  "new": "if (false) d.alert("
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (e.type === \"charge.dispute.closed\" && dp.status === \"won\") {",
+  "new": "if (e.type === \"charge.dispute.closed\" && dp.status === \"lost\") {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (e.type === \"charge.dispute.closed\" && dp.status === \"warning_closed\") {",
+  "new": "if (false) {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "if (c.feeMicros === null) throw new StripeError(\"unavailable\", \"the charge's fee isn't known yet\");",
+  "new": "if (c.feeMicros === null) return \"ignored\";"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "const pi = c.paymentIntent ?? paymentIntent;",
+  "new": "const pi = c.paymentIntent;"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "  if (r.length === 0) d.alert(`stripe webhook: ${e.type} names a Customer we don't know; nothing written`);",
+  "new": "  if (r.length > 1) d.alert(`stripe webhook: ${e.type} names a Customer we don't know; nothing written`);"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "      if (s.customer === null) {\n        d.alert(\"stripe webhook: a paid checkout without a Customer; nothing credited\");\n        return \"ignored\";\n      }\n",
+  "new": "      if (s.customer === null) return \"ignored\";\n"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": ".map((s) => s.trim()).filter((s) => s !== \"\")",
+  "new": ".map((s) => s.trim())"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "        keyRefused: (status, hint) => {",
+  "new": "        keyRefusedUnwired: (status: number, hint: string) => {"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "chargeId: c.id, grossMicros: c.amountMicros, feeMicros: c.feeMicros, via: \"charge\" });",
+  "new": "chargeId: c.id, grossMicros: c.amountMicros + 1, feeMicros: c.feeMicros, via: \"charge\" });"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "netMicros: c.amountMicros - c.feeMicros, reason });",
+  "new": "netMicros: c.amountMicros, reason });"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "if (url.pathname === STRIPE_WEBHOOK_PATH) {",
+  "new": "if (url.pathname === `${STRIPE_WEBHOOK_PATH}/`) {"
+ },
+ {
+  "file": "src/worker.ts",
+  "old": "  const stripeThrottle = new AlertThrottle();\n",
+  "new": "  const stripeThrottle = { allow: () => true } as unknown as AlertThrottle;\n"
  }
 ]
