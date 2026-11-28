@@ -1579,5 +1579,83 @@
   "old": "  \"maxGpusPerTeam\",\n  \"idleStopMinutes\",",
   "new": "  \"idleStopMinutes\",",
   "note": "team GPU cap an unknown field"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "    if (FORMULA_START.has(text.charAt(0)) || FORMULA_START.has(first)) text = \"'\" + text;",
+  "new": "    if (FORMULA_START.has(text.charAt(0))) text = \"'\" + text;",
+  "note": "a formula after leading spaces not neutralised"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "return `${micros < 0 ? \"-\" : \"\"}${whole}",
+  "new": "return `${whole}",
+  "note": "usdDecimal drops the sign"
+ },
+ {
+  "file": "src/money.ts",
+  "old": ".padStart(6, \"0\").replace(/0+$/, \"\")",
+  "new": ".padStart(6, \"0\")",
+  "note": "usdDecimal keeps trailing zeros"
+ },
+ {
+  "file": "src/money.ts",
+  "old": ".padStart(6, \"0\").replace(/0+$/, \"\")",
+  "new": ".padStart(5, \"0\").replace(/0+$/, \"\")",
+  "note": "usdDecimal pads too little"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (!isMicros(micros)) throw new RangeError(`not micros: ${micros}`);\n  const abs = Math.abs(micros);",
+  "new": "  const abs = Math.abs(micros);",
+  "note": "usdDecimal takes a non-integer"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "!/^-?(0|[1-9][0-9]*)$/.test(text) || ",
+  "new": "",
+  "note": "exactSum takes any string"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "note": "exactSum takes a sum below the safe range"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "note": "exactSum takes a sum above the safe range"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "  if (typeof text !== \"string\" || !DECIMAL.test(text)) throw new RangeError(`not a canonical decimal: ${String(text)}`);\n  return { decimal: text };",
+  "new": "  return { decimal: text };",
+  "note": "csvDecimal takes any text"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "    if (typeof value.decimal !== \"string\" || !DECIMAL.test(value.decimal)) throw new RangeError(`not a canonical decimal: ${String(value.decimal)}`);\n",
+  "new": "",
+  "note": "a hand-made decimal written unchecked"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "new": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$/;",
+  "note": "a fraction's trailing zero taken"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "new": "const DECIMAL = /^-?[0-9]+(\\.[0-9]*[1-9])?$/;",
+  "note": "leading zeros taken"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "new": "const DECIMAL = /-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "note": "the decimal unanchored at the start"
  }
 ]

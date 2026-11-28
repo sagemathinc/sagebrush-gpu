@@ -38,6 +38,7 @@ import { HEARTBEAT_HANDLERS, HEARTBEAT_MAX_BODY_BYTES } from "./heartbeat.ts";
 import { MEMBER_HANDLERS } from "./members.ts";
 import { TEAM_HANDLERS } from "./teams.ts";
 import { PROJECT_HANDLERS } from "./projects.ts";
+import { SPEND_HANDLERS } from "./spend.ts";
 import { normalizeEmail } from "./validate.ts";
 import { CREDENTIAL_HANDLERS, PUT_MAX_BODY_BYTES, type CredentialCheck } from "./credential-routes.ts";
 import { ASSURANCE_HANDLERS, ASSURANCE_MAX_BODY_BYTES, CREDENTIAL_ROUTES, asCredentialRefusal, meRecentAuth } from "./credential-assurance.ts";
@@ -361,7 +362,7 @@ const AUTH_HANDLERS: Handlers = {
   },
 };
 
-export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS, ...HEARTBEAT_HANDLERS, ...ASSURANCE_HANDLERS, ...CREDENTIAL_HANDLERS };
+export const HANDLERS: Handlers = { ...AUTH_HANDLERS, ...SIGN_IN_HANDLERS, ...MEMBER_HANDLERS, ...TEAM_HANDLERS, ...PROJECT_HANDLERS, ...SPEND_HANDLERS, ...VM_HANDLERS, ...ENROLL_HANDLERS, ...HEARTBEAT_HANDLERS, ...ASSURANCE_HANDLERS, ...CREDENTIAL_HANDLERS };
 
 // ---------------------------------------------------------------- dispatch
 
