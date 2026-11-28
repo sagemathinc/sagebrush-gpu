@@ -443,3 +443,40 @@ test("odd cases: a charge's second top-up, a known fee without its charge, a won
   await assert.rejects(recordCustomer(db, { iss: ISS, sub: "user_D" }, "cus_D", -1), /CHECK/, "a CHECK failure says so");
 });
 
+// TESTS's rows on this round (each fails under one of its mutants): the pair's person and PaymentIntent
+// checks, the fence's history, ref only on a pair, a taken top-up naming another charge, a win's person.
+const be = (w: Who, kind: string, key: string, amount: number, o: { gross?: number; fee?: number; via?: string; ref?: string; or?: string } = {}) => () =>
+  db.raw.prepare(`INSERT ${o.or ?? ""} INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, created_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(w.iss, w.sub, kind, key, amount, o.gross ?? null, o.fee ?? null, o.via ?? null, o.ref ?? null, T);
+const topup = (w: Who, pi: string, ch: string, net = 9_000_000, or = "") => be(w, "topup", pi, net, { gross: net + 1_000_000, fee: 1_000_000, via: "checkout", ref: ch, or });
+const count = (kind: string) => (db.raw.prepare(`SELECT count(*) n FROM balance_entries WHERE kind = ?`).get(kind) as { n: number }).n;
+
+test("N2: a reversal second, for another person than its top-up's, is refused", () => {
+  topup(A, "pi_1", "ch_1")();
+  assert.throws(be(B, "reversal", "ch_1", -9_000_000, { ref: "pi_1" }), /must match/);
+});
+test("N5: a top-up second, naming a reversal's charge whose PaymentIntent is another, is refused", () => {
+  be(A, "reversal", "ch_1", -9_000_000, { ref: "pi_9" })();
+  assert.throws(topup(A, "pi_1", "ch_1"), /must match/);
+});
+test("N12: a fetch can't be replaced by its seq (the fence's history is kept)", () => {
+  db.raw.prepare(`INSERT INTO gpu_plan_fetches (subscription_id, fetched_ms) VALUES ('sub_1', ?)`).run(T + 50);
+  assert.throws(() => db.raw.prepare(`INSERT OR REPLACE INTO gpu_plan_fetches (seq, subscription_id, fetched_ms) VALUES (1, 'sub_1', 0)`).run(), /never replaced/);
+  assert.deepEqual(db.raw.prepare(`SELECT fetched_ms FROM gpu_plan_fetches`).all().map((r) => ({ ...r })), [{ fetched_ms: T + 50 }]);
+});
+test("N14/N18: ref only on a pair, and a top-up's ref is a Charge", () => {
+  assert.throws(be(A, "refund", "re_1", -5, { ref: "ch_1" }), /CHECK/);
+  assert.throws(be(A, "topup", "pi_2", 9_000_000, { gross: 10_000_000, fee: 1_000_000, via: "checkout", ref: "pi_2" }), /CHECK/);
+  assert.equal(count("refund") + count("topup"), 0);
+});
+test("N16: the same top-up again naming another Charge is refused, not dropped", () => {
+  topup(A, "pi_1", "ch_1")();
+  assert.throws(topup(A, "pi_1", "ch_2", 9_000_000, "OR IGNORE"), /never replaced/);
+});
+test("W4: another person's win doesn't restore a reversal", async () => {
+  topup(A, "pi_1", "ch_1")();
+  be(B, "won", "ch_1", 0)();
+  await recordReversal(db, ev("charge.dispute.created"), { customerId: "cus_A", chargeId: "ch_1", paymentIntent: "pi_1", netMicros: 9_000_000, reason: "dispute" });
+  assert.equal(count("restore"), 0);
+  assert.equal(await balanceOf(db, A), 0);
+});
