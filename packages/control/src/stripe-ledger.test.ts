@@ -195,7 +195,7 @@ test("H2: appended only on a change; a replay or a late event adds nothing; a de
   assert.equal(await recordPlanState(db, null, { ...plan({ sub: "sub_3" }), customerId: "cus_nobody" }), "nothing", "an unknown Customer");
 });
 
-test("tests4's note: the idempotency hash covers the compared fields only", async () => {
+test("the idempotency hash covers the compared fields only", async () => {
   const s = { status: "active" as const, currentPeriodEndMs: T, cancelAtPeriodEnd: false };
   assert.equal(await planStateHash(s), await planStateHash({ ...s }));
   assert.notEqual(await planStateHash(s), await planStateHash({ ...s, status: "past_due" }));
@@ -241,7 +241,7 @@ test("an invalid Stripe id or status is refused before any SQL", async () => {
   assert.deepEqual(rows(), []);
 });
 
-// tests6's rows (TESTS on this PR): the triggers' person scoping, and append-only against REPLACE
+// The triggers' person scoping, and append-only against REPLACE
 test("the triggers are per person: another person's marker or reversal doesn't let a raw insert through", async () => {
   await creditCheckout(db, ev(), { customerId: "cus_B", paymentIntent: "pi_b", chargeId: "ch_b", grossMicros: 10_000_000, feeMicros: null });
   assert.throws(() => db.raw.prepare(`INSERT INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, created_ms) VALUES (?, ?, 'topup', 'pi_b', 9, 10, 1, 'charge', 'ch_b', ?)`).run(ISS, "user_A", T), /pending marker/, "B's marker, A's credit");
@@ -422,7 +422,7 @@ test("a plan state from an older fetch never becomes the latest, even when the n
   assert.throws(() => db.raw.exec(`UPDATE gpu_plan_fetches SET fetched_ms = 0`), /never updated/);
 });
 
-test("cx3 P3: a newer fetch that commits while this batch waits makes this one stale, not nothing", async () => {
+test("a newer fetch that commits while this batch waits makes this one stale, not nothing", async () => {
   const at = (ms: number, status: PlanStatus) => ({ ...plan({ status }), fetchedMs: ms });
   assert.equal(await recordPlanState(db, null, at(T + 10, "active")), "written");
   // the older fetch (T + 20) reads, then its batch is held until a newer fetch (T + 30) has committed

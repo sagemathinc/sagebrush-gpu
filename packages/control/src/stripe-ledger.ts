@@ -295,7 +295,7 @@ export async function planStateHash(s: PlanState): Promise<string> {
  *
  * When nothing is appended, the outcome is `stale` if, by the time the batch has committed, another fetch
  * of that subscription at or after this one is recorded, and `nothing` otherwise. It is read after the
- * batch, so a newer fetch that committed while this batch waited is seen (cx3's P3 on #117: a read before
+ * batch, so a newer fetch that committed while this batch waited is seen (a review finding on #117: a read before
  * the batch missed it and said `nothing`).
  */
 export async function recordPlanState(

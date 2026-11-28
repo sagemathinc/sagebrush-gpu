@@ -8015,12 +8015,7 @@
  },
  {
   "file": "src/stripe-reconcile.ts",
-  "old": "      if (!(e instanceof RangeError)) throw e;\n",
-  "new": ""
- },
- {
-  "file": "src/stripe-reconcile.ts",
-  "old": "      d.alert(\"stripe pending refused\", `stripe reconcile: a pending top-up's figures can't be credited (${e.message})`);\n      continue;",
+  "old": "      d.alert(\"stripe pending refused\", `stripe reconcile: a pending top-up's figures can't be credited (${refused})`);\n      continue;",
   "new": "      throw e;"
  },
  {
@@ -8067,5 +8062,75 @@
   "file": "migrations/PROD-CHECKLIST.md",
   "old": "| 0028_pending_checks.sql |",
   "new": "| 0028 |"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (done.length === 0) d.alert(\"stripe pending not credited\"",
+  "new": "    if (false) d.alert(\"stripe pending not credited\""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    if (done.length === 0) d.alert(\"stripe pending not credited\"",
+  "new": "    if (true) d.alert(\"stripe pending not credited\""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "  \"a balance entry is never replaced\",\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (refused === null) throw e;",
+  "new": "      if (false) throw e;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      const refused = e instanceof RangeError ? e.message : ledgerRefusal(e);",
+  "new": "      const refused = e instanceof RangeError ? e.message : null;"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "       EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = k.stripe_key)\n       OR NOT EXISTS",
+  "new": "       0\n       OR NOT EXISTS"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "       OR NOT EXISTS (SELECT 1 FROM balance_entries m WHERE m.kind = 'pending' AND m.stripe_key = k.stripe_key AND m.created_ms >= ?)\n     LIMIT ?)`,",
+  "new": "       OR 0 AND ?\n     LIMIT ?)`,"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "    [d.nowMs - RECONCILE_WINDOW_MS, PRUNE_BATCH],",
+  "new": "    [d.nowMs - RECONCILE_WINDOW_MS, PRUNE_BATCH * 2],"
+ },
+ {
+  "file": "wrangler.json",
+  "old": "  \"triggers\": { \"crons\": [\"* * * * *\"] },\n  \"vars\"",
+  "new": "  \"triggers\": { \"crons\": [\"*/2 * * * *\"] },\n  \"vars\""
+ },
+ {
+  "file": "wrangler.json",
+  "old": "      \"triggers\": { \"crons\": [\"* * * * *\"] },",
+  "new": "      \"triggers\": { \"crons\": [\"*/5 * * * *\"] },"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m.includes(r)"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m === r"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": " || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`",
+  "new": ""
  }
 ]
