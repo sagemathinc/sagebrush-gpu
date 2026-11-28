@@ -23,6 +23,7 @@ import {
   VastAdapter,
   vastError,
   vastState,
+  RECOVERY_WAITS_MS,
 } from "./adapter.ts";
 import { gpuFromVast, gpuToVast, VAST_GPUS, vastCountry, vastDataCenter, vastFilterName, vastMachineId } from "./catalog.ts";
 
@@ -80,7 +81,10 @@ function mockFetch(replies: Reply[], keys: Reply[] = []) {
 
 function adapter(replies: Reply[], keys: Reply[] = []) {
   const m = mockFetch(replies, keys);
-  return { a: new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls, keyCalls: m.keyCalls, reads: m.reads };
+  // (a lost create's recovery waits between its lists: recorded here, never waited)
+  const sleeps: number[] = [];
+  const a = new VastAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW, sleep: async (ms) => void sleeps.push(ms) });
+  return { a, calls: m.calls, keyCalls: m.keyCalls, reads: m.reads, sleeps };
 }
 
 /** An offer as Vast's search reference describes it. */
@@ -446,20 +450,21 @@ test("launch: a lost create reply is recovered by exact label, or stays unknown"
     const { a } = adapter([ok({ offers: [offer()] }), { status: 502 }, listed([inst()]), ok({ instances: inst() })]);
     assert.equal((await a.launch(SPEC)).providerMachineId, "31337");
   }
-  // none yet: the unknown outcome stands
+  // none by the end of the recovery window: the unknown outcome stands
   {
-    const { a } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), listed([])]);
+    const { a, sleeps } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), ...RECOVERY_LISTS.map(() => listed([]))]);
     await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === null);
+    assert.deepEqual(sleeps, RECOVERY_WAITS_MS);
   }
   // a filter Vast ignored: other labels never count
   {
-    const { a } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), listed([inst({ id: 1, label: "sbg-test-00000000000000000000-1" })])]);
+    const { a } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), ...RECOVERY_LISTS.map(() => listed([inst({ id: 1, label: "sbg-test-00000000000000000000-1" })]))]);
     await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
   }
-  // two: unknown, with an id to clean up
+  // two (G03-1): unknown, with both ids to clean up
   {
     const { a } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), listed([inst({ id: 1 }), inst({ id: 2 })])]);
-    await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === "1");
+    await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === "1" && e.machinesLeft.join() === "1,2");
   }
   // the list can't be read: unknown
   {
@@ -470,9 +475,45 @@ test("launch: a lost create reply is recovered by exact label, or stays unknown"
 
 test("launch: a lost create's recovery never takes an instance of this machine labeled for another installation or incarnation", async () => {
   for (const label of [machineName("othr", MID, 1), machineName("test", MID, 2)]) {
-    const { a, calls } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), ok({ success: true, instances: [inst({ id: 1, label })], next_token: null })]);
+    const list = () => ok({ success: true, instances: [inst({ id: 1, label })], next_token: null });
+    const { a, calls } = adapter([ok({ offers: [offer()] }), new TypeError("fetch failed"), ...RECOVERY_LISTS.map(list)]);
     await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.providerMachineId === null, label);
-    assert.equal(calls.length, 3, "the search, the create and the list only: the foreign instance is never read");
+    assert.equal(calls.length, 2 + RECOVERY_LISTS.length, "the search, the create and the lists only: the foreign instance is never read");
+  }
+});
+
+/** Every list a lost create's recovery reads: one at once, then one after each wait. */
+const RECOVERY_LISTS = [0, ...RECOVERY_WAITS_MS];
+
+test("launch (G03-2): a create that may have reached Vast is never retried: an empty list stays unknown, and a late listing is found", async () => {
+  const listed = (instances: unknown[]) => ok({ success: true, instances, next_token: null });
+  // a 5xx (transient for any other call) whose instance never shows: outcome_unknown, not transient
+  {
+    const { a, sleeps } = adapter([ok({ offers: [offer()] }), { status: 503 }, ...RECOVERY_LISTS.map(() => listed([]))]);
+    await assert.rejects(a.launch(SPEC), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && e.httpStatus === 503 && /no instance labeled/.test(e.message));
+    assert.deepEqual(sleeps, [2_000, 5_000, 10_000], "growing waits, each list after one");
+  }
+  // listed only on the second or last read: that instance is the launch
+  for (const late of [1, RECOVERY_WAITS_MS.length]) {
+    const lists = RECOVERY_LISTS.slice(0, late + 1).map((_, i) => listed(i === late ? [inst()] : []));
+    const { a, sleeps } = adapter([ok({ offers: [offer()] }), { status: 502 }, ...lists, ok({ instances: inst() })]);
+    assert.equal((await a.launch(SPEC)).providerMachineId, "31337");
+    assert.deepEqual(sleeps, RECOVERY_WAITS_MS.slice(0, late));
+  }
+  // the caller's deadline ends the window: no wait, no list after it
+  {
+    let lists = 0;
+    const { a, sleeps, calls } = adapter([ok({ offers: [offer()] }), { status: 503 }, listed([])]);
+    await assert.rejects(a.launch(SPEC, { shouldStop: () => calls.length >= 3 && ++lists > 0 }), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
+    assert.deepEqual(sleeps, []);
+    assert.equal(calls.length, 3);
+  }
+  // so placement makes one create, never a second beside one that may exist
+  {
+    const { a, calls } = adapter([ok({ offers: [offer()] }), { status: 503 }, ...RECOVERY_LISTS.map(() => listed([]))]);
+    const vastOffer: Offer = { provider: "vast", gpuType: "RTX-4090", gpuCount: 1, dataCenter: SPEC.dataCenter, country: "SE", providerCostPerHour: 410_000, stock: "unknown", observedAt: T };
+    await assert.rejects(launchWithFallback({ offers: [vastOffer], adapters: { vast: a }, spec: () => SPEC, revokeBootToken: async () => {}, sleep: async () => {} }));
+    assert.equal(calls.filter((c) => c.init.method === "PUT").length, 1);
   }
 });
 

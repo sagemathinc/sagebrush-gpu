@@ -473,7 +473,12 @@ test("launch: a create reply that isn't exactly one VM of ours is a lost respons
 test("launch: a lost create with several VMs by that name fails with their ids and keeps the key", async () => {
   const listed = { status: 200, body: { count: 2, instances: [vm(), vm({ id: 4243 })] } };
   const { a, calls } = launcher(routes({ create: new Error("reset"), list: listed }));
-  await assert.rejects(a.launch(spec), fails("outcome_unknown", { id: "4242", message: new RegExp(`2 VMs are named ${NAME}: 4242, 4243; keypair ${KEY_NAME} kept`) }));
+  await assert.rejects(a.launch(spec), (e: unknown) => {
+    fails("outcome_unknown", { id: "4242", message: new RegExp(`2 VMs are named ${NAME}: 4242, 4243; keypair ${KEY_NAME} kept`) })(e);
+    // both, for the caller to clean up (G03-1)
+    assert.deepEqual((e as ProviderError).machinesLeft, ["4242", "4243"]);
+    return true;
+  });
   assert.ok(!trail(calls).some((c) => c.startsWith("DELETE")));
 });
 

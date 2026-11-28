@@ -243,6 +243,28 @@ test("a pod that doesn't match the spec is cleaned up, then the search stops", a
   assert.deepEqual(log, ["launch:A:t1", "revoke:t1", "terminate:podA", "status:podA"]);
 });
 
+test("G03-1: every machine a failed launch left behind is terminated and confirmed, not just the first", async () => {
+  const several = new ProviderError("runpod", "outcome_unknown", "3 machines carry the name", null, null, "podA", null, null, ["podB", "podC"]);
+  const { promise, log } = run(["A", "B"], { launch: { A: [several], B: ["ok"] } });
+  await assert.rejects(promise, placementError("outcome_unknown", 1));
+  assert.deepEqual(log, ["launch:A:t1", "revoke:t1", "terminate:podA", "status:podA", "terminate:podB", "status:podB", "terminate:podC", "status:podC"]);
+});
+
+test("G03-1: one machine not confirmed gone doesn't stop the others' cleanup, and every one not confirmed is named", async () => {
+  const several = new ProviderError("runpod", "outcome_unknown", "3 machines carry the name", null, null, "podA", null, null, ["podB", "podC"]);
+  const { promise, log } = run(["A"], { launch: { A: [several] }, terminate: { podA: err("transient"), podC: err("transient") } });
+  await assert.rejects(promise, (e: unknown) => e instanceof PlacementError && e.kind === "outcome_unknown" && /machines podA, podC were rejected but their termination is not confirmed/.test(e.message));
+  assert.deepEqual(log.filter((l) => l.startsWith("terminate:")), ["terminate:podA", "terminate:podB", "terminate:podC"]);
+});
+
+test("G03-1: ProviderError.machinesLeft is the first machine then the rest, once each; the rest need a first", () => {
+  assert.deepEqual(new ProviderError("vast", "outcome_unknown", "x").machinesLeft, []);
+  assert.deepEqual(new ProviderError("vast", "spec_mismatch", "x", null, null, "1").machinesLeft, ["1"]);
+  assert.deepEqual(new ProviderError("vast", "outcome_unknown", "x", null, null, "1", null, null, ["2", "1", "3", "2"]).machinesLeft, ["1", "2", "3"]);
+  assert.throws(() => new ProviderError("vast", "outcome_unknown", "x", null, null, null, null, null, ["2"]), RangeError);
+  assert.ok(Object.isFrozen(new ProviderError("vast", "outcome_unknown", "x", null, null, "1").machinesLeft));
+});
+
 const cleanupFailures: Array<[string, Script["terminate"], Script["status"]]> = [
   ["DELETE 503", { podA: err("transient") }, undefined],
   ["DELETE 429", { podA: err("rate_limited", 5) }, undefined],

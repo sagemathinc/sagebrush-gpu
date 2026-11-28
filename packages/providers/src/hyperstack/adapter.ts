@@ -613,7 +613,8 @@ export class HyperstackAdapter implements ProviderAdapter {
 
   /**
    * After a create whose outcome is unknown: one list, by name. One VM is the one created; none
-   * leaves the outcome unknown; several fail with their ids. The key is kept in every case.
+   * leaves the outcome unknown; several fail with all their ids, for the caller to clean up. The key
+   * is kept in every case.
    */
   async #recover(name: string, keyName: string, cause: ProviderError, stop: (() => boolean) | undefined): Promise<string> {
     const kept = `keypair ${keyName} kept for reconciliation`;
@@ -627,7 +628,8 @@ export class HyperstackAdapter implements ProviderAdapter {
     if (found.length === 0) throw new ProviderError("hyperstack", "outcome_unknown", `${cause.message}; no VM named ${name} yet; ${kept}`);
     if (found.length > 1) {
       const ids = found.map((s) => s.providerMachineId);
-      throw new ProviderError("hyperstack", "outcome_unknown", `${ids.length} VMs are named ${name}: ${ids.join(", ")}; ${kept}`, null, null, ids[0]!);
+      // (every one, for the caller to clean up: G03-1)
+      throw new ProviderError("hyperstack", "outcome_unknown", `${ids.length} VMs are named ${name}: ${ids.join(", ")}; ${kept}`, null, null, ids[0]!, null, null, ids.slice(1));
     }
     return found[0]!.providerMachineId;
   }

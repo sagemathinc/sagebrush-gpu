@@ -8157,5 +8157,11 @@
   "file": "src/stripe-reconcile.ts",
   "old": " || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)`",
   "new": ""
+ },
+ {
+  "file": "src/container.ts",
+  "old": "\"create-failed\", e.machinesLeft);",
+  "new": "\"create-failed\", [e.providerMachineId]);",
+  "note": "G03-1: the container path ends only the first pod"
  }
 ]

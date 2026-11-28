@@ -2646,8 +2646,8 @@
  {
   "file": "src/runpod/adapter.ts",
   "old": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;",
-  "new": "      if (ssh[k] === null || proxyOk) continue;",
-  "note": "only proxy accepted"
+  "new": "      if (ssh[k] === null || k === \"proxy\") continue;",
+  "note": "a proxy route accepted beside a direct route, ports or startSsh (replaces an equivalent mutant: proxyOk implies direct is null)"
  },
  {
   "file": "src/runpod/adapter.ts",
@@ -5161,5 +5161,71 @@
   "file": "src/money.ts",
   "old": "  const exponent = Number(m[4] ?? \"0\") - frac.length;",
   "new": "  const exponent = Number(m[4] ?? \"0\");"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "[...new Set([providerMachineId, ...alsoLeft])]",
+  "new": "[providerMachineId]",
+  "note": "G03-1: only the first machine left"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "[...new Set([providerMachineId, ...alsoLeft])]",
+  "new": "[providerMachineId, ...alsoLeft]",
+  "note": "G03-1: a machine named twice"
+ },
+ {
+  "file": "src/errors.ts",
+  "old": "    if (alsoLeft.length > 0 && providerMachineId === null) throw new RangeError(\"machines left need a first one\");\n",
+  "new": "",
+  "note": "G03-1: the rest without a first, silently dropped"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "`${ids.length} instances carry label ${label}: ${ids.join(\", \")}`, null, null, ids[0]!, null, null, ids.slice(1));",
+  "new": "`${ids.length} instances carry label ${label}: ${ids.join(\", \")}`, null, null, ids[0]!);",
+  "note": "G03-1: Vast names only the first"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "        throw new ProviderError(\"vast\", \"outcome_unknown\", `${cause.message}; no instance labeled ${label} yet`, cause.httpStatus);",
+  "new": "        throw cause;",
+  "note": "G03-2: an empty list rethrows a transient 5xx, which placement retries"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      if (i >= RECOVERY_WAITS_MS.length || stop?.() === true) {",
+  "new": "      if (true) {",
+  "note": "G03-2: one immediate list only"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "      if (i >= RECOVERY_WAITS_MS.length || stop?.() === true) {",
+  "new": "      if (i >= RECOVERY_WAITS_MS.length) {",
+  "note": "G03-2: the window outlives the caller's deadline"
+ },
+ {
+  "file": "src/vast/adapter.ts",
+  "old": "Object.freeze([2_000, 5_000, 10_000])",
+  "new": "Object.freeze([2_000, 2_000, 2_000])",
+  "note": "G03-2: no growing back-off"
+ },
+ {
+  "file": "src/hyperstack/adapter.ts",
+  "old": "null, null, ids[0]!, null, null, ids.slice(1));",
+  "new": "null, null, ids[0]!);",
+  "note": "G03-1: Hyperstack names only the first"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "for (const id of e.machinesLeft) {",
+  "new": "for (const id of e.machinesLeft.slice(0, 1)) {",
+  "note": "G03-1: placement cleans only the first"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "notGone.push(id);",
+  "new": "{ notGone.push(id); break; }",
+  "note": "G03-1: one unconfirmed stops the others' cleanup"
  }
 ]

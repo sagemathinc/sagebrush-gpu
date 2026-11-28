@@ -516,9 +516,10 @@ export async function launchContainer(env: ContainerEnv, l: ContainerLaunch): Pr
   if (created === "late") return "unknown";
   if ("error" in created) {
     const e = created.error;
-    // a pod the adapter refused (it didn't match the spec): ours, and billed, so it is ended by its id
+    // a pod the adapter refused (it didn't match the spec), or several a lost create's recovery found:
+    // ours, and billed, so each is ended by its id (Codex audit G03-1)
     if (e instanceof ProviderError && e.providerMachineId !== null) {
-      await abandonContainer(env, l.machineId, l.incarnation, "create-failed", [e.providerMachineId]);
+      await abandonContainer(env, l.machineId, l.incarnation, "create-failed", e.machinesLeft);
       return "abandoned";
     }
     if (e instanceof ProviderError && e.kind === "outcome_unknown") return "unknown";

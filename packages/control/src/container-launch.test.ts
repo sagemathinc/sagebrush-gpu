@@ -39,7 +39,7 @@ class FakeRunPod implements ContainerProvider {
   pods = new Map<string, ProviderMachineStatus>();
   n = 0;
   /** What the next create does. */
-  mode: "ok" | "lost" | "definitive" | "rejected" | "renamed" | "duplicate" = "ok";
+  mode: "ok" | "lost" | "definitive" | "rejected" | "renamed" | "duplicate" | "several" = "ok";
   specs: LaunchSpec[] = [];
   terminated: string[] = [];
   /** Called at each terminate, before it takes effect (to see what the database held then). */
@@ -90,6 +90,11 @@ class FakeRunPod implements ContainerProvider {
         throw new ProviderError("runpod", "outcome_unknown", "2 pods carry the machine");
       case "definitive":
         throw new ProviderError("runpod", "no_capacity", "no instances available");
+      case "several": {
+        // (a lost create's recovery found two; neither carries the name, so only their ids end them)
+        const ids = [this.pod("renamed"), this.pod("renamed")];
+        throw new ProviderError("runpod", "outcome_unknown", "2 pods carry the name", null, null, ids[0]!, null, null, ids.slice(1));
+      }
       case "rejected":
       case "renamed": {
         // (renamed: the pod doesn't carry the machine's name, so no list finds it by the name)
@@ -507,6 +512,14 @@ test("a pod the adapter refused (it doesn't match the spec): ended by the id hel
   assert.equal(await launchContainer(env(), req(m2)), "abandoned");
   assert.deepEqual(rp.terminated, ["pod1", "pod2"]);
   assert.equal((await launch(m2)).outcome, "terminate");
+});
+
+test("G03-1: every pod a failed create left behind is ended by its id, not just the first", async () => {
+  const m = await machine();
+  rp.mode = "several";
+  assert.equal(await launchContainer(env(), req(m)), "abandoned");
+  assert.deepEqual(rp.terminated, ["pod1", "pod2"]);
+  assert.equal(rp.pods.size, 0);
 });
 
 /** The world's database, but the next `writes` batches opening an accrual, and the next `reads` reads of the accruals, fail. */
