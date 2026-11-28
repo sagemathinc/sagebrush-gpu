@@ -112,7 +112,10 @@ interface Run {
 }
 
 // The launcher's text as it is in bootstrap.sh (bootstrap-script.ts is generated from it; check.sh checks that).
+// (the scripts' own text, so a mutant of a .sh is what runs; check.sh's gen-bootstrap --check keeps the generated
+// copies, which production renders, equal to these files)
 const SH = readFileSync(new URL("bootstrap.sh", import.meta.url), "utf8");
+const PROLOGUE = readFileSync(new URL("probe-prologue.sh", import.meta.url), "utf8");
 let runs = 0;
 let defaultBin: string | undefined;
 const PYTHON = execFileSync("python3", ["-I", "-c", "import sys; print(sys.executable)"]).toString().trim();
@@ -142,7 +145,7 @@ async function launch(opts: {
     mkdirSync(net);
     writeFileSync(join(net, "tcp"), NET_HEAD + (opts.netRows ?? []).join(""));
     writeFileSync(join(net, "tcp6"), NET_HEAD);
-    script = renderProbePrologue(opts.prologueSalt, { dir: join(prefix, "opt/sbgpu"), netDir: net }) + script;
+    script = renderProbePrologue(opts.prologueSalt, { dir: join(prefix, "opt/sbgpu"), netDir: net, body: PROLOGUE }) + script;
   }
   const env: Record<string, string> = {
     PATH: opts.binPath ?? (defaultBin ??= binWithout()),
@@ -343,13 +346,12 @@ test("bootstrap.sh passes shellcheck", { skip: !existsSync("/usr/bin/shellcheck"
 
 const NET_HEAD = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
 
-test("probe prologue: validated values, the launcher's bytes as the unchanged suffix, generated from its .sh", () => {
+test("probe prologue: validated values, the launcher's bytes as the unchanged suffix", () => {
   const salt = "ab".repeat(32);
   const v = { agentUrl: "https://cdn.example.com/a.tgz", agentSha256: "a".repeat(64), controlUrl: "https://api.example.com", mode: "container" as const };
   const p = renderProbePrologue(salt);
   assert.equal(p, `SBGPU_PROBE_SALT='${salt}'\nSBGPU_PROBE_DIR='/opt/sbgpu'\nSBGPU_PROBE_NET='/proc/net'\n` + PROBE_PROLOGUE_SH);
   assert.ok(renderProbePrologue(salt, { netDir: "/t/net" }).includes("\nSBGPU_PROBE_NET='/t/net'\n"));
-  assert.equal(PROBE_PROLOGUE_SH, readFileSync(new URL("probe-prologue.sh", import.meta.url), "utf8"));
   const full = p + renderBootScript(v);
   assert.equal(full.slice(p.length), renderBootScript(v));
   for (const bad of ["AB".repeat(32), "ab".repeat(31), "ab".repeat(33), "zz".repeat(32), "", "ab".repeat(32) + "'"]) {
@@ -427,7 +429,7 @@ test("vm mode: the two protections come first, ahead of every value; container m
 
 test("vm mode stays unreachable: the rendered VM script runs bootstrap.sh, which refuses it before anything", () => {
   const prefix = mkdtempSync(join(root, "unreachable-"));
-  const r = spawnSync("/bin/sh", ["-c", renderBootScript(BOOT_SCRIPT_VECTOR.values, { prefix })], { encoding: "utf8", env: { PATH: process.env.PATH } });
+  const r = spawnSync("/bin/sh", ["-c", renderBootScript(BOOT_SCRIPT_VECTOR.values, { prefix, body: SH })], { encoding: "utf8", env: { PATH: process.env.PATH } });
   assert.equal(r.status, 2);
   assert.equal(r.stderr, "sbgpu-boot: vm mode is not built yet\n");
   assert.deepEqual(readdirSync(prefix), []);
