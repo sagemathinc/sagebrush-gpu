@@ -7937,5 +7937,140 @@
   "file": "src/stripe-route.ts",
   "old": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n      await known(c.customer);\n",
   "new": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'that Customer is a person''s, not an organization''s'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'that Customer is an organization''s, not a person''s'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "      <> NEW.credit + COALESCE((SELECT gross FROM org_payments WHERE kind = 'fee' AND stripe_key = NEW.stripe_key AND org_id = NEW.org_id), 0)",
+  "new": "      <> NEW.credit"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "    OR COALESCE((SELECT SUM(fee) FROM org_payment_txns WHERE stripe_key = NEW.stripe_key AND org_id = NEW.org_id), -1) <> NEW.fee\n",
+  "new": "\n"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'a later credit needs its pending marker'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'an invoice''s course fee comes before its credit'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'that Customer belongs to another organization, or the organization has another Customer'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'an org payment is never replaced'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'a balance transaction funds one credit, once'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "CREATE TRIGGER org_payments_immutable BEFORE UPDATE ON org_payments BEGIN SELECT RAISE(ABORT, 'org payments are never updated'); END;",
+  "new": "SELECT 1;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "CREATE TRIGGER org_payment_txns_kept BEFORE DELETE ON org_payment_txns BEGIN SELECT RAISE(ABORT, 'payment transactions are never deleted'); END;",
+  "new": "SELECT 1;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'a credit event is never replaced, and a Stripe or manual reference credits once'); END;",
+  "new": "BEGIN SELECT 1; END;"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM credit_events WHERE id = NEW.id)\n  OR (",
+  "new": "WHEN ("
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "      AND p.stripe_key = substr(NEW.reference, 8) AND p.org_id = NEW.org_id AND p.credit = NEW.amount))",
+  "new": "      AND p.stripe_key = substr(NEW.reference, 8) AND p.credit = NEW.amount))"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "      AND p.stripe_key = substr(NEW.reference, 8) AND p.org_id = NEW.org_id AND p.credit = NEW.amount))",
+  "new": "      AND p.stripe_key = substr(NEW.reference, 8) AND p.org_id = NEW.org_id))"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "WHEN lower(substr(NEW.reference, 1, 7)) IN ('stripe:', 'manual:')\n  AND NOT (",
+  "new": "WHEN substr(NEW.reference, 1, 7) IN ('stripe:', 'manual:')\n  AND NOT ("
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "    substr(NEW.reference, 1, 7) = 'stripe:' AND NEW.kind = 'credit'",
+  "new": "    substr(NEW.reference, 1, 7) IN ('stripe:', 'manual:') AND NEW.kind = 'credit'"
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "  WHEN EXISTS (SELECT 1 FROM credit_events WHERE lower(substr(reference, 1, 7)) IN ('stripe:', 'manual:'))",
+  "new": "  WHEN EXISTS (SELECT 1 FROM credit_events WHERE substr(reference, 1, 7) IN ('stripe:', 'manual:'))"
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "  const gross = paid - courseFee;",
+  "new": "  const gross = paid;"
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "  if (gross < 1 || fees >= gross) throw",
+  "new": "  if (gross < 1) throw"
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "    if (seen.has(id(\"txn\", t.id))) throw new RangeError(\"a balance transaction is listed twice\");",
+  "new": "    id(\"txn\", t.id);"
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "    if (f > a) throw new RangeError(\"a balance transaction's fee is more than its amount\");",
+  "new": ""
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "  if (p.kind === \"card\" && courseFee !== 0) throw new RangeError(\"a card top-up has no course fee\");",
+  "new": ""
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "WHERE p.kind = ? AND p.stripe_key = ? AND c.customer_id = ? AND NOT EXISTS (SELECT 1 FROM credit_events WHERE reference = ?)`,",
+  "new": "WHERE p.kind = ? AND p.stripe_key = ? AND c.customer_id = ? AND NOT EXISTS (SELECT 1 FROM credit_events WHERE reference = ? AND 0)`,"
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "  return r[decisive + 1]!.changes > 0 ? \"written\" : \"nothing\";",
+  "new": "  return \"written\";"
+ },
+ {
+  "file": "src/org-payments.ts",
+  "old": "  if ((await scoped.all(`SELECT 1 FROM stripe_events WHERE event_id = ?`, [e.eventId])).length > 0) return \"replay\";\n",
+  "new": ""
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'a credited payment''s balance transactions are closed'); END;",
+  "new": "BEGIN SELECT 1; END;"
  }
 ]
