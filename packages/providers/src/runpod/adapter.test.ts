@@ -6,8 +6,10 @@ import { ProviderError } from "../errors.ts";
 import { failureName, type Fetch, type HttpRequest } from "../http.ts";
 import type { LaunchSpec } from "../types.ts";
 import { expectedSpec, specDrift } from "../drift.ts";
-import { ERROR_PREFIX_BYTES, podStatus, runpodError, RunPodAdapter, UNREADABLE } from "./adapter.ts";
+import { ERROR_PREFIX_BYTES, MAX_REPLY_BYTES, POD_PAGE_LIMIT, podStatus, runpodError, RunPodAdapter, UNREADABLE } from "./adapter.ts";
 import { gpuFromRunPod, gpuToRunPod, RUNPOD_GPUS, runpodCountry } from "./catalog.ts";
+import { MAX_REPLY_BYTES as VAST_MAX_REPLY_BYTES } from "../vast/adapter.ts";
+import { MAX_REPLY_BYTES as HYPERSTACK_MAX_REPLY_BYTES } from "../hyperstack/adapter.ts";
 
 const fixture = (name: string): string => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 const POD = JSON.parse(fixture("pod-running.json")) as Record<string, unknown>;
@@ -19,16 +21,25 @@ const NOW = new Date("2026-11-24T12:00:00.000Z");
 
 /**
  * One reply. `textThrows` makes text() fail, as a cut-off stream does; `streamBytes` replaces the
- * body stream with one of that many bytes ("x"), produced only as it is pulled.
+ * body stream with one of that many bytes ("x"), produced only as it is pulled; `rawBytes` with
+ * exactly those bytes; `streamFails` makes the stream fail after its bytes; `stalls` makes it never
+ * answer after them.
  */
-type Reply = { status: number; body?: unknown; headers?: Record<string, string>; textThrows?: boolean; streamBytes?: number } | Error;
+type Reply = {
+  status: number; body?: unknown; headers?: Record<string, string>; textThrows?: boolean; streamBytes?: number;
+  rawBytes?: Uint8Array; streamFails?: boolean; stalls?: boolean;
+} | Error;
 
 /** A body stream of `bytes`, in 1 KiB chunks, that counts how many bytes were pulled from it. */
-function countingStream(bytes: Uint8Array, pulled: { n: number }): ReadableStream<Uint8Array> {
+function countingStream(bytes: Uint8Array, pulled: { n: number }, end: "close" | "fail" | "stall" = "close"): ReadableStream<Uint8Array> {
   let at = 0;
   return new ReadableStream<Uint8Array>({
     pull(ctl) {
-      if (at >= bytes.length) return ctl.close();
+      if (at >= bytes.length) {
+        if (end === "fail") return ctl.error(new Error(`stream cut ${KEY}`));
+        if (end === "stall") return new Promise<void>(() => {});
+        return ctl.close();
+      }
       const chunk = bytes.subarray(at, at + 1024);
       at += chunk.length;
       pulled.n += chunk.length;
@@ -49,7 +60,7 @@ function mockFetch(replies: Reply[]) {
     if (r === undefined) throw new Error(`unexpected request ${init.method} ${url}`);
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? "" : typeof r.body === "string" ? r.body : JSON.stringify(r.body);
-    const bytes = r.streamBytes === undefined ? new TextEncoder().encode(text) : new Uint8Array(r.streamBytes).fill(0x78);
+    const bytes = r.rawBytes ?? (r.streamBytes === undefined ? new TextEncoder().encode(text) : new Uint8Array(r.streamBytes).fill(0x78));
     const headers = new Map(Object.entries(r.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
     return {
       status: r.status,
@@ -59,15 +70,19 @@ function mockFetch(replies: Reply[]) {
         if (r.textThrows === true) throw new Error(`stream cut ${KEY}`);
         return text;
       },
-      body: countingStream(bytes, reads.pulled),
+      // (as fetch gives it: a no-content status has a null body)
+      body: (r.status === 204 || r.status === 205) && r.body === undefined && r.streamBytes === undefined && r.rawBytes === undefined
+        ? null
+        : countingStream(bytes, reads.pulled, r.streamFails === true ? "fail" : r.stalls === true ? "stall" : "close"),
     };
   };
   return { fetch, calls, reads };
 }
 
-function adapter(replies: Reply[]) {
+function adapter(replies: Reply[], timeoutMs?: number) {
   const m = mockFetch(replies);
-  return { a: new RunPodAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW }), calls: m.calls, reads: m.reads };
+  const a = new RunPodAdapter({ apiKey: KEY, fetch: m.fetch, now: () => NOW, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+  return { a, calls: m.calls, reads: m.reads };
 }
 
 const spec: LaunchSpec = {
@@ -443,6 +458,10 @@ const invalidLists: Array<[string, Reply]> = [
   ["a pod row that isn't an object", { status: 200, body: { pods: [7], pagination: { nextCursor: null, hasNextPage: false } } }],
   ["not JSON", { status: 200, body: "<html>" }],
   ["an empty body", { status: 200 }],
+  [`a page of more than ${POD_PAGE_LIMIT} pods`, { status: 200, body: { pods: Array(POD_PAGE_LIMIT + 1).fill(POD), pagination: { nextCursor: null, hasNextPage: false } } }],
+  ["a reply past MAX_REPLY_BYTES", { status: 200, streamBytes: MAX_REPLY_BYTES + 1 }],
+  ["a reply that isn't UTF-8", { status: 200, rawBytes: new Uint8Array([0x7b, 0xff, 0x7d]) }],
+  ["a reply whose stream fails", { status: 200, body: { pods: [], pagination: { nextCursor: null, hasNextPage: false } }, streamFails: true }],
 ];
 
 for (const [what, reply] of invalidLists) {
@@ -596,6 +615,17 @@ test("status escapes the pod id", async () => {
   const { a, calls } = adapter([{ status: 200, body: { ...POD, id: "a/../b?c" } }]);
   await a.status("a/../b?c");
   assert.equal(calls[0]!.url, "https://api.runpod.io/v2/pods/a%2F..%2Fb%3Fc");
+});
+
+test("terminate (G03-4): a native fetch 204, null body and all, is a successful DELETE; a 200 without a body is not", async () => {
+  const replies: Array<() => Response> = [() => new Response(null, { status: 204 })];
+  const native: Fetch = async (_url, init) => {
+    assert.equal(init.redirect, "manual");
+    return replies.shift()!();
+  };
+  await new RunPodAdapter({ apiKey: KEY, fetch: native }).terminate("p1");
+  const bodiless: Fetch = async () => ({ status: 200, headers: { get: () => null }, text: async () => "", body: null });
+  await assert.rejects(new RunPodAdapter({ apiKey: KEY, fetch: bodiless }).terminate("p1"), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && /unreadable/.test(e.message));
 });
 
 test("terminate is idempotent and reports other failures", async () => {
@@ -805,13 +835,43 @@ test("#call: a 400 whose stream fails or is missing is unplaceable", async () =>
   await assert.rejects(new RunPodAdapter({ apiKey: KEY, fetch: none }).listOffers({ gpuCount: 1 }), (e: unknown) => e instanceof ProviderError && e.kind === "unplaceable");
 });
 
-test("#call: a 2xx body that can't be read is outcome_unknown, naming no key", async () => {
-  const g = adapter([{ status: 200, textThrows: true }]);
+test("#call (G03-4): a 2xx body that can't be read is unknown for a read, outcome_unknown for a change, naming no key", async () => {
+  const g = adapter([{ status: 200, body: { gpus: [] }, streamFails: true }]);
   await assert.rejects(g.a.listOffers({ gpuCount: 1 }), (e: unknown) => {
-    assert.ok(e instanceof ProviderError && e.kind === "outcome_unknown" && e.httpStatus === 200);
+    assert.ok(e instanceof ProviderError && e.kind === "unknown" && e.httpStatus === 200);
     assert.ok(!e.message.includes(KEY) && !e.message.includes("stream cut"));
     return true;
   });
+  const p = adapter([{ status: 201, body: POD, streamFails: true }]);
+  await assert.rejects(p.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && !e.message.includes(KEY));
+});
+
+test("#call (G03-4): RunPod's reply cap is 4 MiB, the same as Vast's and Hyperstack's", () => {
+  assert.equal(MAX_REPLY_BYTES, 4 * 1024 * 1024);
+  assert.deepEqual([VAST_MAX_REPLY_BYTES, HYPERSTACK_MAX_REPLY_BYTES], [MAX_REPLY_BYTES, MAX_REPLY_BYTES]);
+});
+
+test("#call (G03-4): a 2xx reply is read through the bounded reader, never text(); an oversized one stops at the cap", async () => {
+  const ok = adapter([{ status: 200, body: { gpus: [] } }]);
+  await ok.a.listOffers({ gpuCount: 1 });
+  assert.equal(ok.reads.text, 0, "text() is never called on a 2xx");
+  const big = adapter([{ status: 201, streamBytes: 64 * MAX_REPLY_BYTES }]);
+  await assert.rejects(big.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown" && /too_large/.test(e.message));
+  assert.ok(big.reads.pulled.n <= MAX_REPLY_BYTES + 1024, `pulled ${big.reads.pulled.n}`);
+});
+
+test("#call (G03-4): a 2xx body that stalls is refused at the request's own deadline", async () => {
+  const t0 = Date.now();
+  const g = adapter([{ status: 200, body: "{", stalls: true }], 50);
+  await assert.rejects(g.a.listMachines(), (e: unknown) => e instanceof ProviderError && e.kind === "unknown" && /timeout/.test(e.message));
+  assert.ok(Date.now() - t0 < 5_000);
+  const p = adapter([{ status: 201, body: "{", stalls: true }], 50);
+  await assert.rejects(p.a.launch(spec), (e: unknown) => e instanceof ProviderError && e.kind === "outcome_unknown");
+});
+
+test(`listMachines (G03-4): a page of exactly ${POD_PAGE_LIMIT} pods is read`, async () => {
+  const { a } = adapter([{ status: 200, body: { pods: Array(POD_PAGE_LIMIT).fill(POD), pagination: { nextCursor: null, hasNextPage: false } } }]);
+  assert.equal((await a.listMachines()).length, POD_PAGE_LIMIT);
 });
 
 test("#call: a 400 whose body stream is locked is still HTTP 400 unplaceable", async () => {

@@ -6,7 +6,7 @@
 
 import { commandShape, driftMarkers, specDrift, expectedSpec } from "../drift.ts";
 import { ProviderError, type ProviderErrorKind } from "../errors.ts";
-import { failureName, isSuccess, readPrefix, retryAfterSeconds, type Fetch } from "../http.ts";
+import { failureName, isSuccess, readBody, readPrefix, retryAfterSeconds, type Fetch } from "../http.ts";
 import { nameFields, sameMachineName, specNameMatches } from "../machine-name.ts";
 import { parseProviderJson, usdToMicros } from "../money.ts";
 import { parseIsoUtc, type BillingQuery, type BillingSource, type ProviderBillingRecord } from "../reconcile.ts";
@@ -41,6 +41,10 @@ export interface RunPodOptions {
 /** A RunPod refusal that means capacity (RunPod has no machine-readable code for it). */
 /** How much of a 400 reply is read to classify it: enough for any capacity message. */
 export const ERROR_PREFIX_BYTES = 4096;
+/** The most of a 2xx reply read (as Vast's and Hyperstack's): past it, the reply is refused unread. */
+export const MAX_REPLY_BYTES = 4 * 1024 * 1024;
+/** The pod list's page size, asked for and checked: a page with more rows is refused. */
+export const POD_PAGE_LIMIT = 1000;
 const NO_CAPACITY = /no longer any instances available|no (gpu )?capacity|not enough (free )?gpus|no available (machines|gpus|instances)/i;
 
 /**
@@ -332,6 +336,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     if (shouldStop?.() === true) {
       throw new ProviderError("runpod", "outcome_unknown", `RunPod ${method} ${path.split("?")[0]}: stopped at the caller's deadline`);
     }
+    const deadline = Date.now() + this.#timeoutMs;
     const init: Parameters<Fetch>[1] = {
       method,
       headers: { Authorization: `Bearer ${this.#apiKey}`, Accept: "application/json" },
@@ -357,19 +362,17 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
       const detail = res.status === 400 ? await readPrefix(res, ERROR_PREFIX_BYTES) : "";
       throw runpodError(res.status, detail, res.headers.get("Retry-After"));
     }
-    let text;
+    // A request that changes something (POST, DELETE) succeeded but its reply can't be read whole:
+    // the change may have happened. Only a read can be called a plain failure.
+    const kind: ProviderErrorKind = method === "GET" ? "unknown" : "outcome_unknown";
+    // Within the request's own deadline and at most MAX_REPLY_BYTES (Codex audit G03-4): a stalled,
+    // oversized or non-UTF-8 reply is refused without being kept.
+    const read = await readBody(res, MAX_REPLY_BYTES, deadline);
+    if (!read.ok) throw new ProviderError("runpod", kind, `RunPod ${method} ${path.split("?")[0]}: reply not read (${read.why})`, res.status);
+    if (read.text === "") return { status: res.status, json: null };
     try {
-      text = await res.text();
-    } catch (e) {
-      throw new ProviderError("runpod", "outcome_unknown", `RunPod ${method} ${path.split("?")[0]}: reply cut off (${failureName(e)})`, res.status);
-    }
-    if (text === "") return { status: res.status, json: null };
-    try {
-      return { status: res.status, json: parseProviderJson(text) };
+      return { status: res.status, json: parseProviderJson(read.text) };
     } catch {
-      // A request that changes something (POST, DELETE) succeeded but its reply is unreadable:
-      // the change may have happened. Only a read can be called a plain failure.
-      const kind: ProviderErrorKind = method === "GET" ? "unknown" : "outcome_unknown";
       throw new ProviderError("runpod", kind, `RunPod ${method} ${path.split("?")[0]}: response is not JSON`, res.status);
     }
   }
@@ -543,7 +546,7 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
     const out: ProviderMachineStatus[] = [];
     let cursor: string | null = null;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const qs = new URLSearchParams({ limit: "1000" });
+      const qs = new URLSearchParams({ limit: String(POD_PAGE_LIMIT) });
       if (cursor !== null) qs.set("cursor", cursor);
       const { json } = await this.#call("GET", `/v2/pods?${qs}`, undefined, opts.shouldStop);
       const observedAt = this.#observedAt();
@@ -554,6 +557,10 @@ export class RunPodAdapter implements ProviderAdapter, BillingSource {
       const pagination = json["pagination"];
       if (typeof pagination["hasNextPage"] !== "boolean") {
         throw new ProviderError("runpod", "unknown", "RunPod pod list has no hasNextPage");
+      }
+      // (more rows than asked for is not the reply we asked for; so at most MAX_PAGES pages of them are kept)
+      if (json["pods"].length > POD_PAGE_LIMIT) {
+        throw new ProviderError("runpod", "unknown", `RunPod pod list page has more than ${POD_PAGE_LIMIT} pods`);
       }
       for (const pod of json["pods"]) {
         const s = podStatus(pod, observedAt);

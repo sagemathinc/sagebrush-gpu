@@ -88,6 +88,8 @@ export function failureName(e: unknown): string {
 }
 
 const NO_BYTES = new Uint8Array(0);
+/** The 2xx statuses that never carry a body (RFC 9110): fetch gives each a null body. */
+const NO_CONTENT: ReadonlySet<number> = new Set([204, 205]);
 
 /** How reading a whole reply body ended. */
 export type BodyRead = { ok: true; text: string } | { ok: false; why: "too_large" | "unreadable" | "timeout" };
@@ -102,6 +104,9 @@ export type BodyRead = { ok: true; text: string } | { ok: false; why: "too_large
  * text() is never called.
  */
 export async function readBody(res: HttpResponse, maxBytes: number, deadline: number): Promise<BodyRead> {
+  // A no-content status carries no body, and fetch gives it a null one: that is an empty reply, read.
+  // A null or missing body on any other status is not (a reply that should carry content).
+  if (res.body === null && NO_CONTENT.has(res.status)) return { ok: true, text: "" };
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
     reader = (res.body as ReadableStream<Uint8Array>).getReader();

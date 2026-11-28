@@ -388,6 +388,16 @@ test("readBody: waiting for the deadline costs one race, however many chunks are
   }
 });
 
+test("readBody: a no-content reply (204, 205) with fetch's null body is an empty read; a null body on any other status is not", async () => {
+  for (const status of [204, 205]) {
+    assert.deepEqual(await readBody(new Response(null, { status }), 4096, LATER()), { ok: true, text: "" }, String(status));
+  }
+  for (const status of [200, 201, 202, 206]) {
+    assert.deepEqual(await readBody({ ...response(null), status }, 4096, LATER()), { ok: false, why: "unreadable" }, String(status));
+    assert.deepEqual(await readBody({ ...response(undefined), status: status === 200 ? 204 : status }, 4096, LATER()), { ok: false, why: "unreadable" }, `missing, ${status}`);
+  }
+});
+
 test("readBody: a failing, locked, missing or non-UTF-8 body is unreadable", async () => {
   const failing = new ReadableStream<Uint8Array>({ pull(ctl) { ctl.error(new Error("cut")); } });
   assert.deepEqual(await readBody(response(failing), 4096, LATER()), { ok: false, why: "unreadable" });

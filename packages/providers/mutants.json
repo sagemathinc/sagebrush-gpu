@@ -441,13 +441,15 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "if (e.providerMachineId !== null) {",
-  "new": "if (false) {"
+  "old": "for (const id of e.machinesLeft) {",
+  "new": "for (const id of [] as string[]) {",
+  "note": "no machine left behind is cleaned up"
  },
  {
   "file": "src/placement.ts",
-  "old": "          if (!gone) {",
-  "new": "          if (false) {"
+  "old": "        if (notGone.length > 0) {",
+  "new": "        if (false) {",
+  "note": "a machine not confirmed gone is ignored"
  },
  {
   "file": "src/placement.ts",
@@ -1252,14 +1254,9 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
-  "new": "      const kind: ProviderErrorKind = \"unknown\";",
+  "old": "    const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "    const kind: ProviderErrorKind = \"unknown\";",
   "note": "TESTS T3: an unreadable create reply may have created a pod"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "      const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
-  "new": "      const kind: ProviderErrorKind = \"outcome_unknown\";"
  },
  {
   "file": "src/availability.ts",
@@ -2645,12 +2642,6 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;",
-  "new": "      if (ssh[k] === null || k === \"proxy\") continue;",
-  "note": "a proxy route accepted beside a direct route, ports or startSsh (replaces an equivalent mutant: proxyOk implies direct is null)"
- },
- {
-  "file": "src/runpod/adapter.ts",
   "old": "ssh[\"direct\"] === null && Array.isArray(ports)",
   "new": "Array.isArray(ports)",
   "note": "proxy needs direct null"
@@ -3415,13 +3406,9 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "\"outcome_unknown\", `RunPod ${method} ${path.split(\"?\")[0]}: reply cut off",
-  "new": "\"unknown\", `RunPod ${method} ${path.split(\"?\")[0]}: reply cut off"
- },
- {
-  "file": "src/runpod/adapter.ts",
-  "old": "reply cut off (${failureName(e)})",
-  "new": "reply cut off (${String(e)})"
+  "old": "if (!read.ok) throw new ProviderError(\"runpod\", kind,",
+  "new": "if (!read.ok) throw new ProviderError(\"runpod\", \"unknown\",",
+  "note": "an unreadable create reply (cut off, too large, stalled) may have created a pod"
  },
  {
   "file": "src/probes/cli.ts",
@@ -4265,8 +4252,9 @@
  },
  {
   "file": "src/vast/adapter.ts",
-  "old": "if (found.length === 0) throw cause;",
-  "new": "if (found.length === 0) return \"0\";"
+  "old": "      if (found.length === 1) return found[0]!.providerMachineId;",
+  "new": "      if (found.length <= 1) return found[0]?.providerMachineId ?? \"0\";",
+  "note": "an empty list taken as a machine"
  },
  {
   "file": "src/vast/adapter.ts",
@@ -5114,8 +5102,44 @@
  },
  {
   "file": "src/runpod/adapter.ts",
-  "old": "      return { status: res.status, json: parseProviderJson(text) };",
-  "new": "      return { status: res.status, json: JSON.parse(text) };"
+  "old": "const read = await readBody(res, MAX_REPLY_BYTES, deadline);",
+  "new": "const read = { ok: true as const, text: await res.text(), why: \"\" };",
+  "note": "G03-4: back to the unbounded text()"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const kind: ProviderErrorKind = method === \"GET\" ? \"unknown\" : \"outcome_unknown\";",
+  "new": "const kind: ProviderErrorKind = \"outcome_unknown\";",
+  "note": "G03-4: a read's failure called a change's"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "const deadline = Date.now() + this.#timeoutMs;",
+  "new": "const deadline = Date.now() + 60_000;",
+  "note": "G03-4: the body read outlives the request's deadline"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "export const MAX_REPLY_BYTES = 4 * 1024 * 1024;",
+  "new": "export const MAX_REPLY_BYTES = 64 * 1024 * 1024;",
+  "note": "G03-4: a bigger cap than the test pins (it reads the cap)"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (json[\"pods\"].length > POD_PAGE_LIMIT) {",
+  "new": "if (json[\"pods\"].length > POD_PAGE_LIMIT + 1) {",
+  "note": "G03-4: page bound off by one"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "if (json[\"pods\"].length > POD_PAGE_LIMIT) {",
+  "new": "if (json[\"pods\"].length >= POD_PAGE_LIMIT) {",
+  "note": "G03-4: a full page refused"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      return { status: res.status, json: parseProviderJson(read.text) };",
+  "new": "      return { status: res.status, json: JSON.parse(read.text) };"
  },
  {
   "file": "src/vast/adapter.ts",
@@ -5161,6 +5185,36 @@
   "file": "src/money.ts",
   "old": "  const exponent = Number(m[4] ?? \"0\") - frac.length;",
   "new": "  const exponent = Number(m[4] ?? \"0\");"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  if (res.body === null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "new": "",
+  "note": "G03-4 TESTS H1: a native 204's null body refused as unreadable"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  if (res.body === null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "new": "  if (res.body === null) return { ok: true, text: \"\" };\n",
+  "note": "a null body on a status that should carry content taken as empty"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "  if (res.body === null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "new": "  if (res.body == null && NO_CONTENT.has(res.status)) return { ok: true, text: \"\" };\n",
+  "note": "a missing body (not fetch's null) taken as empty"
+ },
+ {
+  "file": "src/http.ts",
+  "old": "new Set([204, 205]);",
+  "new": "new Set([204]);",
+  "note": "205 forgotten"
+ },
+ {
+  "file": "src/runpod/adapter.ts",
+  "old": "      if (ssh[k] === null || (k === \"proxy\" && proxyOk)) continue;",
+  "new": "      if (ssh[k] === null || k === \"proxy\") continue;",
+  "note": "a proxy route accepted beside a direct route, ports or startSsh (replaces an equivalent mutant: proxyOk implies direct is null)"
  },
  {
   "file": "src/errors.ts",
