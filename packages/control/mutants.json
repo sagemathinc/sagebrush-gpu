@@ -8187,5 +8187,25 @@
   "file": "migrations/PROD-CHECKLIST.md",
   "old": "| 0029_credit_reference_once.sql |",
   "new": "| 0029 |"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "  reference = normalizeCreditReference(reference);\n",
+  "new": ""
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "return reference.trim().replace(/\\s+/g, \" \").toUpperCase();",
+  "new": "return reference.trim().replace(/\\s+/g, \" \");"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "return reference.trim().replace(/\\s+/g, \" \").toUpperCase();",
+  "new": "return reference.replace(/\\s+/g, \" \").toUpperCase();"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "return reference.trim().replace(/\\s+/g, \" \").toUpperCase();",
+  "new": "return reference.trim().toUpperCase();"
  }
 ]

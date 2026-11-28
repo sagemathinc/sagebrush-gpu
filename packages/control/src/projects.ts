@@ -188,15 +188,28 @@ function storedPolicy(p: ProjectPolicy): string {
 export class CreditReferenceConflict extends Error {}
 
 /**
+ * A credit reference as typed by an operator, in the one form that is both its key and what is stored: trimmed,
+ * inner whitespace collapsed to single spaces, upper-cased. So "WIRE 7", " wire 7" and "Wire\t 7" are one
+ * reference. Empty after that is no reference.
+ */
+export function normalizeCreditReference(reference: string): string {
+  return reference.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/**
  * Operators add credit to an organization (an invoice, a purchase order, a wire): never over HTTP. One batch:
  * the credit event, then both balances, moved only for this call's own new event. The reference is the
  * credit's key, once per organization (0029; Codex audit G02-2): the same reference and amount again is a
  * replay, which credits nothing and returns the organization as it is; the same reference with another amount
- * throws CreditReferenceConflict. The reference is compared exactly as given.
+ * throws CreditReferenceConflict. The reference is normalized first (normalizeCreditReference), so case and
+ * spacing typed by hand don't make a second credit.
  */
 export async function addOrgCredit(db: Db, orgId: string, amount: number, reference: string, nowMs: number): Promise<Organization> {
   if (!Number.isSafeInteger(amount) || amount < 1) throw new RangeError("amount must be a positive safe integer");
-  if (typeof reference !== "string" || reference.length < 1 || reference.length > MAX_CREDIT_REFERENCE_LENGTH) throw new RangeError("reference: 1 to 200 characters");
+  if (typeof reference !== "string") throw new RangeError("reference: 1 to 200 characters");
+  // (the key and the stored form are the same normalized reference, checked after normalizing)
+  reference = normalizeCreditReference(reference);
+  if (reference.length < 1 || reference.length > MAX_CREDIT_REFERENCE_LENGTH) throw new RangeError("reference: 1 to 200 characters");
   const exists = await db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM orgs WHERE id = ?`, [orgId]);
   if (exists[0]?.n !== 1) throw new RangeError("no such organization");
   const id = newId("creditEvent");

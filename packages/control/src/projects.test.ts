@@ -63,13 +63,32 @@ test("G02-2: an operator credit is keyed by its reference, once per organization
   await assert.rejects(addOrgCredit(w.db, w.orgId, 4_000_000_000, "WIRE-2026-001", T0 + 2), CreditReferenceConflict);
   assert.deepEqual(await orgRow(w), { u: 5_000_000_000, t: 5_000_000_000 });
   assert.equal(await events(), 1);
-  // the reference is exact, and another organization may use the same one
-  await addOrgCredit(w.db, w.orgId, 1, "wire-2026-001", T0 + 3);
+  // typed by hand: case and spacing make no second credit (one reference, stored normalized)
+  for (const typed of ["wire-2026-001", " WIRE-2026-001 ", "Wire-2026-001\t"]) {
+    const o = await addOrgCredit(w.db, w.orgId, 5_000_000_000, typed, T0 + 3);
+    assert.equal(o.unassignedCredit, 5_000_000_000, JSON.stringify(typed));
+  }
+  await assert.rejects(addOrgCredit(w.db, w.orgId, 1, "  wire-2026-001", T0 + 3), CreditReferenceConflict, "another amount, typed differently");
+  assert.equal(await events(), 1);
+  await addOrgCredit(w.db, w.orgId, 1, "WIRE-2026-002", T0 + 3);
   assert.equal(await events(), 2);
   // two racing calls with one new reference: one credit
   await Promise.all([addOrgCredit(w.db, w.orgId, 7, "PO 9", T0 + 4), addOrgCredit(w.db, w.orgId, 7, "PO 9", T0 + 4)]);
   assert.deepEqual(await orgRow(w), { u: 5_000_000_008, t: 5_000_000_008 });
   assert.equal(await events(), 3);
+});
+
+test("credit references are normalized: trimmed, inner whitespace collapsed, upper-cased; empty after that is refused", async () => {
+  const w = await world({ budget: 0 });
+  await addOrgCredit(w.db, w.orgId, 3, "  po   77\n  extra ", T0);
+  const stored = await w.db.all<{ reference: string }>(`SELECT reference FROM credit_events WHERE kind = 'credit'`);
+  assert.deepEqual(stored.map((r) => r.reference), ["PO 77 EXTRA"], "the stored form is the key");
+  await addOrgCredit(w.db, w.orgId, 3, "PO 77 extra", T0 + 1);
+  assert.deepEqual(await orgRow(w), { u: 3, t: 3 }, "the same reference: a replay");
+  for (const blank of [" ", "\t\n", "   "]) await assert.rejects(addOrgCredit(w.db, w.orgId, 1, blank, T0), RangeError, JSON.stringify(blank));
+  // the length is checked after normalizing: 200 characters plus padding is allowed, 201 is not
+  await addOrgCredit(w.db, w.orgId, 1, `  ${"a".repeat(200)}  `, T0 + 2);
+  await assert.rejects(addOrgCredit(w.db, w.orgId, 1, "b".repeat(201), T0), RangeError);
 });
 
 test("G02-2: the database refuses a second credit with one reference, a REPLACE of the kept one included", async () => {
