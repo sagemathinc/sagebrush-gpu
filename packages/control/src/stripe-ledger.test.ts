@@ -73,7 +73,7 @@ test("d3.2: fee absent at checkout gives a marker, then one credit, by either la
   assert.equal(await creditCheckout(db, ev(), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: null }), "written");
   assert.equal(await balanceOf(db, A), 0, "a marker is no credit");
   assert.equal(await creditPending(db, ev("charge.updated"), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000, via: "charge" }), "written");
-  assert.equal(await creditPending(db, ev(), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000, via: "refetch" }), "nothing", "both paths: still one");
+  assert.equal(await creditPending(db, { eventId: null, nowMs: T }, { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000, via: "refetch" }), "nothing", "both paths: still one");
   assert.equal(await creditCheckout(db, ev(), { customerId: "cus_A", paymentIntent: "pi_p", chargeId: "ch_p", grossMicros: 10_000_000, feeMicros: 590_000 }), "nothing", "and the checkout path too");
   assert.equal(await balanceOf(db, A), 9_410_000);
   // no marker

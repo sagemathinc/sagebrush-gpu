@@ -20,6 +20,7 @@ import { json } from "./http.ts";
 import { SCHEDULED_JOBS, type ScheduledJob } from "./jobs.ts";
 import { loadAgentPublicKeys, loadAgentSigner } from "./signer.ts";
 import { AlertThrottle, STRIPE_WEBHOOK_PATH, handleStripeWebhook, stripeFromEnv, type StripeEnv } from "./stripe-route.ts";
+import { reconcilePendingTopups } from "./stripe-reconcile.ts";
 import { errorBody, type ErrorCode } from "@sbgpu/api";
 
 export interface WorkerEnv extends RelayRouteEnv, StripeEnv {
@@ -258,6 +259,25 @@ export function createWorker(o: WorkerOptions = {}) {
             failed.push("container sweep");
             log(`control: scheduled job container sweep failed (${e instanceof Error ? e.name : typeof e})`);
           }
+        }
+      }
+      // Pending top-ups (Codex audit G01 P2): re-fetched until Stripe knows the fee, then credited once.
+      // Only where the Stripe key is set; its alerts are throttled like the webhook's.
+      const stripe = stripeFromEnv(env, { now, alert: (line) => log(`control: alert: ${line}`), throttle: stripeThrottle, fetch: (input, init) => fetch(input, init) }).stripe;
+      if (!("unusable" in stripe)) {
+        try {
+          const n = await reconcilePendingTopups({
+            db,
+            nowMs: t,
+            stripe,
+            alert: (key, line) => {
+              if (stripeThrottle.allow(key, now())) log(`control: alert: ${line}`);
+            },
+          });
+          if (n > 0) log(`control: pending top-ups credited: ${n}`);
+        } catch (e) {
+          failed.push("pending top-ups");
+          log(`control: scheduled job pending top-ups failed (${e instanceof Error ? e.name : typeof e})`);
         }
       }
       if (failed.length) throw new Error(`scheduled jobs failed: ${failed.join(", ")}`);

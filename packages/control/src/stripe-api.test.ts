@@ -249,3 +249,28 @@ test("parseExact: a number is kept only when its token is a plain integer in the
   assert.ok(isInexact((parseExact(`[{"a":{"b":[1.25]}}]`) as Array<{ a: { b: unknown[] } }>)[0]!.a.b[0]), "nested");
   assert.deepEqual(parseExact(`{"s":"1.5","t":true,"z":null}`), { s: "1.5", t: true, z: null }, "only numbers are touched");
 });
+
+test("G01 P2: a PaymentIntent with its latest charge's fee; null while the balance transaction is absent or pending", async () => {
+  const intent = (o: Record<string, unknown> = {}) => ({
+    object: "payment_intent", id: "pi_1", livemode: false, currency: "usd", status: "succeeded", customer: "cus_A", amount_received: 2000,
+    latest_charge: { object: "charge", id: "ch_1", livemode: false, balance_transaction: bt() }, ...o,
+  });
+  const { f, calls } = fake(() => ok(intent()));
+  assert.deepEqual(await stripe(f).paymentIntent("pi_1"), { id: "pi_1", status: "succeeded", customer: "cus_A", grossMicros: 20_000_000, chargeId: "ch_1", feeMicros: 880_000 });
+  assert.equal(calls[0]!.url, `${API}/v1/payment_intents/pi_1?expand[]=latest_charge.balance_transaction`);
+  assert.equal((await stripe(fake(() => ok(intent({ latest_charge: { object: "charge", id: "ch_1", livemode: false, balance_transaction: bt({ status: "pending" }) } }))).f).paymentIntent("pi_1")).feeMicros, null);
+  assert.equal((await stripe(fake(() => ok(intent({ latest_charge: { object: "charge", id: "ch_1", livemode: false, balance_transaction: null } }))).f).paymentIntent("pi_1")).feeMicros, null);
+  assert.deepEqual(await stripe(fake(() => ok(intent({ latest_charge: null }))).f).paymentIntent("pi_1"), { id: "pi_1", status: "succeeded", customer: "cus_A", grossMicros: 20_000_000, chargeId: null, feeMicros: null });
+  for (const [what, o] of [
+    ["another currency", { currency: "eur" }],
+    ["an unknown status", { status: "done" }],
+    ["the charge not expanded", { latest_charge: "ch_1" }],
+    ["another object where the charge goes", { latest_charge: { object: "refund", id: "ch_1", livemode: false, balance_transaction: bt() } }],
+    ["the charge in another mode", { latest_charge: { object: "charge", id: "ch_1", livemode: true, balance_transaction: bt() } }],
+    ["a fractional amount", { amount_received: 20.5 }],
+    ["a bad customer id", { customer: "cus_" }],
+  ] as const) {
+    assert.equal(await kind(stripe(fake(() => ok(intent(o))).f).paymentIntent("pi_1")), "invalid", what);
+  }
+  await assert.rejects(stripe(fake(() => ok(intent())).f).paymentIntent("ch_1"), /not a Stripe paymentIntent id/);
+});
