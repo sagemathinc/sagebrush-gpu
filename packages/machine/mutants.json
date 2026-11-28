@@ -3394,5 +3394,23 @@
   "old": "            try:\n                sock = socket.socket(family, socket.SOCK_STREAM)\n            except OSError as e:\n                error = e  # (this family can't be used here, e.g. no IPv6: the next address, if any)\n                continue\n",
   "new": "            sock = socket.socket(family, socket.SOCK_STREAM)\n",
   "note": "PR C: connect: socket creation outside the per-address handling"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "out=$({ printf '%s\\n' \"$SBGPU_NONCE\" | timeout -s KILL 45 \"$py\" -I -S -c \"$load\" \"$agent\" vmboot announce \\\n  \"$SBGPU_PREFIX\" \"$SBGPU_CONTROL_URL\" \"$SBGPU_MACHINE_ID\" \"$selfsha\" \"$SBGPU_AGENT_SHA256\" 2>/dev/null; } 2>/dev/null)",
+  "new": "out=$(printf '%s\\n' \"$SBGPU_NONCE\" | timeout -s KILL 45 \"$py\" -I -S -c \"$load\" \"$agent\" vmboot announce \\\n  \"$SBGPU_PREFIX\" \"$SBGPU_CONTROL_URL\" \"$SBGPU_MACHINE_ID\" \"$selfsha\" \"$SBGPU_AGENT_SHA256\" 2>/dev/null)",
+  "note": "the announce timeout's job report reaches stderr (an older GNU timeout's 'Killed')"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "g2=$({ printf '{\"known\":[{\"sha256\":\"%s\",\"bytes\":22},{\"sha256\":\"%s\",\"bytes\":43}]}' \"$noncesha\" \"$tokensha\" |\n  timeout -s KILL \"$secs\" \"$py\" -I -S -c \"$load\" \"$agent\" vmgate \"$allow\" 2>/dev/null; } 2>/dev/null) || late gate2 gate2",
+  "new": "g2=$(printf '{\"known\":[{\"sha256\":\"%s\",\"bytes\":22},{\"sha256\":\"%s\",\"bytes\":43}]}' \"$noncesha\" \"$tokensha\" |\n  timeout -s KILL \"$secs\" \"$py\" -I -S -c \"$load\" \"$agent\" vmgate \"$allow\" 2>/dev/null) || late gate2 gate2",
+  "note": "the gate2 timeout's job report reaches stderr (an older GNU timeout's 'Killed')"
+ },
+ {
+  "file": "src/boot/vm-launcher.sh",
+  "old": "{ printf '%s\\n' \"$g2\" | timeout -s KILL \"$secs\" \"$py\" -I -S -c \"$load\" \"$agent\" vmboot gatefile \"$SBGPU_PREFIX\" \\\n  \"$deadline\" $dirid >/dev/null 2>&1; } 2>/dev/null || late gate2 gate2",
+  "new": "printf '%s\\n' \"$g2\" | timeout -s KILL \"$secs\" \"$py\" -I -S -c \"$load\" \"$agent\" vmboot gatefile \"$SBGPU_PREFIX\" \\\n  \"$deadline\" $dirid >/dev/null 2>&1 || late gate2 gate2",
+  "note": "the gatefile timeout's job report reaches stderr (an older GNU timeout's 'Killed')"
  }
 ]
