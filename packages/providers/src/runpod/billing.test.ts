@@ -108,7 +108,7 @@ function adapter(body: unknown) {
   const fetch: Fetch = async (url, init) => {
     calls.push({ url, init });
     if (init.redirect !== "manual") throw new Error("request without redirect: manual");
-    return { status: 200, headers: { get: () => null }, text: async () => JSON.stringify(body) };
+    return { status: 200, headers: { get: () => null }, text: async () => JSON.stringify(body), body: new Response(JSON.stringify(body)).body };
   };
   return { a: new RunPodAdapter({ apiKey: "test-key", fetch }), calls };
 }
