@@ -93,6 +93,13 @@ CREATE TRIGGER org_payments_later_needs_marker BEFORE INSERT ON org_payments
 WHEN NEW.via = 'later'
   AND NOT EXISTS (SELECT 1 FROM org_payments WHERE kind = 'pending' AND stripe_key = NEW.stripe_key AND org_id = NEW.org_id)
 BEGIN SELECT RAISE(ABORT, 'a later credit needs its pending marker'); END;
+-- A credited payment's transactions are closed (TESTS H1 on #125): only an exact replay of one already kept
+-- may meet its key again, so no later write can attach another balance transaction to it (which would break
+-- the net it was credited at, and spend a transaction that belongs to another payment).
+CREATE TRIGGER org_payment_txns_closed_once_credited BEFORE INSERT ON org_payment_txns
+WHEN NOT EXISTS (SELECT 1 FROM org_payment_txns WHERE txn_id = NEW.txn_id)
+  AND EXISTS (SELECT 1 FROM org_payments WHERE kind IN ('card_credit', 'invoice_credit') AND stripe_key = NEW.stripe_key)
+BEGIN SELECT RAISE(ABORT, 'a credited payment''s balance transactions are closed'); END;
 -- A course fee belongs to an invoice that is not yet credited (the credit reads it).
 CREATE TRIGGER org_payments_fee_before_credit BEFORE INSERT ON org_payments
 WHEN NEW.kind = 'fee'

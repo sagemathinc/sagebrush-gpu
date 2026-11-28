@@ -8067,5 +8067,10 @@
   "file": "src/org-payments.ts",
   "old": "  if ((await scoped.all(`SELECT 1 FROM stripe_events WHERE event_id = ?`, [e.eventId])).length > 0) return \"replay\";\n",
   "new": ""
+ },
+ {
+  "file": "migrations/0027_org_payments.sql",
+  "old": "BEGIN SELECT RAISE(ABORT, 'a credited payment''s balance transactions are closed'); END;",
+  "new": "BEGIN SELECT 1; END;"
  }
 ]

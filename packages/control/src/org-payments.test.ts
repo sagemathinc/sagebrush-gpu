@@ -116,6 +116,23 @@ test("I6: a balance transaction funds one credit, once, across invoices; the sec
   assert.equal(k(`SELECT COUNT(*) AS k FROM org_payments`), 1);
 });
 
+test("TESTS H1 on #125: a credited payment's transactions are closed; only an exact replay meets its key again", async () => {
+  const p = { customerId: "cus_OrgA", kind: "card" as const, stripeKey: "pi_1", txns: [txn("first", 100, 3)], courseFeeMicros: 0, via: "event" as const };
+  assert.equal(await creditOrgPayment(db, ev(), p), "written");
+  assert.equal(await creditOrgPayment(db, ev(), p), "nothing", "the same transactions again: a replay");
+  await assert.rejects(creditOrgPayment(db, ev(), { ...p, txns: [txn("second", 100, 3)] }), /closed/, "another transaction for a credited payment");
+  await assert.rejects(creditOrgPayment(db, ev(), { ...p, txns: [txn("first", 100, 3), txn("third", 50, 1)] }), /closed/, "one more beside the kept one");
+  assert.equal(k(`SELECT COUNT(*) AS k FROM org_payment_txns`), 1);
+  assert.equal(k(`SELECT SUM(amount - fee) AS k FROM org_payment_txns WHERE stripe_key = 'pi_1'`), 97, "the net it was credited at");
+  assert.deepEqual(balances(ORG_A), { unassigned: 97, total: 97 });
+  // the second decomposition: one big transaction credited, then two smaller new ones
+  await creditOrgPayment(db, ev(), { ...p, stripeKey: "pi_2", txns: [txn("big", 200, 6)] });
+  await assert.rejects(creditOrgPayment(db, ev(), { ...p, stripeKey: "pi_2", txns: [txn("s1", 100, 3), txn("s2", 100, 3)] }), /closed/);
+  // raw SQL can't append either, and the transaction is still free for the payment it belongs to
+  assert.throws(() => db.raw.prepare(`INSERT INTO org_payment_txns (txn_id, org_id, stripe_key, amount, fee, created_ms) VALUES ('txn_raw', ?, 'pi_1', 10, 0, ?)`).run(ORG_A, T), /closed/);
+  assert.equal(await creditOrgPayment(db, ev(), { ...p, stripeKey: "pi_3", txns: [txn("second", 100, 3)] }), "written");
+});
+
 test("an unknown Customer, or a person's, credits nothing", async () => {
   const p = { customerId: "cus_Nobody", kind: "card" as const, stripeKey: "pi_1", txns: [txn("1", $(100), $(3))], courseFeeMicros: 0, via: "event" as const };
   assert.equal(await creditOrgPayment(db, ev(), p), "nothing");
