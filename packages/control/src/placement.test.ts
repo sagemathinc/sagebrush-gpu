@@ -121,3 +121,12 @@ test("listPlacement: every provider is asked before any answers, and the stamp i
   // (equal price: hyperstack ranks before runpod)
   assert.deepEqual(p.offers.map((x) => [x.offer.dataCenter, x.listedAtMs]), [["b", 700], ["a", 700]]);
 });
+
+test("listPlacement: a provider's list of any length, or with entries that aren't offers, never throws; the others' offers stand", async () => {
+  const many = Array.from({ length: 200_000 }, (_, i) => offer({ dataCenter: `dc${i}`, providerCostPerHour: 100_000 + (i % 1000) }));
+  const big = await listPlacement({ listers: { runpod: lister(many) }, clock: () => 0 }, policy, 1, null);
+  assert.equal(big.offers.length, 200_000);
+  const junk = [null, 5, "x", undefined, [], offer({ dataCenter: "ok" })] as unknown as Offer[];
+  const p = await listPlacement({ listers: { runpod: lister(junk), hyperstack: lister([offer({ provider: "hyperstack", dataCenter: "hs" })]) }, clock: () => 0 }, policy, 1, null);
+  assert.deepEqual([p.offers.map((x) => x.offer.dataCenter).sort(), p.unavailableProviders], [["hs", "ok"], []]);
+});

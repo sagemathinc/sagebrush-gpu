@@ -44,7 +44,8 @@ export async function listPlacement(deps: PlacementDeps, policy: PlacementPolicy
   lists.forEach((list, i) => {
     const p = providers[i]!;
     if (list === "unavailable") unavailableProviders.push(p);
-    else offers.push(...list.filter((o) => o.provider === p));
+    // (one entry at a time: a list of any length, and an entry that isn't an object, never throw)
+    else for (const o of list) if (typeof o === "object" && o !== null && o.provider === p) offers.push(o);
   });
   const ranked = gpuType === null ? rankAllowed(offers, policy, gpuCount) : rankOffers(offers, policy, { gpuType, gpuCount });
   return { offers: ranked.map((offer) => ({ offer, listedAtMs })), unavailableProviders };

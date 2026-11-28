@@ -6944,8 +6944,8 @@
  },
  {
   "file": "src/placement.ts",
-  "old": "    else offers.push(...list.filter((o) => o.provider === p));",
-  "new": "    else offers.push(...list);",
+  "old": "typeof o === \"object\" && o !== null && o.provider === p) offers.push(o);",
+  "new": "typeof o === \"object\" && o !== null) offers.push(o);",
   "note": "another provider's offers kept"
  },
  {
@@ -6971,5 +6971,17 @@
   "old": "  const lists = await Promise.all(\n    providers.map((p) => withDeadline<Offer[] | \"unavailable\">(() => deps.listers[p]!.listOffers({ gpuCount }).then((x) => (Array.isArray(x) ? [...x] : \"unavailable\")), \"unavailable\")),\n  );\n  const listedAtMs = deps.clock();\n",
   "new": "  const listedAtMs = deps.clock();\n  const lists = await Promise.all(\n    providers.map((p) => withDeadline<Offer[] | \"unavailable\">(() => deps.listers[p]!.listOffers({ gpuCount }).then((x) => (Array.isArray(x) ? [...x] : \"unavailable\")), \"unavailable\")),\n  );\n",
   "note": "the stamp taken before the reads"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "if (typeof o === \"object\" && o !== null && o.provider === p)",
+  "new": "if (o.provider === p)",
+  "note": "an entry that isn't an object read as an offer"
+ },
+ {
+  "file": "src/placement.ts",
+  "old": "    else for (const o of list) if (typeof o === \"object\" && o !== null && o.provider === p) offers.push(o);",
+  "new": "    else offers.push(...list.filter((o) => o.provider === p));",
+  "note": "the whole list spread as arguments"
  }
 ]
