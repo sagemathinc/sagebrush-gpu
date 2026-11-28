@@ -2,7 +2,21 @@
 // Shared by the UI and the control plane's spend export: managers open these files in
 // spreadsheets, and member-controlled text (names, team names) must never run as a formula.
 
-export type CsvValue = string | number | null | undefined;
+/** An exact decimal amount of ours (money: never member text), written as the number it is. Made by csvDecimal. */
+export interface CsvDecimal {
+  readonly decimal: string;
+}
+
+export type CsvValue = string | number | CsvDecimal | null | undefined;
+
+// (canonical: an optional minus, no leading zeros, and a fraction that doesn't end in zero)
+const DECIMAL = /^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$/;
+
+/** A trusted exact decimal cell, such as usdDecimal's "-0.5": written as a number (no apostrophe), unlike text. */
+export function csvDecimal(text: string): CsvDecimal {
+  if (typeof text !== "string" || !DECIMAL.test(text)) throw new RangeError(`not a canonical decimal: ${String(text)}`);
+  return { decimal: text };
+}
 
 // Characters that make a spreadsheet treat a cell as a formula when they start it:
 // OWASP's list, including line feed and the full-width forms.
@@ -11,6 +25,11 @@ const FORMULA_START = new Set(["=", "+", "-", "@", "\t", "\r", "\n", "\uFF1D", "
 export function csvCell(value: CsvValue): string {
   if (value == null) return "";
   let text: string;
+  if (typeof value === "object") {
+    // (checked again here: only a canonical decimal is ever written unescaped)
+    if (typeof value.decimal !== "string" || !DECIMAL.test(value.decimal)) throw new RangeError(`not a canonical decimal: ${String(value.decimal)}`);
+    return value.decimal;
+  }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new RangeError(`not a finite number: ${value}`);
     // Numbers are ours, not member text: -1.5 stays a number.

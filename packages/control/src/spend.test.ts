@@ -287,6 +287,48 @@ test("ledger: managers only; newest first, in pages, every entry once; a malform
 
 void ({} as SqlValue);
 
+/** An adjustment of `total` micros (all provider cost) on `allocationId`, in the UTC day `day` after T0's. */
+const adjustment = (allocationId: string, total: number, day = 0) => stmt(
+  `INSERT INTO ledger_entries (id, org_id, project_id, allocation_id, kind, period_start_ms, seconds, margin_bps, provider_cost, margin, total, created_ms)
+   VALUES (?, ?, ?, ?, 'adjustment', ?, 0, 0, ?, 0, ?, ?)`,
+  newId("ledgerEntry"), w.orgId, w.projectId, allocationId, T0 + day * 86_400_000, total, total, T0,
+);
+
+/** The CSV's lines without its header and its final empty line. */
+async function csvLines(cookie: string, by: string): Promise<string[]> {
+  const r = await csv(cookie, by);
+  assert.equal(r.res.status, 200);
+  return r.text.split("\r\n").slice(1, -1);
+}
+
+async function memberAndTeam() {
+  const staff = await person(w, "s@example.com", "assistant");
+  const mbr = await addMember(w, "a@example.com", "member", { allocation: 0 });
+  const team = newId("team");
+  const teamAlloc = newId("allocation");
+  await w.db.batch([
+    stmt(`INSERT INTO teams (id, project_id, name, created_ms) VALUES (?, ?, 'T', ?)`, team, w.projectId, T0),
+    stmt(`INSERT INTO allocations (id, project_id, holder_kind, holder_id, amount, updated_ms) VALUES (?, ?, 'team', ?, 0, ?)`, teamAlloc, w.projectId, team, T0),
+  ]);
+  return { staff, alloc: await allocOf(mbr), teamAlloc };
+}
+
+test("spend.csv: a credit is a negative number in every grouping, never text", async () => {
+  const { staff, alloc, teamAlloc } = await memberAndTeam();
+  await w.db.batch([adjustment(alloc, -500_000), adjustment(teamAlloc, -1)]);
+  assert.ok((await csvLines(staff.cookie, "member")).includes("a@example.com,,,0,-0.5,0,-0.5,0"));
+  assert.deepEqual(await csvLines(staff.cookie, "team"), ["T,0,0,-0.000001,0,-0.000001,0"]);
+  assert.deepEqual(await csvLines(staff.cookie, "day"), ["2027-02-01,-0.500001,0,-0.500001"]);
+});
+
+test("spend.csv: the safe integer range's ends export exactly, both signs", async () => {
+  const { staff, alloc, teamAlloc } = await memberAndTeam();
+  await w.db.batch([adjustment(alloc, Number.MAX_SAFE_INTEGER, 1), adjustment(teamAlloc, -Number.MAX_SAFE_INTEGER, 2)]);
+  assert.ok((await csvLines(staff.cookie, "member")).includes("a@example.com,,,0,9007199254.740991,0,9007199254.740991,0"));
+  assert.deepEqual(await csvLines(staff.cookie, "team"), ["T,0,0,-9007199254.740991,0,-9007199254.740991,0"]);
+  assert.deepEqual(await csvLines(staff.cookie, "day"), ["2027-02-02,9007199254.740991,0,9007199254.740991", "2027-02-03,-9007199254.740991,0,-9007199254.740991"]);
+});
+
 // (each entry in range, and so are the cost and margin sums; two entries' total, 10^16 + 2, is not)
 const BIG_COST = 3_000_000_000_000_001;
 const BIG_MARGIN = 2_000_000_000_000_000;

@@ -7584,5 +7584,11 @@
   "old": "usd(exactSum(r.total))]);",
   "new": "usd(Number(r.total))]);",
   "note": "a day's sum read as a number"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "const usd = (micros: number): CsvDecimal => csvDecimal(usdDecimal(micros));",
+  "new": "const usd = (micros: number): CsvValue => usdDecimal(micros);",
+  "note": "money cells written as text"
  }
 ]

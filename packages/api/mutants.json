@@ -1627,5 +1627,35 @@
   "old": "  if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
   "new": "  if (n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
   "note": "exactSum takes a sum above the safe range"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "  if (typeof text !== \"string\" || !DECIMAL.test(text)) throw new RangeError(`not a canonical decimal: ${String(text)}`);\n  return { decimal: text };",
+  "new": "  return { decimal: text };",
+  "note": "csvDecimal takes any text"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "    if (typeof value.decimal !== \"string\" || !DECIMAL.test(value.decimal)) throw new RangeError(`not a canonical decimal: ${String(value.decimal)}`);\n",
+  "new": "",
+  "note": "a hand-made decimal written unchecked"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "new": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$/;",
+  "note": "a fraction's trailing zero taken"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "new": "const DECIMAL = /^-?[0-9]+(\\.[0-9]*[1-9])?$/;",
+  "note": "leading zeros taken"
+ },
+ {
+  "file": "src/csv.ts",
+  "old": "const DECIMAL = /^-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "new": "const DECIMAL = /-?(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$/;",
+  "note": "the decimal unanchored at the start"
  }
 ]

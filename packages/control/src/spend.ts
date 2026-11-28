@@ -25,6 +25,7 @@ import {
   SPEND_CSV_GROUPINGS,
   addSplits,
   checkedAdd,
+  csvDecimal,
   entrySplit,
   exactSum,
   isProviderId,
@@ -36,6 +37,7 @@ import {
   toCsv,
   toIso,
   usdDecimal,
+  type CsvDecimal,
   type CsvValue,
   type LedgerEntry,
   type PriceSplit,
@@ -163,7 +165,8 @@ async function ownAllocations(db: Db, projectId: string, userId: string): Promis
   return r.map((x) => x.id);
 }
 
-const usd = usdDecimal;
+// (money cells: exact decimals written as numbers, so a credit's minus is never taken for a formula)
+const usd = (micros: number): CsvDecimal => csvDecimal(usdDecimal(micros));
 
 /** The spend CSV, by member, team or UTC day, with the mock's columns. */
 export async function spendCsv(db: Db, projectId: string, nowMs: number, by: SpendCsvGrouping): Promise<string> {
