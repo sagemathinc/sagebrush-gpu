@@ -7932,5 +7932,10 @@
   "file": "src/stripe-api.ts",
   "old": "capturedMicros: cents(c[\"amount_captured\"], \"the charge's captured amount\"),",
   "new": "capturedMicros: cents(c[\"amount\"], \"the charge's captured amount\"),"
+ },
+ {
+  "file": "src/stripe-route.ts",
+  "old": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n      await known(c.customer);\n",
+  "new": "      if (c.capturedMicros !== c.amountMicros) throw new StripeError(\"invalid\", \"the charge wasn't captured whole\");\n"
  }
 ]

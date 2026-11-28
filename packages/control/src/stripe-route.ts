@@ -222,6 +222,7 @@ export async function handleEvent(e: StripeEvent, stripe: StripeReader, d: Pick<
       // (the credit's gross is the charge's amount only while it was captured whole: Checkout captures
       // automatically, so a partial or manual capture is refused rather than over-credited; SEC N2 on #124)
       if (c.capturedMicros !== c.amountMicros) throw new StripeError("invalid", "the charge wasn't captured whole");
+      await known(c.customer);
       return creditPending(d.db, ref, { customerId: c.customer, paymentIntent: c.paymentIntent, chargeId: c.id, grossMicros: c.amountMicros, feeMicros: c.feeMicros, via: "charge" });
     }
     case "charge.refunded": {

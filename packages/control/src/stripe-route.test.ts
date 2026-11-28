@@ -201,6 +201,17 @@ test("SEC N2 on #124: charge.updated credits only a charge captured whole; a par
   assert.equal(await balanceOf(db, A), 19_120_000);
 });
 
+test("TESTS H1 on #124: charge.updated for an unknown Customer alerts and credits nothing; a known one completing its marker doesn't alert", async () => {
+  assert.equal((await post(deps(reader({ charges: { ch_1: { customer: "cus_Nobody" } } })), "charge.updated")).status, 200);
+  assert.equal(count(`SELECT COUNT(*) AS k FROM balance_entries`), 0);
+  assert.deepEqual(alerts, ["stripe webhook: charge.updated names a Customer we don't know; nothing written"]);
+  alerts = [];
+  await post(deps(reader({ checkout: { payment: { paymentIntent: "pi_1", grossMicros: 20_000_000, chargeId: null, feeMicros: null } } })), "checkout.session.completed");
+  assert.equal((await post(deps(reader({ charges: { ch_1: {} } })), "charge.updated")).status, 200);
+  assert.equal(await balanceOf(db, A), 19_120_000, "the marker completed");
+  assert.deepEqual(alerts, []);
+});
+
 test("an unknown Customer, or none: 200, nothing written, and an alert", async () => {
   assert.equal((await post(deps(reader({ checkout: { customer: "cus_Nobody" } })), "checkout.session.completed")).status, 200);
   assert.equal((await post(deps(reader({ checkout: { customer: null } })), "checkout.session.completed")).status, 200);
