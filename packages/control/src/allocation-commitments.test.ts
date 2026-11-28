@@ -163,3 +163,12 @@ test("REPLACE can't lower an allocation either (it deletes and re-inserts, skipp
   assert.equal((await allocationOf(w, a.memberId)).amount, 600);
   assert.equal(code(await set(b.memberId, 900)), "conflict", "so B can't be raised into A's spent credit");
 });
+
+test("an allocation is never deleted, by any writer (0026)", async () => {
+  const w = await world({ budget: 1000 });
+  const a = await person(w, "a@example.com", "member");
+  const al = (await allocationOf(w, a.memberId)).id;
+  await assert.rejects(w.db.batch([stmt(`DELETE FROM allocations WHERE id = ?`, al)]), /never deleted/);
+  await assert.rejects(w.db.batch([stmt(`DELETE FROM allocations WHERE project_id = ?`, w.projectId)]), /never deleted/);
+  assert.equal((await w.db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM allocations WHERE id = ?`, [al]))[0]!.n, 1);
+});
