@@ -7578,5 +7578,17 @@
   "old": "...PROJECT_HANDLERS, ...SPEND_HANDLERS,",
   "new": "...PROJECT_HANDLERS,",
   "note": "spend handlers not wired"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "total: exactSum(a.total) };",
+  "new": "total: Number(a.total) };",
+  "note": "a meter's sum read as a number"
+ },
+ {
+  "file": "src/spend.ts",
+  "old": "usd(exactSum(r.total))]);",
+  "new": "usd(Number(r.total))]);",
+  "note": "a day's sum read as a number"
  }
 ]

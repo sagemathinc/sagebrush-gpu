@@ -1585,5 +1585,47 @@
   "old": "    if (FORMULA_START.has(text.charAt(0)) || FORMULA_START.has(first)) text = \"'\" + text;",
   "new": "    if (FORMULA_START.has(text.charAt(0))) text = \"'\" + text;",
   "note": "a formula after leading spaces not neutralised"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "return `${micros < 0 ? \"-\" : \"\"}${whole}",
+  "new": "return `${whole}",
+  "note": "usdDecimal drops the sign"
+ },
+ {
+  "file": "src/money.ts",
+  "old": ".padStart(6, \"0\").replace(/0+$/, \"\")",
+  "new": ".padStart(6, \"0\")",
+  "note": "usdDecimal keeps trailing zeros"
+ },
+ {
+  "file": "src/money.ts",
+  "old": ".padStart(6, \"0\").replace(/0+$/, \"\")",
+  "new": ".padStart(5, \"0\").replace(/0+$/, \"\")",
+  "note": "usdDecimal pads too little"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (!isMicros(micros)) throw new RangeError(`not micros: ${micros}`);\n  const abs = Math.abs(micros);",
+  "new": "  const abs = Math.abs(micros);",
+  "note": "usdDecimal takes a non-integer"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "!/^-?(0|[1-9][0-9]*)$/.test(text) || ",
+  "new": "",
+  "note": "exactSum takes any string"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (n > BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "note": "exactSum takes a sum below the safe range"
+ },
+ {
+  "file": "src/money.ts",
+  "old": "  if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "new": "  if (n < -BigInt(Number.MAX_SAFE_INTEGER)) throw",
+  "note": "exactSum takes a sum above the safe range"
  }
 ]

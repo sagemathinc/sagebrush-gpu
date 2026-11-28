@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_POLICY, entrySplit, minuteCharge, newId, reserveCharge, reserveSeconds, type SpendMeter } from "@sbgpu/api";
 import { stmt, type SqlValue } from "./db.ts";
 import { accrueAll, closeAccrual, openAccrual } from "./ledger.ts";
-import { LEDGER_PAGE_SIZE, meters } from "./spend.ts";
+import { LEDGER_PAGE_SIZE, meters, spendCsv } from "./spend.ts";
 import { ORIGIN, T0, addMember, call, person, signIn, world, type World } from "./testing/world.ts";
 
 const RATE = 1_200_000; // $1.20/h, the provider's
@@ -286,3 +286,39 @@ test("ledger: managers only; newest first, in pages, every entry once; a malform
 });
 
 void ({} as SqlValue);
+
+// (each entry in range, and so are the cost and margin sums; two entries' total, 10^16 + 2, is not)
+const BIG_COST = 3_000_000_000_000_001;
+const BIG_MARGIN = 2_000_000_000_000_000;
+const REFUSED = { name: "RangeError", message: "a sum past the safe integer range: 10000000000000002" };
+const bigEntry = (allocationId: string, i: number) => stmt(
+  `INSERT INTO ledger_entries (id, org_id, project_id, allocation_id, kind, period_start_ms, seconds, margin_bps, provider_cost, margin, total, created_ms)
+   VALUES (?, ?, ?, ?, 'adjustment', ?, 0, 0, ?, ?, ?, ?)`,
+  newId("ledgerEntry"), w.orgId, w.projectId, allocationId, T0 + i, BIG_COST, BIG_MARGIN, BIG_COST + BIG_MARGIN, T0,
+);
+
+test("money stays exact: an allocation's sum past the safe range is refused, not rounded", async () => {
+  const alloc = await allocOf(await addMember(w, "a@example.com", "member", { allocation: 0 }));
+  await w.db.batch([bigEntry(alloc, 0), bigEntry(alloc, 1)]);
+  await assert.rejects(meters(w.db, w.projectId, T0, [alloc]), REFUSED);
+});
+
+test("money stays exact: a day's sum past the safe range is refused, while each allocation's meter reads", async () => {
+  const a = await allocOf(await addMember(w, "a@example.com", "member", { allocation: 0 }));
+  const b = await allocOf(await addMember(w, "b@example.com", "member", { allocation: 0 }));
+  await w.db.batch([bigEntry(a, 0), bigEntry(b, 1)]);
+  assert.deepEqual((await meters(w.db, w.projectId, T0, null)).map((m) => m.spent.total), [BIG_COST + BIG_MARGIN, BIG_COST + BIG_MARGIN]);
+  await assert.rejects(spendCsv(w.db, w.projectId, T0, "day"), REFUSED);
+});
+
+test("money stays exact: no parseFloat or toFixed in the money modules (api, control)", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const dirs = [new URL("../../api/src/", import.meta.url), new URL("./", import.meta.url)];
+  for (const dir of dirs) {
+    const files = readdirSync(dir).filter((x) => x.endsWith(".ts") && !x.endsWith(".test.ts"));
+    assert.ok(files.includes("money.ts") || files.includes("spend.ts"), dir.pathname);
+    for (const f of files) {
+      assert.doesNotMatch(readFileSync(new URL(f, dir), "utf8"), /\b(parseFloat|toFixed)\s*\(/, `${dir.pathname}${f}`);
+    }
+  }
+});

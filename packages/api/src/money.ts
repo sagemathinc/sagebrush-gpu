@@ -142,6 +142,29 @@ export function isPriceSplit(x: unknown): x is PriceSplit {
   );
 }
 
+/** Micros as an exact decimal amount of dollars ("2", "0.043333", "-0.5"): integer arithmetic only, never rounded. */
+export function usdDecimal(micros: Micros): string {
+  if (!isMicros(micros)) throw new RangeError(`not micros: ${micros}`);
+  const abs = Math.abs(micros);
+  const frac = abs % MICROS_PER_USD;
+  // (abs - frac is a multiple of a million, so the quotient is exact)
+  const whole = (abs - frac) / MICROS_PER_USD;
+  const digits = String(frac).padStart(6, "0").replace(/0+$/, "");
+  return `${micros < 0 ? "-" : ""}${whole}${digits === "" ? "" : `.${digits}`}`;
+}
+
+/**
+ * An SQL integer SUM read exactly: the statement casts it to text (CAST(COALESCE(SUM(x), 0) AS
+ * TEXT)), and this refuses one past the safe integer range rather than let it round. A sum of
+ * rows that are each in range can still pass it.
+ */
+export function exactSum(text: unknown): Micros {
+  if (typeof text !== "string" || !/^-?(0|[1-9][0-9]*)$/.test(text) || text.length > 20) throw new RangeError(`not an integer sum: ${String(text)}`);
+  const n = BigInt(text);
+  if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < -BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError(`a sum past the safe integer range: ${text}`);
+  return Number(n);
+}
+
 /** "$0.62" style display, for logs and CSVs; rounds half-up to the cent. */
 export function formatUsd(micros: Micros): string {
   if (!isMicros(micros)) throw new RangeError(`not micros: ${micros}`);

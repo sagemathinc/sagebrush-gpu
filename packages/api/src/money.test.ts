@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addSplits,
+  exactSum,
+  usdDecimal,
   checkedAdd,
   checkedMul,
   costForSeconds,
@@ -162,4 +164,20 @@ test("formatUsd", () => {
   assert.equal(formatUsd(-4_999), "$0.00"); // no "-$0.00"
   assert.equal(formatUsd(100_000_000), "$100.00");
   assert.throws(() => formatUsd(0.5), RangeError);
+});
+
+test("usdDecimal: exact dollars from micros, by integer arithmetic, trailing zeros dropped", () => {
+  const cases: Array<[number, string]> = [
+    [0, "0"], [1, "0.000001"], [999_999, "0.999999"], [1_000_000, "1"], [2_000_000, "2"], [43_333, "0.043333"], [1_500_000, "1.5"],
+    [-500_000, "-0.5"], [-1, "-0.000001"], [Number.MAX_SAFE_INTEGER, "9007199254.740991"], [-Number.MAX_SAFE_INTEGER, "-9007199254.740991"],
+  ];
+  for (const [m, s] of cases) assert.equal(usdDecimal(m), s, String(m));
+  for (const bad of [0.5, Number.MAX_SAFE_INTEGER + 1, NaN]) assert.throws(() => usdDecimal(bad), RangeError, String(bad));
+});
+
+test("exactSum: an SQL sum read as text, refused past the safe range or when not an integer", () => {
+  assert.deepEqual(["0", "5", "-5", "9007199254740991", "-9007199254740991"].map(exactSum), [0, 5, -5, Number.MAX_SAFE_INTEGER, -Number.MAX_SAFE_INTEGER]);
+  for (const bad of ["9007199254740992", "-9007199254740992", "18014398509481984", "1".repeat(21), "", " 1", "1.0", "01", "+1", "1e3", 5, null, undefined]) {
+    assert.throws(() => exactSum(bad), RangeError, String(bad));
+  }
 });

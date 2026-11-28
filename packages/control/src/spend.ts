@@ -26,6 +26,7 @@ import {
   addSplits,
   checkedAdd,
   entrySplit,
+  exactSum,
   isProviderId,
   mergePolicy,
   meterRemaining,
@@ -34,6 +35,7 @@ import {
   reserveSeconds,
   toCsv,
   toIso,
+  usdDecimal,
   type CsvValue,
   type LedgerEntry,
   type PriceSplit,
@@ -58,9 +60,10 @@ interface MeterRow {
   holder_kind: "member" | "team" | null;
   holder_id: string | null;
   amount: number | null;
-  provider_cost: number | null;
-  margin: number | null;
-  total: number | null;
+  // (the allocation's ledger sums, as text: read exactly by exactSum)
+  provider_cost: string | null;
+  margin: string | null;
+  total: string | null;
   machine_id: string | null;
   billed_through_ms: number | null;
   incarnation: number | null;
@@ -87,9 +90,9 @@ export async function meters(db: Db, projectId: string, nowMs: number, ids: read
   const policy = await policyOf(db, projectId);
   const rows = await db.all<MeterRow>(
     `SELECT 'alloc' AS kind, a.id AS allocation_id, a.holder_kind, a.holder_id, a.amount,
-            (SELECT COALESCE(SUM(e.provider_cost), 0) FROM ledger_entries e WHERE e.allocation_id = a.id) AS provider_cost,
-            (SELECT COALESCE(SUM(e.margin), 0) FROM ledger_entries e WHERE e.allocation_id = a.id) AS margin,
-            (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = a.id) AS total,
+            (SELECT CAST(COALESCE(SUM(e.provider_cost), 0) AS TEXT) FROM ledger_entries e WHERE e.allocation_id = a.id) AS provider_cost,
+            (SELECT CAST(COALESCE(SUM(e.margin), 0) AS TEXT) FROM ledger_entries e WHERE e.allocation_id = a.id) AS margin,
+            (SELECT CAST(COALESCE(SUM(e.total), 0) AS TEXT) FROM ledger_entries e WHERE e.allocation_id = a.id) AS total,
             NULL AS machine_id, NULL AS billed_through_ms, NULL AS incarnation, NULL AS provider, NULL AS provider_cost_per_hour,
             NULL AS margin_bps, NULL AS start_ms, NULL AS end_ms, NULL AS save_estimate_seconds
      FROM allocations a WHERE a.project_id = ?
@@ -132,7 +135,7 @@ export async function meters(db: Db, projectId: string, nowMs: number, ids: read
       rates.push(entrySplit(open.providerCostPerHour, 3600, open.marginBps));
     }
     const amount = a.amount!;
-    const spent: PriceSplit = { providerCost: a.provider_cost!, margin: a.margin!, total: a.total! };
+    const spent: PriceSplit = { providerCost: exactSum(a.provider_cost), margin: exactSum(a.margin), total: exactSum(a.total) };
     out.push({
       allocationId: a.allocation_id,
       holder: a.holder_kind === "member" ? { kind: "member", memberId: a.holder_id! } : { kind: "team", teamId: a.holder_id! },
@@ -160,7 +163,7 @@ async function ownAllocations(db: Db, projectId: string, userId: string): Promis
   return r.map((x) => x.id);
 }
 
-const usd = (micros: number): number => Number((micros / 1_000_000).toFixed(6));
+const usd = usdDecimal;
 
 /** The spend CSV, by member, team or UTC day, with the mock's columns. */
 export async function spendCsv(db: Db, projectId: string, nowMs: number, by: SpendCsvGrouping): Promise<string> {
@@ -193,13 +196,13 @@ export async function spendCsv(db: Db, projectId: string, nowMs: number, by: Spe
     }
   } else {
     rows.push(["date_utc", "provider_cost_usd", "margin_usd", "total_usd"]);
-    const list = await db.all<{ day: string; provider_cost: number; margin: number; total: number }>(
+    const list = await db.all<{ day: string; provider_cost: string; margin: string; total: string }>(
       `SELECT strftime('%Y-%m-%d', period_start_ms / 1000, 'unixepoch') AS day,
-              SUM(provider_cost) AS provider_cost, SUM(margin) AS margin, SUM(total) AS total
+              CAST(SUM(provider_cost) AS TEXT) AS provider_cost, CAST(SUM(margin) AS TEXT) AS margin, CAST(SUM(total) AS TEXT) AS total
        FROM ledger_entries WHERE project_id = ? GROUP BY day ORDER BY day`,
       [projectId],
     );
-    for (const r of list) rows.push([r.day, usd(r.provider_cost), usd(r.margin), usd(r.total)]);
+    for (const r of list) rows.push([r.day, usd(exactSum(r.provider_cost)), usd(exactSum(r.margin)), usd(exactSum(r.total))]);
   }
   return toCsv(rows);
 }
