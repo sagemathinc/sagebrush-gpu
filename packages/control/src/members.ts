@@ -58,10 +58,16 @@ function toMember(r: MemberRow): Member {
   };
 }
 
+/** 0023's refusal, in words: the allocation's money is in use, so it can't be lowered that far yet. */
+export function committedMessage(msg: string): string {
+  return msg.includes("has spent") ? "the allocation can't go below what it has already spent" : "the allocation has running machines or unbilled time; stop them before lowering it";
+}
+
 /** The database refused a write because of an invariant: say which, as a conflict. */
 function asConflict(e: unknown): never {
   const msg = e instanceof Error ? e.message : String(e);
   if (msg.includes("over-allocation")) throw new HttpError("conflict", "allocations would exceed the project budget");
+  if (msg.includes("committed:")) throw new HttpError("conflict", committedMessage(msg));
   if (msg.includes("last-owner")) throw new HttpError("conflict", "a project keeps at least one active owner");
   if (msg.includes("UNIQUE") && msg.includes("members.")) throw new HttpError("conflict", "already a member of this project");
   if (msg.includes("team:")) throw new HttpError("badRequest", "no such team in this project");

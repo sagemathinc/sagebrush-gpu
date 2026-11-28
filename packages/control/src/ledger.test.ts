@@ -243,6 +243,17 @@ async function allocation(s: Seed, amount: number, projectId = s.projectId): Pro
   return id;
 }
 
+/** A ledger charge outside compute (an adjustment): how a fixture makes an allocation overdrawn, since 0023
+ *  refuses lowering an allocation below its spend or while its machines run. */
+async function charge(s: Seed, allocationId: string, total: number): Promise<void> {
+  await s.db.batch([
+    stmt(
+      `INSERT INTO ledger_entries (id, org_id, project_id, allocation_id, kind, period_start_ms, seconds, margin_bps, provider_cost, margin, total, created_ms) VALUES (?, ?, ?, ?, 'adjustment', ?, 0, 0, ?, 0, ?, ?)`,
+      newId("ledgerEntry"), s.orgId, s.projectId, allocationId, T0, total, total, T0,
+    ),
+  ]);
+}
+
 async function startMachine(s: Seed, allocationId: string, rate: number, bps: number, startMs: number, saveEstimate = 0): Promise<string> {
   const id = newId("machine");
   await s.db.batch([
@@ -599,7 +610,7 @@ test("findHardStops stops an allocation that is already overdrawn", async () => 
   const a = await allocation(s, 10 ** 12);
   await startMachine(s, a, 3_600_000, 0, T0);
   await accrueAll(s.db, T0 + 3 * MIN);
-  await s.db.batch([stmt(`UPDATE allocations SET amount = 0 WHERE id = ?`, a)]);
+  await charge(s, a, 10 ** 12); // spent 180_000 + 10^12 of 10^12
   const stops = await findHardStops(s.db, T0 + 3 * MIN, opts);
   assert.equal(stops[0]?.unspent, -180_000);
 });
@@ -612,7 +623,7 @@ test("findHardStops counts the exact pending charge of ended machines", async ()
   await startMachine(s, a, 3_600_000, 0, T0 + 4 * MIN);
   const o = { checkIntervalSeconds: 60, safetySeconds: 0 };
   assert.deepEqual(await findHardStops(s.db, T0 + 4 * MIN, o), []);
-  await s.db.batch([stmt(`UPDATE allocations SET amount = amount - 1 WHERE id = ?`, a)]);
+  await charge(s, a, 1); // one micro-dollar less unspent
   const stops = await findHardStops(s.db, T0 + 4 * MIN, o);
   assert.equal(stops[0]?.unspent, 59_999);
   assert.equal(stops[0]?.machineIds.length, 1); // only the running one

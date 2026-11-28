@@ -7,6 +7,7 @@ import { isNonNegativeMicros, newId, projectRoleAtLeast, toIso, type Allocation,
 import type { Ctx, Handlers } from "./app.ts";
 import { D1_MAX_BOUND_PARAMETERS, chunks, type Db, type Stmt } from "./db.ts";
 import { HttpError, json } from "./http.ts";
+import { committedMessage } from "./members.ts";
 
 const placeholders = (n: number) => Array.from({ length: n }, () => "?").join(",");
 
@@ -78,6 +79,7 @@ async function loadTeam(db: Db, projectId: string, teamId: string): Promise<Team
 export function teamWriteError(e: unknown): never {
   const msg = e instanceof Error ? e.message : String(e);
   if (msg.includes("over-allocation")) throw new HttpError("conflict", "allocations would exceed the project budget");
+  if (msg.includes("committed:")) throw new HttpError("conflict", committedMessage(msg));
   if (msg.includes("team-cap")) throw new HttpError("conflict", `a project has at most ${MAX_TEAMS_PER_PROJECT} teams`);
   if (msg.includes("teams_live_name")) throw new HttpError("conflict", "a team with that name exists");
   // the team was deleted between the check and the write
@@ -184,12 +186,17 @@ export const TEAM_HANDLERS: Handlers = {
   async deleteTeam(ctx: Ctx) {
     const { db, now } = ctx.deps;
     const team = await loadTeam(db, ctx.params.projectId as string, ctx.params.teamId as string);
-    // members leave the team, its allocation returns to the project, and it stays on record
+    // members leave the team, its allocation's unspent part returns to the project, and it stays on record
+    // (what it spent stays allocated, so the budget keeps covering it: 0023; refused while it has machines)
     // (live() refuses a team deleted meanwhile, so a second delete is a conflict)
     await batch(db, [
       live(team),
       { sql: `UPDATE members SET team_id = NULL WHERE team_id = ? AND project_id = ?`, params: [team.id, team.project_id] },
-      { sql: `UPDATE allocations SET amount = 0, updated_ms = ? WHERE id = ? AND project_id = ?`, params: [now(), team.allocation_id, team.project_id] },
+      {
+        sql: `UPDATE allocations SET amount = MIN(amount, MAX(0, (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id))), updated_ms = ?
+              WHERE id = ? AND project_id = ?`,
+        params: [now(), team.allocation_id, team.project_id],
+      },
       { sql: `UPDATE teams SET deleted_ms = ? WHERE id = ? AND project_id = ?`, params: [now(), team.id, team.project_id] },
     ]);
     return json(200, { ok: true });

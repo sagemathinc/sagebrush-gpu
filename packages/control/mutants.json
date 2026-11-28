@@ -1153,13 +1153,13 @@
  },
  {
   "file": "src/projects.ts",
-  "old": ")) allocated.set(a.project_id, a.n);",
+  "old": ")) allocated.set(a.project_id, exactSum(a.n));",
   "new": ")) allocated.set(a.project_id, 0);"
  },
  {
   "file": "src/projects.ts",
-  "old": "spent.set(s.project_id, { p: s.p, m: s.m, t: s.t });",
-  "new": "spent.set(s.project_id, { p: s.p, m: s.p, t: s.t });"
+  "old": "spent.set(s.project_id, { p: exactSum(s.p), m: exactSum(s.m), t: exactSum(s.t) });",
+  "new": "spent.set(s.project_id, { p: exactSum(s.p), m: exactSum(s.p), t: exactSum(s.t) });"
  },
  {
   "file": "src/projects.ts",
@@ -7422,6 +7422,91 @@
   "file": "migrations/0022_stripe_ledger.sql",
   "old": "AND via IS NOT NULL AND ref IS NOT NULL AND substr(ref, 1, 3) = 'ch_')),",
   "new": "AND via IS NOT NULL AND ref IS NOT NULL)),"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN NEW.amount < OLD.amount AND (\n  EXISTS (SELECT 1 FROM machines m WHERE m.allocation_id = OLD.id AND m.state IN ('starting', 'running', 'saving', 'stopping'))",
+  "new": "WHEN NEW.amount < OLD.amount AND (\n  0"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "m.state IN ('starting', 'running', 'saving', 'stopping')",
+  "new": "m.state IN ('starting', 'running')"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "  OR EXISTS (SELECT 1 FROM machine_accruals a JOIN machines m ON m.id = a.machine_id\n             WHERE m.allocation_id = OLD.id AND m.billed_through_ms IS NOT NULL AND (a.end_ms IS NULL OR a.end_ms > m.billed_through_ms)))",
+  "new": "  OR 0)"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN NEW.amount < OLD.amount AND NEW.amount < (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = OLD.id)",
+  "new": "WHEN NEW.amount < OLD.amount AND NEW.amount < (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = OLD.id) - 1"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN NEW.amount < OLD.amount AND NEW.amount < (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = OLD.id)",
+  "new": "WHEN NEW.amount < (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = OLD.id)"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN NEW.amount < OLD.amount AND (\n  EXISTS",
+  "new": "WHEN (\n  EXISTS"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "SET amount = MIN(amount, MAX(0, (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id)))",
+  "new": "SET amount = MAX(0, (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id))"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "SET amount = MIN(amount, MAX(0, (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id)))",
+  "new": "SET amount = MIN(amount, (SELECT COALESCE(SUM(e.total), 0) FROM ledger_entries e WHERE e.allocation_id = allocations.id))"
+ },
+ {
+  "file": "src/teams.ts",
+  "old": "  if (msg.includes(\"committed:\")) throw new HttpError(\"conflict\", committedMessage(msg));\n",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "  if (msg.includes(\"committed:\")) throw new HttpError(\"conflict\", committedMessage(msg));\n",
+  "new": ""
+ },
+ {
+  "file": "src/members.ts",
+  "old": "return msg.includes(\"has spent\") ?",
+  "new": "return msg.includes(\"nothing\") ?"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "  if (typeof v !== \"number\" || !Number.isSafeInteger(v)) throw new HttpError(\"internal\", \"a total is past the exact range\");",
+  "new": "  if (typeof v !== \"number\") throw new HttpError(\"internal\", \"a total is past the exact range\");"
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "  if (v === null || v === undefined) return 0;\n",
+  "new": ""
+ },
+ {
+  "file": "src/projects.ts",
+  "old": "    )) spent.set(s.project_id, { p: exactSum(s.p), m: exactSum(s.m), t: exactSum(s.t) });",
+  "new": "    )) spent.set(s.project_id, { p: s.p as number, m: s.m as number, t: s.t as number });"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
+  "new": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id)"
+ },
+ {
+  "file": "migrations/0023_allocation_commitments.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM allocations WHERE id = NEW.id\n             OR (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))",
+  "new": "WHEN EXISTS (SELECT 1 FROM allocations WHERE (project_id = NEW.project_id AND holder_kind = NEW.holder_kind AND holder_id = NEW.holder_id))"
  },
  {
   "file": "src/spend.ts",
