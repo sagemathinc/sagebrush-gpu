@@ -35,6 +35,39 @@ const PAGE = 100;
 const MAX_PAGES = 50;
 /** A lost create's recovery lists at most this many pages (500 VMs); a longer list proves nothing. */
 const RECOVERY_PAGES = 5;
+/** Keypairs per page of the keypair list, and the most pages read (a longer list proves nothing). */
+const KEY_PAGE = 100;
+const KEY_PAGES = 20;
+/**
+ * A launch's keypair name: its machine and incarnation (Codex audit G03-3), so a key a lost import
+ * or a stop left behind never blocks a later incarnation, and the sweep can tell whose it is.
+ */
+const KEYPAIR_NAME = /^sbg-k-(mch_[0-9a-z]{20})-([1-9][0-9]{0,11})$/;
+
+/** The keypair name of one launch. */
+export function launchKeypairName(machineId: string, incarnation: number): string {
+  const name = `sbg-k-${machineId}-${incarnation}`;
+  if (!Number.isSafeInteger(incarnation) || !KEYPAIR_NAME.test(name)) throw new RangeError("a keypair is named for a machine id and an incarnation of at least 1");
+  return name;
+}
+
+/** Whose launch a keypair name is, or null for a name that isn't a launch's. */
+export function parseKeypairName(name: string): { machineId: string; incarnation: number } | null {
+  const m = KEYPAIR_NAME.exec(name);
+  return m === null ? null : { machineId: m[1]!, incarnation: Number(m[2]) };
+}
+
+/** One keypair of the account, as listed. */
+export interface Keypair {
+  id: number;
+  name: string;
+}
+
+/** What one keypair sweep did: keys deleted, and keys it refused to touch (ambiguous or failed), by name. */
+export interface KeypairSweep {
+  deleted: string[];
+  refused: string[];
+}
 /** The largest reply body read; a larger one is an unreadable reply. */
 export const MAX_REPLY_BYTES = 4 * 1024 * 1024;
 /** The largest boot script, in UTF-8 bytes: its base64 (65532 characters) fits user_data. */
@@ -523,7 +556,7 @@ export class HyperstackAdapter implements ProviderAdapter {
     if (typeof environmentName !== "string" || !ENVIRONMENT_NAME.test(environmentName)) {
       throw new ProviderError("hyperstack", "unplaceable", "Hyperstack: no environment for this region");
     }
-    const keyName = `sbg-k-${spec.machineId}`;
+    const keyName = launchKeypairName(spec.machineId, spec.incarnation);
     const bootSha = await bootScriptSha256(script);
     const stop = opts.shouldStop;
     const stopBefore = () => {
@@ -538,14 +571,21 @@ export class HyperstackAdapter implements ProviderAdapter {
     const integrity = { bootScriptSha256: bootSha, requestSha256: await sha256Hex(body), echo: "unobservable" as const };
     // Only the public half is kept: the private key, never exportable, is dropped right here.
     const { publicKey } = await perLaunchKeypair();
+    // A key this launch's earlier attempt left (a lost import, a stop, a failed removal) would make
+    // the import a duplicate name: one is removed first; several are refused, for a human.
+    stopBefore();
+    const stale = await this.#clearKeypair(keyName);
+    if (stale !== "") throw new ProviderError("hyperstack", "unknown", `Hyperstack: no VM was requested${stale}`);
     stopBefore();
     let keyId: number;
     try {
       keyId = await this.importKeypair(keyName, environmentName, publicKey);
     } catch (e) {
       if (e instanceof ProviderError && e.kind === "outcome_unknown") {
-        // No VM was requested; only a key (public half only) may be left to remove by name.
-        throw new ProviderError("hyperstack", "unknown", `Hyperstack: keypair ${keyName} import has an unknown outcome; no VM was requested`);
+        // No VM was requested; only a key (public half only) may be left: found by its exact name
+        // and removed (G03-3), unless the caller stopped.
+        const left = stop?.() === true ? `; stopped at the caller's deadline; keypair ${keyName} kept` : await this.#clearKeypair(keyName);
+        throw new ProviderError("hyperstack", "unknown", `Hyperstack: keypair ${keyName} import has an unknown outcome; no VM was requested${left}`);
       }
       throw e;
     }
@@ -756,6 +796,95 @@ export class HyperstackAdapter implements ProviderAdapter {
       if (read >= total) return out;
     }
     throw new ProviderError("hyperstack", "unknown", `Hyperstack VM list has more than ${maxPages} pages`);
+  }
+
+  /**
+   * Every keypair of the account, read whole (at most KEY_PAGES pages, the count checked on each);
+   * a list that can't be read whole proves nothing and throws "unknown".
+   */
+  async listKeypairs(shouldStop?: () => boolean): Promise<Keypair[]> {
+    const out: Keypair[] = [];
+    const seen = new Set<number>();
+    let total: number | null = null;
+    for (let page = 1; page <= KEY_PAGES; page++) {
+      if (shouldStop?.() === true) throw new ProviderError("hyperstack", "unknown", STOPPED);
+      const qs = new URLSearchParams({ page: String(page), pageSize: String(KEY_PAGE) });
+      const json = await this.#call("GET", `/core/keypairs?${qs}`);
+      if (!isObject(json) || !Array.isArray(json["keypairs"]) || !Number.isSafeInteger(json["count"]) || (json["count"] as number) < 0) {
+        throw new ProviderError("hyperstack", "unknown", "Hyperstack keypair list is malformed");
+      }
+      const t = json["count"] as number;
+      if (total !== null && t !== total) throw new ProviderError("hyperstack", "unknown", "Hyperstack keypair list changed while it was read");
+      total = t;
+      const rows = json["keypairs"];
+      if (rows.length !== Math.max(0, Math.min(KEY_PAGE, total - out.length))) {
+        throw new ProviderError("hyperstack", "unknown", "Hyperstack keypair list page has the wrong length");
+      }
+      for (const kp of rows) {
+        const id = isObject(kp) ? kp["id"] : undefined;
+        const name = isObject(kp) ? kp["name"] : undefined;
+        if (!Number.isSafeInteger(id) || (id as number) <= 0 || typeof name !== "string") {
+          throw new ProviderError("hyperstack", "unknown", "Hyperstack keypair list has a row without an id and a name");
+        }
+        if (seen.has(id as number)) throw new ProviderError("hyperstack", "unknown", "Hyperstack keypair list has a keypair twice");
+        seen.add(id as number);
+        out.push({ id: id as number, name });
+      }
+      if (out.length >= total) return out;
+    }
+    throw new ProviderError("hyperstack", "unknown", `Hyperstack keypair list has more than ${KEY_PAGES} pages`);
+  }
+
+  /**
+   * Remove the keypair with exactly this name, if there is one. "" when none is left; otherwise why
+   * one is, for the error to carry: the list couldn't be read, the delete failed, or several have
+   * the name (refused: which one is ours isn't known).
+   */
+  async #clearKeypair(name: string): Promise<string> {
+    let named: Keypair[];
+    try {
+      named = (await this.listKeypairs()).filter((k) => k.name === name);
+    } catch {
+      return `; the keypair list could not be read; keypair ${name} may be left`;
+    }
+    if (named.length > 1) return `; ${named.length} keypairs are named ${name} (${named.map((k) => k.id).join(", ")}); none removed`;
+    if (named.length === 0) return "";
+    try {
+      await this.deleteKeypair(named[0]!.id);
+      return "";
+    } catch {
+      return `; keypair ${name} could not be removed`;
+    }
+  }
+
+  /**
+   * The scheduled keypair sweep (G03-3): every launch keypair of the account (named for a machine and
+   * an incarnation) whose launch `keep` doesn't keep is deleted by its id. A name carried by several
+   * keys is refused, all of them left, for a human; a key whose delete fails is refused too, for the
+   * next run. Keys not named for a launch are never touched. The list is read whole first; one that
+   * can't be read throws, and nothing is deleted.
+   */
+  async sweepKeypairs(keep: (machineId: string, incarnation: number) => Promise<boolean>, shouldStop?: () => boolean): Promise<KeypairSweep> {
+    const all = await this.listKeypairs(shouldStop);
+    const byName = new Map<string, Keypair[]>();
+    for (const k of all) if (parseKeypairName(k.name) !== null) byName.set(k.name, [...(byName.get(k.name) ?? []), k]);
+    const out: KeypairSweep = { deleted: [], refused: [] };
+    for (const [name, keys] of byName) {
+      if (shouldStop?.() === true) break;
+      const whose = parseKeypairName(name)!;
+      if (await keep(whose.machineId, whose.incarnation)) continue;
+      if (keys.length > 1) {
+        out.refused.push(name);
+        continue;
+      }
+      try {
+        await this.deleteKeypair(keys[0]!.id);
+        out.deleted.push(name);
+      } catch {
+        out.refused.push(name);
+      }
+    }
+    return out;
   }
 
   /** Import one launch's public key; returns the keypair's id. */
