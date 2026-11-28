@@ -422,6 +422,35 @@ test("a plan state from an older fetch never becomes the latest, even when the n
   assert.throws(() => db.raw.exec(`UPDATE gpu_plan_fetches SET fetched_ms = 0`), /never updated/);
 });
 
+test("cx3 P3: a newer fetch that commits while this batch waits makes this one stale, not nothing", async () => {
+  const at = (ms: number, status: PlanStatus) => ({ ...plan({ status }), fetchedMs: ms });
+  assert.equal(await recordPlanState(db, null, at(T + 10, "active")), "written");
+  // the older fetch (T + 20) reads, then its batch is held until a newer fetch (T + 30) has committed
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let held = false;
+  const gated: typeof db = {
+    ...db,
+    all: (sql, params) => db.all(sql, params),
+    run: (sql, params) => db.run(sql, params),
+    async batch(stmts) {
+      if (!held) {
+        held = true;
+        await gate;
+      }
+      return db.batch(stmts);
+    },
+  };
+  const older = recordPlanState(gated, ev("customer.subscription.updated"), at(T + 20, "past_due"));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(await recordPlanState(db, ev("customer.subscription.deleted"), at(T + 30, "canceled")), "written");
+  release();
+  assert.equal(await older, "stale");
+  assert.equal((await latestPlan(db, A))!.status, "canceled");
+  // with no other fetch at or after it, an unchanged state is nothing
+  assert.equal(await recordPlanState(db, null, at(T + 40, "canceled")), "nothing");
+});
+
 test("the indexes the triggers' lookups use are there: a unique one per Stripe key and per ref", () => {
   const unique = (db.raw.prepare(`PRAGMA index_list(balance_entries)`).all() as Array<{ name: string; unique: number }>).filter((i) => i.unique === 1);
   const cols = unique.map((i) => (db.raw.prepare(`PRAGMA index_info(${JSON.stringify(i.name)})`).all() as Array<{ name: string }>).map((c) => c.name).join(","));

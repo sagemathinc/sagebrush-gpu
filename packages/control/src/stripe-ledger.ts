@@ -278,8 +278,13 @@ export async function planStateHash(s: PlanState): Promise<string> {
  * Stripe's current state of a Subscription, as fetched after any of its events (or the daily re-fetch):
  * appended only if it differs from the latest row, so a replayed or late event adds nothing. `fetchedMs` is
  * when the request was sent. Every fetch is recorded (gpu_plan_fetches), changed or not, and a state is
- * appended only from a fetch later than all of them: an older fetch that commits late is `stale`, never the
- * latest state.
+ * appended only from a fetch later than all of them: an older fetch that commits late is never the latest
+ * state.
+ *
+ * When nothing is appended, the outcome is `stale` if, by the time the batch has committed, another fetch
+ * of that subscription at or after this one is recorded, and `nothing` otherwise. It is read after the
+ * batch, so a newer fetch that committed while this batch waited is seen (cx3's P3 on #117: a read before
+ * the batch missed it and said `nothing`).
  */
 export async function recordPlanState(
   db: Db,
@@ -301,11 +306,15 @@ export async function recordPlanState(
   // (after the plan row, so the fence it reads is the earlier fetches only)
   const fetch = stmt(`INSERT INTO gpu_plan_fetches (subscription_id, fetched_ms) VALUES (?, ?)`, sub, fetched);
   const scoped = scopedDb(db, PLAN_TABLES);
-  const stale = (await scoped.all(`SELECT 1 FROM gpu_plan_fetches WHERE subscription_id = ? AND fetched_ms >= ?`, [sub, fetched])).length > 0;
   if (e !== null && (await scoped.all(`SELECT 1 FROM stripe_events WHERE event_id = ?`, [e.eventId])).length > 0) return "replay";
   const r = await scoped.batch(e === null ? [plan, fetch] : [eventStmt(e), plan, fetch]);
   if (r[e === null ? 0 : 1]!.changes > 0) return "written";
-  return stale ? "stale" : "nothing";
+  // (this fetch's own row is one of those at fetched_ms; any other at or after it makes this one stale)
+  const later = await scoped.all<{ k: number }>(
+    `SELECT (SELECT COUNT(*) FROM gpu_plan_fetches WHERE subscription_id = ? AND fetched_ms > ?) + (SELECT COUNT(*) FROM gpu_plan_fetches WHERE subscription_id = ? AND fetched_ms = ?) - 1 AS k`,
+    [sub, fetched, sub, fetched],
+  );
+  return later[0]!.k > 0 ? "stale" : "nothing";
 }
 
 /** The person's latest plan row (across their subscriptions), or null. */
