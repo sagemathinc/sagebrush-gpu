@@ -168,7 +168,13 @@ async function ownAllocations(db: Db, projectId: string, userId: string): Promis
 // (money cells: exact decimals written as numbers, so a credit's minus is never taken for a formula)
 const usd = (micros: number): CsvDecimal => csvDecimal(usdDecimal(micros));
 
-/** The spend CSV, by member, team or UTC day, with the mock's columns. */
+/**
+ * The spend CSV, by member, team or UTC day, with the mock's columns.
+ *
+ * Personal data: by member, it carries every non-removed member's email and name, for assistant and above
+ * (the route table). That makes it the widest personal-data export here: a whole roster in a file that
+ * leaves our control once downloaded. Any change to its columns or to who may read it is a privacy change.
+ */
 export async function spendCsv(db: Db, projectId: string, nowMs: number, by: SpendCsvGrouping): Promise<string> {
   const ms = new Map((await meters(db, projectId, nowMs, null)).map((m) => [m.allocationId, m]));
   const rows: CsvValue[][] = [];
