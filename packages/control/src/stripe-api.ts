@@ -20,6 +20,12 @@ export interface StripeConfig {
   readonly livemode: boolean;
   /** Tests only: another API origin. */
   readonly api?: string;
+  /**
+   * Called when Stripe refuses our key (401 or 403): the key is revoked, rotated wrongly or lacks a scope.
+   * The webhook wires it to an operator alert naming the key's mode and last four characters (never the key).
+   * Retries alone won't fix this (SEC C1 on #119).
+   */
+  readonly keyRefused?: (status: 401 | 403, keyHint: string) => void;
 }
 
 /** The API version the shapes below are read in (a subscription's current_period_end is top-level here). */
@@ -184,6 +190,17 @@ export class StripeApi {
     if (r.status === 429 || r.status >= 500) {
       await r.body?.cancel().catch(() => {});
       throw new StripeError("unavailable", `Stripe answered ${r.status}`);
+    }
+    // Our key refused: a fault on our side that a fix clears, so the event must be retried (5xx at the
+    // webhook), never refused for good; and a human is told, since retries alone won't fix it (SEC C1).
+    if (r.status === 401 || r.status === 403) {
+      await r.body?.cancel().catch(() => {});
+      try {
+        this.#c.keyRefused?.(r.status, `${this.#c.livemode ? "live" : "test"} …${this.#c.apiKey.slice(-4)}`);
+      } catch {
+        // (an alert hook that fails must not turn a retry into a refusal)
+      }
+      throw new StripeError("unavailable", `Stripe refused our key (${r.status})`);
     }
     if (r.status !== 200) {
       await r.body?.cancel().catch(() => {});

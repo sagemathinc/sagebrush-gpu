@@ -7637,5 +7637,20 @@
   "file": "src/stripe-api.ts",
   "old": "        feeMicros: charge === null ? null : fee(this.#expanded(charge[\"balance_transaction\"], \"the balance transaction\")),",
   "new": "        feeMicros: charge === null ? null : fee(charge[\"balance_transaction\"]),"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "    if (r.status === 401 || r.status === 403) {",
+  "new": "    if (false) {"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "        this.#c.keyRefused?.(r.status, `${this.#c.livemode ? \"live\" : \"test\"} \u2026${this.#c.apiKey.slice(-4)}`);",
+  "new": "        void 0;"
+ },
+ {
+  "file": "src/stripe-api.ts",
+  "old": "      try {\n        this.#c.keyRefused?.(r.status, `${this.#c.livemode ? \"live\" : \"test\"} \u2026${this.#c.apiKey.slice(-4)}`);\n      } catch {\n        // (an alert hook that fails must not turn a retry into a refusal)\n      }",
+  "new": "      this.#c.keyRefused?.(r.status, `${this.#c.livemode ? \"live\" : \"test\"} \u2026${this.#c.apiKey.slice(-4)}`);"
  }
 ]

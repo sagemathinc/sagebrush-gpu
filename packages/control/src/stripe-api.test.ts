@@ -103,7 +103,18 @@ test("unavailable vs invalid: network, 5xx and 429 retry; 4xx and redirects don'
   const s = (status: number) => fake(() => new Response("{}", { status, headers: status >= 300 && status < 400 ? { location: "https://evil.example/" } : {} })).f;
   assert.equal(await kind(stripe(fake(() => { throw new TypeError("network"); }).f).charge("ch_1")), "unavailable");
   for (const st of [500, 502, 503, 429]) assert.equal(await kind(stripe(s(st)).charge("ch_1")), "unavailable", String(st));
-  for (const st of [400, 401, 403, 404, 301, 302, 307]) assert.equal(await kind(stripe(s(st)).charge("ch_1")), "invalid", String(st));
+  for (const st of [400, 404, 301, 302, 307]) assert.equal(await kind(stripe(s(st)).charge("ch_1")), "invalid", String(st));
+  // our key refused (SEC C1): a retry, never a refusal, and the operator is told which key, never the key itself
+  for (const st of [401, 403] as const) {
+    const told: Array<[number, string]> = [];
+    const api = new StripeApi({ apiKey: KEY, livemode: false, api: API, keyRefused: (status, hint) => told.push([status, hint]) }, s(st));
+    assert.equal(await kind(api.charge("ch_1")), "unavailable", String(st));
+    assert.deepEqual(told, [[st, "test …0123"]], String(st));
+    assert.ok(!told[0]![1].includes(KEY), "the hint never carries the key");
+    // a hook that throws still gives a retry
+    const loud = new StripeApi({ apiKey: KEY, livemode: false, api: API, keyRefused: () => { throw new Error("alert down"); } }, s(st));
+    assert.equal(await kind(loud.charge("ch_1")), "unavailable", `${st}, alert hook failing`);
+  }
 });
 
 test("an answer is read to at most 256 KiB, declared or streamed", async () => {
