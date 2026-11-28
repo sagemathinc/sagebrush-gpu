@@ -184,24 +184,40 @@ function storedPolicy(p: ProjectPolicy): string {
   return JSON.stringify(out);
 }
 
+/** The same reference already credited this organization a different amount (G02-2): nothing is written. */
+export class CreditReferenceConflict extends Error {}
+
 /**
- * Operators add credit to an organization (an invoice or purchase order): never over
- * HTTP. One batch: both balances and the credit event.
+ * Operators add credit to an organization (an invoice, a purchase order, a wire): never over HTTP. One batch:
+ * the credit event, then both balances, moved only for this call's own new event. The reference is the
+ * credit's key, once per organization (0029; Codex audit G02-2): the same reference and amount again is a
+ * replay, which credits nothing and returns the organization as it is; the same reference with another amount
+ * throws CreditReferenceConflict. The reference is compared exactly as given.
  */
 export async function addOrgCredit(db: Db, orgId: string, amount: number, reference: string, nowMs: number): Promise<Organization> {
   if (!Number.isSafeInteger(amount) || amount < 1) throw new RangeError("amount must be a positive safe integer");
   if (typeof reference !== "string" || reference.length < 1 || reference.length > MAX_CREDIT_REFERENCE_LENGTH) throw new RangeError("reference: 1 to 200 characters");
   const exists = await db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM orgs WHERE id = ?`, [orgId]);
   if (exists[0]?.n !== 1) throw new RangeError("no such organization");
-  await db.batch([
-    { sql: `UPDATE orgs SET unassigned_credit = unassigned_credit + ?, total_credit = total_credit + ? WHERE id = ?`, params: [amount, amount, orgId] },
+  const id = newId("creditEvent");
+  const r = await db.batch([
+    // (only if the reference is new for this organization: a racing replay writes nothing)
     {
-      sql: `INSERT INTO credit_events (id, org_id, kind, amount, reference, created_ms) VALUES (?, ?, 'credit', ?, ?, ?)`,
-      params: [newId("creditEvent"), orgId, amount, reference, nowMs],
+      sql: `INSERT INTO credit_events (id, org_id, kind, amount, reference, created_ms)
+            SELECT ?, ?, 'credit', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM credit_events WHERE kind = 'credit' AND org_id = ? AND reference = ?)`,
+      params: [id, orgId, amount, reference, nowMs, orgId, reference],
+    },
+    {
+      sql: `UPDATE orgs SET unassigned_credit = unassigned_credit + ?, total_credit = total_credit + ? WHERE id = ? AND EXISTS (SELECT 1 FROM credit_events WHERE id = ?)`,
+      params: [amount, amount, orgId, id],
     },
   ]);
-  const r = await db.all<OrgRow>(`SELECT ${ORG_COLUMNS} FROM orgs WHERE id = ?`, [orgId]);
-  return toOrg(r[0]!);
+  if (r[0]!.changes !== 1) {
+    const kept = await db.all<{ amount: number }>(`SELECT amount FROM credit_events WHERE kind = 'credit' AND org_id = ? AND reference = ?`, [orgId, reference]);
+    if (kept[0]?.amount !== amount) throw new CreditReferenceConflict("that reference already credited this organization a different amount");
+  }
+  const o = await db.all<OrgRow>(`SELECT ${ORG_COLUMNS} FROM orgs WHERE id = ?`, [orgId]);
+  return toOrg(o[0]!);
 }
 
 const creditEventId = () => newId("creditEvent");

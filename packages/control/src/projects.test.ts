@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_POLICY, isId, newId, type Organization, type Project } from "@sbgpu/api";
 import type { DatabaseSync } from "node:sqlite";
 import { sqliteDb } from "./testing/sqlite.ts";
-import { PROJECTS_PAGE_SIZE, addOrgCredit } from "./projects.ts";
+import { CreditReferenceConflict, PROJECTS_PAGE_SIZE, addOrgCredit } from "./projects.ts";
 import { stmt } from "./db.ts";
 import { T0, addMember, call, code, person, signIn, world, type World } from "./testing/world.ts";
 
@@ -49,6 +49,54 @@ async function audit(db: World["db"]) {
 
 const create = (w: World, cookie: string, body: Record<string, unknown>) =>
   call(w, "POST", `/v1/orgs/${w.orgId}/projects`, { cookie, body: { name: "P", startsAt: START, endsAt: END, budget: 0, ...body } });
+
+test("G02-2: an operator credit is keyed by its reference, once per organization; a replay credits nothing", async () => {
+  const w = await world({ budget: 0 });
+  const events = async () => (await w.db.all<{ n: number }>(`SELECT COUNT(*) AS n FROM credit_events WHERE kind = 'credit'`))[0]!.n;
+  // the audit's repro: the same $5,000 for the same wire, twice
+  const first = await addOrgCredit(w.db, w.orgId, 5_000_000_000, "WIRE-2026-001", T0);
+  const again = await addOrgCredit(w.db, w.orgId, 5_000_000_000, "WIRE-2026-001", T0 + 1);
+  assert.deepEqual([again.unassignedCredit, again.totalCredit], [first.unassignedCredit, first.totalCredit]);
+  assert.deepEqual(await orgRow(w), { u: 5_000_000_000, t: 5_000_000_000 }, "not $10,000");
+  assert.equal(await events(), 1);
+  // the same reference with another amount: refused, nothing written
+  await assert.rejects(addOrgCredit(w.db, w.orgId, 4_000_000_000, "WIRE-2026-001", T0 + 2), CreditReferenceConflict);
+  assert.deepEqual(await orgRow(w), { u: 5_000_000_000, t: 5_000_000_000 });
+  assert.equal(await events(), 1);
+  // the reference is exact, and another organization may use the same one
+  await addOrgCredit(w.db, w.orgId, 1, "wire-2026-001", T0 + 3);
+  assert.equal(await events(), 2);
+  // two racing calls with one new reference: one credit
+  await Promise.all([addOrgCredit(w.db, w.orgId, 7, "PO 9", T0 + 4), addOrgCredit(w.db, w.orgId, 7, "PO 9", T0 + 4)]);
+  assert.deepEqual(await orgRow(w), { u: 5_000_000_008, t: 5_000_000_008 });
+  assert.equal(await events(), 3);
+});
+
+test("G02-2: the database refuses a second credit with one reference, a REPLACE of the kept one included", async () => {
+  const w = await world({ budget: 0 });
+  await addOrgCredit(w.db, w.orgId, 100, "INV-7", T0);
+  const raw = (sql: string) => w.db.run(sql, [newId("creditEvent"), w.orgId, T0]);
+  await assert.rejects(raw(`INSERT INTO credit_events (id, org_id, kind, amount, reference, created_ms) VALUES (?, ?, 'credit', 100, 'INV-7', ?)`), /once per organization/);
+  await assert.rejects(raw(`INSERT OR REPLACE INTO credit_events (id, org_id, kind, amount, reference, created_ms) VALUES (?, ?, 'credit', 999, 'INV-7', ?)`), /once per organization/);
+  const kept = await w.db.all<{ amount: number }>(`SELECT amount FROM credit_events WHERE reference = 'INV-7'`);
+  assert.deepEqual(kept.map((k) => k.amount), [100], "the kept credit is still there, unchanged");
+});
+
+test("G02-2: the migration refuses a database where one organization already has two credits with one reference", () => {
+  assert.throws(
+    () =>
+      sqliteDb({
+        upgrade: {
+          at: "0029",
+          seed(raw) {
+            raw.prepare(`INSERT INTO orgs (id, name, billing_mode, margin_bps, created_ms) VALUES ('org_aaaaaaaaaaaaaaaaaaaa', 'Old', 'resold', 0, 0)`).run();
+            for (const id of ["cre_1", "cre_2"]) raw.prepare(`INSERT INTO credit_events (id, org_id, kind, amount, reference, created_ms) VALUES (?, 'org_aaaaaaaaaaaaaaaaaaaa', 'credit', 5, 'WIRE-1', 0)`).run(id);
+          },
+        },
+      }),
+    /malformed JSON/,
+  );
+});
 
 test("addOrgCredit: operators add credit, recorded; refused without a valid amount, reference or org", async () => {
   const w = await world({ budget: 0 });
