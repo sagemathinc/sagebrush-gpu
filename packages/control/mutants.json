@@ -8027,5 +8027,15 @@
   "file": "src/stripe-api.ts",
   "old": " : this.#sameMode(obj(latest, \"the charge\"), \"the charge\");",
   "new": " : obj(latest, \"the charge\");"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      if (!(e instanceof RangeError)) throw e;\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "      d.alert(\"stripe pending refused\", `stripe reconcile: a pending top-up's figures can't be credited (${e.message})`);\n      continue;",
+  "new": "      throw e;"
  }
 ]

@@ -65,9 +65,19 @@ export async function reconcilePendingTopups(d: ReconcileDeps): Promise<number> 
       if (d.nowMs - r.created_ms >= STUCK_MS) stuck++;
       continue;
     }
-    const o = await creditPending(d.db, { eventId: null, nowMs: d.nowMs }, {
-      customerId: r.customer_id, paymentIntent: p.id, chargeId: p.chargeId, grossMicros: p.grossMicros, feeMicros: p.feeMicros, via: "refetch",
-    });
+    let o;
+    try {
+      o = await creditPending(d.db, { eventId: null, nowMs: d.nowMs }, {
+        customerId: r.customer_id, paymentIntent: p.id, chargeId: p.chargeId, grossMicros: p.grossMicros, feeMicros: p.feeMicros, via: "refetch",
+      });
+    } catch (e) {
+      // (Stripe's figures that can't be credited, such as a fee not less than the amount, are this marker's
+      // alone, refused with our own wording, and the rest go on (TESTS H1 on #128); a database failure
+      // still fails the run)
+      if (!(e instanceof RangeError)) throw e;
+      d.alert("stripe pending refused", `stripe reconcile: a pending top-up's figures can't be credited (${e.message})`);
+      continue;
+    }
     if (o === "written") credited++;
   }
   if (stuck > 0) d.alert("stripe pending stuck", `stripe reconcile: ${stuck} paid top-up(s) still have no fee after a day`);

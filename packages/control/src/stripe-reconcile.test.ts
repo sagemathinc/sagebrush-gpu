@@ -91,6 +91,23 @@ test("only Stripe's facts for the marker's own person: another Customer credits 
   assert.deepEqual(alerts.slice(0, 1), ["stripe reconcile: a pending top-up's PaymentIntent was refused (the PaymentIntent isn't in USD)"]);
 });
 
+test("TESTS H1 on #128: figures that can't be credited refuse that marker alone, with an alert; the rest are credited; a database failure still fails the run", async () => {
+  await paidWithoutFee("pi_good");
+  await paidWithoutFee("pi_bad", T + 1);
+  await paidWithoutFee("pi_zero", T + 2);
+  const facts = (id: string) =>
+    id === "pi_bad" ? pi({ id, grossMicros: 880_000, feeMicros: 880_000 }) : id === "pi_zero" ? pi({ id, grossMicros: 0, feeMicros: 0 }) : pi({ id });
+  assert.equal(await reconcilePendingTopups(deps(facts)), 1);
+  assert.equal(await balanceOf(db, A), 19_120_000, "pi_good, behind the two refused ones");
+  assert.deepEqual(alerts, [
+    "stripe reconcile: a pending top-up's figures can't be credited (an amount must be a safe integer of micro-USD)",
+    "stripe reconcile: a pending top-up's figures can't be credited (the fee must be less than the amount paid)",
+  ], "newest first: pi_zero, then pi_bad");
+  const broken = { ...db, batch: async () => { throw new Error("D1_ERROR"); } };
+  await paidWithoutFee("pi_more", T + 3);
+  await assert.rejects(reconcilePendingTopups({ ...deps((id) => pi({ id })), db: broken }), /D1_ERROR/);
+});
+
 test("Stripe unavailable stops the run, crediting nothing more; the next run credits", async () => {
   await paidWithoutFee("pi_1");
   await paidWithoutFee("pi_2", T + 1);
