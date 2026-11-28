@@ -38,6 +38,8 @@ export const VAST_API = "https://console.vast.ai";
 export const BOOT_TOKEN_ENV = "SBGPU_BOOT_TOKEN";
 /** The most of one reply that is ever read. */
 export const MAX_REPLY_BYTES = 4 * 1024 * 1024;
+/** A lost create's recovery waits, growing, between its label lists: Vast may list a new instance late. */
+export const RECOVERY_WAITS_MS: readonly number[] = Object.freeze([2_000, 5_000, 10_000]);
 /** Instances per page of the machine list (Vast's maximum). */
 const PAGE = 25;
 /** A list longer than this many pages fails: a partial list would hide machines. */
@@ -55,6 +57,8 @@ export interface VastOptions {
   baseUrl?: string;
   now?: () => Date;
   timeoutMs?: number;
+  /** The waits between a lost create's recovery lists (tests pass one that doesn't wait). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Which kind of call failed: Vast's 404 means a bad key on a search and a gone offer on a create. */
@@ -402,6 +406,7 @@ export class VastAdapter implements ProviderAdapter {
   readonly #base: string;
   readonly #now: () => Date;
   readonly #timeoutMs: number;
+  readonly #sleep: (ms: number) => Promise<void>;
 
   constructor(opts: VastOptions) {
     this.#apiKey = opts.apiKey;
@@ -409,6 +414,7 @@ export class VastAdapter implements ProviderAdapter {
     this.#base = opts.baseUrl ?? VAST_API;
     this.#now = opts.now ?? (() => new Date());
     this.#timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
+    this.#sleep = opts.sleep ?? ((ms) => new Promise((ok) => setTimeout(ok, ms)));
   }
 
   /**
@@ -593,20 +599,32 @@ export class VastAdapter implements ProviderAdapter {
     return this.#accept(spec, status);
   }
 
-  /** After a create whose outcome is unknown: one list, filtered by our exact label. */
+  /**
+   * After a create that may have reached Vast (a lost reply, or a 5xx: Vast takes no idempotency key):
+   * the instance list filtered by our exact label, read again after each of RECOVERY_WAITS_MS, since a
+   * new instance may not be listed at once (Codex audit G03-2). One is the one created; several fail
+   * with all their ids, for the caller to clean up (G03-1). None by the end, or the caller's deadline,
+   * leaves the outcome unknown: never a transient error, which placement would retry with a second
+   * create beside one that may exist.
+   */
   async #recover(label: string, cause: ProviderError, stop: (() => boolean) | undefined): Promise<string> {
-    let found: ProviderMachineStatus[];
-    try {
-      found = (await this.#list(stop, label)).filter((s) => s.state !== "terminated");
-    } catch {
-      throw new ProviderError("vast", "outcome_unknown", `${cause.message}; the instance list could not be read`);
+    for (let i = 0; ; i++) {
+      let found: ProviderMachineStatus[];
+      try {
+        found = (await this.#list(stop, label)).filter((s) => s.state !== "terminated");
+      } catch {
+        throw new ProviderError("vast", "outcome_unknown", `${cause.message}; the instance list could not be read`);
+      }
+      if (found.length > 1) {
+        const ids = found.map((s) => s.providerMachineId);
+        throw new ProviderError("vast", "outcome_unknown", `${ids.length} instances carry label ${label}: ${ids.join(", ")}`, null, null, ids[0]!, null, null, ids.slice(1));
+      }
+      if (found.length === 1) return found[0]!.providerMachineId;
+      if (i >= RECOVERY_WAITS_MS.length || stop?.() === true) {
+        throw new ProviderError("vast", "outcome_unknown", `${cause.message}; no instance labeled ${label} yet`, cause.httpStatus);
+      }
+      await this.#sleep(RECOVERY_WAITS_MS[i]!);
     }
-    if (found.length === 0) throw cause;
-    if (found.length > 1) {
-      const ids = found.map((s) => s.providerMachineId);
-      throw new ProviderError("vast", "outcome_unknown", `${ids.length} instances carry label ${label}: ${ids.join(", ")}`, null, null, ids[0]!);
-    }
-    return found[0]!.providerMachineId;
   }
 
   /**

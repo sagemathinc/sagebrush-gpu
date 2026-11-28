@@ -325,15 +325,18 @@ export async function launchWithFallback(opts: FallbackOptions): Promise<Placed>
         if (!(e instanceof ProviderError)) throw e;
         last = e;
         attempts.push({ provider: offer.provider, dataCenter: offer.dataCenter, outcome: e.kind, detail: e.message });
-        if (e.providerMachineId !== null) {
-          const gone = await terminateAndConfirm(adapter, e.providerMachineId, opts.sleep, confirmPolls, confirmIntervalMs);
-          if (!gone) {
-            throw new PlacementError(
-              "outcome_unknown",
-              `machine ${e.providerMachineId} was rejected but its termination is not confirmed`,
-              attempts,
-            );
-          }
+        // Every machine the failure left behind, not just the first (Codex audit G03-1); each one is
+        // tried even if an earlier one isn't confirmed gone, and those are named.
+        const notGone: string[] = [];
+        for (const id of e.machinesLeft) {
+          if (!(await terminateAndConfirm(adapter, id, opts.sleep, confirmPolls, confirmIntervalMs))) notGone.push(id);
+        }
+        if (notGone.length > 0) {
+          throw new PlacementError(
+            "outcome_unknown",
+            `machine${notGone.length > 1 ? "s" : ""} ${notGone.join(", ")} ${notGone.length > 1 ? "were" : "was"} rejected but ${notGone.length > 1 ? "their" : "its"} termination is not confirmed`,
+            attempts,
+          );
         }
         const action = launchErrorAction(e.kind);
         if (action === "stop") throw new PlacementError(e.kind, e.message, attempts);
