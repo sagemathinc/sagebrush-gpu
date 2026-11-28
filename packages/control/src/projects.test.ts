@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_POLICY, isId, newId, type Organization, type Project } from "@sbgpu/api";
 import type { DatabaseSync } from "node:sqlite";
 import { sqliteDb } from "./testing/sqlite.ts";
-import { CreditReferenceConflict, PROJECTS_PAGE_SIZE, addOrgCredit } from "./projects.ts";
+import { CreditReferenceConflict, PROJECTS_PAGE_SIZE, addOrgCredit, normalizeCreditReference } from "./projects.ts";
 import { stmt } from "./db.ts";
 import { T0, addMember, call, code, person, signIn, world, type World } from "./testing/world.ts";
 
@@ -115,6 +115,62 @@ test("G02-2: the migration refuses a database where one organization already has
       }),
     /malformed JSON/,
   );
+});
+
+/** A database at 0029 over credits stored before it: each [org, amount, reference], the org's balances their sum. */
+function creditsBefore0029(credits: readonly (readonly [string, number, string])[]) {
+  return sqliteDb({
+    upgrade: {
+      at: "0029",
+      seed(raw) {
+        for (const org of new Set(credits.map(([o]) => o))) {
+          const sum = credits.filter(([o]) => o === org).reduce((a, [, n]) => a + n, 0);
+          raw.prepare(`INSERT INTO orgs (id, name, billing_mode, margin_bps, unassigned_credit, total_credit, created_ms) VALUES (?, 'Old', 'resold', 0, ?, ?, 0)`).run(org, sum, sum);
+        }
+        for (const [i, [org, amount, reference]] of credits.entries()) {
+          raw.prepare(`INSERT INTO credit_events (id, org_id, kind, amount, reference, created_ms) VALUES (?, ?, 'credit', ?, ?, 0)`).run(`cre_old${i}`, org, amount, reference);
+        }
+      },
+    },
+  });
+}
+const ORG_A = "org_aaaaaaaaaaaaaaaaaaaa";
+const ORG_B = "org_bbbbbbbbbbbbbbbbbbbb";
+
+test("G02-2 upgrade: 0029 normalizes the credit references already stored, so typing one again is a replay, not a second credit", async () => {
+  const db = creditsBefore0029([
+    [ORG_A, 5_000_000_000, " wire\t 7 "],
+    [ORG_A, 3, "stripe:in_lower"],
+    [ORG_B, 5_000_000_000, "wire 7"],
+  ]);
+  const refs = await db.all<{ id: string; reference: string }>(`SELECT id, reference FROM credit_events ORDER BY id`);
+  assert.deepEqual(refs.map((r) => r.reference), ["WIRE 7", "stripe:in_lower", "WIRE 7"], "operators' normalized; a reserved one kept exactly; another org may share one");
+  const o = await addOrgCredit(db, ORG_A, 5_000_000_000, "WIRE 7", T0);
+  assert.equal(o.totalCredit, 5_000_000_003, "a replay: $5,000 once, not $10,000");
+  assert.equal(o.unassignedCredit, 5_000_000_003);
+  await assert.rejects(addOrgCredit(db, ORG_A, 1, "wire 7", T0), CreditReferenceConflict);
+  assert.equal((await db.all(`SELECT 1 FROM credit_events WHERE kind = 'credit'`)).length, 3);
+  // and the events are append-only again afterwards
+  assert.throws(() => db.raw.prepare(`UPDATE credit_events SET reference = 'X' WHERE id = 'cre_old0'`).run(), /never updated/);
+});
+
+test("G02-2 upgrade: 0029's SQL normalization is normalizeCreditReference's, over ASCII references", () => {
+  const typed = ["inv-1", " PO\t77 \n", "a\u000bb\fc\rd", "  Wire   2026 - 001  ", "x", "Mixed Case\t\t\tTabs", " ".repeat(98) + "z" + "\t".repeat(98) + "y", "~!@#$%^&*()_+{}|:\"<>?`-=[]\;',./"];
+  const db = creditsBefore0029(typed.map((t, i) => [`org_${String(i).padStart(20, "c")}`, 1, t] as const));
+  const stored = db.raw.prepare(`SELECT reference FROM credit_events ORDER BY id`).all().map((r) => r.reference);
+  assert.deepEqual(stored, typed.map(normalizeCreditReference));
+});
+
+test("G02-2 upgrade: 0029 refuses, for a human, references that would collide once normalized, or that it can't normalize exactly", () => {
+  const refused = (credits: readonly (readonly [string, number, string])[]) => assert.throws(() => creditsBefore0029(credits), /malformed JSON/, JSON.stringify(credits));
+  refused([[ORG_A, 5, "WIRE 7"], [ORG_A, 5, " wire  7"]]);
+  refused([[ORG_A, 5, "wire\t7"], [ORG_A, 9, "Wire 7 "]]);
+  refused([[ORG_A, 5, "WIRE 7"]]);
+  refused([[ORG_A, 5, "café"]]);
+  refused([[ORG_A, 5, "inv\u00011"]]);
+  refused([[ORG_A, 5, " \t\n "]]);
+  // the same two in different organizations are fine
+  creditsBefore0029([[ORG_A, 5, "WIRE 7"], [ORG_B, 5, " wire  7"]]);
 });
 
 test("addOrgCredit: operators add credit, recorded; refused without a valid amount, reference or org", async () => {

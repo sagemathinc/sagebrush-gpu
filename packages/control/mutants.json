@@ -8179,11 +8179,6 @@
   "new": "BEGIN SELECT 1; END;"
  },
  {
-  "file": "migrations/0029_credit_reference_once.sql",
-  "old": "  THEN json('refused: an organization already has two credits with one reference')",
-  "new": "  THEN 1"
- },
- {
   "file": "migrations/PROD-CHECKLIST.md",
   "old": "| 0029_credit_reference_once.sql |",
   "new": "| 0029 |"
@@ -8207,5 +8202,59 @@
   "file": "src/projects.ts",
   "old": "return reference.trim().replace(/\\s+/g, \" \").toUpperCase();",
   "new": "return reference.trim().toUpperCase();"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "  THEN json('refused: an organization would have two credits with one reference')",
+  "new": "  THEN NULL",
+  "note": "no collision guard"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "  THEN json('refused: a credit reference has a character outside printable ASCII')",
+  "new": "  THEN NULL",
+  "note": "no non-ASCII guard"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "  THEN json('refused: a credit reference is empty once normalized')",
+  "new": "  THEN NULL",
+  "note": "no empty guard"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "new": "",
+  "note": "stored references not normalized (the TESTS H1 repro)"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "new": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "note": "reserved stripe:/manual: references normalized too"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "new": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "note": "0006's opening balance normalized too"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "new": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), char(11)), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "note": "vertical tab not treated as whitespace"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "UPDATE credit_events SET reference = upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "new": "UPDATE credit_events SET reference = (trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')))\n  WHERE kind = 'credit' AND substr(reference, 1, 7) NOT IN ('stripe:', 'manual:') AND reference <> 'opening balance: project budgets before credit accounting' AND reference <> upper(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(reference, char(9), ' '), char(10), ' '), char(11), ' '), char(12), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));\n",
+  "note": "no upper-casing in SQL"
+ },
+ {
+  "file": "migrations/0029_credit_reference_once.sql",
+  "old": "CREATE TRIGGER credit_events_immutable BEFORE UPDATE ON credit_events\nBEGIN\n  SELECT RAISE(ABORT, 'credit events are never updated');\nEND;\n",
+  "new": "",
+  "note": "the immutability trigger not put back"
  }
 ]
