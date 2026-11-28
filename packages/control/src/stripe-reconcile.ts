@@ -12,7 +12,7 @@
 //   the order they were last checked (0028's pending_checks; a marker never checked counts as checked when it
 //   was created). The oldest-served go first, so a marker waits behind at most the markers served before it,
 //   whatever the run times or how many new markers arrive, and markers whose fee isn't known yet can't hold
-//   every slot (Codex cx3's P2 and TESTS H2 on #128). Stripe unavailable stops the run; the next run tries
+//   every slot (the starvation findings on #128). Stripe unavailable stops the run; the next run tries
 //   again.
 // - Every minute: the Worker's cron ("* * * * *" in both environments of wrangler.json, pinned by a test).
 //   The order doesn't depend on it, but the throughput does (a batch a minute: with N open, every marker is
@@ -67,9 +67,14 @@ const LEDGER_REFUSALS: readonly string[] = Object.freeze([
   "a balance must stay within 2^53 - 1 micro-USD either way",
   "a balance entry is never replaced",
 ]);
+/**
+ * The refusal, when `e` is exactly one of those, in the database's own shape: the trigger's text alone (SQLite)
+ * or as D1 reports it ("D1_ERROR: <text>: SQLITE_CONSTRAINT"). A message that merely quotes one of the texts
+ * (any other prefix or suffix) is not a refusal, and fails the run.
+ */
 const ledgerRefusal = (e: unknown): string | null => {
   const m = e instanceof Error ? e.message : "";
-  return LEDGER_REFUSALS.find((r) => m.includes(r)) ?? null;
+  return LEDGER_REFUSALS.find((r) => m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`) ?? null;
 };
 
 /** One run: how many top-ups it credited. */
@@ -127,12 +132,12 @@ export async function reconcilePendingTopups(d: ReconcileDeps): Promise<number> 
     // Succeeded, with a charge and a known fee, for this marker's own Customer, and still nothing written.
     // charge.updated may have credited it a moment ago (then there's a top-up, and all is well); otherwise the
     // ledger's INSERT OR IGNORE dropped it quietly, and it would be re-fetched every run until the 7-day alert,
-    // so a human hears now (sec2's N1 on #128).
+    // so a human hears now (the quiet-failure alert).
     const done = await l.all(`SELECT 1 FROM balance_entries WHERE kind = 'topup' AND stripe_key = ?`, [p.id]);
     if (done.length === 0) d.alert("stripe pending not credited", "stripe reconcile: a paid top-up with its fee known was not credited by the ledger; check it");
   }
   // The scheduling record keeps only open markers: a row whose marker is credited, or past the window (the
-  // 7-day alert takes it from there), is removed, a bounded number a run (sec2's note on #128).
+  // 7-day alert takes it from there), is removed, a bounded number a run.
   await l.run(
     `DELETE FROM pending_checks WHERE stripe_key IN (SELECT k.stripe_key FROM pending_checks k WHERE
        EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = k.stripe_key)

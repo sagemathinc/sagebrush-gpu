@@ -162,7 +162,7 @@ async function runsUntilCredited(times: number[], facts: (id: string) => Payment
   return times.length;
 }
 
-test("Codex cx3 P2 on #128: twenty newer markers with no fee yet can't keep an older payable one from being credited", async () => {
+test("starvation: twenty newer markers with no fee yet can't keep an older payable one from being credited", async () => {
   await paidWithoutFee("pi_payable", T);
   await markers(RECONCILE_BATCH, T + 1);
   // (the payable one is the oldest unchecked: it goes in the first batch)
@@ -309,7 +309,7 @@ test("the Worker's cron credits a pending top-up with the key set; without it, S
   }
 });
 
-test("sec2's N1 on #128: a paid top-up the ledger refuses, or drops quietly, alerts at once and the rest go on; one credited meanwhile doesn't", async () => {
+test("the quiet-failure alert: a paid top-up the ledger refuses, or drops quietly, alerts at once and the rest go on; one credited meanwhile doesn't", async () => {
   // the ledger refuses: Stripe reports one charge for two PaymentIntents, and a charge funds one top-up
   await paidWithoutFee("pi_1");
   await paidWithoutFee("pi_2", T + 1);
@@ -346,7 +346,20 @@ test("sec2's N1 on #128: a paid top-up the ledger refuses, or drops quietly, ale
   await assert.rejects(reconcilePendingTopups({ ...deps((id) => pi({ id }), T + 240_000), db: broken }), /D1_ERROR/);
 });
 
-test("sec2's note on #128: the scheduling record keeps only open markers; credited and expired ones are removed, a bounded number a run", async () => {
+test("the ledger's refusals are recognised only in the database's own shape; a message that merely quotes one fails the run", async () => {
+  await paidWithoutFee("pi_1");
+  const failing = (message: string) => ({ ...db, batch: async (stmts: Parameters<typeof db.batch>[0]) => (stmts.some((x) => x.sql.includes("INSERT OR IGNORE INTO balance_entries")) ? Promise.reject(new Error(message)) : db.batch(stmts)) });
+  for (const m of ["a balance entry is never replaced", "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT"]) {
+    alerts = [];
+    assert.equal(await reconcilePendingTopups({ ...deps((id) => pi({ id }), T + 60_000), db: failing(m) }), 0, m);
+    assert.deepEqual(alerts, ["stripe reconcile: a pending top-up's figures can't be credited (a balance entry is never replaced)"], m);
+  }
+  for (const m of ["upstream said: a balance entry is never replaced", "D1_ERROR: a balance entry is never replaced: SQLITE_CONSTRAINT (and more)", "a balance entry is never replaced, maybe"]) {
+    await assert.rejects(reconcilePendingTopups({ ...deps((id) => pi({ id }), T + 60_000), db: failing(m) }), (e: Error) => e.message === m, m);
+  }
+});
+
+test("the scheduling record keeps only open markers: credited and expired ones are removed, a bounded number a run", async () => {
   await paidWithoutFee("pi_credited");
   await paidWithoutFee("pi_open", T + 1);
   await reconcilePendingTopups(deps((id) => (id === "pi_credited" ? pi({ id }) : pi({ id, feeMicros: null })), T + 60_000));

@@ -1,8 +1,8 @@
 -- When the pending top-up re-fetch (stripe-reconcile.ts; Codex audit G01 P2) last asked Stripe about each
 -- pending marker's PaymentIntent. Each run takes the open markers checked longest ago, a marker never checked
 -- counting as checked when it was created. So the oldest-served go first whatever the run times or how many
--- markers arrive, and no set of markers whose fee isn't known yet can hold every slot (Codex cx3's P2 and
--- TESTS H2 on #128).
+-- markers arrive, and no set of markers whose fee isn't known yet can hold every slot (the starvation findings
+-- on #128).
 --
 -- It holds no money, and nothing may read it to decide a credit, a balance or an amount: it only orders
 -- which markers the job asks Stripe about next. It is rewritten in place, one row per PaymentIntent

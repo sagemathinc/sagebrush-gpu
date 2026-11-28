@@ -8112,5 +8112,20 @@
   "file": "wrangler.json",
   "old": "      \"triggers\": { \"crons\": [\"* * * * *\"] },",
   "new": "      \"triggers\": { \"crons\": [\"*/5 * * * *\"] },"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m.includes(r)"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`"
+ },
+ {
+  "file": "src/stripe-reconcile.ts",
+  "old": "m === r || m === `D1_ERROR: ${r}: SQLITE_CONSTRAINT`",
+  "new": "m === r"
  }
 ]
