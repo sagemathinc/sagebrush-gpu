@@ -6990,13 +6990,13 @@
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "pi, gross - fee, gross, fee, e.eventId, e.nowMs, c,",
-  "new": "pi, gross, gross, fee, e.eventId, e.nowMs, c,"
+  "old": "pi, gross - fee, gross, fee, ch, e.eventId, e.nowMs, c,",
+  "new": "pi, gross, gross, fee, ch, e.eventId, e.nowMs, c,"
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "  if (fee >= gross) throw new RangeError(\"the fee must be less than the amount paid\");\n  return run(scopedDb(db, LEDGER_TABLES), e, [\n    stmt(\n      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, event_id, created_ms)\n       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout'",
-  "new": "  return run(scopedDb(db, LEDGER_TABLES), e, [\n    stmt(\n      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, event_id, created_ms)\n       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout'"
+  "old": "  if (fee >= gross) throw new RangeError(\"the fee must be less than the amount paid\");\n  return run(scopedDb(db, LEDGER_TABLES), e, [\n    stmt(\n      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, event_id, created_ms)\n       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout'",
+  "new": "  return run(scopedDb(db, LEDGER_TABLES), e, [\n    stmt(\n      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, event_id, created_ms)\n       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout'"
  },
  {
   "file": "src/stripe-ledger.ts",
@@ -7020,8 +7020,8 @@
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "SELECT r.iss, r.sub, 'restore', ?, -r.amount,",
-  "new": "SELECT r.iss, r.sub, 'restore', ?, -2 * r.amount,"
+  "old": "SELECT r.iss, r.sub, 'restore', ?, -r.amount, ?, ? FROM balance_entries r JOIN stripe_customers c ON c.iss = r.iss AND c.sub = r.sub\n       WHERE c.customer_id = ? AND r.kind = 'reversal' AND r.stripe_key = ?`,",
+  "new": "SELECT r.iss, r.sub, 'restore', ?, -2 * r.amount, ?, ? FROM balance_entries r JOIN stripe_customers c ON c.iss = r.iss AND c.sub = r.sub\n       WHERE c.customer_id = ? AND r.kind = 'reversal' AND r.stripe_key = ?`,"
  },
  {
   "file": "src/stripe-ledger.ts",
@@ -7042,11 +7042,6 @@
   "file": "src/stripe-ledger.ts",
   "old": "FROM account_freezes WHERE iss = ? AND sub = ? ORDER BY seq DESC LIMIT 1",
   "new": "FROM account_freezes WHERE iss = ? AND sub = ? ORDER BY seq ASC LIMIT 1"
- },
- {
-  "file": "src/stripe-ledger.ts",
-  "old": "  if (r.length === 0) throw new Error(\"that Customer belongs to another person\");\n",
-  "new": ""
  },
  {
   "file": "src/stripe-ledger.ts",
@@ -7110,8 +7105,8 @@
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"gpu_plans\"])",
-  "new": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"gpu_plans\", \"balance_entries\", \"account_freezes\"])"
+  "old": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"gpu_plans\", \"gpu_plan_fetches\"])",
+  "new": "Object.freeze([\"stripe_customers\", \"stripe_events\", \"gpu_plans\", \"gpu_plan_fetches\", \"balance_entries\", \"account_freezes\"])"
  },
  {
   "file": "src/stripe-ledger.ts",
@@ -7185,8 +7180,8 @@
  },
  {
   "file": "src/stripe-ledger.ts",
-  "old": "ch, -net, e.eventId, e.nowMs, c,",
-  "new": "ch, 0 - 1, e.eventId, e.nowMs, c,"
+  "old": "ch, -net, pi, e.eventId, e.nowMs, c,",
+  "new": "ch, 0 - 1, pi, e.eventId, e.nowMs, c,"
  },
  {
   "file": "src/stripe-ledger.ts",
@@ -7220,8 +7215,8 @@
  },
  {
   "file": "migrations/0022_stripe_ledger.sql",
-  "old": "    AND NOT (iss = NEW.iss AND sub = NEW.sub AND amount = NEW.amount AND gross IS NEW.gross AND fee IS NEW.fee))",
-  "new": "    AND NOT (iss = NEW.iss AND sub = NEW.sub AND gross IS NEW.gross AND fee IS NEW.fee))"
+  "old": "    AND NOT (iss = NEW.iss AND sub = NEW.sub AND amount = NEW.amount AND gross IS NEW.gross AND fee IS NEW.fee AND ref IS NEW.ref))\n  OR (NEW.ref",
+  "new": "    AND NOT (iss = NEW.iss AND sub = NEW.sub AND gross IS NEW.gross AND fee IS NEW.fee AND ref IS NEW.ref))\n  OR (NEW.ref"
  },
  {
   "file": "migrations/0022_stripe_ledger.sql",
@@ -7272,5 +7267,130 @@
   "file": "src/stripe-ledger.ts",
   "old": "  if (typeof b !== \"number\" || !Number.isSafeInteger(b)) throw new RangeError(\"a balance outside the exact integer range\");\n",
   "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "AND via IS NOT NULL AND ref IS NOT NULL AND substr(ref, 1, 3) = 'ch_')),",
+  "new": "AND via IS NOT NULL)),"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  CHECK (kind <> 'reversal' OR (ref IS NOT NULL AND substr(ref, 1, 3) = 'pi_')),",
+  "new": "  CHECK (kind <> 'reversal' OR substr(ref, 1, 3) = 'pi_'),"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "CREATE UNIQUE INDEX balance_entries_by_ref ON balance_entries (kind, ref) WHERE ref IS NOT NULL;",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "    AND NOT (t.ref = NEW.stripe_key AND t.iss = NEW.iss AND t.sub = NEW.sub AND t.amount = -NEW.amount))",
+  "new": "    AND NOT (t.ref = NEW.stripe_key AND t.iss = NEW.iss AND t.sub = NEW.sub))"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "    AND NOT (t.ref = NEW.stripe_key AND t.iss = NEW.iss AND t.sub = NEW.sub AND t.amount = -NEW.amount))",
+  "new": "    AND NOT (t.iss = NEW.iss AND t.sub = NEW.sub AND t.amount = -NEW.amount))"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  OR EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.ref = NEW.stripe_key AND t.stripe_key <> NEW.ref))",
+  "new": "  OR 0)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "    AND NOT (r.ref = NEW.stripe_key AND r.iss = NEW.iss AND r.sub = NEW.sub AND r.amount = -NEW.amount))",
+  "new": "    AND NOT (r.ref = NEW.stripe_key AND r.amount = -NEW.amount))"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "    AND NOT (r.ref = NEW.stripe_key AND r.iss = NEW.iss AND r.sub = NEW.sub AND r.amount = -NEW.amount))",
+  "new": "    AND NOT (r.ref = NEW.stripe_key AND r.iss = NEW.iss AND r.sub = NEW.sub))"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  OR EXISTS (SELECT 1 FROM balance_entries r WHERE r.kind = 'reversal' AND r.ref = NEW.stripe_key AND r.stripe_key <> NEW.ref))",
+  "new": "  OR 0)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  OR (NEW.ref IS NOT NULL AND EXISTS (SELECT 1 FROM balance_entries WHERE kind = NEW.kind AND ref = NEW.ref AND stripe_key <> NEW.stripe_key))\n",
+  "new": "\n"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM gpu_plan_fetches WHERE subscription_id = NEW.subscription_id AND fetched_ms >= NEW.fetched_ms)",
+  "new": "WHEN EXISTS (SELECT 1 FROM gpu_plan_fetches WHERE subscription_id = NEW.subscription_id AND fetched_ms > NEW.fetched_ms)"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "WHEN EXISTS (SELECT 1 FROM gpu_plan_fetches WHERE subscription_id = NEW.subscription_id AND fetched_ms >= NEW.fetched_ms)",
+  "new": "WHEN 0"
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "CREATE TRIGGER gpu_plan_fetches_kept BEFORE DELETE ON gpu_plan_fetches BEGIN SELECT RAISE(ABORT, 'plan fetches are never deleted'); END;",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "CREATE TRIGGER gpu_plan_fetches_immutable BEFORE UPDATE ON gpu_plan_fetches BEGIN SELECT RAISE(ABORT, 'plan fetches are never updated'); END;",
+  "new": ""
+ },
+ {
+  "file": "migrations/0022_stripe_ledger.sql",
+  "old": "  CHECK (kind <> 'won' OR (substr(stripe_key, 1, 3) = 'ch_' AND amount = 0)),",
+  "new": "  CHECK (kind <> 'won' OR (substr(stripe_key, 1, 3) = 'ch_')),"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "     AND NOT EXISTS (SELECT 1 FROM gpu_plan_fetches f WHERE f.subscription_id = ? AND f.fetched_ms >= ?)\n     AND (SELECT g.state_sha256",
+  "new": "     AND 1 IN (?, ?, 1)\n     AND (SELECT g.state_sha256"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  const fetch = stmt(`INSERT INTO gpu_plan_fetches (subscription_id, fetched_ms) VALUES (?, ?)`, sub, fetched);",
+  "new": "  const fetch = stmt(`SELECT ?, ?`, sub, fetched);"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  return stale ? \"stale\" : \"nothing\";",
+  "new": "  return \"nothing\";"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (r[e === null ? 0 : 1]!.changes > 0) return \"written\";",
+  "new": "  if (r.some((x) => x.changes > 0)) return \"written\";"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "       AND EXISTS (SELECT 1 FROM balance_entries w WHERE w.kind = 'won' AND w.stripe_key = ? AND w.iss = r.iss AND w.sub = r.sub)`,",
+  "new": "       AND 1 IN (?, 1)`,"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "    stmt(`INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, event_id, created_ms) SELECT c.iss, c.sub, 'won', ?, 0, ?, ? ${PERSON}`, ch, e.eventId, e.nowMs, c),\n",
+  "new": ""
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "      ch, -net, pi, e.eventId, e.nowMs, c,",
+  "new": "      ch, -net, 'pi_x', e.eventId, e.nowMs, c,"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "      pi, gross - fee, gross, fee, ch, e.eventId, e.nowMs, c,",
+  "new": "      pi, gross - fee, gross, fee, 'ch_x', e.eventId, e.nowMs, c,"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "  if (p.feeMicros === null || p.chargeId === null) {",
+  "new": "  if (p.feeMicros === null) {"
+ },
+ {
+  "file": "src/stripe-ledger.ts",
+  "old": "SELECT r.iss, r.sub, 'restore', ?, -r.amount, ?, ? FROM balance_entries r JOIN stripe_customers c ON c.iss = r.iss AND c.sub = r.sub\n       WHERE c.customer_id = ? AND r.kind = 'reversal' AND r.stripe_key = ?\n       AND EXISTS",
+  "new": "SELECT r.iss, r.sub, 'restore', ?, -2 * r.amount, ?, ? FROM balance_entries r JOIN stripe_customers c ON c.iss = r.iss AND c.sub = r.sub\n       WHERE c.customer_id = ? AND r.kind = 'reversal' AND r.stripe_key = ?\n       AND EXISTS"
  }
 ]

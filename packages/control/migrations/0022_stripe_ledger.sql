@@ -13,9 +13,12 @@
 --   only such a PaymentIntent may be credited later, from charge.updated or a re-fetch (d3.2);
 -- - refund: one per refund (re_), from the charge's refunds list (T2);
 -- - reversal: one per charge, from a dispute or an early fraud warning, whichever comes first (T3): the
---   charge's net as Stripe states it (amount minus fee), never zero, so the order of a reversal and its
---   top-up doesn't matter;
+--   charge's net as Stripe states it (amount minus fee), never zero. A topup names its charge and a
+--   reversal its PaymentIntent; whichever of the two arrives second must match the first exactly, so the
+--   pair sums to zero in either order;
 -- - restore: one per charge, a dispute won, exactly the reversal (T4);
+-- - won: a dispute on the charge closed as won, no amount, kept so a reversal that arrives after the
+--   win is restored in its own batch;
 -- - signal: a later dispute or warning on a reversed charge, no amount, once per event.
 
 CREATE TABLE stripe_customers (
@@ -40,7 +43,7 @@ CREATE TABLE balance_entries (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   iss TEXT NOT NULL,
   sub TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('topup', 'pending', 'refund', 'reversal', 'restore', 'signal')),
+  kind TEXT NOT NULL CHECK (kind IN ('topup', 'pending', 'refund', 'reversal', 'restore', 'won', 'signal')),
   -- the Stripe object the row is about: a PaymentIntent (topup, pending), a refund, a charge
   -- (reversal, restore) or the event (signal)
   stripe_key TEXT NOT NULL CHECK (length(stripe_key) BETWEEN 4 AND 255 AND stripe_key NOT GLOB '*[^A-Za-z0-9_]*'),
@@ -50,19 +53,27 @@ CREATE TABLE balance_entries (
   fee INTEGER CHECK (fee IS NULL OR fee BETWEEN 0 AND 9007199254740991),
   -- how a topup's credit arrived: at checkout, or later for a pending PaymentIntent
   via TEXT CHECK (via IS NULL OR via IN ('checkout', 'charge', 'refetch')),
+  -- the other half of a charge: a topup names its Charge, a reversal its PaymentIntent (Stripe's
+  -- charge.payment_intent), so whichever arrives second is checked against the first
+  ref TEXT CHECK (ref IS NULL OR (length(ref) BETWEEN 4 AND 255 AND ref NOT GLOB '*[^A-Za-z0-9_]*')),
   event_id TEXT REFERENCES stripe_events (event_id),
   created_ms INTEGER NOT NULL CHECK (created_ms BETWEEN 0 AND 9007199254740991),
   UNIQUE (kind, stripe_key),
   FOREIGN KEY (iss, sub) REFERENCES identities (iss, sub),
-  CHECK (kind <> 'topup' OR (substr(stripe_key, 1, 3) = 'pi_' AND gross IS NOT NULL AND fee IS NOT NULL AND fee < gross AND amount = gross - fee AND via IS NOT NULL)),
+  CHECK (kind <> 'topup' OR (substr(stripe_key, 1, 3) = 'pi_' AND gross IS NOT NULL AND fee IS NOT NULL AND fee < gross AND amount = gross - fee AND via IS NOT NULL AND ref IS NOT NULL AND substr(ref, 1, 3) = 'ch_')),
+  CHECK (kind <> 'reversal' OR (ref IS NOT NULL AND substr(ref, 1, 3) = 'pi_')),
+  CHECK (kind IN ('topup', 'reversal') OR ref IS NULL),
   CHECK (kind = 'topup' OR (gross IS NULL AND fee IS NULL AND via IS NULL)),
   CHECK (kind <> 'pending' OR (substr(stripe_key, 1, 3) = 'pi_' AND amount = 0)),
   CHECK (kind <> 'refund' OR (substr(stripe_key, 1, 3) = 're_' AND amount < 0)),
   CHECK (kind <> 'reversal' OR (substr(stripe_key, 1, 3) = 'ch_' AND amount < 0)),
   CHECK (kind <> 'restore' OR (substr(stripe_key, 1, 3) = 'ch_' AND amount > 0)),
+  CHECK (kind <> 'won' OR (substr(stripe_key, 1, 3) = 'ch_' AND amount = 0)),
   CHECK (kind <> 'signal' OR (substr(stripe_key, 1, 4) = 'evt_' AND amount = 0))
 ) STRICT;
 CREATE INDEX balance_entries_by_person ON balance_entries (iss, sub, seq);
+-- one topup per charge, one reversal per PaymentIntent
+CREATE UNIQUE INDEX balance_entries_by_ref ON balance_entries (kind, ref) WHERE ref IS NOT NULL;
 
 -- A topup that didn't come from checkout.session.completed needs the PaymentIntent's pending marker
 -- (d3.2, B3 amended): no marker, no credit.
@@ -71,6 +82,26 @@ WHEN NEW.kind = 'topup' AND NEW.via <> 'checkout'
   AND NOT EXISTS (SELECT 1 FROM balance_entries WHERE kind = 'pending' AND stripe_key = NEW.stripe_key AND iss = NEW.iss AND sub = NEW.sub)
 BEGIN
   SELECT RAISE(ABORT, 'a later credit needs the PaymentIntent''s pending marker');
+END;
+
+-- A topup and the reversal of its charge, in either order: the second must name the first (topup.ref is
+-- the reversal's charge, reversal.ref the topup's PaymentIntent), be the same person's, and reverse exactly
+-- the net. A row that names only half a pair already taken by another is refused too.
+CREATE TRIGGER balance_reversal_matches_topup BEFORE INSERT ON balance_entries
+WHEN NEW.kind = 'reversal' AND (
+  EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.stripe_key = NEW.ref
+    AND NOT (t.ref = NEW.stripe_key AND t.iss = NEW.iss AND t.sub = NEW.sub AND t.amount = -NEW.amount))
+  OR EXISTS (SELECT 1 FROM balance_entries t WHERE t.kind = 'topup' AND t.ref = NEW.stripe_key AND t.stripe_key <> NEW.ref))
+BEGIN
+  SELECT RAISE(ABORT, 'a reversal must match its charge''s top-up');
+END;
+CREATE TRIGGER balance_topup_matches_reversal BEFORE INSERT ON balance_entries
+WHEN NEW.kind = 'topup' AND (
+  EXISTS (SELECT 1 FROM balance_entries r WHERE r.kind = 'reversal' AND r.stripe_key = NEW.ref
+    AND NOT (r.ref = NEW.stripe_key AND r.iss = NEW.iss AND r.sub = NEW.sub AND r.amount = -NEW.amount))
+  OR EXISTS (SELECT 1 FROM balance_entries r WHERE r.kind = 'reversal' AND r.ref = NEW.stripe_key AND r.stripe_key <> NEW.ref))
+BEGIN
+  SELECT RAISE(ABORT, 'a top-up must match its charge''s reversal');
 END;
 
 -- A restore is exactly its charge's reversal, and needs one.
@@ -126,6 +157,22 @@ CREATE TABLE gpu_plans (
 CREATE INDEX gpu_plans_by_person ON gpu_plans (iss, sub, seq);
 CREATE INDEX gpu_plans_by_subscription ON gpu_plans (subscription_id, seq);
 
+-- Every fetch of a subscription, whether or not its state changed, by the time its request was sent: the
+-- fence that keeps an older fetch that commits late (Stripe doesn't order events, and a webhook and the
+-- daily re-fetch can overlap) from becoming the latest state. A plan row needs a fetch later than every
+-- earlier one.
+CREATE TABLE gpu_plan_fetches (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  subscription_id TEXT NOT NULL
+    CHECK (length(subscription_id) BETWEEN 5 AND 255 AND substr(subscription_id, 1, 4) = 'sub_' AND substr(subscription_id, 5) NOT GLOB '*[^A-Za-z0-9]*'),
+  fetched_ms INTEGER NOT NULL CHECK (fetched_ms BETWEEN 0 AND 9007199254740991)
+) STRICT;
+CREATE INDEX gpu_plan_fetches_by_subscription ON gpu_plan_fetches (subscription_id, fetched_ms);
+
+CREATE TRIGGER gpu_plans_fenced BEFORE INSERT ON gpu_plans
+WHEN EXISTS (SELECT 1 FROM gpu_plan_fetches WHERE subscription_id = NEW.subscription_id AND fetched_ms >= NEW.fetched_ms)
+BEGIN SELECT RAISE(ABORT, 'a plan state from an older fetch'); END;
+
 -- A write that meets a kept row's key: the same row again (a replay) is dropped; anything else is refused.
 -- REPLACE would delete the kept row without firing BEFORE DELETE, so these run before any conflict
 -- clause. Rows compare by what they mean: the person and the money, not when or how they arrived.
@@ -145,12 +192,13 @@ BEGIN SELECT RAISE(ABORT, 'an event id is never reused'); END;
 CREATE TRIGGER balance_entries_replay BEFORE INSERT ON balance_entries
 WHEN (NEW.seq IS NULL OR NOT EXISTS (SELECT 1 FROM balance_entries WHERE seq = NEW.seq))
   AND EXISTS (SELECT 1 FROM balance_entries WHERE kind = NEW.kind AND stripe_key = NEW.stripe_key
-    AND iss = NEW.iss AND sub = NEW.sub AND amount = NEW.amount AND gross IS NEW.gross AND fee IS NEW.fee)
+    AND iss = NEW.iss AND sub = NEW.sub AND amount = NEW.amount AND gross IS NEW.gross AND fee IS NEW.fee AND ref IS NEW.ref)
 BEGIN SELECT RAISE(IGNORE); END;
 CREATE TRIGGER balance_entries_conflict BEFORE INSERT ON balance_entries
 WHEN (NEW.seq IS NOT NULL AND EXISTS (SELECT 1 FROM balance_entries WHERE seq = NEW.seq))
   OR EXISTS (SELECT 1 FROM balance_entries WHERE kind = NEW.kind AND stripe_key = NEW.stripe_key
-    AND NOT (iss = NEW.iss AND sub = NEW.sub AND amount = NEW.amount AND gross IS NEW.gross AND fee IS NEW.fee))
+    AND NOT (iss = NEW.iss AND sub = NEW.sub AND amount = NEW.amount AND gross IS NEW.gross AND fee IS NEW.fee AND ref IS NEW.ref))
+  OR (NEW.ref IS NOT NULL AND EXISTS (SELECT 1 FROM balance_entries WHERE kind = NEW.kind AND ref = NEW.ref AND stripe_key <> NEW.stripe_key))
 BEGIN SELECT RAISE(ABORT, 'a balance entry is never replaced'); END;
 CREATE TRIGGER account_freezes_conflict BEFORE INSERT ON account_freezes
 WHEN NEW.seq IS NOT NULL AND EXISTS (SELECT 1 FROM account_freezes WHERE seq = NEW.seq)
@@ -174,3 +222,8 @@ CREATE TRIGGER account_freezes_immutable BEFORE UPDATE ON account_freezes BEGIN 
 CREATE TRIGGER account_freezes_kept BEFORE DELETE ON account_freezes BEGIN SELECT RAISE(ABORT, 'account freezes are never deleted'); END;
 CREATE TRIGGER gpu_plans_immutable BEFORE UPDATE ON gpu_plans BEGIN SELECT RAISE(ABORT, 'gpu plans are never updated'); END;
 CREATE TRIGGER gpu_plans_kept BEFORE DELETE ON gpu_plans BEGIN SELECT RAISE(ABORT, 'gpu plans are never deleted'); END;
+CREATE TRIGGER gpu_plan_fetches_immutable BEFORE UPDATE ON gpu_plan_fetches BEGIN SELECT RAISE(ABORT, 'plan fetches are never updated'); END;
+CREATE TRIGGER gpu_plan_fetches_kept BEFORE DELETE ON gpu_plan_fetches BEGIN SELECT RAISE(ABORT, 'plan fetches are never deleted'); END;
+CREATE TRIGGER gpu_plan_fetches_conflict BEFORE INSERT ON gpu_plan_fetches
+WHEN NEW.seq IS NOT NULL AND EXISTS (SELECT 1 FROM gpu_plan_fetches WHERE seq = NEW.seq)
+BEGIN SELECT RAISE(ABORT, 'a plan fetch is never replaced'); END;

@@ -24,7 +24,7 @@ export interface Who {
 }
 
 export const LEDGER_TABLES: readonly string[] = Object.freeze(["stripe_customers", "stripe_events", "balance_entries", "account_freezes"]);
-export const PLAN_TABLES: readonly string[] = Object.freeze(["stripe_customers", "stripe_events", "gpu_plans"]);
+export const PLAN_TABLES: readonly string[] = Object.freeze(["stripe_customers", "stripe_events", "gpu_plans", "gpu_plan_fetches"]);
 
 /** A Db whose statements may name only `tables` (every FROM, INTO, UPDATE and JOIN target). */
 export function scopedDb(db: Db, tables: readonly string[]): Db {
@@ -75,8 +75,11 @@ export interface EventRef {
 
 const eventStmt = (e: EventRef) => stmt(`INSERT OR IGNORE INTO stripe_events (event_id, type, received_ms) VALUES (?, ?, ?)`, id("event", e.eventId), e.type, e.nowMs);
 
-/** Whether the batch's money rows were written; `replay` when the event was already recorded. */
-export type Outcome = "written" | "nothing" | "replay";
+/**
+ * Whether the batch's rows were written; `replay` when the event was already recorded; `stale` when a plan
+ * fetch is older than one already recorded for that subscription.
+ */
+export type Outcome = "written" | "nothing" | "replay" | "stale";
 
 /**
  * A replayed event writes nothing. (Two copies of one event delivered at once may both pass the read;
@@ -99,10 +102,10 @@ async function run(db: Db, e: EventRef, money: Stmt[]): Promise<Outcome> {
  */
 export async function recordCustomer(db: Db, who: Who, customerId: string, nowMs: number): Promise<string> {
   const l = scopedDb(db, LEDGER_TABLES);
-  await l.run(`INSERT OR IGNORE INTO stripe_customers (iss, sub, customer_id, created_ms) VALUES (?, ?, ?, ?)`, [who.iss, who.sub, id("customer", customerId), nowMs]);
-  const r = await l.all<{ customer_id: string }>(`SELECT customer_id FROM stripe_customers WHERE iss = ? AND sub = ?`, [who.iss, who.sub]);
-  if (r.length === 0) throw new Error("that Customer belongs to another person");
-  return r[0]!.customer_id;
+  // (a plain INSERT: the same Customer again is dropped by 0022's replay trigger, a conflict is refused by
+  // its conflict trigger, and a CHECK failure reports itself)
+  await l.run(`INSERT INTO stripe_customers (iss, sub, customer_id, created_ms) VALUES (?, ?, ?, ?)`, [who.iss, who.sub, id("customer", customerId), nowMs]);
+  return customerId;
 }
 
 // ---- the ledger writer
@@ -117,23 +120,24 @@ const PERSON = `FROM stripe_customers c WHERE c.customer_id = ?`;
 export async function creditCheckout(
   db: Db,
   e: EventRef,
-  p: { customerId: string; paymentIntent: string; grossMicros: number; feeMicros: number | null },
+  p: { customerId: string; paymentIntent: string; chargeId: string | null; grossMicros: number; feeMicros: number | null },
 ): Promise<Outcome> {
   const pi = id("paymentIntent", p.paymentIntent);
   const gross = micros(p.grossMicros, 1);
   const c = id("customer", p.customerId);
-  if (p.feeMicros === null) {
+  if (p.feeMicros === null || p.chargeId === null) {
     return run(scopedDb(db, LEDGER_TABLES), e, [
       stmt(`INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, event_id, created_ms) SELECT c.iss, c.sub, 'pending', ?, 0, ?, ? ${PERSON}`, pi, e.eventId, e.nowMs, c),
     ]);
   }
   const fee = micros(p.feeMicros, 0);
+  const ch = id("charge", p.chargeId);
   if (fee >= gross) throw new RangeError("the fee must be less than the amount paid");
   return run(scopedDb(db, LEDGER_TABLES), e, [
     stmt(
-      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, event_id, created_ms)
-       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout', ?, ? ${PERSON}`,
-      pi, gross - fee, gross, fee, e.eventId, e.nowMs, c,
+      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, event_id, created_ms)
+       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, 'checkout', ?, ?, ? ${PERSON}`,
+      pi, gross - fee, gross, fee, ch, e.eventId, e.nowMs, c,
     ),
   ]);
 }
@@ -145,19 +149,20 @@ export async function creditCheckout(
 export async function creditPending(
   db: Db,
   e: EventRef,
-  p: { customerId: string; paymentIntent: string; grossMicros: number; feeMicros: number; via: "charge" | "refetch" },
+  p: { customerId: string; paymentIntent: string; chargeId: string; grossMicros: number; feeMicros: number; via: "charge" | "refetch" },
 ): Promise<Outcome> {
   const pi = id("paymentIntent", p.paymentIntent);
+  const ch = id("charge", p.chargeId);
   const gross = micros(p.grossMicros, 1);
   const fee = micros(p.feeMicros, 0);
   if (fee >= gross) throw new RangeError("the fee must be less than the amount paid");
   if (p.via !== "charge" && p.via !== "refetch") throw new RangeError("a later credit comes from charge.updated or a re-fetch");
   return run(scopedDb(db, LEDGER_TABLES), e, [
     stmt(
-      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, event_id, created_ms)
-       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, ?, ?, ? ${PERSON}
+      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, gross, fee, via, ref, event_id, created_ms)
+       SELECT c.iss, c.sub, 'topup', ?, ?, ?, ?, ?, ?, ?, ? ${PERSON}
        AND EXISTS (SELECT 1 FROM balance_entries m WHERE m.kind = 'pending' AND m.stripe_key = ? AND m.iss = c.iss AND m.sub = c.sub)`,
-      pi, gross - fee, gross, fee, p.via, e.eventId, e.nowMs, id("customer", p.customerId), pi,
+      pi, gross - fee, gross, fee, p.via, ch, e.eventId, e.nowMs, id("customer", p.customerId), pi,
     ),
   ]);
 }
@@ -181,9 +186,14 @@ export async function recordRefunds(db: Db, e: EventRef, p: { customerId: string
  * that arrives before its top-up is still right: the two sum to zero in either order. While the charge's
  * fee isn't known the caller defers (Stripe retries), as for a top-up.
  */
-export async function recordReversal(db: Db, e: EventRef, p: { customerId: string; chargeId: string; netMicros: number; reason: "dispute" | "early fraud warning" }): Promise<Outcome> {
+export async function recordReversal(
+  db: Db,
+  e: EventRef,
+  p: { customerId: string; chargeId: string; paymentIntent: string; netMicros: number; reason: "dispute" | "early fraud warning" },
+): Promise<Outcome> {
   const c = id("customer", p.customerId);
   const ch = id("charge", p.chargeId);
+  const pi = id("paymentIntent", p.paymentIntent);
   const net = micros(p.netMicros, 1);
   if (p.reason !== "dispute" && p.reason !== "early fraud warning") throw new RangeError("a reversal is for a dispute or an early fraud warning");
   return run(scopedDb(db, LEDGER_TABLES), e, [
@@ -194,9 +204,17 @@ export async function recordReversal(db: Db, e: EventRef, p: { customerId: strin
       e.eventId, e.eventId, e.nowMs, c, ch,
     ),
     stmt(
+      `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, ref, event_id, created_ms)
+       SELECT c.iss, c.sub, 'reversal', ?, ?, ?, ?, ? ${PERSON}`,
+      ch, -net, pi, e.eventId, e.nowMs, c,
+    ),
+    // a win that arrived first is restored now, in the same batch
+    stmt(
       `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, event_id, created_ms)
-       SELECT c.iss, c.sub, 'reversal', ?, ?, ?, ? ${PERSON}`,
-      ch, -net, e.eventId, e.nowMs, c,
+       SELECT r.iss, r.sub, 'restore', ?, -r.amount, ?, ? FROM balance_entries r JOIN stripe_customers c ON c.iss = r.iss AND c.sub = r.sub
+       WHERE c.customer_id = ? AND r.kind = 'reversal' AND r.stripe_key = ?
+       AND EXISTS (SELECT 1 FROM balance_entries w WHERE w.kind = 'won' AND w.stripe_key = ? AND w.iss = r.iss AND w.sub = r.sub)`,
+      ch, e.eventId, e.nowMs, c, ch, ch,
     ),
     stmt(
       `INSERT INTO account_freezes (iss, sub, frozen, reason, by_user, created_ms) SELECT c.iss, c.sub, 1, ?, NULL, ? ${PERSON}
@@ -206,10 +224,15 @@ export async function recordReversal(db: Db, e: EventRef, p: { customerId: strin
   ]);
 }
 
-/** charge.dispute.closed with status won: the reversal is restored once, exactly; the freeze stays (d3 T4). */
+/**
+ * charge.dispute.closed with status won: the reversal is restored once, exactly; the freeze stays (d3 T4).
+ * The win itself is kept (a 'won' row), so a reversal that arrives after it is restored in its own batch.
+ */
 export async function recordDisputeWon(db: Db, e: EventRef, p: { customerId: string; chargeId: string }): Promise<Outcome> {
   const ch = id("charge", p.chargeId);
+  const c = id("customer", p.customerId);
   return run(scopedDb(db, LEDGER_TABLES), e, [
+    stmt(`INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, event_id, created_ms) SELECT c.iss, c.sub, 'won', ?, 0, ?, ? ${PERSON}`, ch, e.eventId, e.nowMs, c),
     stmt(
       `INSERT OR IGNORE INTO balance_entries (iss, sub, kind, stripe_key, amount, event_id, created_ms)
        SELECT r.iss, r.sub, 'restore', ?, -r.amount, ?, ? FROM balance_entries r JOIN stripe_customers c ON c.iss = r.iss AND c.sub = r.sub
@@ -253,7 +276,10 @@ export async function planStateHash(s: PlanState): Promise<string> {
 
 /**
  * Stripe's current state of a Subscription, as fetched after any of its events (or the daily re-fetch):
- * appended only if it differs from the latest row, so a replayed or late event adds nothing.
+ * appended only if it differs from the latest row, so a replayed or late event adds nothing. `fetchedMs` is
+ * when the request was sent. Every fetch is recorded (gpu_plan_fetches), changed or not, and a state is
+ * appended only from a fetch later than all of them: an older fetch that commits late is `stale`, never the
+ * latest state.
  */
 export async function recordPlanState(
   db: Db,
@@ -264,15 +290,22 @@ export async function recordPlanState(
   micros(p.currentPeriodEndMs, 0);
   const sub = id("subscription", p.subscriptionId);
   const hash = await planStateHash(p);
+  const fetched = micros(p.fetchedMs, 0);
   const plan = stmt(
     `INSERT INTO gpu_plans (iss, sub, subscription_id, status, current_period_end_ms, cancel_at_period_end, state_sha256, fetched_ms)
      SELECT c.iss, c.sub, ?, ?, ?, ?, ?, ? ${PERSON}
+     AND NOT EXISTS (SELECT 1 FROM gpu_plan_fetches f WHERE f.subscription_id = ? AND f.fetched_ms >= ?)
      AND (SELECT g.state_sha256 FROM gpu_plans g WHERE g.subscription_id = ? ORDER BY g.seq DESC LIMIT 1) IS NOT ?`,
-    sub, p.status, p.currentPeriodEndMs, p.cancelAtPeriodEnd ? 1 : 0, hash, p.fetchedMs, id("customer", p.customerId), sub, hash,
+    sub, p.status, p.currentPeriodEndMs, p.cancelAtPeriodEnd ? 1 : 0, hash, fetched, id("customer", p.customerId), sub, fetched, sub, hash,
   );
+  // (after the plan row, so the fence it reads is the earlier fetches only)
+  const fetch = stmt(`INSERT INTO gpu_plan_fetches (subscription_id, fetched_ms) VALUES (?, ?)`, sub, fetched);
   const scoped = scopedDb(db, PLAN_TABLES);
-  if (e === null) return (await scoped.batch([plan]))[0]!.changes > 0 ? "written" : "nothing";
-  return run(scoped, e, [plan]);
+  const stale = (await scoped.all(`SELECT 1 FROM gpu_plan_fetches WHERE subscription_id = ? AND fetched_ms >= ?`, [sub, fetched])).length > 0;
+  if (e !== null && (await scoped.all(`SELECT 1 FROM stripe_events WHERE event_id = ?`, [e.eventId])).length > 0) return "replay";
+  const r = await scoped.batch(e === null ? [plan, fetch] : [eventStmt(e), plan, fetch]);
+  if (r[e === null ? 0 : 1]!.changes > 0) return "written";
+  return stale ? "stale" : "nothing";
 }
 
 /** The person's latest plan row (across their subscriptions), or null. */
