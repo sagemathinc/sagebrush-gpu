@@ -1153,13 +1153,13 @@
  },
  {
   "file": "src/projects.ts",
-  "old": ")) allocated.set(a.project_id, a.n);",
+  "old": ")) allocated.set(a.project_id, exactSum(a.n));",
   "new": ")) allocated.set(a.project_id, 0);"
  },
  {
   "file": "src/projects.ts",
-  "old": "spent.set(s.project_id, { p: s.p, m: s.m, t: s.t });",
-  "new": "spent.set(s.project_id, { p: s.p, m: s.p, t: s.t });"
+  "old": "spent.set(s.project_id, { p: exactSum(s.p), m: exactSum(s.m), t: exactSum(s.t) });",
+  "new": "spent.set(s.project_id, { p: exactSum(s.p), m: exactSum(s.p), t: exactSum(s.t) });"
  },
  {
   "file": "src/projects.ts",
